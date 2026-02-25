@@ -1,0 +1,16 @@
+{
+  "issue_id": "nlohmann/json#4309",
+  "pr_number": 4343,
+  "pr_merge_sha": "01da82eae2f9a25377966556287b09a157a9985e",
+  "pr_base_sha": "c883fb0f17cbdf75545bddcc551e21a924a31b05",
+  "pr_files": [
+    {
+      "filename": "tools/gdb_pretty_printer/nlohmann-json.py",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 3,
+      "changes": 6
+    }
+  ],
+  "patch": "From 3e7ec93ac6a832cd8a2e5d93803b0aba868637fc Mon Sep 17 00:00:00 2001\nFrom: Yuanhao Jia <jiayh_thu@outlook.com>\nDate: Fri, 12 Apr 2024 09:42:49 +0800\nSubject: [PATCH] Fix gdb pretty printer\n\n---\n tools/gdb_pretty_printer/nlohmann-json.py | 6 +++---\n 1 file changed, 3 insertions(+), 3 deletions(-)\n\ndiff --git a/tools/gdb_pretty_printer/nlohmann-json.py b/tools/gdb_pretty_printer/nlohmann-json.py\nindex 299152aedc..3984f592fa 100644\n--- a/tools/gdb_pretty_printer/nlohmann-json.py\n+++ b/tools/gdb_pretty_printer/nlohmann-json.py\n@@ -17,16 +17,16 @@ def json_lookup_function(val):\n     if m := ns_pattern.fullmatch(str(val.type.strip_typedefs().name)):\n       name = m.group('name')\n       if name and name.startswith('basic_json<') and name.endswith('>'):\n-          m = ns_pattern.fullmatch(str(val['m_type']))\n+          m = ns_pattern.fullmatch(str(val[\"m_data\"]['m_type']))\n           t = m.group('name')\n           if t and t.startswith('detail::value_t::'):\n               try:\n-                  union_val = val['m_value'][t.removeprefix('detail::value_t::')]\n+                  union_val = val[\"m_data\"]['m_value'][t.removeprefix('detail::value_t::')]\n                   if union_val.type.code == gdb.TYPE_CODE_PTR:\n                       return gdb.default_visualizer(union_val.dereference())\n                   else:\n                       return JsonValuePrinter(union_val)\n               except Exception:\n-                  return JsonValuePrinter(val['m_type'])\n+                  return JsonValuePrinter(val[\"m_data\"]['m_type'])\n \n gdb.pretty_printers.append(json_lookup_function)\n"
+}

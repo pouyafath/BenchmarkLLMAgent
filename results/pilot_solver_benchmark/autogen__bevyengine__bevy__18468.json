@@ -1,0 +1,20 @@
+{
+  "issue_id": "bevyengine/bevy#18468",
+  "framework": "autogen",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- a/crates/bevy_pbr/src/deferred/mod.rs\n+++ b/crates/bevy_pbr/src/deferred/mod.rs\n@@ -345,6 +345,7 @@\n         bevy_core_pipeline::core_3d::graph::Node3d::StartMainPass,\n         NodePbr::DeferredLightingPass,\n         bevy_core_pipeline::core_3d::graph::Node3d::MainOpaquePass,\n+        bevy_core_pipeline::core_3d::graph::Node3d::Prepare,\n     ),\n );\n \n@@ -433,6 +434,7 @@\n     pub struct DeferredLightingLayout {\n         pub bind_group_layout_1: BindGroupLayout,\n         pub bind_group_layout_2: BindGroupLayout,\n+        pub bind_group_layout_3: BindGroupLayout,\n     }\n \n     impl Default for DeferredLightingLayout {\n@@ -462,6 +464,19 @@\n                 .descriptor(BindGroupDescriptor::empty()),\n             )\n+            .add(\n+                BindGroupEntry {\n+                    binding: 17,\n+                    resource: BindingResource::Buffer(BufferBinding {\n+                        buffer: Buffer::new(render_device, BufferUsage::UNIFORM),\n+                        offset: 0,\n+                        size: None,\n+                    }),\n+                    visibility:ShaderStages::FRAGMENT,\n+                },\n+            )\n             .build()\n         );\n--- a/crates/bevy_pbr/src/deferred/mod.rs\n+++ b/crates/bevy_pbr/src/deferred(mod.rs\n@@ -507,6 +520,12 @@\n         &view_ssr_offset,\n         &view_environment_map_offset,\n         &mesh_view_bind_group,\n+        // Add new bind group entry for binding 17\n+        render_context.render_device().create_bind_group(\n+            \"deferred_lighting_layout_group_3\",\n+            &deferred_lighting_layout.bind_group_layout_3,\n+            &BindGroupEntries::single(deferred_lighting_pass_id_binding),\n+        ),\n         target,\n         deferred_lighting_id_depth_texture,\n         deferred_lighting_pipeline,",
+  "raw_response_length": 1819,
+  "elapsed_s": 41.514477252960205,
+  "fw_elapsed_s": 41.48950982093811,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 1795,
+    "file_overlap": 0.5,
+    "content_similarity": 0.08838095238095238,
+    "gt_files_count": 1,
+    "agent_files_count": 2,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

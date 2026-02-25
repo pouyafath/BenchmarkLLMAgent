@@ -1,0 +1,20 @@
+{
+  "issue_id": "pixijs/pixijs#11207",
+  "framework": "autogen",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- src/scene/mesh/shared/MeshGeometry.ts\n+++ src/scene/mesh/shared/MeshGeometry.ts\n@@ -123,6 +123,18 @@\n     constructor(...args: [MeshGeometryOptions] | [Float32Array, Float32Array, Uint32Array])\n     {\n         // ...\n     }\n\n+    /**\n+     * Updates the geometry with new positions, uvs and indices.\n+     * \n+     * @param {Float32Array} positions - The positions of the mesh.\n+     * @param {Float32Array} uvs - The UVs of the mesh.\n+     * @param {Uint32Array} indices - The indices of the mesh.\n+     */\n+    public updateGeometry(positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void\n+    {\n+        this.attributes.aPosition.buffer.update(positions);\n+        this.attributes.aUV.buffer.update(uvs);\n+        this.indexBuffer.update(indices);\n+    }\n+\n     get positions(): Float32Array\n     {\n         return this.attributes.aPosition.buffer.data as Float32Array;\n@@ -151,6 +163,14 @@\n         this.indexBuffer.data = value;\n     }\n\n+    /**\n+     * Destroys the mesh geometry.\n+     */\n+    public destroy(): void\n+    {\n+        this.attributes.aPosition.buffer.destroy();\n+        this.attributes.aUV.buffer.destroy();\n+        this.indexBuffer.destroy();\n+    }\n }\n--- src/scene/mesh/Mesh.ts\n+++ src/scene/mesh/Mesh.ts\n@@ -123,6 +123,18 @@\n     public set geometry(value: Geometry)\n     {\n         // ...\n+        if (this.geometry !== value)\n+        {\n+            if (this._geometry)\n+            {\n+                this._geometry.destroy();\n+            }\n+            this._geometry = value;\n+            // update the buffers\n+            if (value instanceof MeshGeometry)\n+            {\n+                value.updateGeometry(value.positions, value.uvs, value.indices);\n+            }\n+        }\n     }",
+  "raw_response_length": 1766,
+  "elapsed_s": 40.811612129211426,
+  "fw_elapsed_s": 40.761723041534424,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 1742,
+    "file_overlap": 0.5,
+    "content_similarity": 0.14274478961856074,
+    "gt_files_count": 1,
+    "agent_files_count": 2,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

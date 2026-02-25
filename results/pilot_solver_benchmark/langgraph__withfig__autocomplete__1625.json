@@ -1,0 +1,20 @@
+{
+  "issue_id": "withfig/autocomplete#1625",
+  "framework": "langgraph",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- src/conda.ts\n+++ src/conda.ts\n@@ -1,5 +1,7 @@\n // ... existing code ...\n \n+const getCondaEnvSubcommands: Fig.Generator = {\n+  script: \"conda env --help\",\n+  postProcess: function (out) {\n+    const lines = out.split(\"\\n\");\n+    const subcommands = [];\n+    for (let i = 0; i < lines.length; i++) {\n+      if (lines[i].startsWith(\"  \")) {\n+        var subcommand = lines[i].trim().split(\" \")[0];\n+        subcommands.push({\n+          name: subcommand,\n+          icon: \"\ud83d\udc0d\",\n+        });\n+      }\n+    }\n+    return subcommands;\n+  },\n+};\n+\n const getCondaEnvironments: Fig.Generator = {\n   script: \"conda env list\",\n   scriptTimeout: 10000,\n@@ -1087,3 +1091,10 @@\n // ... existing code ...\n \n const completionSpec: Fig.Spec = {\n+  subcommands: [\n+    {\n+      name: \"env\",\n+      description: \"Environment management\",\n+      subcommands: getCondaEnvSubcommands,\n+      options: [\n+        {\n+          name: \"remove\",\n+          description: \"Remove an environment\",\n+          args: {\n+            name: \"environment name\",\n+            generators: getCondaEnvironments,\n+          },\n+        },\n+      ],\n+    },\n+  ],\n };",
+  "raw_response_length": 1142,
+  "elapsed_s": 31.43153953552246,
+  "fw_elapsed_s": 31.33085560798645,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 1130,
+    "file_overlap": 1.0,
+    "content_similarity": 0.20506912442396313,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

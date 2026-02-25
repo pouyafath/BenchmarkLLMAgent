@@ -1,0 +1,20 @@
+{
+  "issue_id": "syncthing/syncthing#9775",
+  "framework": "crewai",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- lib/fs/basicfs_lstat_windows.go\\n+++ lib/fs/basicfs_lstat_windows.go\\n@@ -123,7 +123,7 @@\\n func (f *BasicFilesystem) underlyingLstat(name string) (os.FileInfo, error) {\\n \\tvar fi, err = os.Lstat(name)\\n \\n-\\tif err == nil {\\n+\\tif err != nil && os.IsNotExist(err) {\\n \\t\\t// Try to stat the file again with the FILE_FLAG_OPEN_REPARSE_POINT flag\\n \\t\\tattrs := uint32(syscall.FILE_FLAG_BACKUP_SEMANTICS | syscall.FILE_FLAG_OPEN_REPARSE_POINT)\\n \\t\\th, err := syscall.CreateFile(syscall.UTF16PtrFromString(name), 0, 0, nil, syscall.OPEN_EXISTING, attrs, 0)\\n@@ -135,6 +135,10 @@\\n \\t\\tif err != nil {\\n \\t\\t\\treturn nil, err\\n \\t\\t}\\n \\t\\tdefer syscall.CloseHandle(h)\\n+\\t\\tfi, err = os.Lstat(name)\\n+\\t\\tif err != nil {\\n+\\t\\t\\treturn nil, err\\n+\\t\\t}\\n \\t}\\n \\n \\t// NTFS directory junctions can be treated as ordinary directories,",
+  "raw_response_length": 837,
+  "elapsed_s": 25.341487407684326,
+  "fw_elapsed_s": 25.341487407684326,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 837,
+    "file_overlap": 1.0,
+    "content_similarity": 0.051110180142438205,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

@@ -1,0 +1,20 @@
+{
+  "issue_id": "vuejs/core#12181",
+  "framework": "crewai",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- packages/runtime-core/src/components/BaseTransition.ts\\n+++ packages/runtime-core/src/components/BaseTransition.ts\\n@@ -245,6 +245,7 @@\\n   const state = useTransitionState()\\n\\n   return () => {\\n     const children =\\n       slots.default && getTransitionRawChildren(slots.default(), true)\\n+    if (children && children.length > 0) {\\n+      // Fix memory leak by removing event listeners\\n+      children.forEach((child: VNode) => {\\n+        if (child.type !== Comment) {\\n+          const enterHooks = resolveTransitionHooks(\\n+            child,\\n+            rawProps,\\n+            state,\\n+            instance,\\n+            hooks => (enterHooks = hooks),\\n+          )\\n+          setTransitionHooks(child, enterHooks)\\n+          // Remove event listeners\\n+          if (child.el) {\\n+            child.el.removeEventListener('transitionend', enterHooks.afterLeave)\\n+          }\\n+        }\\n+      })\\n+    }\\n\\n     if (!children || !children.length) {\\n       return\\n     }",
+  "raw_response_length": 996,
+  "elapsed_s": 23.117748498916626,
+  "fw_elapsed_s": 23.117748498916626,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 996,
+    "file_overlap": 1.0,
+    "content_similarity": 0.12517059855722362,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

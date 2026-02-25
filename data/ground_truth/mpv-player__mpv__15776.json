@@ -1,0 +1,16 @@
+{
+  "issue_id": "mpv-player/mpv#15776",
+  "pr_number": 16000,
+  "pr_merge_sha": "50cda601bab81ff18ecbcb8ef978b7ee6dc88728",
+  "pr_base_sha": "2542a7824c11f7eedae1d6232c5d136722b31b97",
+  "pr_files": [
+    {
+      "filename": "filters/f_decoder_wrapper.c",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 1,
+      "changes": 8
+    }
+  ],
+  "patch": "From c1d3674ed1185efd77fa602bc543d485fb089d37 Mon Sep 17 00:00:00 2001\nFrom: =?UTF-8?q?Kacper=20Michaj=C5=82ow?= <kasper93@gmail.com>\nDate: Tue, 4 Mar 2025 14:26:05 +0100\nSubject: [PATCH] f_decoder_wrapper: don't wait on self thread progress on\n reinit\n\nFixes deadlock when reinit is triggered by the thread itself.\n\nFixes: #15776\n---\n filters/f_decoder_wrapper.c | 8 +++++++-\n 1 file changed, 7 insertions(+), 1 deletion(-)\n\ndiff --git a/filters/f_decoder_wrapper.c b/filters/f_decoder_wrapper.c\nindex aa5170f915e66..60d2014b938d3 100644\n--- a/filters/f_decoder_wrapper.c\n+++ b/filters/f_decoder_wrapper.c\n@@ -474,6 +474,12 @@ static bool reinit_decoder(struct priv *p)\n     return !!p->decoder;\n }\n \n+static bool decoder_wrapper_reinit(struct mp_decoder_wrapper *d)\n+{\n+    struct priv *p = d->f->priv;\n+    return reinit_decoder(p);\n+}\n+\n bool mp_decoder_wrapper_reinit(struct mp_decoder_wrapper *d)\n {\n     struct priv *p = d->f->priv;\n@@ -1056,7 +1062,7 @@ static void read_frame(struct priv *p)\n         if (new_segment->segmented) {\n             if (p->codec != new_segment->codec) {\n                 p->codec = new_segment->codec;\n-                if (!mp_decoder_wrapper_reinit(&p->public))\n+                if (!decoder_wrapper_reinit(&p->public))\n                     mp_filter_internal_mark_failed(p->decf);\n             }\n \n"
+}

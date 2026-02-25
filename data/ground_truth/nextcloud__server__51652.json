@@ -1,0 +1,16 @@
+{
+  "issue_id": "nextcloud/server#51652",
+  "pr_number": 51845,
+  "pr_merge_sha": "fdc0b1ecf423e400257edf868a51d5873fc66c64",
+  "pr_base_sha": "29a49622684788d2be22df80365717da3e665354",
+  "pr_files": [
+    {
+      "filename": "apps/dav/lib/Connector/Sabre/ZipFolderPlugin.php",
+      "status": "modified",
+      "additions": 17,
+      "deletions": 0,
+      "changes": 17
+    }
+  ],
+  "patch": "From 2b0116f0ebf32120d8378df5e5ea19a15df6c618 Mon Sep 17 00:00:00 2001\nFrom: Robin Appelman <robin@icewind.nl>\nDate: Tue, 1 Apr 2025 17:29:58 +0200\nSubject: [PATCH] fix: don't have sabre/dav send it's own reponse if we already\n send the zip response\n\nSigned-off-by: Robin Appelman <robin@icewind.nl>\n---\n .../dav/lib/Connector/Sabre/ZipFolderPlugin.php | 17 +++++++++++++++++\n 1 file changed, 17 insertions(+)\n\ndiff --git a/apps/dav/lib/Connector/Sabre/ZipFolderPlugin.php b/apps/dav/lib/Connector/Sabre/ZipFolderPlugin.php\nindex 7e92dd18c83bd..220988caba0ae 100644\n--- a/apps/dav/lib/Connector/Sabre/ZipFolderPlugin.php\n+++ b/apps/dav/lib/Connector/Sabre/ZipFolderPlugin.php\n@@ -55,6 +55,8 @@ public function __construct(\n \tpublic function initialize(Server $server): void {\n \t\t$this->server = $server;\n \t\t$this->server->on('method:GET', $this->handleDownload(...), 100);\n+\t\t// low priority to give any other afterMethod:* a chance to fire before we cancel everything\n+\t\t$this->server->on('afterMethod:GET', $this->afterDownload(...), 999);\n \t}\n \n \t/**\n@@ -172,4 +174,19 @@ public function handleDownload(Request $request, Response $response): ?bool {\n \t\t$streamer->finalize();\n \t\treturn false;\n \t}\n+\n+\t/**\n+\t * Tell sabre/dav not to trigger it's own response sending logic as the handleDownload will have already send the response\n+\t *\n+\t * @return false|null\n+\t */\n+\tpublic function afterDownload(Request $request, Response $response): ?bool {\n+\t\t$node = $this->tree->getNodeForPath($request->getPath());\n+\t\tif (!($node instanceof Directory)) {\n+\t\t\t// only handle directories\n+\t\t\treturn null;\n+\t\t} else {\n+\t\t\treturn false;\n+\t\t}\n+\t}\n }\n"
+}

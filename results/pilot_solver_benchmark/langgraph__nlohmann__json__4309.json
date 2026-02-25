@@ -1,0 +1,20 @@
+{
+  "issue_id": "nlohmann/json#4309",
+  "framework": "langgraph",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- tools/gdb_pretty_printer/nlohmann-json.py\n+++ tools/gdb_pretty_printer/nlohmann-json.py\n@@ -15,7 +15,7 @@\n def json_lookup_function(val):\n     if m := ns_pattern.fullmatch(str(val.type.strip_typedefs().name)):\n       name = m.group('name')\n-      if name and name.startswith('basic_json<') and name.endswith('>'):\n+      if name and name.startswith('basic_json<') and name.endswith('>') and 'm_data' in val.keys():\n           m = ns_pattern.fullmatch(str(val['m_data']['m_type']))\n           t = m.group('name')\n           if t and t.startswith('detail::value_t::'):\n@@ -23,7 +23,7 @@\n               union_val = val['m_data']['m_value'][t.removeprefix('detail::value_t::')]\n               if union_val.type.code == gdb.TYPE_CODE_PTR:\n                   return gdb.default_visualizer(union_val.dereference())\n-              else:\n+              else:  # Changed to correctly dereference 'm_data'\n                   return JsonValuePrinter(union_val)\n           except Exception:\n               return JsonValuePrinter(val['m_data']['m_type'])",
+  "raw_response_length": 1057,
+  "elapsed_s": 24.29631209373474,
+  "fw_elapsed_s": 24.19247579574585,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 1045,
+    "file_overlap": 1.0,
+    "content_similarity": 0.6299615877080665,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

@@ -1,0 +1,20 @@
+{
+  "issue_id": "syncthing/syncthing#9775",
+  "framework": "autogen",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- lib/fs/basicfs_lstat_windows.go\n+++ lib/fs/basicfs_lstat_windows.go\n@@ -155,7 +155,7 @@\n \n func (f *BasicFilesystem) underlyingLstat(name string) (os.FileInfo, error) {\n        var fi, err = os.Lstat(name)\n-       if err == nil {\n+       if err != nil {\n                return nil, err\n        }\n \n        // There are cases where files are tagged as symlink, but they end up being\n@@ -172,7 +172,7 @@\n                return &dirJunctFileInfo{fi}, nil\n        }\n-       return fi, err\n+       if f.junctionsAsDirs {\n+               if reparseTag, reparseErr := readReparseTag(name); reparseErr == nil && isDirectoryJunction(reparseTag) {\n+                       return &dirJunctFileInfo{fi}, nil\n+               }\n+       }\n+       return fi, err\n }\n-\n\\ No newline at end of file\n+}\n+\n+func (f *BasicFilesystem) Lstat(name string) (os.FileInfo, error) {\n+       fi, err := f.underlyingLstat(name)\n+       if err != nil {\n+               return nil, err\n+       }\n+       \n+       // NTFS directory junctions can be treated as ordinary directories,\n+       // see https://forum.syncthing.net/t/option-to-follow-directory-junctions-symbolic-links/14750\n+       if f.junctionsAsDirs && fi.Mode()&junctionPointModeMask != 0 {\n+               if reparseTag, reparseErr := readReparseTag(name); reparseErr == nil && isDirectoryJunction(reparseTag) {\n+                       return &dirJunctFileInfo{fi}, nil\n+               }\n+       }\n+\n+       return fi, err\n+}",
+  "raw_response_length": 1461,
+  "elapsed_s": 36.87522077560425,
+  "fw_elapsed_s": 36.84955191612244,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 1461,
+    "file_overlap": 1.0,
+    "content_similarity": 0.05579005322077445,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

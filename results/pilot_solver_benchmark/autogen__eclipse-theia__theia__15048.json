@@ -1,0 +1,20 @@
+{
+  "issue_id": "eclipse-theia/theia#15048",
+  "framework": "autogen",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- packages/ai-chat/src/common/chat-service.ts\n+++ packages/ai-chat/src/common/chat-service.ts\n@@ -235,6 +235,10 @@\n     deleteChangeSetElement(sessionId: string, index: number): void {\n         const session = this.getSession(sessionId);\n         if (session) {\n+            // Check if the change set is empty after deleting an element\n+            if (session.model.changeSets.length > 0 && session.model.changeSets[0].changes.length === 1) {\n+                this.deleteChangeSet(sessionId);\n+            } else {\n                 session.model.deleteChangeSetElement(index);\n+            }\n         }\n     }\n\n     cancelRequest(sessionId: string, requestId: string): Promise<void> {\nHowever, the above solution might not fully resolve the problem as described in the issue. The code provided doesn't contain any information about changeSets or changes within a session model.\n\nTo address this properly, here's an alternative patch that introduces a method to check if all changes are deleted and then removes the change set:\n\n--- packages/ai-chat/src/common/chat-service.ts\n+++ packages/ai-chat/src/common/chat-service.ts\n@@ -235,6 +235,18 @@\n     deleteChangeSetElement(sessionId: string, index: number): void {\n         const session = this.getSession(sessionId);\n         if (session) {\n+            session.model.deleteChangeSetElement(index);\n+            // Check if all changes are deleted and remove the change set if so\n+            if (session.model.changeSets.length > 0 && session.model.changeSets[0].changes.length === 0) {\n+                this.deleteChangeSet(sessionId);\n+            }\n         }\n     }\n\n     cancelRequest(sessionId: string, requestId: string): Promise<void> {\n\nThis version removes the change set after an element has been deleted and checks if there are any remaining changes in the first (and presumably only) change set of the session model. If not, it calls `deleteChangeSet` to remove the now-empty change set. \n\nIf multiple change sets are possible or other complexities apply, further adjustments might be necessary based on specifics of the application's data model and requirements that aren't fully detailed here.",
+  "raw_response_length": 2188,
+  "elapsed_s": 109.32741641998291,
+  "fw_elapsed_s": 108.90630197525024,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 2164,
+    "file_overlap": 1.0,
+    "content_similarity": 0.21175637393767704,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

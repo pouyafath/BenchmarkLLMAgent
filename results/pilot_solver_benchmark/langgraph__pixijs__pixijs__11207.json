@@ -1,0 +1,20 @@
+{
+  "issue_id": "pixijs/pixijs#11207",
+  "framework": "langgraph",
+  "model": "llama3.3:70b-instruct-fp16",
+  "patch": "--- src/scene/mesh/shared/MeshGeometry.ts\n+++ src/scene/mesh/shared/MeshGeometry.ts\n@@ -114,6 +114,7 @@\n     constructor(...args: [MeshGeometryOptions] | [Float32Array, Float32Array, Uint32Array])\n     {\n         let options = args[0] ?? {};\n\n+        this._positionBuffer = null;\n+        this._uvBuffer = null;\n+        this._indexBuffer = null;\n\n         if (options instanceof Float32Array)\n         {\n             // #if _DEBUG\n@@ -154,7 +155,7 @@\n         const positionBuffer = new Buffer({\n             data: positions,\n             label: 'attribute-mesh-positions',\n-            shrinkToFit,\n+            true, // always shrink to fit\n             usage: BufferUsage.VERTEX | BufferUsage.COPY_DST,\n         });\n\n@@ -163,7 +164,7 @@\n         const uvBuffer = new Buffer({\n             data: uvs,\n             label: 'attribute-mesh-uvs',\n-            shrinkToFit,\n+            true, // always shrink to fit\n             usage: BufferUsage.VERTEX | BufferUsage.COPY_DST,\n         });\n\n@@ -172,7 +173,7 @@\n         const indexBuffer = new Buffer({\n             data: indices,\n             label: 'index-mesh-buffer',\n-            shrinkToFit,\n+            true, // always shrink to fit\n             usage: BufferUsage.INDEX | BufferUsage.COPY_DST,\n         });\n\n@@ -184,6 +185,10 @@\n         super({\n             attributes: {\n                 aPosition: {\n+                    buffer: this._positionBuffer = positionBuffer,\n                     format: 'float32x2',\n                     stride: 2 * 4,\n                     offset: 0,\n@@ -193,6 +198,10 @@\n                 aUV: {\n+                    buffer: this._uvBuffer = uvBuffer,\n                     format: 'float32x2',\n                     stride: 2 * 4,\n                     offset: 0,\n@@ -202,6 +211,9 @@\n             indexBuffer: this._indexBuffer = indexBuffer,\n             topology: options.topology,\n         });\n+        this.updateBuffers();\n     }\n\n+    private updateBuffers(): void\n+    {\n+        if (this._positionBuffer) this._positionBuffer.resize(this.positions.length * 4);\n+        if (this._uvBuffer) this._uvBuffer.resize(this.uvs.length * 4);\n+        if (this._indexBuffer) this._indexBuffer.resize(this.indices.length * 4);\n+    }\n\n     /** The positions of the mesh. */\n     get positions(): Float32Array\n@@ -220,6 +232,7 @@\n     set positions(value: Float32Array)\n     {\n         this.attributes.aPosition.buffer.data = value;\n+        this.updateBuffers();\n     }\n\n     /** The UVs of the mesh. */\n@@ -228,6 +241,7 @@\n     set uvs(value: Float32Array)\n     {\n         this.attributes.aUV.buffer.data = value;\n+        this.updateBuffers();\n     }\n\n     /** The indices of the mesh. */\n@@ -236,6 +250,7 @@\n     set indices(value: Uint32Array)\n     {\n         this.indexBuffer.data = value;\n+        this.updateBuffers();\n     }",
+  "raw_response_length": 2831,
+  "elapsed_s": 64.24629783630371,
+  "fw_elapsed_s": 64.1887993812561,
+  "tokens": {},
+  "evaluation": {
+    "has_patch": true,
+    "patch_length": 2819,
+    "file_overlap": 1.0,
+    "content_similarity": 0.10189842609118936,
+    "gt_files_count": 1,
+    "agent_files_count": 1,
+    "content_similarity_method": "diff_only"
+  },
+  "error": null
+}

@@ -1,0 +1,168 @@
+# =============================================================================
+# BenchmarkLLMAgent - Master Configuration
+# =============================================================================
+
+experiment:
+  name: "enhancement_benchmark_v1"
+  seed: 42
+  max_workers: 4
+
+# ---------------------------------------------------------------------------
+# Dataset
+# ---------------------------------------------------------------------------
+dataset:
+  source_path: "data/raw/github_issues.jsonl"
+  processed_path: "data/processed/benchmark_issues.jsonl"
+  ground_truth_path: "data/ground_truth/"
+  samples:
+    pilot: "data/samples/pilot_10_samples.json"      # Iteration 1: 10 issues
+    primary: "data/samples/primary_200_samples.json" # Iteration 2: 200 issues
+  filters:
+    issue_types: ["bug", "feature"]
+    require_merged_pr: true
+    require_tests: false            # set true for functional evaluation subset
+    min_pr_quality_score: 0.7       # "solid PR" threshold
+  splits:
+    pilot: 10                       # Iteration 1: full workflow on 10 issues
+    primary: 200                    # Iteration 2: scale to 200 issues
+    extended: 400
+
+# ---------------------------------------------------------------------------
+# Models (shared across all frameworks)
+# ---------------------------------------------------------------------------
+models:
+  primary:
+    name: "gpt-4o"
+    provider: "openai"
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 4096
+  secondary:
+    - name: "meta-llama/Llama-3.3-70B-Instruct"
+      provider: "together"
+      temperature: 0.0
+      top_p: 1.0
+      max_tokens: 4096
+    - name: "claude-3-5-sonnet"
+      provider: "anthropic"
+      temperature: 0.0
+      top_p: 1.0
+      max_tokens: 4096
+
+# ---------------------------------------------------------------------------
+# Frameworks to benchmark
+# ---------------------------------------------------------------------------
+frameworks:
+  - name: "langgraph"
+    enabled: true
+    priority: "high"
+    version_pin: ">=0.2.0"
+  - name: "llamaindex"
+    enabled: true
+    priority: "high"
+    version_pin: ">=0.11.0"
+  - name: "semantic_kernel"
+    enabled: true
+    priority: "high"
+    version_pin: ">=1.0.0"
+  - name: "autogen"
+    enabled: true
+    priority: "high"
+    version_pin: ">=0.4.0"
+  - name: "crewai"
+    enabled: true
+    priority: "medium"
+    version_pin: ">=0.80.0"
+  - name: "openai_agents_sdk"
+    enabled: true
+    priority: "medium"
+    version_pin: ">=0.1.0"
+
+# ---------------------------------------------------------------------------
+# Budget constraints (identical for all frameworks)
+# ---------------------------------------------------------------------------
+budgets:
+  max_input_tokens: 100000
+  max_output_tokens: 50000
+  max_total_tokens: 150000
+  max_turns: 30
+  max_wall_clock_seconds: 1800     # 30 minutes
+  max_tool_calls: 100
+
+# ---------------------------------------------------------------------------
+# Stopping criteria
+# ---------------------------------------------------------------------------
+stopping:
+  conditions:
+    - "patch_produced"
+    - "budget_exhausted"
+    - "explicit_stop"
+    - "unrecoverable_error"
+  require_valid_patch: true
+
+# ---------------------------------------------------------------------------
+# Shared prompt templates
+# ---------------------------------------------------------------------------
+prompts:
+  solver:
+    system_prompt_path: "configs/prompts/solver/system_prompt.txt"
+    task_template_path: "configs/prompts/solver/task_template.txt"
+  enhancer:
+    system_prompt_path: "configs/prompts/enhancer/system_prompt.txt"
+    task_template_path: "configs/prompts/enhancer/task_template.txt"
+
+# ---------------------------------------------------------------------------
+# Execution environment
+# ---------------------------------------------------------------------------
+execution:
+  docker:
+    base_image: "python:3.11-slim"
+    memory_limit: "8g"
+    cpu_limit: 4
+    network: "none"                 # isolated execution
+    timeout_seconds: 1800
+  workspace_dir: "/tmp/agent_workspace"
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+output:
+  solver_results_dir: "results/pilot_solver_benchmark/"
+  enhancement_results_dir: "results/enhancement_benchmark/"
+  solving_after_enhancement_dir: "results/solving_after_enhancement/"
+  save_full_traces: true
+  save_intermediate_patches: false
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+evaluation:
+  metrics:
+    primary:
+      - "resolve_rate"
+      - "patch_apply_rate"
+      - "test_pass_rate"
+      - "regression_rate"
+    efficiency:
+      - "total_tokens"
+      - "wall_clock_time"
+      - "time_to_first_patch"
+      - "cost_per_resolved"
+    trajectory:
+      - "num_turns"
+      - "num_tool_calls"
+      - "failed_tool_calls"
+      - "looping_score"
+      - "termination_type"
+    alignment:
+      - "file_overlap"
+      - "function_overlap"
+      - "edit_localization"
+      - "patch_size_ratio"
+  statistical_tests:
+    paired_test: "wilcoxon"
+    effect_size: "cliffs_delta"
+    confidence_intervals: "bootstrap"
+    correction: "bonferroni"
+    alpha: 0.05
+    bootstrap_n: 10000

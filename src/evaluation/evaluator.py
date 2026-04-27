@@ -19,6 +19,8 @@ from typing import Optional
 
 import numpy as np
 
+from src.utils.patch_validator import PatchValidator
+
 logger = logging.getLogger(__name__)
 
 
@@ -200,6 +202,22 @@ class Evaluator:
     def _check_patch_applies(patch: str, repo_dir: Optional[str]) -> bool:
         if not repo_dir:
             return bool(patch.strip())
+
+        # Pre-validate patch before attempting git apply
+        validator = PatchValidator()
+        validation = validator.validate(patch, [])
+
+        if not validation.is_valid:
+            logger.debug(
+                f"Patch validation failed before git apply: "
+                f"severity={validation.severity}, "
+                f"errors={len(validation.errors)} "
+                f"({', '.join(e.type for e in validation.errors[:3])})"
+            )
+            # Still try git apply - it might work despite validation warnings
+        else:
+            logger.debug("Patch validation passed")
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".patch", delete=False) as f:
             f.write(patch)
             f.flush()
@@ -207,6 +225,13 @@ class Evaluator:
                 ["git", "apply", "--check", f.name],
                 cwd=repo_dir, capture_output=True, text=True, timeout=10,
             )
+
+        if result.returncode != 0 and not validation.is_valid:
+            logger.debug(
+                f"Git apply failed (as expected from validation). "
+                f"Git error: {result.stderr[:200] if result.stderr else 'none'}"
+            )
+
         return result.returncode == 0
 
     @staticmethod

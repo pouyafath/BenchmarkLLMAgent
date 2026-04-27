@@ -7,6 +7,7 @@ patch parsing, comparison, and metric computation.
 
 import re
 from difflib import SequenceMatcher
+from typing import List, Dict, Any
 
 
 def extract_patch_from_response(response_text: str) -> str:
@@ -47,8 +48,8 @@ def extract_patch_from_response(response_text: str) -> str:
 
 
 def evaluate_patch(
-    agent_patch: str, gt_patch: str, gt_files: list[dict]
-) -> dict:
+    agent_patch: str, gt_patch: str, gt_files: List[Dict[str, Any]]
+) -> Dict[str, Any]:
     """Compute evaluation metrics comparing an agent patch against ground truth."""
     metrics = {
         "has_patch": bool(agent_patch.strip()),

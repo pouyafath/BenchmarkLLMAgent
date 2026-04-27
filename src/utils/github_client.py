@@ -7,13 +7,15 @@ API rate limits during data collection and benchmark execution.
 
 import time
 import threading
+from typing import List, Optional
+
 import requests
 
 
 class GitHubMultiTokenClient:
     """Round-robin GitHub API client with automatic token rotation on rate limits."""
 
-    def __init__(self, tokens: list[str]):
+    def __init__(self, tokens: List[str]):
         self.tokens = tokens
         self.idx = 0
         self._lock = threading.Lock()
@@ -29,7 +31,7 @@ class GitHubMultiTokenClient:
         with self._lock:
             self.idx = (self.idx + 1) % len(self.tokens)
 
-    def get(self, url: str, extra_headers: dict | None = None) -> requests.Response | None:
+    def get(self, url: str, extra_headers: Optional[dict] = None) -> Optional[requests.Response]:
         for attempt in range(len(self.tokens) * 2):
             h = {**self._get_headers(), **(extra_headers or {})}
             try:
@@ -45,7 +47,7 @@ class GitHubMultiTokenClient:
                 self.switch()
         return None
 
-    def get_json(self, url: str, extra_headers: dict | None = None) -> dict | None:
+    def get_json(self, url: str, extra_headers: Optional[dict] = None) -> Optional[dict]:
         r = self.get(url, extra_headers)
         if r and r.status_code == 200:
             return r.json()

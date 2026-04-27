@@ -1,114 +1,54 @@
-# BenchmarkLLMAgent — Roadmap & Handoff Guide
+# BenchmarkLLMAgent Roadmap
 
-**For contributors and AI agents continuing this work.**
+## Current Canonical Scope
 
----
+The active paper workflow is the **Verified-10 baseline-vs-enhanced experiment**:
 
-## Iterative Execution Strategy
+1. Use fixed 10 IDs from `/home/22pf2/SWE-Bench_Replication/selected_instances.txt`
+2. Keep `/home/22pf2/SWE-Bench_Replication` as fixed baseline
+3. Run enhancement in this repo
+4. Solve enhanced issues with mini-SWE-agent + Devstral 2512
+5. Evaluate with SWE-bench harness and compare metrics
 
-We run the full workflow on a **small dataset first (10 issues)**, validate end-to-end, then scale to **200 issues** in the next iteration.
+Entrypoint:
 
-| Iteration | Dataset Size | Purpose |
-|-----------|--------------|---------|
-| **Iteration 1** | 10 issues | Validate pipeline end-to-end, fix bugs, tune configs |
-| **Iteration 2** | 200 issues | Full-scale benchmark for paper results |
+```bash
+./bench_env/bin/python scripts/workflows/run_verified10_enhancement_vs_baseline.py \
+  --enhancer-agent simple_enhancer \
+  --output-tag run1
+```
 
----
+## Latest Verified-10 Snapshot (2026-03-19)
 
-## Current State (as of handoff)
+- Runs:
+  - `results/verified10_baseline_vs_enhanced/simple_enhancer__bugfix_full10_simple_20260318/`
+  - `results/verified10_baseline_vs_enhanced/swe_agent__bugfix_full10_swe_agent_20260318/`
+- Baseline: RESOLVED `3/10`, FAIL_TO_PASS `3/10`, PASS_TO_PASS `5/10`
+- `simple_enhancer`: RESOLVED `3/10`, FAIL_TO_PASS `3/10`, PASS_TO_PASS `6/10`
+- `swe_agent`: RESOLVED `3/10`, FAIL_TO_PASS `3/10`, PASS_TO_PASS `7/10`
+- Reliability: both bugfix runs completed with `10/10` attempted and no evaluation failures.
 
-| Component | Status |
-|-----------|--------|
-| **Pilot solver benchmark** | ✅ Done — 10 issues × 6 frameworks, 4 working (OpenAI SDK, CrewAI, AutoGen, LangGraph) |
-| **10-issue dataset** | ✅ Ready — `data/samples/pilot_10_samples.json` + `data/ground_truth/` |
-| **Enhancement agents** | ⏳ Not started — `src/enhancers/` has placeholders only |
-| **Enhancement scripts** | ⏳ Not started — `scripts/enhancers/` is empty |
-| **Solver-after-enhancement runs** | ⏳ Not started — `results/solving_after_enhancement/` is empty |
+## Near-Term Priorities
 
----
+1. Reliability hardening
+   - Add rerun logic for `Timeout` solver exits.
+   - Make `--skip-eval` and `--skip-solver` true partial-run modes.
+2. Metrics robustness
+   - Deterministically select model evaluation directory.
+   - Report attempted-only rates alongside 10-issue denominator rates.
+3. Experiment comparability
+   - Keep fixed IDs for baseline comparability.
+   - Add a second stratified Verified-10 set for representativeness.
 
-## Iteration 1: Full Workflow on 10 Issues
+## Medium-Term Plan
 
-**Goal:** Run enhancement + solving pipeline end-to-end on 10 issues. Validate that everything works before scaling.
+1. Multi-enhancer comparison on same 10 IDs
+   - Run `simple_enhancer` + selected Category A/B enhancers.
+2. Stabilize throughput
+   - Increase enhancer parallelism only after timeout rate is near zero.
+3. Expand sample size
+   - Move from 10 to larger Verified subsets once reliability is stable.
 
-### Steps (in order)
+## Historical Tracks
 
-1. **Implement enhancement agents**
-   - Category A: Add 1–3 ready-to-use agents (e.g., start with Aider, Sweep, or Cline — easiest to integrate)
-   - Category B: Add 1–2 framework-built enhancers (e.g., LangGraph, CrewAI) — reuse solver frameworks
-   - Create `scripts/enhancers/run_enhancement_benchmark.py` with `--max-issues 10`
-
-2. **Run enhancement benchmark**
-   - For each of 10 issues: run each enhancement agent → save to `results/enhancement_benchmark/`
-   - Output: `{agent}__{owner}__{repo}__{issue}.json` with `enhanced_title`, `enhanced_body`, metadata
-
-3. **Run solver benchmark (before vs after)**
-   - Baseline: solver on original issue (can reuse `results/pilot_solver_benchmark/` for 4 working frameworks)
-   - After: solver on each enhanced issue → save to `results/solving_after_enhancement/`
-   - Compute deltas: patch quality (enhanced) − patch quality (original)
-
-4. **Generate reports**
-   - Add `scripts/reports/generate_enhancement_report.py` to summarize enhancement quality + downstream impact
-   - Verify metrics make sense
-
-5. **Document and fix**
-   - Fix any bugs, tune prompts, update configs
-   - Update `docs/research_plan.md` with any methodology changes
-   - Update `README.md` with new scripts and current status
-
----
-
-## Iteration 2: Scale to 200 Issues
-
-**Prerequisite:** Iteration 1 complete and validated.
-
-### Steps
-
-1. **Select 200 issues**
-   - Extend `scripts/data/select_samples.py` or add `scripts/data/select_200_samples.py`
-   - Apply Phase 1 criteria: mix of quality/complexity, linked merged PRs, language diversity
-   - Save to `data/samples/primary_200_samples.json`
-
-2. **Prepare ground truth**
-   - Fetch PR patches for all 200 issues → `data/ground_truth/`
-   - Update `configs/benchmark_config.yaml` dataset paths
-
-3. **Run full benchmark**
-   - Same scripts as Iteration 1, but with `--max-issues 200` or `--samples primary_200_samples.json`
-   - Enhancement runs: 16 agents × 200 issues = 3,200
-   - Solving runs: 4 solvers × (1 + 16) × 200 = 13,600
-
-4. **Evaluation & analysis**
-   - Run statistical tests (Wilcoxon, Cliff's delta) per `src/evaluation/statistical_analysis.py`
-   - Stratified analysis by issue type, complexity
-   - Update `docs/pilot_study_report.md` or create `docs/enhancement_benchmark_report.md`
-
----
-
-## Config / Script Conventions
-
-- Use `--max-issues N` or `--samples <path>` in all benchmark scripts so the same code runs for 10 or 200 issues.
-- Dataset paths:
-  - Iteration 1: `data/samples/pilot_10_samples.json`
-  - Iteration 2: `data/samples/primary_200_samples.json`
-- Results:
-  - Iteration 1: same dirs (`results/enhancement_benchmark/`, `results/solving_after_enhancement/`) — filenames include issue ID
-  - Iteration 2: add subdirs if needed, e.g. `results/enhancement_benchmark/iteration2/`
-
----
-
-## Files to Update After Changes
-
-| What you did | Update |
-|--------------|--------|
-| Implemented enhancement agent | `README.md`, `CONTRIBUTING.md`, `ROADMAP.md` (current state) |
-| Added enhancement/solving scripts | `README.md` Quick Start, `ROADMAP.md` steps |
-| Changed dataset or config | `configs/benchmark_config.yaml`, `ROADMAP.md`, `docs/research_plan.md` |
-| Finished Iteration 1 | `ROADMAP.md` current state, `README.md` status |
-| Finished Iteration 2 | `docs/enhancement_benchmark_report.md`, paper drafts |
-
----
-
-## One-Line Handoff Summary
-
-> **Next agent:** Implement 1–3 enhancement agents, run the full enhancement + solving workflow on 10 issues (`data/samples/pilot_10_samples.json`), validate end-to-end, then scale to 200. See `ROADMAP.md` for step-by-step instructions.
+Older SWE-bench-Live and patch-generation tracks remain in `docs/iterations/`, `docs/investigation/`, and `docs/archive/` for reference only.

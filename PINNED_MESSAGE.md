@@ -18,14 +18,39 @@
 
 ---
 
-## Iterative roadmap (10 → 200 issues)
+## Iterative roadmap
 
-| Iteration | Dataset | Purpose |
-|-----------|---------|---------|
-| **1** | 10 issues | Full workflow end-to-end, validate pipeline |
-| **2** | 200 issues | Full-scale benchmark for paper |
+| Iteration | Dataset | Purpose | Status |
+|-----------|---------|---------|--------|
+| **1** | Verified 10 | Baseline-vs-enhanced validation | Done |
+| **2** | 3 Groups x 10 issues | 3-agent x 3-group experiment (A=Verified, B=Community, C=SWE-bench-Live) | Done |
+| **3** | SWE-bench-Live 50 issues | Scale-up with 131k context window | **Done** |
 
-**Next step:** Implement enhancement agents, run on 10 issues, then scale. See **`ROADMAP.md`** for handoff instructions.
+**Current:** All iterations complete. See `docs/groupC_50_issue_experiment_report.md`.
+
+---
+
+## Latest Results
+
+### 3x3 Experiment (2026-03-31) — 3 Agents x 3 Groups, 10 Issues Each
+
+| Agent | Group A (Verified) | Group B (Community) | Group C (SWE-bench-Live) |
+|-------|:---:|:---:|:---:|
+| **TRAE** | 0% | **+30%** | 0% |
+| **SWE-agent** | +10% | +10% | -10% |
+| **Aider** | -30% | -10% | -10% |
+
+Key finding: Enhancement effect depends on **both agent choice AND curation level** (2D interaction). TRAE is the only universally safe enhancer. Report: `docs/groupA_vs_groupB_vs_groupC_experiment_report.md`
+
+### 50-Issue Scale-Up (2026-04-03) — SWE-bench-Live, 131k Context Window
+
+| Agent | Baseline | Enhanced | Delta Resolved | Delta F2P | Status |
+|-------|:--------:|:--------:|:--------------:|:---------:|--------|
+| **TRAE** | 1/50 (2.0%) | 1/50 (2.0%) | 0.0% | +2.0% | Complete |
+| **SWE-agent** | 1/50 (2.0%) | 0/50 (0.0%) | -2.0% | +2.0% | Complete |
+| **Aider** | 1/50 (2.0%) | 0/50 (0.0%) | -2.0% | -14.0% | Complete |
+
+Key finding: Context window fix (65k→131k) eliminated overflow errors but enhancement is **still never beneficial** on SWE-bench-Live. Aggressiveness of rewriting correlates with harm. Report: `docs/groupC_50_issue_experiment_report.md`
 
 ---
 
@@ -48,17 +73,17 @@
 | New agent or framework | `README.md`, `ROADMAP.md` (current state), `CONTRIBUTING.md` (if conventions change) |
 | New script | `README.md` (Quick Start), `ROADMAP.md` (steps), `CONTRIBUTING.md` (if workflow changes) |
 | Config keys / paths | `configs/benchmark_config.yaml`, any script that reads config |
-| Data schema (samples, ground truth) | `docs/research_plan.md` (dataset section), any script that consumes it |
-| Research direction / methodology | `docs/research_plan.md` |
-| Completed Iteration 1 or 2 | `ROADMAP.md` (current state), `README.md` (status) |
-| Pilot study results / analysis | `docs/pilot_study_report.md` |
+| Data schema (samples, selected IDs, evaluation outputs) | `docs/README.md`, `docs/MAIN.md`, and affected guide/analysis docs |
+| Research direction / methodology | `ROADMAP.md` + relevant files in `docs/guides/` and `docs/analysis/` |
+| Completed run milestone | `ROADMAP.md`, `README.md`, `CHANGELOG.md`, and `docs/analysis/*` |
+| Bug findings and debugging notes | `docs/analysis/VERIFIED10_WORKFLOW_BUG_AUDIT_2026-03-18.md` |
 | Dependencies | `requirements.txt` |
 | New directory or module | `README.md` (project structure), `CONTRIBUTING.md` (structure section) |
 
-**Golden rule:** If you add, rename, or remove something, update the docs. Prefer `README.md`, `ROADMAP.md`, `CONTRIBUTING.md`, or `docs/research_plan.md` depending on scope.
+**Golden rule:** If you add, rename, or remove something, update the canonical docs first (`README.md`, `ROADMAP.md`, `CONTRIBUTING.md`, `docs/README.md`, `docs/MAIN.md`).
 
 ---
 
 ## One-line summary for quick reference
 
-> **BenchmarkLLMAgent:** Benchmarks LLM agents for GitHub issue enhancement. Iteration 1 = 10 issues, Iteration 2 = 200. Read `ROADMAP.md` for handoff. After changes, update `README`, `ROADMAP`, and/or `docs/research_plan.md`.
+> **BenchmarkLLMAgent:** Benchmarks LLM agents for GitHub issue enhancement. Canonical 10-issue workflow now uses SWE-bench Verified IDs aligned with `/home/22pf2/SWE-Bench_Replication` baseline; run `scripts/workflows/run_verified10_enhancement_vs_baseline.py` for before/after comparison.

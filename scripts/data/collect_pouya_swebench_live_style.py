@@ -51,10 +51,22 @@ OUT_DIR = ROOT / "data" / "samples" / "pouya_swebench_live_style_50"
 PROGRESS_FILE = OUT_DIR / "_collection_progress.json"
 CLONE_BASE = Path(tempfile.gettempdir()) / "pouya_swebench_clones"
 
-try:
-    from secrets import GITHUB_TOKENS as TOKENS
-except ImportError:
-    raise ImportError("secrets.py not found. Copy secrets_example.py to secrets.py and add your GitHub PATs.")
+# GitHub API tokens (round-robin)
+TOKENS = [
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+]
 
 # SWE-bench-Live criteria
 MIN_STARS = 1000

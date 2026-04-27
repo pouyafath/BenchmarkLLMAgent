@@ -32,10 +32,20 @@ GT_DIR = "data/ground_truth"
 RESULTS_DIR = "results/pilot_solver_benchmark"
 MAX_WORKERS = 4
 
-try:
-    from secrets import GITHUB_TOKENS
-except ImportError:
-    raise ImportError("secrets.py not found. Copy secrets_example.py to secrets.py and add your GitHub PATs.")
+GITHUB_TOKENS = [
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+    "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",
+]
 
 gh_client = GitHubMultiTokenClient(GITHUB_TOKENS)
 

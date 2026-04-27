@@ -39,10 +39,10 @@ _DEFAULT_ENHANCED_RESULTS_DIR = _root / "results" / "solving_after_enhancement"
 _DEFAULT_BASELINE_RESULTS_DIR = _root / "results" / "solving_baseline"
 _DEFAULT_GT_DIR = _root / "data" / "ground_truth_swe_bench_live"
 
-try:
-    from secrets import GITHUB_TOKENS
-except ImportError:
-    raise ImportError("secrets.py not found. Copy secrets_example.py to secrets.py and add your GitHub PATs.")
+GITHUB_TOKENS = [
+    "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",
+    "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",
+]
 gh_client = GitHubMultiTokenClient(GITHUB_TOKENS)
 
 SYSTEM_PROMPT = """You are a code diff generator. Your ONLY task:

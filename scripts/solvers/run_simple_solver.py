@@ -30,10 +30,10 @@ _DEFAULT_GT_DIR  = _root / "data" / "ground_truth_swe_bench_live"
 RESULTS_DIR = _root / "results" / "pilot_solver_benchmark"
 MAX_WORKERS = 2  # LLM inference is sequential per process; limit parallelism
 
-try:
-    from secrets import GITHUB_TOKENS
-except ImportError:
-    raise ImportError("secrets.py not found. Copy secrets_example.py to secrets.py and add your GitHub PATs.")
+GITHUB_TOKENS = [
+    "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",
+    "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",
+]
 gh_client = GitHubMultiTokenClient(GITHUB_TOKENS)
 
 SYSTEM_PROMPT = """You are a software engineering agent that solves GitHub issues by producing code patches.

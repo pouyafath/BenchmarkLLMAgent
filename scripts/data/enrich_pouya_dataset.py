@@ -40,10 +40,21 @@ DATA_DIR = ROOT / "data" / "samples" / "pouya_swebench_live_style_50"
 JSONL_IN  = DATA_DIR / "pouya_50_dataset.jsonl"
 JSONL_OUT = DATA_DIR / "pouya_50_dataset.jsonl"  # overwrite in-place
 
-try:
-    from secrets import GITHUB_TOKENS as TOKENS
-except ImportError:
-    raise ImportError("secrets.py not found. Copy secrets_example.py to secrets.py and add your GitHub PATs.")
+TOKENS = [
+    "ghp_PJ9SYFM0l1rRVzZi35jVVIyMoxDfIx3VJ1zq",
+    "ghp_oaPqBakNn5fmqG3MHQyJhNHLgsBQCm3Cz9yB",
+    "ghp_1d3v7OZ47klyglxaA9fIOXKpL8V3H204p5bB",
+    "ghp_TfQtlJoL2PY1p1ydGCQ03SniTDi5x041pqSi",
+    "ghp_Q3fIjyIRdaWYjgaBhSnVhnnJA0NfBZ4cFmJv",
+    "ghp_RG3mAT2HA4LsXE9JuoESHv5DwDlVtU3rHUcE",
+    "ghp_xPKiuvxnFRLuhnJPVvT2hDnBbXQ4SN4XHmUz",
+    "ghp_H3elDEkTZ3zj5INp2WTBG2gPtfhrT52aW4b2",
+    "ghp_FkJHJnDPcUiWVTaqEV99UspS0FDGmG2aWfOa",
+    "ghp_i21O5yl7PZ3vGSZjBhGaOWVBZXJDj41j8dkx",
+    "ghp_Bf0CnhV8VqnmY5yG7Vt4oy1RTkfMwR3rz6p5",
+    "ghp_4ItfJ3JSqlJONcmGlBumAlVfXL2Cec0gPSBa",
+    "ghp_o7dGm6noByzvuhcSYdK0SCfjLLkH3h0Q2dAn",
+]
 _token_idx = 0
 
 

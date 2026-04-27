@@ -32,9 +32,10 @@ GT_DIR = "data/ground_truth"
 RESULTS_DIR = "results/pilot_solver_benchmark"
 MAX_WORKERS = 4
 
-GITHUB_TOKENS = [
-    os.environ.get("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN_HERE"),
-]
+try:
+    from secrets import GITHUB_TOKENS
+except ImportError:
+    raise ImportError("secrets.py not found. Copy secrets_example.py to secrets.py and add your GitHub PATs.")
 
 gh_client = GitHubMultiTokenClient(GITHUB_TOKENS)
 

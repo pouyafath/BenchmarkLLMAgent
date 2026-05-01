@@ -1,0 +1,62 @@
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..0e7dd907 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -215,6 +215,14 @@ class App(Scaffold):
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
+ 
++    #: A list of secret keys for key rotation support. If provided,
++    #: the first key is used for signing new sessions, and all keys are
++    #: tried when verifying existing sessions.
++    #: This attribute can also be configured from the config with the
++    #: :data:`SECRET_KEYS` configuration key.
++    #: Defaults to ``None``, in which case :attr:`secret_key` is used.
++    secret_keys = ConfigAttribute[t.Union[list[str], list[bytes], None]]("SECRET_KEYS")
++
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+     #: permanent session survive for roughly one month.
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..48e1fc8a 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,13 +313,36 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        # Get the secret key(s) to use
++        secret_keys = None
++        # Check if SECRET_KEYS exists in config before accessing it
++        if 'SECRET_KEYS' in app.config:
++            secret_keys = app.secret_keys
++        secret_key = app.secret_key
++
++        # If secret_keys is provided and not empty, use it
++        if secret_keys:
++            if not secret_keys:
++                return None
++            # Pass the list of keys directly to URLSafeTimedSerializer
++            # It will use the first key for signing and all keys for verification
++            signer_kwargs = dict(
++                key_derivation=self.key_derivation, digest_method=self.digest_method
++            )
++            return URLSafeTimedSerializer(
++                secret_keys,  # List of keys for both signing and verification
++                salt=self.salt,
++                serializer=self.serializer,
++                signer_kwargs=signer_kwargs,
++            )
++        elif not secret_key:
+             return None
++        # Fallback to single key behavior
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret_key,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,

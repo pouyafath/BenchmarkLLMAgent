@@ -1,0 +1,52 @@
+diff --git a/pylint/checkers/refactoring/refactoring_checker.py b/pylint/checkers/refactoring/refactoring_checker.py
+index 97e509025..ec7d12dad 100644
+--- a/pylint/checkers/refactoring/refactoring_checker.py
++++ b/pylint/checkers/refactoring/refactoring_checker.py
+@@ -483,6 +483,12 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+             "value by index lookup. "
+             "The value can be accessed directly instead.",
+         ),
++        "R1737": (
++            "Use \'yield from\' directly instead of yielding each element one by one",
++            "use-yield-from",
++            "Yielding directly from the iterator is faster and arguably cleaner code than yielding each element "
++            "one by one in the loop.",
++        ),
+     }
+     options = (
+         (
+@@ -2342,6 +2348,34 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+                 confidence=confidence,
+             )
+ 
++    @utils.only_required_for_messages("use-yield-from")
++    def visit_yield(self, node: nodes.Yield) -> None:
++        if not isinstance(node.value, nodes.Name):
++            return
++
++        parent = node.parent.parent
++        if (
++            not isinstance(parent, nodes.For)
++            or isinstance(parent, nodes.AsyncFor)
++            or len(parent.body) != 1
++        ):
++            return
++
++        if parent.target.name != node.value.name:
++            return
++
++        if isinstance(node.frame(), nodes.AsyncFunctionDef):
++            return
++
++        self.add_message("use-yield-from", node=parent, confidence=HIGH)
++
++    @staticmethod
++    def _has_exit_in_scope(scope: nodes.LocalsDictNodeNG) -> bool:
++        exit_func = scope.locals.get("exit")
++        return bool(
++            exit_func and isinstance(exit_func[0], (nodes.ImportFrom, nodes.Import))
++        )
++
+     def _enumerate_with_start(
+         self, node: nodes.For | nodes.Comprehension
+     ) -> tuple[bool, Confidence]:

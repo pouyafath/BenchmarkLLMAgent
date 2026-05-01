@@ -1,0 +1,33 @@
+diff --git a/astropy/utils/misc.py b/astropy/utils/misc.py
+index de3fb01d1..9f9670455 100644
+--- a/astropy/utils/misc.py
++++ b/astropy/utils/misc.py
+@@ -528,13 +528,26 @@ class InheritDocstrings(type):
+                 not key.startswith('_'))
+ 
+         for key, val in dct.items():
+-            if (inspect.isfunction(val) and
++            # Check if it's a function, method, property, or other callable with __doc__
++            is_callable_with_doc = (
++                inspect.isfunction(val) or
++                inspect.ismethod(val) or
++                isinstance(val, property) or
++                isinstance(val, classmethod) or
++                isinstance(val, staticmethod)
++            )
++            
++            if (is_callable_with_doc and
+                 is_public_member(key) and
+                 val.__doc__ is None):
+                 for base in cls.__mro__[1:]:
+                     super_method = getattr(base, key, None)
+                     if super_method is not None:
+-                        val.__doc__ = super_method.__doc__
++                        # For classmethod and staticmethod, set docstring on the underlying function
++                        if isinstance(val, (classmethod, staticmethod)):
++                            val.__func__.__doc__ = super_method.__doc__
++                        else:
++                            val.__doc__ = super_method.__doc__
+                         break
+ 
+         super().__init__(name, bases, dct)

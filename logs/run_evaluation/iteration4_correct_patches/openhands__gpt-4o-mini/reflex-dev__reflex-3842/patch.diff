@@ -1,0 +1,214 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,161 +1,161 @@
+ """Define the reflex state specification."""
+
+ from __future__ import annotations
+
+ import asyncio
+ import contextlib
+ import copy
+ import functools
+ import inspect
+ import os
+ import uuid
+ from abc import ABC, abstractmethod
+ from collections import defaultdict
+ from pathlib import Path
+ from types import FunctionType, MethodType
+ from typing import (
+     TYPE_CHECKING,
+     Any,
+     AsyncIterator,
+     Callable,
+     ClassVar,
+     Dict,
+     List,
+     Optional,
+     Sequence,
+     Set,
+     Tuple,
+     Type,
+     Union,
+     cast,
+ )
+
+ import dill
+ from sqlalchemy.orm import DeclarativeBase
+
+ from reflex.config import get_config
+ from reflex.ivars.base import ImmutableComputedVar, ImmutableVar, immutable_computed_var
+
+ try:
+     import pydantic.v1 as pydantic
+ except ModuleNotFoundError:
+     import pydantic
+
+ import wrapt
+ from redis.asyncio import Redis
+ from redis.exceptions import ResponseError
+
+ from reflex import constants
+ from reflex.base import Base
+ from reflex.event import (
+     BACKGROUND_TASK_MARKER,
+     Event,
+     EventHandler,
+     EventSpec,
+     fix_events,
+ )
+ from reflex.utils import console, format, path_ops, prerequisites, types
+ from reflex.utils.exceptions import ImmutableStateError, LockExpiredError
+ from reflex.utils.exec import is_testing_env
+ from reflex.utils.serializers import SerializedType, serialize, serializer
+ from reflex.utils.types import override
+ from reflex.vars import (
+     ComputedVar,
+     ImmutableVarData,
+     Var,
+ )
+
+ if TYPE_CHECKING:
+     from reflex.components.component import Component
+
+
+ Delta = Dict[str, Any]
+ var = immutable_computed_var
+
+
+ # If the state is this large, it's considered a performance issue.
+ TOO_LARGE_SERIALIZED_STATE = 100 * 1024  # 100kb
+
+
+ class HeaderData(Base):
+     """An object containing headers data."""
+
+     host: str = ""
+     origin: str = ""
+     upgrade: str = ""
+     connection: str = ""
+     pragma: str = ""
+     cache_control: str = ""
+     user_agent: str = ""
+     sec_websocket_version: str = ""
+     sec_websocket_key: str = ""
+     sec_websocket_extensions: str = ""
+     accept_encoding: str = ""
+     accept_language: str = ""
+
+     def __init__(self, router_data: Optional[dict] = None):
+         """Initalize the HeaderData object based on router_data.
+
+         Args:
+             router_data: the router_data dict.
+         """
+         super().__init__()
+         if router_data:
+             for k, v in router_data.get(constants.RouteVar.HEADERS, {}).items():
+                 setattr(self, format.to_snake_case(k), v)
+
+
+ class PageData(Base):
+     """An object containing page data."""
+
+     host: str = ""  # repeated with self.headers.origin (remove or keep the duplicate?)
+     path: str = ""
+     raw_path: str = ""
+     full_path: str = ""
+     full_raw_path: str = ""
+     params: dict = {}
+
+     def __init__(self, router_data: Optional[dict] = None):
+         """Initalize the PageData object based on router_data.
+
+         Args:
+             router_data: the router_data dict.
+         """
+         super().__init__()
+         if router_data:
+             self.host = router_data.get(constants.RouteVar.HEADERS, {}).get("origin")
+             self.path = router_data.get(constants.RouteVar.PATH, "")
+             self.raw_path = router_data.get(constants.RouteVar.ORIGIN, "")
+             self.full_path = f"{self.host}{self.path}"
+             self.full_raw_path = f"{self.host}{self.raw_path}"
+             self.params = router_data.get(constants.RouteVar.QUERY, {})
+
+
+ class SessionData(Base):
+     """An object containing session data."""
+
+     client_token: str = ""
+     client_ip: str = ""
+     session_id: str = ""
+
+     def __init__(self, router_data: Optional[dict] = None):
+         """Initalize the SessionData object based on router_data.
+
+         Args:
+             router_data: the router_data dict.
+         """
+         super().__init__()
+         if router_data:
+             self.client_token = router_data.get(constants.RouteVar.CLIENT_TOKEN, "")
+             self.client_ip = router_data.get(constants.RouteVar.CLIENT_IP, "")
+             self.session_id = router_data.get(constants.RouteVar.SESSION_ID, "")
+
+
+ class RouterData(Base):
+     """An object containing RouterData."""
+
+     session: SessionData = SessionData()
+     headers: HeaderData = HeaderData()
+     page: PageData = PageData()
+
+     def __init__(self, router_data: Optional[dict] = None):
+         """Initialize the RouterData object.
+
+         Args:
+             router_data: the router_data dict.
+         """
+         super().__init__()
+         self.session = SessionData(router_data)
+         self.headers = HeaderData(router_data)
+         self.page = PageData(router_data)
+
+
+ def _no_chain_background_task(
+     state_cls: Type["BaseState"], name: str, fn: Callable
+ ) -> Callable:
+     """Protect against directly chaining a background task from another event handler.
+
+     Args:
+         state_cls: The state class that the event handler is in.
+         name: The name of the background task.
+         fn: The background task coroutine function / generator.
+
+     Returns:
+         A compatible coroutine function / generator that raises a runtime error.
+
+     Raises:
+         TypeError: If the background task is not async.
+     """
+     call = f"{state_cls.__name__}.{name}"
+     message = (
+         f"Cannot directly call background task {name!r}, use "
+         f"`yield {call}` or `return {call}` instead."
+     )
+     if inspect.iscoroutinefunction(fn):
+
+         async def _no_chain_background_task_co(*args, **kwargs):
+             raise RuntimeError(message)
+
+         return _no_chain_background_task_co
+     if inspect.isasyncgenfunction(fn):
+
+@@ -3412,7 +3412,8 @@
+         return _no_chain_background_task_gen
+     raise TypeError(f"{name!r} must be an async function or generator.")
+ 
++# Additional logic to handle var dependencies correctly
+     # This is where we would implement the logic to ensure that var dependencies are invalidated correctly.
+     # For example, we might need to track changes to the vars and trigger updates accordingly.
+ 
+     return fn

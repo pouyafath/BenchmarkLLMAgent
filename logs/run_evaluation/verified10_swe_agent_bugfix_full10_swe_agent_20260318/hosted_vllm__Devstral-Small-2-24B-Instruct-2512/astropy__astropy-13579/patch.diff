@@ -1,0 +1,43 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..12fd08de0 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -251,7 +251,37 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                # For dropped world dimensions, we need to use the actual world coordinate
++                # value that corresponds to the sliced pixel coordinate, not a hardcoded value
++                # Find the pixel coordinate that corresponds to this dropped dimension
++                pixel_coord = None
++                dropped_pixel_dim = None
++                for ipixel in range(self._wcs.pixel_n_dim):
++                    if ipixel not in self._pixel_keep:
++                        # This pixel dimension was sliced out, get its coordinate
++                        if isinstance(self._slices_pixel[ipixel], numbers.Integral):
++                            pixel_coord = self._slices_pixel[ipixel]
++                        else:
++                            # For slice objects, we use the start position if available
++                            if self._slices_pixel[ipixel].start is not None:
++                                pixel_coord = self._slices_pixel[ipixel].start
++                            else:
++                                # If no start is specified, use 0 as a default
++                                pixel_coord = 0
++                        dropped_pixel_dim = ipixel
++                        break
++
++                if pixel_coord is not None and dropped_pixel_dim is not None:
++                    # Convert the pixel coordinate to world coordinate
++                    # We need to create a pixel array with the correct shape
++                    # and only set the current pixel dimension
++                    pixel_test = np.zeros(self._wcs.pixel_n_dim)
++                    pixel_test[dropped_pixel_dim] = pixel_coord
++                    world_coord = self._wcs.pixel_to_world_values(*pixel_test)[iworld]
++                    world_arrays_new.append(world_coord)
++                else:
++                    # Fallback to 1. if we can't determine the coordinate
++                    world_arrays_new.append(1.)
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

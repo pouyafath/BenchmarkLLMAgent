@@ -1,0 +1,53 @@
+diff --git a/src/cfnlint/rules/functions/DynamicReference.py b/src/cfnlint/rules/functions/DynamicReference.py
+index 745e3c6bc..2b773a317 100644
+--- a/src/cfnlint/rules/functions/DynamicReference.py
++++ b/src/cfnlint/rules/functions/DynamicReference.py
+@@ -65,6 +65,39 @@ _secrets_manager_arn = {
+     "type": "array",
+ }
+ 
++def parse_dynamic_reference(dynamic_ref):
++    """
++    Parse a dynamic reference string, handling ${} blocks correctly.
++
++    Args:
++        dynamic_ref (str): The dynamic reference string (e.g., "resolve:ssm:${AWS::AccountId}/${AWS::Region}/ac")
++
++    Returns:
++        list: The parsed parts of the dynamic reference
++    """
++    import re
++
++    # This pattern matches ${...} blocks
++    pattern = r'\$\{([^}]+)\}'
++
++    # Find all ${...} blocks
++    blocks = re.findall(pattern, dynamic_ref)
++
++    # Replace ${...} blocks with a placeholder to avoid splitting on colons inside them
++    temp_str = dynamic_ref
++    for i, block in enumerate(blocks):
++        placeholder = f"__PLACEHOLDER_{i}__"
++        temp_str = temp_str.replace(f"${{{block}}}", placeholder)
++
++    # Now split on colons
++    parts = temp_str.split(":")
++
++    # Restore the ${...} blocks
++    for i, block in enumerate(blocks):
++        placeholder = f"__PLACEHOLDER_{i}__"
++        parts = [p.replace(placeholder, f"${{{block}}}") for p in parts]
++
++    return parts
+ 
+ class DynamicReference(BaseFn):
+     id = "E1050"
+@@ -97,7 +130,7 @@ class DynamicReference(BaseFn):
+         # Secrets manager can be used only in resource properties
+ 
+         for v in REGEX_DYN_REF.findall(instance):
+-            parts = v.split(":")
++            parts = parse_dynamic_reference(v)
+ 
+             evolved = validator.evolve(schema=_all)
+             found = False

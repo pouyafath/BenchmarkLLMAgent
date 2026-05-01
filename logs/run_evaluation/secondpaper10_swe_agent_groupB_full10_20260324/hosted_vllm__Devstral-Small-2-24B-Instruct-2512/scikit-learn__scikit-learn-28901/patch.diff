@@ -1,0 +1,172 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..e9f459ef7 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -103,6 +103,15 @@ class Pipeline(_BaseComposition):
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
++    transform_input : list of str or tuple, default=None
++        List of input parameter names (other than X) that should be transformed
++        through the pipeline steps up to the step that requires them. Each
++        parameter can be specified as a string (e.g., "X_val") or a tuple
++        (e.g., ("X_val", "y_val")) to indicate that both parameters should be
++        transformed together. Requires metadata routing to be enabled.
++
++        .. versionadded:: 1.5
++
+     Attributes
+     ----------
+     named_steps : :class:`~sklearn.utils.Bunch`
+@@ -158,12 +167,14 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list, Hidden(tuple)],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -414,6 +425,73 @@ class Pipeline(_BaseComposition):
+             self.steps[step_idx] = (name, fitted_transformer)
+         return X
+ 
++    def _transform_input_params(self, X, input_params):
++        """Transform input parameters through pipeline steps.
++
++        Parameters
++        ----------
++        X : iterable
++            Training data used for transformation consistency.
++
++        input_params : dict
++            Dictionary of input parameters to transform.
++
++        Returns
++        -------
++        dict
++            Dictionary of transformed input parameters.
++        """
++        if not _routing_enabled():
++            raise ValueError(
++                "transform_input requires metadata routing to be enabled. "
++                "Use sklearn.set_config(enable_metadata_routing=True)."
++            )
++
++        if not self.transform_input:
++            return input_params
++
++        # Make a copy to avoid modifying the original
++        transformed_params = input_params.copy()
++
++        # Process each transform_input specification
++        for param_spec in self.transform_input:
++            if isinstance(param_spec, str):
++                param_names = [param_spec]
++            elif isinstance(param_spec, tuple):
++                param_names = list(param_spec)
++            else:
++                raise ValueError(
++                    f"transform_input elements must be strings or tuples, "
++                    f"got {type(param_spec)}"
++                )
++
++            # Check if all parameters exist
++            missing_params = [p for p in param_names if p not in input_params]
++            if missing_params:
++                continue  # Skip if parameters not provided
++
++            # Transform each parameter through the pipeline
++            X_current = X
++            for step_idx, name, transformer in self._iter(with_final=False, filter_passthrough=False):
++                if transformer is None or transformer == "passthrough":
++                    continue
++
++                # Transform each parameter
++                for param_name in param_names:
++                    if param_name in transformed_params:
++                        # Get the current parameter value
++                        param_value = transformed_params[param_name]
++
++                        # Transform it through the current step
++                        if hasattr(transformer, 'transform'):
++                            transformed_params[param_name] = transformer.transform(param_value)
++                        # If no transform method, keep original value
++
++            return transformed_params
++
++        return input_params
++
++
+     @_fit_context(
+         # estimators in Pipeline.steps are not validated yet
+         prefer_skip_nested_validation=False
+@@ -453,6 +531,11 @@ class Pipeline(_BaseComposition):
+                 `enable_metadata_routing=True` is set via
+                 :func:`~sklearn.set_config`.
+ 
++            .. versionchanged:: 1.5
++                Input parameters specified in ``transform_input`` constructor
++                argument will be transformed through pipeline steps before being
++                passed to the final estimator.
++
+             See :ref:`Metadata Routing User Guide <metadata_routing>` for more
+             details.
+ 
+@@ -461,12 +544,46 @@ class Pipeline(_BaseComposition):
+         self : object
+             Pipeline with fitted steps.
+         """
+-        routed_params = self._check_method_params(method="fit", props=params)
++        # Separate regular params from input params that need transformation
++        input_params_to_transform = {}
++        other_params = {}
++
++        if self.transform_input:
++            for param_name in params:
++                # Check if this parameter should be transformed
++                should_transform = False
++                for param_spec in self.transform_input:
++                    if isinstance(param_spec, str):
++                        if param_name == param_spec:
++                            should_transform = True
++                            break
++                    elif isinstance(param_spec, tuple):
++                        if param_name in param_spec:
++                            should_transform = True
++                            break
++
++                if should_transform:
++                    input_params_to_transform[param_name] = params[param_name]
++                else:
++                    other_params[param_name] = params[param_name]
++
++        # Process regular parameters
++        routed_params = self._check_method_params(method="fit", props=other_params)
+         Xt = self._fit(X, y, routed_params)
++
++        # Transform input parameters through the pipeline
++        if input_params_to_transform:
++            transformed_input_params = self._transform_input_params(Xt, input_params_to_transform)
++        else:
++            transformed_input_params = {}
++
++        # Combine transformed input params with regular routed params for final estimator
++        final_params = routed_params[self.steps[-1][0]]["fit"].copy()
++        final_params.update(transformed_input_params)
++
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+             if self._final_estimator != "passthrough":
+-                last_step_params = routed_params[self.steps[-1][0]]
+-                self._final_estimator.fit(Xt, y, **last_step_params["fit"])
++                self._final_estimator.fit(Xt, y, **final_params)
+ 
+         return self
+ 

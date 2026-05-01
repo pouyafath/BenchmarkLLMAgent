@@ -1,0 +1,63 @@
+diff --git a/scrapy/pipelines/files.py b/scrapy/pipelines/files.py
+index 4d06b6dd3..6d1096eb6 100644
+--- a/scrapy/pipelines/files.py
++++ b/scrapy/pipelines/files.py
+@@ -19,7 +19,7 @@ from ftplib import FTP
+ from io import BytesIO
+ from pathlib import Path
+ from typing import IO, TYPE_CHECKING, Any, ClassVar, NoReturn, Protocol, TypedDict, cast
+-from urllib.parse import urlparse
++from urllib.parse import urlparse, parse_qsl
+ 
+ from itemadapter import ItemAdapter
+ from twisted.internet.defer import Deferred, maybeDeferred
+@@ -715,6 +715,40 @@ class FilesPipeline(MediaPipeline):
+             ItemAdapter(item)[self.files_result_field] = [x for ok, x in results if ok]
+         return item
+ 
++    def _get_extension_from_url(self, url: str) -> str:
++        """Extract file extension from URL, handling both path and query parameters."""
++        from urllib.parse import urlparse, parse_qsl
++
++        SCRIPT_EXTENSIONS = {
++            ".php",
++            ".asp",
++            ".aspx",
++            ".jsp",
++            ".do",
++            ".action",
++            ".cgi",
++            ".pl",
++            ".py",
++        }
++
++        parsed = urlparse(url)
++        path_ext = Path(parsed.path).suffix
++
++        # If path has an extension, use it (unless it's a script extension)
++        if path_ext and path_ext.lower() not in SCRIPT_EXTENSIONS:
++            return path_ext
++
++        # For script extensions or no path extension, try to extract from query parameters
++        if parsed.query:
++            query_items = parse_qsl(parsed.query)
++            for key, value in query_items:
++                if isinstance(value, str):
++                    ext = Path(value).suffix
++                    if ext:
++                        return ext
++
++        return ""
++
+     def file_path(
+         self,
+         request: Request,
+@@ -724,7 +758,7 @@ class FilesPipeline(MediaPipeline):
+         item: Any = None,
+     ) -> str:
+         media_guid = hashlib.sha1(to_bytes(request.url)).hexdigest()  # noqa: S324
+-        media_ext = Path(request.url).suffix
++        media_ext = self._get_extension_from_url(request.url)
+         # Handles empty and wild extensions by trying to guess the
+         # mime type then extension or default to empty string otherwise
+         if media_ext not in mimetypes.types_map:

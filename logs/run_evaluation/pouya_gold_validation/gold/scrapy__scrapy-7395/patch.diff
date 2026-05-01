@@ -1,0 +1,737 @@
+diff --git a/scrapy/cmdline.py b/scrapy/cmdline.py
+index 8aadc90e..6c306afd 100644
+--- a/scrapy/cmdline.py
++++ b/scrapy/cmdline.py
+@@ -108,17 +108,24 @@ def _print_header(settings: BaseSettings, inproject: bool) -> None:
+ 
+ def _print_commands(settings: BaseSettings, inproject: bool) -> None:
+     _print_header(settings, inproject)
+-    print("Usage:")
+-    print("  scrapy <command> [options] [args]\n")
+-    print("Available commands:")
++    print(
++        "Usage:\n",
++        "  scrapy <command> [options] [args]\n",
++        "Available commands:\n",
++    )
+     cmds = _get_commands_dict(settings, inproject)
+-    for cmdname, cmdclass in sorted(cmds.items()):
+-        print(f"  {cmdname:<13} {cmdclass.short_desc()}")
++    print(
++        "\n".join(
++            f"  {cmdname:<13} {cmdclass.short_desc()}"
++            for cmdname, cmdclass in sorted(cmds.items())
++        )
++    )
+     if not inproject:
+-        print()
+-        print("  [ more ]      More commands available when run from project directory")
+-    print()
+-    print('Use "scrapy <command> -h" to see more info about a command')
++        print(
++            "\n",
++            "  [ more ]      More commands available when run from project directory",
++        )
++    print("\n", 'Use "scrapy <command> -h" to see more info about a command')
+ 
+ 
+ def _print_unknown_command_msg(
+@@ -197,9 +204,10 @@ def execute(argv: list[str] | None = None, settings: Settings | None = None) ->
+     _run_print_help(parser, cmd.process_options, args, opts)
+ 
+     if cmd.requires_crawler_process:
+-        if settings[
+-            "TWISTED_REACTOR"
+-        ] == _asyncio_reactor_path and not settings.getbool("FORCE_CRAWLER_PROCESS"):
++        if (
++            settings["TWISTED_REACTOR"] == _asyncio_reactor_path
++            and not settings.getbool("FORCE_CRAWLER_PROCESS")
++        ) or not settings.getbool("TWISTED_REACTOR_ENABLED"):
+             cmd.crawler_process = AsyncCrawlerProcess(settings)
+         else:
+             cmd.crawler_process = CrawlerProcess(settings)
+diff --git a/scrapy/commands/__init__.py b/scrapy/commands/__init__.py
+index e213d0d9..19b6f668 100644
+--- a/scrapy/commands/__init__.py
++++ b/scrapy/commands/__init__.py
+@@ -229,7 +229,7 @@ class ScrapyHelpFormatter(argparse.HelpFormatter):
+         headings = [
+             i for i in range(len(part_strings)) if part_strings[i].endswith(":\n")
+         ]
+-        for index in headings[::-1]:
++        for index in reversed(headings):
+             char = "-" if "Global Options" in part_strings[index] else "="
+             part_strings[index] = part_strings[index][:-2].title()
+             underline = "".join(["\n", (char * len(part_strings[index])), "\n"])
+diff --git a/scrapy/commands/check.py b/scrapy/commands/check.py
+index 1e4e0913..229e8a48 100644
+--- a/scrapy/commands/check.py
++++ b/scrapy/commands/check.py
+@@ -102,16 +102,18 @@ class Command(ScrapyCommand):
+ 
+             # start checks
+             if opts.list:
+-                for spider, methods in sorted(contract_reqs.items()):
+-                    if not methods and not opts.verbose:
+-                        continue
+-                    print(spider)
+-                    for method in sorted(methods):
+-                        print(f"  * {method}")
++                print(
++                    "\n".join(
++                        f"{spider}\n"
++                        + "\n".join(f"  * {method}" for method in sorted(methods))
++                        for spider, methods in sorted(contract_reqs.items())
++                        if methods or opts.verbose
++                    )
++                )
+             else:
+-                start_time = time.time()
++                start_time = time.monotonic()
+                 self.crawler_process.start()
+-                stop = time.time()
++                stop = time.monotonic()
+ 
+                 result.printErrors()
+                 result.printSummary(start_time, stop)
+diff --git a/scrapy/commands/genspider.py b/scrapy/commands/genspider.py
+index b030be4d..17bcf19b 100644
+--- a/scrapy/commands/genspider.py
++++ b/scrapy/commands/genspider.py
+@@ -173,15 +173,21 @@ class Command(ScrapyCommand):
+         template_file = Path(self.templates_dir, f"{template}.tmpl")
+         if template_file.exists():
+             return template_file
+-        print(f"Unable to find template: {template}\n")
+-        print('Use "scrapy genspider --list" to see all available templates.')
++        print(
++            f"Unable to find template: {template}\n",
++            'Use "scrapy genspider --list" to see all available templates.',
++        )
+         return None
+ 
+     def _list_templates(self) -> None:
+-        print("Available templates:")
+-        for file in sorted(Path(self.templates_dir).iterdir()):
+-            if file.suffix == ".tmpl":
+-                print(f"  {file.stem}")
++        print(
++            "Available templates:\n",
++            "\n".join(
++                f"  {file.stem}"
++                for file in sorted(Path(self.templates_dir).iterdir())
++                if file.suffix == ".tmpl"
++            ),
++        )
+ 
+     def _spider_exists(self, name: str) -> bool:
+         assert self.settings is not None
+@@ -200,8 +206,10 @@ class Command(ScrapyCommand):
+             pass
+         else:
+             # if spider with same name exists
+-            print(f"Spider {name!r} already exists in module:")
+-            print(f"  {spidercls.__module__}")
++            print(
++                f"Spider {name!r} already exists in module:\n",
++                f"  {spidercls.__module__}",
++            )
+             return True
+ 
+         # a file with the same name exists in the target directory
+diff --git a/scrapy/commands/list.py b/scrapy/commands/list.py
+index ad55dba6..a037f5c9 100644
+--- a/scrapy/commands/list.py
++++ b/scrapy/commands/list.py
+@@ -20,5 +20,4 @@ class Command(ScrapyCommand):
+     def run(self, args: list[str], opts: argparse.Namespace) -> None:
+         assert self.settings is not None
+         spider_loader = get_spider_loader(self.settings)
+-        for s in sorted(spider_loader.list()):
+-            print(s)
++        print("\n".join(sorted(spider_loader.list())))
+diff --git a/scrapy/commands/shell.py b/scrapy/commands/shell.py
+index 8db5f4b4..19138ffd 100644
+--- a/scrapy/commands/shell.py
++++ b/scrapy/commands/shell.py
+@@ -6,10 +6,12 @@ See documentation in docs/topics/shell.rst
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ from threading import Thread
+ from typing import TYPE_CHECKING, Any, ClassVar
+ 
+ from scrapy.commands import ScrapyCommand
++from scrapy.crawler import AsyncCrawlerProcess, Crawler
+ from scrapy.http import Request
+ from scrapy.shell import Shell
+ from scrapy.utils.defer import _schedule_coro
+@@ -83,20 +85,47 @@ class Command(ScrapyCommand):
+         # crawling engine, so the set up in the crawl method won't work
+         crawler = self.crawler_process._create_crawler(spidercls)
+         crawler._apply_settings()
+-        if not crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):
+-            raise RuntimeError(
+-                "scrapy shell currently doesn't support TWISTED_REACTOR_ENABLED=False"
+-            )
+-        # The Shell class needs a persistent engine in the crawler
++        loop: asyncio.AbstractEventLoop | None = None
++        if crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):
++            self._init_with_reactor(crawler)
++        else:
++            self._init_without_reactor(crawler)
++            loop = self._get_reactorless_loop()
++        shell = Shell(crawler, update_vars=self.update_vars, code=opts.code, loop=loop)
++        shell.start(url=url, redirect=not opts.no_redirect)
++
++    def _init_with_reactor(self, crawler: Crawler) -> None:
++        # Create the engine and run start_async() in the main thread
+         crawler.engine = crawler._create_engine()
+         _schedule_coro(crawler.engine.start_async(_start_request_processing=False))
++        self._start_crawler_thread()
+ 
++    def _init_without_reactor(self, crawler: Crawler) -> None:
++        # Create the engine and run start_async() in the event loop thread
++        loop = self._get_reactorless_loop()
+         self._start_crawler_thread()
+ 
+-        shell = Shell(crawler, update_vars=self.update_vars, code=opts.code)
+-        shell.start(url=url, redirect=not opts.no_redirect)
++        async def _init_engine() -> None:
++            # We may need to wait until some parts of start_async() have
++            # finished, which may need a special event in the engine and may
++            # wait until https://github.com/scrapy/scrapy/issues/6916
++            crawler.engine = crawler._create_engine()
++            loop.create_task(
++                crawler.engine.start_async(_start_request_processing=False)
++            )
++
++        future = asyncio.run_coroutine_threadsafe(_init_engine(), loop)
++        future.result()
++
++    def _get_reactorless_loop(self) -> asyncio.AbstractEventLoop:
++        assert self.crawler_process
++        assert isinstance(self.crawler_process, AsyncCrawlerProcess)
++        loop = self.crawler_process._reactorless_loop
++        assert loop
++        return loop
+ 
+     def _start_crawler_thread(self) -> None:
++        """Run self.crawler_process.start() in a separate thread."""
+         assert self.crawler_process
+         t = Thread(
+             target=self.crawler_process.start,
+diff --git a/scrapy/commands/startproject.py b/scrapy/commands/startproject.py
+index c56a7319..5661a0a4 100644
+--- a/scrapy/commands/startproject.py
++++ b/scrapy/commands/startproject.py
+@@ -123,12 +123,12 @@ class Command(ScrapyCommand):
+             )
+         print(
+             f"New Scrapy project '{project_name}', using template directory "
+-            f"'{self.templates_dir}', created in:"
++            f"'{self.templates_dir}', created in:\n",
++            f"    {project_dir.resolve()}\n\n",
++            "You can start your first spider with:\n",
++            f"    cd {project_dir}\n",
++            "    scrapy genspider example example.com",
+         )
+-        print(f"    {project_dir.resolve()}\n")
+-        print("You can start your first spider with:")
+-        print(f"    cd {project_dir}")
+-        print("    scrapy genspider example example.com")
+ 
+     @property
+     def templates_dir(self) -> str:
+diff --git a/scrapy/http/request/__init__.py b/scrapy/http/request/__init__.py
+index f523c2bb..00042e09 100644
+--- a/scrapy/http/request/__init__.py
++++ b/scrapy/http/request/__init__.py
+@@ -284,7 +284,7 @@ class Request(object_ref):
+ 
+     @flags.setter
+     def flags(self, value: list[str] | None) -> None:
+-        self._flags = value or None
++        self._flags = value
+ 
+     @property
+     def cookies(self) -> CookiesT:
+@@ -294,7 +294,7 @@ class Request(object_ref):
+ 
+     @cookies.setter
+     def cookies(self, value: CookiesT | None) -> None:
+-        self._cookies = value or None
++        self._cookies = value
+ 
+     @property
+     def headers(self) -> Headers:
+@@ -309,7 +309,9 @@ class Request(object_ref):
+         if isinstance(value, Headers):
+             self._headers = value
+         else:
+-            self._headers = Headers(value, encoding=self.encoding) if value else None
++            self._headers = (
++                Headers(value, encoding=self.encoding) if value is not None else None
++            )
+ 
+     def __repr__(self) -> str:
+         return f"<{self.method} {self.url}>"
+diff --git a/scrapy/http/response/__init__.py b/scrapy/http/response/__init__.py
+index 7e23df49..a80ea3da 100644
+--- a/scrapy/http/response/__init__.py
++++ b/scrapy/http/response/__init__.py
+@@ -38,17 +38,20 @@ class Response(object_ref):
+     downloaded (by the Downloader) and fed to the Spiders for processing.
+     """
+ 
+-    attributes: tuple[str, ...] = (
+-        "url",
++    __attrs_and_slots = (
+         "status",
+-        "headers",
+-        "body",
+-        "flags",
+         "request",
+         "certificate",
+         "ip_address",
+         "protocol",
+     )
++    attributes: tuple[str, ...] = (
++        "url",
++        "headers",
++        "body",
++        "flags",
++        *__attrs_and_slots,
++    )
+     """A tuple of :class:`str` objects containing the name of all public
+     attributes of the class that are also keyword parameters of the
+     ``__init__()`` method.
+@@ -56,6 +59,16 @@ class Response(object_ref):
+     Currently used by :meth:`Response.replace`.
+     """
+ 
++    __slots__ = (
++        "__weakref__",
++        "_url",
++        "_body",
++        "_headers",
++        "_flags",
++        *__attrs_and_slots,
++    )
++    del __attrs_and_slots
++
+     def __init__(
+         self,
+         url: str,
+@@ -68,12 +81,12 @@ class Response(object_ref):
+         ip_address: IPv4Address | IPv6Address | None = None,
+         protocol: str | None = None,
+     ):
+-        self.headers: Headers = Headers(headers or {})
++        self._headers: Headers | None = Headers(headers) if headers else None
+         self.status: int = int(status)
+         self._set_body(body)
+         self._set_url(url)
+         self.request: Request | None = request
+-        self.flags: list[str] = [] if flags is None else list(flags)
++        self._flags: list[str] | None = list(flags) if flags else None
+         self.certificate: Certificate | None = certificate
+         self.ip_address: IPv4Address | IPv6Address | None = ip_address
+         self.protocol: str | None = protocol
+@@ -125,6 +138,31 @@ class Response(object_ref):
+         else:
+             self._body = body
+ 
++    @property
++    def headers(self) -> Headers:
++        if self._headers is None:
++            self._headers = Headers()
++        return self._headers
++
++    @headers.setter
++    def headers(
++        self, value: Mapping[AnyStr, Any] | Iterable[tuple[AnyStr, Any]] | None
++    ) -> None:
++        if isinstance(value, Headers):
++            self._headers = value
++        else:
++            self._headers = Headers(value) if value is not None else None
++
++    @property
++    def flags(self) -> list[str]:
++        if self._flags is None:
++            self._flags = []
++        return self._flags
++
++    @flags.setter
++    def flags(self, value: list[str] | None) -> None:
++        self._flags = value
++
+     def __repr__(self) -> str:
+         return f"<{self.status} {self.url}>"
+ 
+diff --git a/scrapy/http/response/html.py b/scrapy/http/response/html.py
+index 7eed052c..70c08c11 100644
+--- a/scrapy/http/response/html.py
++++ b/scrapy/http/response/html.py
+@@ -9,4 +9,4 @@ from scrapy.http.response.text import TextResponse
+ 
+ 
+ class HtmlResponse(TextResponse):
+-    pass
++    __slots__ = ()
+diff --git a/scrapy/http/response/json.py b/scrapy/http/response/json.py
+index 21969109..0428dde6 100644
+--- a/scrapy/http/response/json.py
++++ b/scrapy/http/response/json.py
+@@ -9,4 +9,4 @@ from scrapy.http.response.text import TextResponse
+ 
+ 
+ class JsonResponse(TextResponse):
+-    pass
++    __slots__ = ()
+diff --git a/scrapy/http/response/text.py b/scrapy/http/response/text.py
+index 077b86a3..13853f64 100644
+--- a/scrapy/http/response/text.py
++++ b/scrapy/http/response/text.py
+@@ -41,15 +41,22 @@ _NONE = object()
+ 
+ class TextResponse(Response):
+     _DEFAULT_ENCODING = "ascii"
+-    _cached_decoded_json = _NONE
+ 
+     attributes: tuple[str, ...] = (*Response.attributes, "encoding")
++    __slots__ = (
++        "_cached_benc",
++        "_cached_decoded_json",
++        "_cached_selector",
++        "_cached_ubody",
++        "_encoding",
++    )
+ 
+     def __init__(self, *args: Any, **kwargs: Any):
+         self._encoding: str | None = kwargs.pop("encoding", None)
+         self._cached_benc: str | None = None
+         self._cached_ubody: str | None = None
+         self._cached_selector: Selector | None = None
++        self._cached_decoded_json: object = _NONE
+         super().__init__(*args, **kwargs)
+ 
+     def _set_body(self, body: str | bytes | None) -> None:
+@@ -100,7 +107,7 @@ class TextResponse(Response):
+ 
+     @memoizemethod_noargs
+     def _headers_encoding(self) -> str | None:
+-        content_type = cast("bytes", self.headers.get(b"Content-Type", b""))
++        content_type = self.headers.get(b"Content-Type") or b""
+         return http_content_type_encoding(to_unicode(content_type, encoding="latin-1"))
+ 
+     def _body_inferred_encoding(self) -> str:
+@@ -138,10 +145,10 @@ class TextResponse(Response):
+ 
+     @property
+     def selector(self) -> Selector:
+-        # circular import
+-        from scrapy.selector import Selector  # noqa: PLC0415
+-
+         if self._cached_selector is None:
++            # circular import
++            from scrapy.selector import Selector  # noqa: PLC0415
++
+             self._cached_selector = Selector(self)
+         return self._cached_selector
+ 
+diff --git a/scrapy/http/response/xml.py b/scrapy/http/response/xml.py
+index abf474a2..6d9c4cb7 100644
+--- a/scrapy/http/response/xml.py
++++ b/scrapy/http/response/xml.py
+@@ -9,4 +9,4 @@ from scrapy.http.response.text import TextResponse
+ 
+ 
+ class XmlResponse(TextResponse):
+-    pass
++    __slots__ = ()
+diff --git a/scrapy/shell.py b/scrapy/shell.py
+index 6a9464d7..0966d9f5 100644
+--- a/scrapy/shell.py
++++ b/scrapy/shell.py
+@@ -6,34 +6,95 @@ See documentation in docs/topics/shell.rst
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ import contextlib
+ import os
+ import signal
++import warnings
+ from typing import TYPE_CHECKING, Any
+ 
+ from itemadapter import is_item
+-from twisted.internet import defer, threads
++from twisted.internet import threads
++from twisted.internet.defer import Deferred
+ from twisted.python import threadable
+ from w3lib.url import any_to_uri
+ 
+ import scrapy
+ from scrapy.crawler import Crawler
+-from scrapy.exceptions import IgnoreRequest
++from scrapy.exceptions import IgnoreRequest, ScrapyDeprecationWarning
+ from scrapy.http import Request, Response
+ from scrapy.settings import Settings
+ from scrapy.spiders import Spider
+ from scrapy.utils.conf import get_config
+ from scrapy.utils.console import DEFAULT_PYTHON_SHELLS, start_python_console
+ from scrapy.utils.datatypes import SequenceExclude
+-from scrapy.utils.defer import _schedule_coro, deferred_f_from_coro_f
++from scrapy.utils.defer import (
++    _schedule_coro,
++    deferred_f_from_coro_f,
++    maybe_deferred_to_future,
++)
+ from scrapy.utils.misc import load_object
+-from scrapy.utils.python import global_object_name
+ from scrapy.utils.reactor import is_asyncio_reactor_installed, set_asyncio_event_loop
+ from scrapy.utils.response import open_in_browser
+ 
+ if TYPE_CHECKING:
+     from collections.abc import Callable
+ 
++# Hopefully temporary architecture notes
++#
++# The Shell class is always instantiated in the "main" thread. There are two
++# official ways to use it:
++# 1. scrapy.commands.shell, which makes a secondary thread and calls
++# CrawlerProcess.start() in it, which runs a reactor there.
++# 2. scrapy.shell.inspect_response(), which just creates Shell() in the current
++# thread.
++#
++# Shell._inthread is True when this class is run in a thread separate from the
++# reactor, e.g. the 1st way (in other words, the reactor is in a secondary
++# thread).
++# Shell._inthread is False when this class is run in the same thread as the
++# reactor, e.g. the 2nd way.
++# The only thing that differs is availability of fetch() (it needs the
++# reactor to be in a separate thread: the shell sends the request to
++# the reactor and waits for the result synchronously).
++#
++# Thus the only thing Shell needs an event loop for is fetch(). More machinery
++# is used for it to work. In chronological order:
++# 1. scrapy.commands.shell.Command.run() creates a crawler and an engine, then
++# calls
++# _schedule_coro(crawler.engine.start_async(_start_request_processing=False)),
++# which initializes the engine but doesn't start processing of requests.
++# 2. scrapy.commands.shell.Command.run() calls crawler_process.start() in a
++# thread which starts a reactor in that thread.
++# 3. When fetch() is called, it prepares a request and calls Shell._schedule()
++# in the reactor thread (via threads.blockingCallFromThread()).
++# 4. Shell._schedule() calls Shell._open_spider() (on the first call).
++# 5. Shell._open_spider() calls engine.open_spider_async(close_if_idle=False)
++# and engine._start_request_processing().
++# 6. Shell._schedule() calls engine.crawl(request), scheduling the request.
++# 7. Shell._schedule() via _request_deferred() waits until the request callback
++# is called. When it's called, the response becomes available.
++#
++# In the reactorless mode this is slightly different, the engine initialization
++# happens in the event loop thread as many things need either a reactor or a
++# running event loop.
++#
++# Side note: it should be possible to remove _request_deferred() by using
++# engine.download() instead of engine.schedule(), losing the usual stuff like
++# spider middlewares (none of which should be important).
++#
++# Other architecture problems:
++# * scrapy.cmdline.execute() creates an AsyncCrawlerProcess instance which
++#   immediately installs a reactor (which is maybe not thread-specific?) or an
++#   event loop (which *is* thread-specific, so the main thread will always have
++#   a (not running) loop installed.
++# * scrapy.commands.shell.Command.run() calls _schedule_coro() in the main
++#   thread, and various engine init code also calls similar things,
++#   conceptually this shouldn't work (and doesn't in the reactorless mode, so
++#   there the initialization is moved to the event loop thread).
++# * The engine has several code paths specifically for the shell, and the shell
++#   uses several private members of the engine and of AsyncCrawlerProcess.
++
+ 
+ class Shell:
+     relevant_classes: tuple[type, ...] = (Crawler, Spider, Request, Response, Settings)
+@@ -43,21 +104,47 @@ class Shell:
+         crawler: Crawler,
+         update_vars: Callable[[dict[str, Any]], None] | None = None,
+         code: str | None = None,
++        *,
++        loop: asyncio.AbstractEventLoop | None = None,
+     ):
+-        self.crawler: Crawler = crawler
+-        if not crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):  # pragma: no cover
++        self._use_reactor = crawler.settings.getbool("TWISTED_REACTOR_ENABLED")
++        if not self._use_reactor and not loop:  # pragma: no cover
+             raise RuntimeError(
+-                f"{global_object_name(self.__class__)} currently doesn't support TWISTED_REACTOR_ENABLED=False."
++                "Shell needs the crawler loop reference when TWISTED_REACTOR_ENABLED=False."
+             )
++        self._loop = loop
++        self.crawler: Crawler = crawler
+         self.update_vars: Callable[[dict[str, Any]], None] = update_vars or (
+             lambda x: None
+         )
+         self.item_class: type = load_object(crawler.settings["DEFAULT_ITEM_CLASS"])
+         self.spider: Spider | None = None
+-        self.inthread: bool = not threadable.isInIOThread()
++        if self._use_reactor:
++            self._inthread: bool = not threadable.isInIOThread()
++        else:
++            try:
++                # in case there is also a running loop in the main thread
++                current_loop = asyncio.get_running_loop()
++                self._inthread = current_loop is not self._loop
++            except RuntimeError:
++                self._inthread = True
+         self.code: str | None = code
+         self.vars: dict[str, Any] = {}
+ 
++    @property
++    def inthread(self) -> bool:  # pragma: no cover
++        warnings.warn(
++            "Shell.inthread is deprecated, use Shell.fetch_available instead.",
++            ScrapyDeprecationWarning,
++            stacklevel=2,
++        )
++        return self._inthread
++
++    @property
++    def fetch_available(self) -> bool:
++        """Whether fetch() can be used."""
++        return self._inthread
++
+     def start(
+         self,
+         url: str | None = None,
+@@ -103,28 +190,24 @@ class Shell:
+                 self.vars, shells=shells, banner=self.vars.pop("banner", "")
+             )
+ 
+-    def _schedule(self, request: Request, spider: Spider | None) -> defer.Deferred[Any]:
+-        if is_asyncio_reactor_installed():
++    async def _schedule(self, request: Request, spider: Spider | None) -> Response:
++        """Send the request to the engine, wait for the result.
++
++        Runs in the reactor thread.
++        """
++        if self._use_reactor and is_asyncio_reactor_installed():
+             # set the asyncio event loop for the current thread
+             event_loop_path = self.crawler.settings["ASYNCIO_EVENT_LOOP"]
+             set_asyncio_event_loop(event_loop_path)
+-
+-        def crawl_request(_: None) -> None:
+-            assert self.crawler.engine is not None
+-            self.crawler.engine.crawl(request)
+-
+-        d2 = self._open_spider(request, spider)
+-        d2.addCallback(crawl_request)
+-
+-        d = _request_deferred(request)
+-        d.addCallback(lambda x: (x, spider))
+-        return d
+-
+-    @deferred_f_from_coro_f
+-    async def _open_spider(self, request: Request, spider: Spider | None) -> None:
+-        if self.spider:
+-            return
+-
++        if not self.spider:
++            await self._open_spider(spider)
++        assert self.crawler.engine is not None
++        # send the request to the engine
++        self.crawler.engine.crawl(request)
++        # this will fire when the request callback runs (via the callback hijacking in _request_deferred())
++        return await maybe_deferred_to_future(_request_deferred(request))
++
++    async def _open_spider(self, spider: Spider | None) -> None:
+         if spider is None:
+             spider = self.crawler.spider or self.crawler._create_spider()
+ 
+@@ -141,8 +224,6 @@ class Shell:
+         redirect: bool = True,
+         **kwargs: Any,
+     ) -> None:
+-        from twisted.internet import reactor
+-
+         if isinstance(request_or_url, Request):
+             request = request_or_url
+         else:
+@@ -154,12 +235,22 @@ class Shell:
+                 )
+             else:
+                 request.meta["handle_httpstatus_all"] = True
+-        response = None
+-        with contextlib.suppress(IgnoreRequest):
+-            response, spider = threads.blockingCallFromThread(
+-                reactor, self._schedule, request, spider
+-            )
+-        self.populate_vars(response, request, spider)
++        response: Response | None = None
++        if self._use_reactor:
++            from twisted.internet import reactor
++
++            with contextlib.suppress(IgnoreRequest):
++                response = threads.blockingCallFromThread(
++                    reactor, deferred_f_from_coro_f(self._schedule), request, spider
++                )
++        else:
++            assert self._loop
++            with contextlib.suppress(IgnoreRequest):
++                future = asyncio.run_coroutine_threadsafe(
++                    self._schedule(request, spider), self._loop
++                )
++                response = future.result()
++        self.populate_vars(response, request, self.spider)
+ 
+     def populate_vars(
+         self,
+@@ -174,7 +265,7 @@ class Shell:
+         self.vars["spider"] = spider
+         self.vars["request"] = request
+         self.vars["response"] = response
+-        if self.inthread:
++        if self.fetch_available:
+             self.vars["fetch"] = self.fetch
+         self.vars["view"] = open_in_browser
+         self.vars["shelp"] = self.print_help
+@@ -195,7 +286,7 @@ class Shell:
+             if self._is_relevant(v):
+                 b.append(f"  {k:<10} {v}")
+         b.append("Useful shortcuts:")
+-        if self.inthread:
++        if self.fetch_available:
+             b.append(
+                 "  fetch(url[, redirect=True]) "
+                 "Fetch URL and update local objects (by default, redirects are followed)"
+@@ -218,11 +309,15 @@ def inspect_response(response: Response, spider: Spider) -> None:
+     # Shell.start removes the SIGINT handler, so save it and re-add it after
+     # the shell has closed
+     sigint_handler = signal.getsignal(signal.SIGINT)
+-    Shell(spider.crawler).start(response=response, spider=spider)
++    if not spider.crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):
++        loop = asyncio.get_running_loop()
++    else:
++        loop = None
++    Shell(spider.crawler, loop=loop).start(response=response, spider=spider)
+     signal.signal(signal.SIGINT, sigint_handler)
+ 
+ 
+-def _request_deferred(request: Request) -> defer.Deferred[Any]:
++def _request_deferred(request: Request) -> Deferred[Any]:
+     """Wrap a request inside a Deferred.
+ 
+     This function is harmful, do not use it until you know what you are doing.
+@@ -241,7 +336,7 @@ def _request_deferred(request: Request) -> defer.Deferred[Any]:
+         request.errback = request_errback
+         return result
+ 
+-    d: defer.Deferred[Any] = defer.Deferred()
++    d: Deferred[Any] = Deferred()
+     d.addBoth(_restore_callbacks)
+     if request.callback:
+         d.addCallback(request.callback)

@@ -1,0 +1,84 @@
+diff --git a/lib/matplotlib/dates.py b/lib/matplotlib/dates.py
+index 0766156d64..0792225640 100644
+--- a/lib/matplotlib/dates.py
++++ b/lib/matplotlib/dates.py
+@@ -592,14 +592,8 @@ def drange(dstart, dend, delta):
+ 
+ 
+ def _wrap_in_tex(text):
+-    p = r'([a-zA-Z]+)'
+-    ret_text = re.sub(p, r'}$\1$\\mathdefault{', text)
+-
+     # Braces ensure dashes are not spaced like binary operators.
+-    ret_text = '$\\mathdefault{'+ret_text.replace('-', '{-}')+'}$'
+-    ret_text = ret_text.replace('$\\mathdefault{}$', '')
+-    return ret_text
+-
++    return '$\\mathdefault{' + text.replace('-', '{-}') + '}$'
+ 
+ ## date tickers and formatters ###
+ 
+diff --git a/lib/matplotlib/tests/test_dates.py b/lib/matplotlib/tests/test_dates.py
+index 96a3db1730..3e3f67f6ac 100644
+--- a/lib/matplotlib/tests/test_dates.py
++++ b/lib/matplotlib/tests/test_dates.py
+@@ -325,9 +325,9 @@ def test_date_formatter_callable():
+     (datetime.timedelta(weeks=52 * 200),
+      [r'$\mathdefault{%d}$' % (year,) for year in range(1990, 2171, 20)]),
+     (datetime.timedelta(days=30),
+-     [r'Jan$\mathdefault{ %02d 1990}$' % (day,) for day in range(1, 32, 3)]),
++     [r'$\mathdefault{1990{-}01{-}%02d}$' % (day,) for day in range(1, 32, 3)]),
+     (datetime.timedelta(hours=20),
+-     [r'$\mathdefault{%02d:00:00}$' % (hour,) for hour in range(0, 21, 2)]),
++     [r'$\mathdefault{01{-}01 %02d}$' % (hour,) for hour in range(0, 21, 2)]),
+ ])
+ def test_date_formatter_usetex(delta, expected):
+     d1 = datetime.datetime(1990, 1, 1)
+@@ -545,15 +545,15 @@ def test_concise_formatter():
+                 [str(t) for t in range(1980, 2201, 20)]
+                 ],
+                [datetime.timedelta(weeks=52),
+-                ['1997', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
++                ['1997', '$\\mathdefault{Feb}$', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+                  'Sep', 'Oct', 'Nov', 'Dec']
+                 ],
+                [datetime.timedelta(days=141),
+-                ['Jan', '15', 'Feb', '15', 'Mar', '15', 'Apr', '15',
++                ['Jan', '15', '$\\mathdefault{Feb}$', '15', 'Mar', '15', 'Apr', '15',
+                  'May', '15']
+                 ],
+                [datetime.timedelta(days=40),
+-                ['Jan', '05', '09', '13', '17', '21', '25', '29', 'Feb',
++                ['Jan', '05', '09', '13', '17', '21', '25', '29', '$\\mathdefault{Feb}$',
+                  '05', '09']
+                 ],
+                [datetime.timedelta(hours=40),
+@@ -604,15 +604,15 @@ def test_concise_formatter_show_offset(t_delta, expected):
+     (datetime.timedelta(weeks=52 * 200),
+      ['$\\mathdefault{%d}$' % (t, ) for t in range(1980, 2201, 20)]),
+     (datetime.timedelta(days=40),
+-     ['Jan', '$\\mathdefault{05}$', '$\\mathdefault{09}$',
++     ['$\\mathdefault{Jan}$', '$\\mathdefault{05}$', '$\\mathdefault{09}$',
+       '$\\mathdefault{13}$', '$\\mathdefault{17}$', '$\\mathdefault{21}$',
+-      '$\\mathdefault{25}$', '$\\mathdefault{29}$', 'Feb',
++      '$\\mathdefault{25}$', '$\\mathdefault{29}$', '$\\mathdefault{Feb}$',
+       '$\\mathdefault{05}$', '$\\mathdefault{09}$']),
+     (datetime.timedelta(hours=40),
+-     ['Jan$\\mathdefault{{-}01}$', '$\\mathdefault{04:00}$',
++     ['$\\mathdefault{Jan{-}01}$', '$\\mathdefault{04:00}$',
+       '$\\mathdefault{08:00}$', '$\\mathdefault{12:00}$',
+       '$\\mathdefault{16:00}$', '$\\mathdefault{20:00}$',
+-      'Jan$\\mathdefault{{-}02}$', '$\\mathdefault{04:00}$',
++      '$\\mathdefault{Jan{-}02}$', '$\\mathdefault{04:00}$',
+       '$\\mathdefault{08:00}$', '$\\mathdefault{12:00}$',
+       '$\\mathdefault{16:00}$']),
+     (datetime.timedelta(seconds=2),
+@@ -709,7 +709,7 @@ def test_concise_formatter_zformats():
+                 [str(t) for t in range(1980, 2201, 20)]
+                 ],
+                [datetime.timedelta(weeks=52),
+-                ["'97", 'Feb', 'Mar', 'Apr', 'May', 'Jun',
++                ["'97", '$\\mathdefault{Feb}$', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                 ],
+                [datetime.timedelta(days=141),

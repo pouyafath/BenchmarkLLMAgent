@@ -1,0 +1,42 @@
+diff --git a/src/flask/testing.py b/src/flask/testing.py
+index a972a3f5..8b2ef632 100644
+--- a/src/flask/testing.py
++++ b/src/flask/testing.py
+@@ -10,6 +10,19 @@ from click.testing import CliRunner
+ from werkzeug.test import Client
+ from werkzeug.wrappers import Request as BaseRequest
+ 
++try:
++    from importlib.metadata import version as importlib_version
++except ImportError:
++    # Python < 3.8
++    from importlib_metadata import version as importlib_version
++
++
++# Backward compatibility for werkzeug.__version__ which was removed in Werkzeug 3.0
++try:
++    if not hasattr(werkzeug, '__version__'):
++        werkzeug.__version__ = importlib_version('werkzeug')
++except:
++    pass
+ from .cli import ScriptInfo
+ from .sessions import SessionMixin
+ 
+@@ -113,7 +126,7 @@ class FlaskClient(Client):
+         self._context_stack = ExitStack()
+         self.environ_base = {
+             "REMOTE_ADDR": "127.0.0.1",
+-            "HTTP_USER_AGENT": f"werkzeug/{werkzeug.__version__}",
++            "HTTP_USER_AGENT": f"werkzeug/{importlib_version('werkzeug')}",
+         }
+ 
+     @contextmanager
+@@ -169,7 +182,7 @@ class FlaskClient(Client):
+ 
+         if hasattr(self, "_update_cookies_from_response"):
+             self._update_cookies_from_response(
+-                ctx.request.host.partition(":")[0], resp.headers.getlist("Set-Cookie")
++                ctx.request.host.partition(":")[0], ctx.request.path, resp.headers.getlist("Set-Cookie")
+             )
+         else:
+             self.cookie_jar.extract_wsgi(  # type: ignore[union-attr]

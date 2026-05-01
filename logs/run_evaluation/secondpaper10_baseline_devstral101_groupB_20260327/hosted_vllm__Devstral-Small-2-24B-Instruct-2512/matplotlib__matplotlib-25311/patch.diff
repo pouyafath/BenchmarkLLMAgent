@@ -1,0 +1,47 @@
+diff --git a/lib/matplotlib/offsetbox.py b/lib/matplotlib/offsetbox.py
+index 1dee8a23d9..bd867199ba 100644
+--- a/lib/matplotlib/offsetbox.py
++++ b/lib/matplotlib/offsetbox.py
+@@ -1577,6 +1577,42 @@ class DraggableBase:
+     def update_offset(self, dx, dy):
+         pass
+ 
++
++    def __getstate__(self):
++        state = self.__dict__.copy()
++        # Remove unpicklable attributes
++        state.pop('canvas', None)
++        state.pop('cids', None)
++        state.pop('_c1', None)
++        state.pop('background', None)
++        return state
++
++    def __setstate__(self, state):
++        # Restore the state, but don't restore unpicklable attributes
++        self.__dict__.update(state)
++        # Reinitialize canvas and callbacks when unpickling
++        if hasattr(self, 'ref_artist') and self.ref_artist is not None:
++            # Get the figure from the ref_artist
++            # For legends, ref_artist is the legend, which has an axes attribute
++            # For other artists, ref_artist may have a figure attribute directly
++            if hasattr(self.ref_artist, 'figure'):
++                figure = self.ref_artist.figure
++            elif hasattr(self.ref_artist, 'axes') and hasattr(self.ref_artist.axes, 'figure'):
++                figure = self.ref_artist.axes.figure
++            else:
++                # Cannot restore canvas, leave it as None
++                return
++
++            self.canvas = figure.canvas
++            self._use_blit = self._use_blit and self.canvas.supports_blit
++            self.cids = [
++                self.canvas.callbacks._connect_picklable(
++                    'pick_event', self.on_pick),
++                self.canvas.callbacks._connect_picklable(
++                    'button_release_event', self.on_release),
++            ]
++        # Reset transient state
++        self.got_artist = False
+     def finalize_offset(self):
+         pass
+ 

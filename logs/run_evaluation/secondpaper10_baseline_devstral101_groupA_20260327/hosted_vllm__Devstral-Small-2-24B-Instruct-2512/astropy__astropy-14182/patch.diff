@@ -1,0 +1,49 @@
+diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py
+index abdeba8ef..988f2e1d1 100644
+--- a/astropy/io/ascii/rst.py
++++ b/astropy/io/ascii/rst.py
+@@ -37,10 +37,28 @@ class RST(FixedWidth):
+ 
+     See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables
+ 
+-    Example::
++    Parameters
++    ----------
++    header_rows : list, optional
++        List of column metadata attributes to include as header rows.
++        Default is ``['name']``, which includes only column names.
++        For example, ``['name', 'unit']`` will include both column names and units.
++
++    Examples::
++
++        ==== ===== ======
++        Col1  Col2  Col3
++        ==== ===== ======
++          1    2.3  Hello
++          2    4.5  Worlds
++        ==== ===== ======
++
++        With header_rows=['name', 'unit']::
+ 
+         ==== ===== ======
+         Col1  Col2  Col3
++        ==== ===== ======
++        nm    m     s
+         ==== ===== ======
+           1    2.3  Hello
+           2    4.5  Worlds
+@@ -57,8 +75,12 @@ class RST(FixedWidth):
+     data_class = SimpleRSTData
+     header_class = SimpleRSTHeader
+ 
+-    def __init__(self):
+-        super().__init__(delimiter_pad=None, bookend=False)
++    def __init__(self, header_rows=None):
++        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
++        # Adjust data start line based on number of header rows
++        # Each header row is followed by a position line, so data starts at:
++        # 2 * len(header_rows) + 1
++        self.data.start_line = 2 * len(self.header.header_rows) + 1
+ 
+     def write(self, lines):
+         lines = super().write(lines)

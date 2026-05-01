@@ -1,0 +1,24 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..2034377ca 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -872,6 +872,19 @@ class SkyCoord(ShapedLikeNDArray):
+         to, based on the alias attr in the primary transform graph.
+         """
+         if "_sky_coord_frame" in self.__dict__:
++            # Check if this is a property or descriptor in the class hierarchy
++            for cls in self.__class__.__mro__:
++                if attr in cls.__dict__ and hasattr(cls.__dict__[attr], "__get__"):
++                    # This is a descriptor (property, etc.), let normal lookup handle it
++                    # by raising the original AttributeError from within the descriptor
++                    # We do this by not handling it here and letting the normal mechanism work
++                    # Store the original error and re-raise it
++                    try:
++                        # Try to get the attribute normally - this will call the property getter
++                        return object.__getattribute__(self, attr)
++                    except AttributeError as original_error:
++                        # Re-raise the original error to preserve the correct error message
++                        raise original_error
+             if self._is_name(attr):
+                 return self  # Should this be a deepcopy of self?
+ 

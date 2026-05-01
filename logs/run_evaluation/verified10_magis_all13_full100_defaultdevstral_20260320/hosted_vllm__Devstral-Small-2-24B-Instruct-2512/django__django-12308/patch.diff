@@ -1,0 +1,32 @@
+diff --git a/django/contrib/admin/utils.py b/django/contrib/admin/utils.py
+index e4ddc8f017..bd43b29bab 100644
+--- a/django/contrib/admin/utils.py
++++ b/django/contrib/admin/utils.py
+@@ -398,6 +398,10 @@ def display_for_field(value, field, empty_value_display):
+         return formats.number_format(value)
+     elif isinstance(field, models.FileField) and value:
+         return format_html('<a href="{}">{}</a>', value.url, value)
++    elif hasattr(field, "prepare_value"):
++        return field.prepare_value(value)
++    elif isinstance(field, models.JSONField):
++        return field.prepare_value(value)
+     else:
+         return display_for_value(value, empty_value_display)
+ 
+diff --git a/django/db/models/fields/json.py b/django/db/models/fields/json.py
+index edc5441799..c96df12f76 100644
+--- a/django/db/models/fields/json.py
++++ b/django/db/models/fields/json.py
+@@ -113,6 +113,12 @@ class JSONField(CheckFieldDefaultMixin, Field):
+     def value_to_string(self, obj):
+         return self.value_from_object(obj)
+ 
++    def prepare_value(self, value):
++        from django.forms.fields import InvalidJSONInput
++        if isinstance(value, InvalidJSONInput):
++            return value
++        return json.dumps(value, cls=self.encoder)
++
+     def formfield(self, **kwargs):
+         return super().formfield(**{
+             'form_class': forms.JSONField,

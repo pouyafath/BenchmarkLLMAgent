@@ -1,0 +1,33 @@
+diff --git a/django/db/backends/ddl_references.py b/django/db/backends/ddl_references.py
+index 44e49806f8..9739b45fe9 100644
+--- a/django/db/backends/ddl_references.py
++++ b/django/db/backends/ddl_references.py
+@@ -84,7 +84,10 @@ class Columns(TableColumns):
+     def __str__(self):
+         def col_str(column, idx):
+             try:
+-                return self.quote_name(column) + self.col_suffixes[idx]
++                suffix = self.col_suffixes[idx]
++                if suffix:  # Only add space and suffix if it's not empty
++                    return '{} {}'.format(self.quote_name(column), suffix)
++                return self.quote_name(column)
+             except IndexError:
+                 return self.quote_name(column)
+ 
+@@ -112,9 +115,14 @@ class IndexColumns(Columns):
+         def col_str(column, idx):
+             # Index.__init__() guarantees that self.opclasses is the same
+             # length as self.columns.
+-            col = '{} {}'.format(self.quote_name(column), self.opclasses[idx])
++            col = self.quote_name(column)
++            opclass = self.opclasses[idx]
++            if opclass:  # Only add space and opclass if it's not empty
++                col = '{} {}'.format(col, opclass)
+             try:
+-                col = '{} {}'.format(col, self.col_suffixes[idx])
++                suffix = self.col_suffixes[idx]
++                if suffix:  # Only add space and suffix if it's not empty
++                    col = '{} {}'.format(col, suffix)
+             except IndexError:
+                 pass
+             return col

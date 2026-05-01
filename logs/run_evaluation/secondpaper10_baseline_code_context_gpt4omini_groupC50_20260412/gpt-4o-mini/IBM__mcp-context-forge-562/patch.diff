@@ -1,0 +1,213 @@
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..fba5b73a 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -34,7 +34,7 @@ Examples:
+         ...     await discovery.start()
+         ...
+         ...     # Add a manual peer
+-        ...     await discovery.add_peer("http://gateway.example.com:8080", "manual")
++        ...     await discovery.add_peer("{get_protocol_from_request(request)}://gateway.example.com:8080", "manual")
+         ...
+         ...     # Get discovered peers
+         ...     peers = discovery.get_discovered_peers()
+@@ -49,7 +49,7 @@ Examples:
+ 
+         >>> from datetime import datetime, timezone
+         >>> peer = DiscoveredPeer(
+-        ...     url="http://localhost:8080",
++        ...     url="{get_protocol_from_request(request)}://localhost:8080",
+         ...     name="test-gateway",
+         ...     protocol_version="2025-03-26",
+         ...     capabilities=None,
+@@ -58,7 +58,7 @@ Examples:
+         ...     source="manual"
+         ... )
+         >>> print(peer.url)
+-        http://localhost:8080
++        {get_protocol_from_request(request)}://localhost:8080
+ """
+ 
+ # Standard
+@@ -106,7 +106,7 @@ class DiscoveredPeer:
+     Examples:
+         >>> from datetime import datetime, timezone
+         >>> peer = DiscoveredPeer(
+-        ...     url="http://gateway1.local:8080",
++        ...     url="{get_protocol_from_request(request)}://gateway1.local:8080",
+         ...     name="Gateway 1",
+         ...     protocol_version="2025-03-26",
+         ...     capabilities=None,
+@@ -115,7 +115,7 @@ class DiscoveredPeer:
+         ...     source="dns-sd"
+         ... )
+         >>> print(f"{peer.name} at {peer.url}")
+-        Gateway 1 at http://gateway1.local:8080
++        Gateway 1 at {get_protocol_from_request(request)}://gateway1.local:8080
+         >>> peer.protocol_version
+         '2025-03-26'
+         >>> peer.source
+@@ -255,7 +255,7 @@ class DiscoveryService(LocalDiscoveryService):
+         ...     await service.start()
+         ...
+         ...     # Add a peer manually
+-        ...     added = await service.add_peer("http://peer1.local:8080", "manual")
++        ...     added = await service.add_peer("{get_protocol_from_request(request)}://peer1.local:8080", "manual")
+         ...
+         ...     # Get all discovered peers
+         ...     peers = service.get_discovered_peers()
+@@ -382,7 +382,7 @@ class DiscoveryService(LocalDiscoveryService):
+         the discovered peers list.
+ 
+         Args:
+-            url (str): Gateway URL (e.g., "http://gateway.example.com:8080").
++            url (str): Gateway URL (e.g., "{get_protocol_from_request(request)}://gateway.example.com:8080").
+             source (str): Discovery source (e.g., "static", "dns-sd", "manual").
+             name (Optional[str]): Optional human-readable gateway name.
+ 
+@@ -394,7 +394,7 @@ class DiscoveryService(LocalDiscoveryService):
+             >>> async def test_add_peer():
+             ...     service = DiscoveryService()
+             ...     # Valid URL
+-            ...     result = await service.add_peer("http://localhost:8080", "manual")
++            ...     result = await service.add_peer("{get_protocol_from_request(request)}://localhost:8080", "manual")
+             ...     # Invalid URL
+             ...     invalid = await service.add_peer("not-a-url", "manual")
+             ...     return result, invalid
+@@ -458,8 +458,8 @@ class DiscoveryService(LocalDiscoveryService):
+             0
+             >>> # Add a peer manually (sync example)
+             >>> from datetime import datetime, timezone
+-            >>> service._discovered_peers["http://test.com"] = DiscoveredPeer(
+-            ...     url="http://test.com",
++            >>> service._discovered_peers["{get_protocol_from_request(request)}://test.com"] = DiscoveredPeer(
++            ...     url="{get_protocol_from_request(request)}://test.com",
+             ...     name="Test",
+             ...     protocol_version="2025-03-26",
+             ...     capabilities=None,
+@@ -471,7 +471,7 @@ class DiscoveryService(LocalDiscoveryService):
+             >>> len(peers)
+             1
+             >>> peers[0].url
+-            'http://test.com'
++            '{get_protocol_from_request(request)}://test.com'
+         """
+         return list(self._discovered_peers.values())
+ 
+@@ -491,11 +491,11 @@ class DiscoveryService(LocalDiscoveryService):
+             >>> async def test_refresh():
+             ...     service = DiscoveryService()
+             ...     # Add a peer first
+-            ...     await service.add_peer("http://localhost:8080", "manual")
++            ...     await service.add_peer("{get_protocol_from_request(request)}://localhost:8080", "manual")
+             ...     # Refresh it
+-            ...     refreshed = await service.refresh_peer("http://localhost:8080")
++            ...     refreshed = await service.refresh_peer("{get_protocol_from_request(request)}://localhost:8080")
+             ...     # Unknown peer
+-            ...     unknown = await service.refresh_peer("http://unknown:8080")
++            ...     unknown = await service.refresh_peer("{get_protocol_from_request(request)}://unknown:8080")
+             ...     return refreshed, unknown
+             >>> # refreshed, unknown = asyncio.run(test_refresh())
+         """
+@@ -524,8 +524,8 @@ class DiscoveryService(LocalDiscoveryService):
+             >>> import asyncio
+             >>> async def test_remove():
+             ...     service = DiscoveryService()
+-            ...     await service.add_peer("http://localhost:8080", "manual")
+-            ...     await service.remove_peer("http://localhost:8080")
++            ...     await service.add_peer("{get_protocol_from_request(request)}://localhost:8080", "manual")
++            ...     await service.remove_peer("{get_protocol_from_request(request)}://localhost:8080")
+             ...     peers = service.get_discovered_peers()
+             ...     return len(peers)
+             >>> # count = asyncio.run(test_remove())
+@@ -534,8 +534,8 @@ class DiscoveryService(LocalDiscoveryService):
+             >>> from datetime import datetime, timezone
+             >>> service = DiscoveryService()
+             >>> # Add a peer directly
+-            >>> service._discovered_peers["http://test.com"] = DiscoveredPeer(
+-            ...     url="http://test.com",
++            >>> service._discovered_peers["{get_protocol_from_request(request)}://test.com"] = DiscoveredPeer(
++            ...     url="{get_protocol_from_request(request)}://test.com",
+             ...     name="Test",
+             ...     protocol_version="2025-03-26",
+             ...     capabilities=None,
+@@ -546,12 +546,12 @@ class DiscoveryService(LocalDiscoveryService):
+             >>> len(service._discovered_peers)
+             1
+             >>> # Remove it (sync version for testing)
+-            >>> service._discovered_peers.pop("http://test.com", None) is not None
++            >>> service._discovered_peers.pop("{get_protocol_from_request(request)}://test.com", None) is not None
+             True
+             >>> len(service._discovered_peers)
+             0
+             >>> # Safe to remove non-existent
+-            >>> service._discovered_peers.pop("http://nonexistent.com", None) is None
++            >>> service._discovered_peers.pop("{get_protocol_from_request(request)}://nonexistent.com", None) is None
+             True
+         """
+         self._discovered_peers.pop(url, None)
+@@ -583,7 +583,7 @@ class DiscoveryService(LocalDiscoveryService):
+                     addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
+                     if addresses:
+                         port = info.port
+-                        url = f"http://{addresses[0]}:{port}"
++                        url = f"{get_protocol_from_request(request)}://{addresses[0]}:{port}"
+                         name = info.properties.get(b"name", b"").decode()
+ 
+                         # Add peer
+@@ -726,3 +726,10 @@ class DiscoveryService(LocalDiscoveryService):
+         """
+         api_key = f"{settings.basic_auth_user}:{settings.basic_auth_password}"
+         return {"Authorization": f"Basic {api_key}", "X-API-Key": api_key}
++
++def get_protocol_from_request(request):
++    forwarded_proto = request.headers.get('X-Forwarded-Proto')
++    if forwarded_proto:
++        return forwarded_proto
++    return 'https' if request.url.scheme == 'https' else 'http'
++
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..36ea6a1e 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -42,9 +42,9 @@ class SSETransport(Transport):
+         <mcpgateway.transports.sse_transport.SSETransport object at ...>
+ 
+         >>> # Create SSE transport with custom URL
+-        >>> transport = SSETransport("http://localhost:8080")
++        >>> transport = SSETransport("{get_protocol_from_request(request)}://localhost:8080")
+         >>> transport._base_url
+-        'http://localhost:8080'
++        '{get_protocol_from_request(request)}://localhost:8080'
+ 
+         >>> # Check initial connection state
+         >>> import asyncio
+@@ -105,7 +105,7 @@ class SSETransport(Transport):
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        self._base_url = base_url or f"{get_protocol_from_request(request)}://{settings.host}:{settings.port}"
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()
+@@ -325,7 +325,7 @@ class SSETransport(Transport):
+ 
+         Examples:
+             >>> # Test SSE response creation
+-            >>> transport = SSETransport("http://localhost:8000")
++            >>> transport = SSETransport("{get_protocol_from_request(request)}://localhost:8000")
+             >>> # Note: This method requires a FastAPI Request object
+             >>> # and cannot be easily tested in doctest environment
+             >>> callable(transport.create_sse_response)
+@@ -458,3 +458,10 @@ class SSETransport(Transport):
+             True
+         """
+         return self._session_id
++
++def get_protocol_from_request(request):
++    forwarded_proto = request.headers.get('X-Forwarded-Proto')
++    if forwarded_proto:
++        return forwarded_proto
++    return 'https' if request.url.scheme == 'https' else 'http'
++

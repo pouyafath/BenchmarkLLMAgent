@@ -1,0 +1,24 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..5ed777262 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -895,10 +895,15 @@ class SkyCoord(ShapedLikeNDArray):
+                 return self.transform_to(attr)
+ 
+         # Fail
+-        raise AttributeError(
+-            f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+-        )
+-
++        # If we get here, the attribute is not found through any of the
++        # special handling above. Check if it's a property/method defined
++        # in the class - if so, use object.__getattribute__ to let Python's
++        # normal error handling take place for proper error messages.
++        if attr not in self.__class__.__dict__:
++            # This is truly a missing attribute, raise AttributeError
++            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{attr}'")
++        # For properties/methods, use object.__getattribute__ to get proper error messages
++        return object.__getattribute__(self, attr)
+     def __setattr__(self, attr, val):
+         # This is to make anything available through __getattr__ immutable
+         if "_sky_coord_frame" in self.__dict__:

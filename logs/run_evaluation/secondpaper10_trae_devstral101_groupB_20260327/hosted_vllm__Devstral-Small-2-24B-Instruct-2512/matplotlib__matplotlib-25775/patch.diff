@@ -1,0 +1,257 @@
+diff --git a/lib/matplotlib/backends/backend_agg.py b/lib/matplotlib/backends/backend_agg.py
+index 7d038a998f..22907b00d9 100644
+--- a/lib/matplotlib/backends/backend_agg.py
++++ b/lib/matplotlib/backends/backend_agg.py
+@@ -206,7 +206,7 @@ class RendererAgg(RendererBase):
+         # space) in the following call to draw_text_image).
+         font.set_text(s, 0, flags=get_hinting_flag())
+         font.draw_glyphs_to_bitmap(
+-            antialiased=mpl.rcParams['text.antialiased'])
++            antialiased=gc.get_antialiased())
+         d = font.get_descent() / 64.0
+         # The descent needs to be adjusted for the angle.
+         xo, yo = font.get_bitmap_offset()
+diff --git a/lib/matplotlib/backends/backend_cairo.py b/lib/matplotlib/backends/backend_cairo.py
+index 9ccadcdf1c..7f1888b4dd 100644
+--- a/lib/matplotlib/backends/backend_cairo.py
++++ b/lib/matplotlib/backends/backend_cairo.py
+@@ -205,7 +205,7 @@ class RendererCairo(RendererBase):
+             ctx.set_font_size(self.points_to_pixels(prop.get_size_in_points()))
+             opts = cairo.FontOptions()
+             opts.set_antialias(
+-                cairo.ANTIALIAS_DEFAULT if mpl.rcParams["text.antialiased"]
++                cairo.ANTIALIAS_DEFAULT if gc.get_antialiased()
+                 else cairo.ANTIALIAS_NONE)
+             ctx.set_font_options(opts)
+             if angle:
+diff --git a/lib/matplotlib/text.py b/lib/matplotlib/text.py
+index 4591316cf9..07abfe421f 100644
+--- a/lib/matplotlib/text.py
++++ b/lib/matplotlib/text.py
+@@ -103,7 +103,7 @@ class Text(Artist):
+ 
+     def __init__(self,
+                  x=0, y=0, text='', *,
+-                 color=None,           # defaults to rc params
++                 color=None, antialiased=None,           # defaults to rc params
+                  verticalalignment='baseline',
+                  horizontalalignment='left',
+                  multialignment=None,
+@@ -136,7 +136,7 @@ class Text(Artist):
+         self._x, self._y = x, y
+         self._text = ''
+         self._reset_visual_defaults(
+-            text=text,
++            text=text, antialiased=antialiased,
+             color=color,
+             fontproperties=fontproperties,
+             usetex=usetex,
+@@ -187,6 +187,7 @@ class Text(Artist):
+             linespacing = 1.2  # Maybe use rcParam later.
+         self.set_linespacing(linespacing)
+         self.set_rotation_mode(rotation_mode)
++        self.set_antialiased(antialiased)
+ 
+     def update(self, kwargs):
+         # docstring inherited
+@@ -303,7 +304,6 @@ class Text(Artist):
+         """
+         _api.check_in_list(["anchor", "default", None], rotation_mode=m)
+         self._rotation_mode = m
+-        self.stale = True
+ 
+     def get_rotation_mode(self):
+         """Return the text rotation mode."""
+@@ -322,7 +322,6 @@ class Text(Artist):
+         self._transform_rotates_text = other._transform_rotates_text
+         self._picker = other._picker
+         self._linespacing = other._linespacing
+-        self.stale = True
+ 
+     def _get_layout(self, renderer):
+         """
+@@ -737,6 +736,7 @@ class Text(Artist):
+             gc.set_foreground(self.get_color())
+             gc.set_alpha(self.get_alpha())
+             gc.set_url(self._url)
++            gc.set_antialiased(self.get_antialiased())
+             self._set_gc_clip(gc)
+ 
+             angle = self.get_rotation()
+@@ -774,6 +774,24 @@ class Text(Artist):
+         """Return the color of the text."""
+         return self._color
+ 
++    def get_antialiased(self):
++        """Return whether antialiasing is used for drawing."""
++        return self._antialiased
++
++    def set_antialiased(self, aa):
++        """
++        Set whether to use antialiased rendering.
++
++        Parameters
++        ----------
++        aa : bool or None
++        """
++        if aa is None:
++            aa = mpl.rcParams["text.antialiased"]
++        self._antialiased = aa
++        self.pchanged()
++        self.stale = True
++
+     def get_fontproperties(self):
+         """Return the `.font_manager.FontProperties`."""
+         return self._fontproperties
+@@ -945,7 +963,6 @@ class Text(Artist):
+             self._bbox_patch.update(dict(facecolor=color))
+ 
+         self._update_clip_properties()
+-        self.stale = True
+ 
+     def set_color(self, color):
+         """
+@@ -960,7 +977,6 @@ class Text(Artist):
+         if not cbook._str_equal(color, "auto"):
+             mpl.colors._check_color_like(color=color)
+         self._color = color
+-        self.stale = True
+ 
+     def set_horizontalalignment(self, align):
+         """
+@@ -974,7 +990,6 @@ class Text(Artist):
+         """
+         _api.check_in_list(['center', 'right', 'left'], align=align)
+         self._horizontalalignment = align
+-        self.stale = True
+ 
+     def set_multialignment(self, align):
+         """
+@@ -990,7 +1005,6 @@ class Text(Artist):
+         """
+         _api.check_in_list(['center', 'right', 'left'], align=align)
+         self._multialignment = align
+-        self.stale = True
+ 
+     def set_linespacing(self, spacing):
+         """
+@@ -1004,7 +1018,6 @@ class Text(Artist):
+         """
+         _api.check_isinstance(Real, spacing=spacing)
+         self._linespacing = spacing
+-        self.stale = True
+ 
+     def set_fontfamily(self, fontname):
+         """
+@@ -1028,7 +1041,6 @@ class Text(Artist):
+         .font_manager.FontProperties.set_family
+         """
+         self._fontproperties.set_family(fontname)
+-        self.stale = True
+ 
+     def set_fontvariant(self, variant):
+         """
+@@ -1043,7 +1055,6 @@ class Text(Artist):
+         .font_manager.FontProperties.set_variant
+         """
+         self._fontproperties.set_variant(variant)
+-        self.stale = True
+ 
+     def set_fontstyle(self, fontstyle):
+         """
+@@ -1058,7 +1069,6 @@ class Text(Artist):
+         .font_manager.FontProperties.set_style
+         """
+         self._fontproperties.set_style(fontstyle)
+-        self.stale = True
+ 
+     def set_fontsize(self, fontsize):
+         """
+@@ -1076,7 +1086,6 @@ class Text(Artist):
+         .font_manager.FontProperties.set_size
+         """
+         self._fontproperties.set_size(fontsize)
+-        self.stale = True
+ 
+     def get_math_fontfamily(self):
+         """
+@@ -1127,7 +1136,6 @@ class Text(Artist):
+         .font_manager.FontProperties.set_weight
+         """
+         self._fontproperties.set_weight(weight)
+-        self.stale = True
+ 
+     def set_fontstretch(self, stretch):
+         """
+@@ -1144,7 +1152,6 @@ class Text(Artist):
+         .font_manager.FontProperties.set_stretch
+         """
+         self._fontproperties.set_stretch(stretch)
+-        self.stale = True
+ 
+     def set_position(self, xy):
+         """
+@@ -1166,7 +1173,6 @@ class Text(Artist):
+         x : float
+         """
+         self._x = x
+-        self.stale = True
+ 
+     def set_y(self, y):
+         """
+@@ -1177,7 +1183,6 @@ class Text(Artist):
+         y : float
+         """
+         self._y = y
+-        self.stale = True
+ 
+     def set_rotation(self, s):
+         """
+@@ -1198,7 +1203,6 @@ class Text(Artist):
+         else:
+             raise ValueError("rotation must be 'vertical', 'horizontal' or "
+                              f"a number, not {s}")
+-        self.stale = True
+ 
+     def set_transform_rotates_text(self, t):
+         """
+@@ -1209,7 +1213,6 @@ class Text(Artist):
+         t : bool
+         """
+         self._transform_rotates_text = t
+-        self.stale = True
+ 
+     def set_verticalalignment(self, align):
+         """
+@@ -1225,7 +1228,6 @@ class Text(Artist):
+             ['top', 'bottom', 'center', 'baseline', 'center_baseline'],
+             align=align)
+         self._verticalalignment = align
+-        self.stale = True
+ 
+     def set_text(self, s):
+         r"""
+@@ -1243,7 +1245,6 @@ class Text(Artist):
+             s = ''
+         if s != self._text:
+             self._text = str(s)
+-            self.stale = True
+ 
+     def _preprocess_math(self, s):
+         """
+@@ -1281,7 +1282,6 @@ class Text(Artist):
+             absolute path to a font file.
+         """
+         self._fontproperties = FontProperties._from_any(fp).copy()
+-        self.stale = True
+ 
+     def set_usetex(self, usetex):
+         """
+@@ -1295,7 +1295,6 @@ class Text(Artist):
+             self._usetex = mpl.rcParams['text.usetex']
+         else:
+             self._usetex = bool(usetex)
+-        self.stale = True
+ 
+     def get_usetex(self):
+         """Return whether this `Text` object uses TeX for rendering."""

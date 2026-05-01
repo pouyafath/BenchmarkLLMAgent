@@ -1,0 +1,61 @@
+diff --git a/src/cfnlint/rules/resources/iam/StatementResources.py b/src/cfnlint/rules/resources/iam/StatementResources.py
+index c64216d71..c94a1ec3c 100644
+--- a/src/cfnlint/rules/resources/iam/StatementResources.py
++++ b/src/cfnlint/rules/resources/iam/StatementResources.py
+@@ -152,21 +152,45 @@ class StatementResources(CfnLintKeyword):
+                     if using_fn_arns:
+                         continue
+                     resources = ensure_list(resources)
++
++                    # Collect all allowed ARN formats for this action
++                    allowed_arns = []
+                     for resource in resources:
+                         arn_formats = self.service_map[service]["Resources"][
+                             resource
+-                        ].get("ARNFormats")
++                        ].get("ARNFormats", [])
+                         for arn_format in arn_formats:
+-                            arn = _Arn(arn_format)
+-                            if arn not in all_resource_arns:
+-                                yield ValidationError(
+-                                    (
+-                                        f"action {action!r} requires "
+-                                        f"a resource of {arn_formats!r}"
+-                                    ),
+-                                    path=deque(["Resource"]),
+-                                    rule=self,
+-                                )
++                            allowed_arns.append(_Arn(arn_format))
++
++                    # Check if any of the policy's resources match any of the allowed ARN formats
++                    # For actions that can work with multiple resource types (like ec2:CreateTags),
++                    # we should only report an error if NONE of the policy's resources match ANY allowed type
++                    if allowed_arns and all_resource_arns:
++                        # Check if any policy resource matches any allowed resource
++                        any_match = False
++                        for policy_arn in all_resource_arns:
++                            for allowed_arn in allowed_arns:
++                                if policy_arn == allowed_arn:
++                                    any_match = True
++                                    break
++                            if any_match:
++                                break
++
++                        if not any_match:
++                            # No match found - report error with the first allowed resource as example
++                            first_allowed = allowed_arns[0].parts[5] if allowed_arns else "unknown"
++                            yield ValidationError(
++                                (
++                                    f"action {action!r} requires "
++                                    f"a resource of {arn_formats!r}"
++                                ),
++                                path=deque(["Resource"]),
++                                rule=self,
++                            )
++                    elif not allowed_arns and all_resource_arns:
++                        # This case: action has no specific resource requirements but policy has specific resources
++                        # This might be okay depending on the action
++                        pass
+                 else:
+                     LOGGER.debug(f"action {action!r} requires a resource of '*'")
+                     # yield ValidationError(

@@ -1,0 +1,67 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..fa8f747673 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -201,6 +201,37 @@ validate_string = _make_type_validator(str)
+ validate_string_or_None = _make_type_validator(str, allow_none=True)
+ validate_stringlist = _listify_validator(
+     validate_string, doc='return a list of strings')
++
++def _marker_to_str(marker):
++    """Convert a marker value to its string representation or keep as-is for numeric markers."""
++    if isinstance(marker, str):
++        return marker
++    elif isinstance(marker, int):
++        # Numeric markers should be kept as integers since MarkerStyle accepts them
++        return marker
++    else:
++        # For other types, try to convert to string
++        try:
++            return str(marker)
++        except Exception as e:
++            raise ValueError(f'Could not convert {marker!r} to marker string') from e
++
++def validate_marker(s):
++    """Validate a single marker value, accepting both strings and numeric markers."""
++    if isinstance(s, str):
++        return validate_string(s)
++    elif isinstance(s, int):
++        # Convert numeric marker to its string representation
++        return _marker_to_str(s)
++    else:
++        # For other types, try to convert to string
++        try:
++            return str(s)
++        except Exception as e:
++            raise ValueError(f'Could not convert {s!r} to marker string') from e
++
++validate_markerlist = _listify_validator(
++    validate_marker, doc='return a list of marker strings')
+ validate_int = _make_type_validator(int)
+ validate_int_or_None = _make_type_validator(int, allow_none=True)
+ validate_float = _make_type_validator(float)
+@@ -645,7 +676,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }
+@@ -852,8 +883,14 @@ def validate_cycler(s):
+         norm_prop = _prop_aliases.get(prop, prop)
+         cycler_inst.change_key(prop, norm_prop)
+ 
++    # Validate and update values in the cycler
++    validated_data = {}
+     for key, vals in cycler_inst.by_key().items():
+-        _prop_validators[key](vals)
++        validated_vals = _prop_validators[key](vals)
++        validated_data[key] = validated_vals
++
++    # Create a new cycler with the validated values
++    cycler_inst = cycler(**validated_data)
+ 
+     return cycler_inst
+ 

@@ -1,0 +1,39 @@
+diff --git a/keras/ops/nn.py b/keras/ops/nn.py
+index 6731d9980..9c28753a5 100644
+--- a/keras/ops/nn.py
++++ b/keras/ops/nn.py
+@@ -538,16 +538,26 @@ def softmax(x, axis=-1):
+     array([0.09003057, 0.24472847, 0.66524096], shape=(3,), dtype=float64)
+ 
+     """
+-    if isinstance(axis, int) and backend.shape(x)[axis] == 1:
+-        warnings.warn(
+-            f"You are using a softmax over axis {axis} "
+-            f"of a tensor of shape {backend.shape(x)}. This axis "
+-            "has size 1. The softmax operation will always return "
+-            "the value 1, which is likely not what you intended. "
+-            "Did you mean to use a sigmoid instead?"
+-        )
+     if any_symbolic_tensors((x,)):
+         return Softmax(axis).symbolic_call(x)
++    # Check if we should show the warning about softmax on axis with size 1
++    # Only do this check for concrete tensors to avoid graph mode issues
++    if isinstance(axis, int):
++        try:
++            axis_size = backend.shape(x)[axis]
++            # For concrete tensors, axis_size is a Python int
++            # For symbolic tensors, this will raise an error or return a symbolic value
++            if isinstance(axis_size, int) and axis_size == 1:
++                warnings.warn(
++                    f"You are using a softmax over axis {axis} "
++                    f"of a tensor of shape {backend.shape(x)}. This axis "
++                    "has size 1. The softmax operation will always return "
++                    "the value 1, which is likely not what you intended. "
++                    "Did you mean to use a sigmoid instead?"
++                )
++        except (TypeError, AttributeError):
++            # If we can't evaluate the axis size, skip the warning
++            pass
+     if isinstance(axis, tuple):
+         original_shape = x.shape
+         new_shape = []

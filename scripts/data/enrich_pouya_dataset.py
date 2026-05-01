@@ -39,28 +39,30 @@ from scripts.data.prepare_swe_bench_live_samples import swe_live_to_sample
 DATA_DIR = ROOT / "data" / "samples" / "pouya_swebench_live_style_50"
 JSONL_IN  = DATA_DIR / "pouya_50_dataset.jsonl"
 JSONL_OUT = DATA_DIR / "pouya_50_dataset.jsonl"  # overwrite in-place
-
-TOKENS = [
-    "ghp_PJ9SYFM0l1rRVzZi35jVVIyMoxDfIx3VJ1zq",
-    "ghp_oaPqBakNn5fmqG3MHQyJhNHLgsBQCm3Cz9yB",
-    "ghp_1d3v7OZ47klyglxaA9fIOXKpL8V3H204p5bB",
-    "ghp_TfQtlJoL2PY1p1ydGCQ03SniTDi5x041pqSi",
-    "ghp_Q3fIjyIRdaWYjgaBhSnVhnnJA0NfBZ4cFmJv",
-    "ghp_RG3mAT2HA4LsXE9JuoESHv5DwDlVtU3rHUcE",
-    "ghp_xPKiuvxnFRLuhnJPVvT2hDnBbXQ4SN4XHmUz",
-    "ghp_H3elDEkTZ3zj5INp2WTBG2gPtfhrT52aW4b2",
-    "ghp_FkJHJnDPcUiWVTaqEV99UspS0FDGmG2aWfOa",
-    "ghp_i21O5yl7PZ3vGSZjBhGaOWVBZXJDj41j8dkx",
-    "ghp_Bf0CnhV8VqnmY5yG7Vt4oy1RTkfMwR3rz6p5",
-    "ghp_4ItfJ3JSqlJONcmGlBumAlVfXL2Cec0gPSBa",
-    "ghp_o7dGm6noByzvuhcSYdK0SCfjLLkH3h0Q2dAn",
-]
+DEFAULT_TOKENS_FILE = ROOT / "tokens.txt"
+_TOKENS: list[str] | None = None
 _token_idx = 0
+
+
+def load_tokens(tokens_file: Path = DEFAULT_TOKENS_FILE) -> list[str]:
+    if tokens_file.exists():
+        tokens = [line.strip() for line in tokens_file.read_text().splitlines() if line.strip()]
+        if tokens:
+            return tokens
+    env_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if env_token:
+        return [env_token]
+    raise RuntimeError(
+        f"No GitHub token source found. Expected {tokens_file} or GITHUB_TOKEN / GH_TOKEN."
+    )
 
 
 def _next_token():
     global _token_idx
-    t = TOKENS[_token_idx % len(TOKENS)]
+    global _TOKENS
+    if _TOKENS is None:
+        _TOKENS = load_tokens()
+    t = _TOKENS[_token_idx % len(_TOKENS)]
     _token_idx += 1
     return t
 

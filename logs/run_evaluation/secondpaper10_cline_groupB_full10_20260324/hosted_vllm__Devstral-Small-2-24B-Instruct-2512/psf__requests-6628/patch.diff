@@ -1,0 +1,30 @@
+diff --git a/src/requests/exceptions.py b/src/requests/exceptions.py
+index e1cedf88..188e8617 100644
+--- a/src/requests/exceptions.py
++++ b/src/requests/exceptions.py
+@@ -41,6 +41,25 @@ class JSONDecodeError(InvalidJSONError, CompatJSONDecodeError):
+         CompatJSONDecodeError.__init__(self, *args)
+         InvalidJSONError.__init__(self, *self.args, **kwargs)
+ 
++    def __reduce__(self):
++        """
++        Return state for pickling.
++
++        The JSONDecodeError class has a custom __init__ that expects
++        (msg, doc, pos) as positional arguments, but the inherited
++        __reduce__ method from json.decoder.JSONDecodeError returns
++        a formatted error message as the only argument. This causes
++        unpickling to fail.
++
++        This method overrides __reduce__ to return the correct arguments
++        for proper serialization/deserialization.
++        """
++        return (
++            self.__class__,
++            (self.msg, self.doc, self.pos),
++            {'response': self.response, 'request': self.request}
++        )
++
+ 
+ class HTTPError(RequestException):
+     """An HTTP error occurred."""

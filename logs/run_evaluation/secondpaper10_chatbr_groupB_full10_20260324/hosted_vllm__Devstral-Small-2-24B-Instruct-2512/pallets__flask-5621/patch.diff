@@ -1,0 +1,52 @@
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..205d5aa1 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -215,6 +215,14 @@ class App(Scaffold):
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
+ 
++    #: A list of secret keys for key rotation. If set, the first key is used for
++    #: signing and all keys are accepted for verification. This allows for
++    #: gradual key rotation without invalidating existing sessions.
++    #:
++    #: This attribute can also be configured from the config with the
++    #: :data:`SECRET_KEYS` configuration key. Defaults to ``None``.
++    secret_keys = ConfigAttribute[t.Union[t.List[t.Union[str, bytes]], None]]("SECRET_KEYS")
++
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+     #: permanent session survive for roughly one month.
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..763b4ac2 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,13 +313,26 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        # Support both secret_key (single) and secret_keys (multiple)
++        secret_key = None
++        try:
++            # Try to get secret_keys first (for multiple key rotation)
++            secret_key = app.secret_keys
++        except (AttributeError, KeyError):
++            pass
++
++        if secret_key is None:
++            # Fall back to single secret_key for backward compatibility
++            secret_key = app.secret_key
++
++        if not secret_key:
+             return None
++
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret_key,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,

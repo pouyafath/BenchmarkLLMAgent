@@ -1,0 +1,58 @@
+diff --git a/sklearn/svm/_base.py b/sklearn/svm/_base.py
+index f5b35f39a..ed02ea70a 100644
+--- a/sklearn/svm/_base.py
++++ b/sklearn/svm/_base.py
+@@ -1190,7 +1190,7 @@ def _fit_liblinear(
+                 " class: %r" % classes_[0]
+             )
+ 
+-        class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
++        class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y, sample_weight=sample_weight)
+     else:
+         class_weight_ = np.empty(0, dtype=np.float64)
+         y_ind = y
+diff --git a/sklearn/utils/class_weight.py b/sklearn/utils/class_weight.py
+index 899e0890e..2f486c419 100644
+--- a/sklearn/utils/class_weight.py
++++ b/sklearn/utils/class_weight.py
+@@ -14,10 +14,11 @@ from ._param_validation import StrOptions, validate_params
+         "class_weight": [dict, StrOptions({"balanced"}), None],
+         "classes": [np.ndarray],
+         "y": ["array-like"],
++        "sample_weight": [None, np.ndarray],
+     },
+     prefer_skip_nested_validation=True,
+ )
+-def compute_class_weight(class_weight, *, classes, y):
++def compute_class_weight(class_weight, *, classes, y, sample_weight=None):
+     """Estimate class weights for unbalanced datasets.
+ 
+     Parameters
+@@ -36,6 +37,11 @@ def compute_class_weight(class_weight, *, classes, y):
+     y : array-like of shape (n_samples,)
+         Array of original class labels per sample.
+ 
++    sample_weight : array-like of shape (n_samples,), default=None
++        Array of weights for each sample. If provided and class_weight is "balanced",
++        the class weights will be computed based on the weighted count of samples
++        in each class.
++
+     Returns
+     -------
+     class_weight_vect : ndarray of shape (n_classes,)
+@@ -69,7 +75,14 @@ def compute_class_weight(class_weight, *, classes, y):
+         if not all(np.isin(classes, le.classes_)):
+             raise ValueError("classes should have valid labels that are in y")
+ 
+-        recip_freq = len(y) / (len(le.classes_) * np.bincount(y_ind).astype(np.float64))
++        if sample_weight is not None:
++            # Use weighted count when sample_weight is provided
++            total_weight = np.sum(sample_weight)
++            weighted_counts = np.bincount(y_ind, weights=sample_weight).astype(np.float64)
++            recip_freq = total_weight / (len(le.classes_) * weighted_counts)
++        else:
++            # Use unweighted count when sample_weight is not provided
++            recip_freq = len(y) / (len(le.classes_) * np.bincount(y_ind).astype(np.float64))
+         weight = recip_freq[le.transform(classes)]
+     else:
+         # user-defined dictionary

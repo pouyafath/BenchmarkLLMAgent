@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#11310",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "Retrieving time to refit the estimator in BaseSearchCV",
+  "original_body": "Retrieving time to refit the estimator in BaseSearchCV\nBasically, I'm trying to figure out how much time it takes to refit the best model on the full data after doing grid/random search. What I can so far do is retrieve the time it takes to fit and score each model:\r\n```\r\nimport sklearn.datasets\r\nimport sklearn.model_selection\r\nimport sklearn.ensemble\r\n\r\nX, y = sklearn.datasets.load_iris(return_X_y=True)\r\n\r\nrs = sklearn.model_selection.GridSearchCV(\r\n    estimator=sklearn.ensemble.RandomForestClassifier(),\r\n    param_grid={'n_estimators': [2, 3, 4, 5]}\r\n)\r\nrs.fit(X, y)\r\nprint(rs.cv_results_['mean_fit_time'])\r\nprint(rs.cv_results_['mean_score_time'])\r\n```\r\nIn case I run this on a single core, I could time the whole search procedure and subtract the time it took to fit the single folds during hyperparameter optimization. Nevertheless, this isn't possible any more when setting `n_jobs != 1`.\r\n\r\nThus, it would be great to have an attribute `refit_time_` which is simply the time it took to refit the best model.\r\n\r\nUsecase: for [OpenML.org](https://openml.org) we want to support uploading the results of hyperparameter optimization, including the time it takes to do the hyperparameter optimization. \n",
+  "enhanced_title": "Add `refit_time_` attribute to track time taken for final model refit in BaseSearchCV",
+  "enhanced_body": "## Summary\nThe `BaseSearchCV` class currently provides timing information for fitting and scoring models during cross-validation (`mean_fit_time` and `mean_score_time`), but lacks a way to track the time taken to refit the best estimator on the full dataset. This information is valuable for benchmarking and reproducibility purposes, especially when using parallel processing.\n\n## Current Behavior\n- `cv_results_` contains timing information for cross-validation folds (`mean_fit_time`, `mean_score_time`)\n- No attribute exists to track the time taken for the final refit operation\n- Users must manually time the entire search process and subtract CV times, which doesn't work with `n_jobs != 1`\n\n## Expected Behavior\n- Add a `refit_time_` attribute to `BaseSearchCV` that stores the time taken to refit the best estimator\n- This attribute should be available after calling `fit()`\n- Should work consistently regardless of `n_jobs` parameter value\n\n## Reproduction Steps\n1. Create a GridSearchCV or RandomizedSearchCV instance\n2. Fit it to data with `n_jobs != 1`\n3. Try to access timing information for the final refit (currently not possible)\n4. Compare with manual timing approach that fails with parallel processing' was cancelled because it took more than 60 seconds. Please try a different command that completes more quickly. Note: A common source of this error is if the command is interactive or requires user input (it is impossible to receive user input in the current environment, so the command will never complete).",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmphwl9o66_/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

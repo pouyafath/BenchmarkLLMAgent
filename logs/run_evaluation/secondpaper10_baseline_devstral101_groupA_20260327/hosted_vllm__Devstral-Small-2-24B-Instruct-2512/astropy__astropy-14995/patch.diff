@@ -1,0 +1,69 @@
+diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py
+index 4153dfccb..9caea19d1 100644
+--- a/astropy/nddata/mixins/ndarithmetic.py
++++ b/astropy/nddata/mixins/ndarithmetic.py
+@@ -520,6 +520,9 @@ class NDArithmeticMixin:
+         elif self.mask is None and operand is not None:
+             # Make a copy so there is no reference in the result.
+             return deepcopy(operand.mask)
++        elif operand.mask is None:
++            # Make a copy so there is no reference in the result.
++            return deepcopy(self.mask)
+         elif operand is None:
+             return deepcopy(self.mask)
+         else:
+diff --git a/astropy/nddata/mixins/tests/test_ndarithmetic.py b/astropy/nddata/mixins/tests/test_ndarithmetic.py
+index 8c461155a..5ee921425 100644
+--- a/astropy/nddata/mixins/tests/test_ndarithmetic.py
++++ b/astropy/nddata/mixins/tests/test_ndarithmetic.py
+@@ -1310,3 +1310,50 @@ def test_raise_method_not_supported():
+     # raise error for unsupported propagation operations:
+     with pytest.raises(ValueError):
+         ndd1.uncertainty.propagate(np.mod, ndd2, result, correlation)
++
++@pytest.mark.parametrize(
++    ("mask1", "mask2", "handle_mask"),
++    [
++        # Test case for the bug fix: mask with integer values and None mask
++        (np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]]), None, np.bitwise_or),
++        (None, np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]]), np.bitwise_or),
++        # Test case with boolean masks and bitwise_or
++        (np.array([[True, False, True], [False, True, False]]), None, np.bitwise_or),
++        (None, np.array([[True, False, True], [False, True, False]]), np.bitwise_or),
++        # Test case with both masks present and bitwise_or
++        (np.array([[1, 0, 1]]), np.array([[0, 1, 0]]), np.bitwise_or),
++    ],
++)
++def test_arithmetics_mask_propagation_with_handle_mask(mask1, mask2, handle_mask):
++    """Test mask propagation when using custom handle_mask functions.
++
++    This test specifically addresses the issue where mask propagation fails
++    when one operand has a mask and the other doesn't, particularly with
++    handle_mask=np.bitwise_or.
++    """
++    nd1 = NDDataArithmetic(1, mask=mask1)
++    nd2 = NDDataArithmetic(1, mask=mask2)
++
++    if mask1 is None and mask2 is None:
++        ref_mask = None
++    elif mask1 is None:
++        ref_mask = mask2
++    elif mask2 is None:
++        ref_mask = mask1
++    else:
++        ref_mask = handle_mask(mask1, mask2)
++
++    # Test all arithmetic operations
++    operations = [
++        ('add', lambda a, b: a.add(b, handle_mask=handle_mask)),
++        ('subtract', lambda a, b: a.subtract(b, handle_mask=handle_mask)),
++        ('multiply', lambda a, b: a.multiply(b, handle_mask=handle_mask)),
++        ('divide', lambda a, b: a.divide(b, handle_mask=handle_mask)),
++    ]
++
++    for op_name, op_func in operations:
++        result = op_func(nd1, nd2)
++        if ref_mask is None:
++            assert result.mask is None, f"{op_name}: Expected None mask"
++        else:
++            assert_array_equal(ref_mask, result.mask, f"{op_name}: Mask mismatch")

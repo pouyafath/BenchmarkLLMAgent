@@ -1,0 +1,89 @@
+diff --git a/src/cfnlint/rules/functions/DynamicReference.py b/src/cfnlint/rules/functions/DynamicReference.py
+index 745e3c6bc..4bb9a98b3 100644
+--- a/src/cfnlint/rules/functions/DynamicReference.py
++++ b/src/cfnlint/rules/functions/DynamicReference.py
+@@ -65,7 +65,6 @@ _secrets_manager_arn = {
+     "type": "array",
+ }
+ 
+-
+ class DynamicReference(BaseFn):
+     id = "E1050"
+     shortdesc = "Validate the structure of a dynamic reference"
+@@ -86,6 +85,56 @@ class DynamicReference(BaseFn):
+         err.schema_path = deque([])
+         return err
+ 
++    def _parse_dynamic_reference(self, dynamic_ref: str):
++        """
++        Parse a dynamic reference string into its components.
++        Ignores colons inside ${...} blocks.
++        """
++        # Check if there are any ${...} blocks
++        has_brace_blocks = '${' in dynamic_ref
++
++        if not has_brace_blocks:
++            # If no ${...} blocks, use simple split for backward compatibility
++            return dynamic_ref.split(':')
++
++        # The dynamic_ref parameter is already the content inside {{ }}
++        # e.g., "resolve:ssm:${AWS::AccountId}/${AWS::Region}/ac"
++        parts = []
++        current_part = []
++        in_brace = False
++
++        i = 0
++        while i < len(dynamic_ref):
++            char = dynamic_ref[i]
++            if char == '$' and i + 1 < len(dynamic_ref) and dynamic_ref[i+1] == '{':
++                # Start of ${...} block
++                in_brace = True
++                current_part.append(char)
++                current_part.append('{')
++                i += 2  # Skip '${'
++                # Add everything until we find '}'
++                while i < len(dynamic_ref) and dynamic_ref[i] != '}':
++                    current_part.append(dynamic_ref[i])
++                    i += 1
++                if i < len(dynamic_ref):
++                    current_part.append('}')  # Add the closing brace
++                    i += 1  # Skip '}'
++                    in_brace = False  # Reset the flag after closing brace
++            elif char == ':' and not in_brace:
++                # Colon outside ${...} - this is a separator
++                parts.append(''.join(current_part))
++                current_part = []
++                i += 1
++            else:
++                current_part.append(char)
++                i += 1
++
++        # Add the last part
++        if current_part:
++            parts.append(''.join(current_part))
++
++        return parts
++
+     def dynamicReference(
+         self, validator: Validator, s: Any, instance: Any, schema: Any
+     ):
+@@ -97,7 +146,9 @@ class DynamicReference(BaseFn):
+         # Secrets manager can be used only in resource properties
+ 
+         for v in REGEX_DYN_REF.findall(instance):
+-            parts = v.split(":")
++            parts = self._parse_dynamic_reference(v)
++            if not parts:
++                continue
+ 
+             evolved = validator.evolve(schema=_all)
+             found = False
+@@ -116,7 +167,7 @@ class DynamicReference(BaseFn):
+                 if rule and hasattr(rule, "validate"):
+                     yield from rule.validate(validator, {}, v, schema)
+             else:
+-                if parts[2] == "arn":
++                if len(parts) > 2 and parts[2] == "arn":
+                     evolved = validator.evolve(schema=_secrets_manager_arn)
+                 else:  # this is secrets manager
+                     evolved = validator.evolve(schema=_secrets_manager)

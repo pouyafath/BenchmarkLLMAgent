@@ -1,0 +1,107 @@
+diff --git a/haystack/utils/torch_utils.py b/haystack/utils/torch_utils.py
+new file mode 100644
+index 00000000..7155e8e7
+--- /dev/null
++++ b/haystack/utils/torch_utils.py
+@@ -0,0 +1,101 @@
++# SPDX-FileCopyrightText: 2022-present deepset GmbH
++#
++# SPDX-License-Identifier: Apache-2.0
++"""
++Utility functions for handling PyTorch types in serialization.
++"""
++from typing import Any, Dict
++
++try:
++    import torch
++    _TORCH_AVAILABLE = True
++except ImportError:
++    _TORCH_AVAILABLE = False
++
++def serialize_torch_dtype(value: Any) -> Any:
++    """
++    Convert torch.dtype objects to strings for serialization.
++
++    Args:
++        value: The value to potentially convert. Can be a torch.dtype or any other type.
++
++    Returns:
++        The converted value (string for torch.dtype, unchanged for other types).
++    """
++    if _TORCH_AVAILABLE and isinstance(value, torch.dtype):
++        return str(value)
++    return value
++
++def deserialize_torch_dtype(value: Any) -> Any:
++    """
++    Convert string representations of torch.dtype back to torch.dtype objects.
++
++    Args:
++        value: The value to potentially convert. Can be a string representation of a torch.dtype
++               or any other type.
++
++    Returns:
++        The converted value (torch.dtype if the string represents one, unchanged for other types).
++    """
++    if not _TORCH_AVAILABLE:
++        return value
++
++    if isinstance(value, str):
++        # Try to convert string to torch.dtype
++        # The string representation is "torch.float16", but the attribute is "float16"
++        if value.startswith("torch."):
++            dtype_name = value[6:]  # Remove "torch." prefix
++            try:
++                return getattr(torch, dtype_name)
++            except AttributeError:
++                # If conversion fails, return the original string
++                return value
++        else:
++            # Try direct attribute access
++            try:
++                return getattr(torch, value)
++            except AttributeError:
++                return value
++    return value
++
++def serialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
++    """
++    Serialize model_kwargs by converting torch.dtype objects to strings.
++
++    Args:
++        model_kwargs: Dictionary of model kwargs that may contain torch.dtype objects.
++
++    Returns:
++        Dictionary with torch.dtype objects converted to strings.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    serialized = {}
++    for key, value in model_kwargs.items():
++        if isinstance(value, dict):
++            serialized[key] = serialize_model_kwargs(value)
++        else:
++            serialized[key] = serialize_torch_dtype(value)
++    return serialized
++
++def deserialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
++    """
++    Deserialize model_kwargs by converting string representations of torch.dtype back to objects.
++
++    Args:
++        model_kwargs: Dictionary of model kwargs that may contain string representations of torch.dtype.
++
++    Returns:
++        Dictionary with string representations converted back to torch.dtype objects.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    deserialized = {}
++    for key, value in model_kwargs.items():
++        if isinstance(value, dict):
++            deserialized[key] = deserialize_model_kwargs(value)
++        else:
++            deserialized[key] = deserialize_torch_dtype(value)
++    return deserialized

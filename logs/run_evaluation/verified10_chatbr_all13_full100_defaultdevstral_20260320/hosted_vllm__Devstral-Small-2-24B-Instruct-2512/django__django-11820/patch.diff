@@ -1,0 +1,70 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 3ce711f3f1..1aaecf7dba 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -1708,11 +1708,15 @@ class Model(metaclass=ModelBase):
+             fld = None
+             for part in field.split(LOOKUP_SEP):
+                 try:
+-                    fld = _cls._meta.get_field(part)
+-                    if fld.is_relation:
+-                        _cls = fld.get_path_info()[-1].to_opts.model
++                    # 'pk' is a special field name that always refers to the
++                    # primary key, so we don't need to validate it.
++                    if part != 'pk':
++                        fld = _cls._meta.get_field(part)
++                        if fld.is_relation:
++                            _cls = fld.get_path_info()[-1].to_opts.model
+                 except (FieldDoesNotExist, AttributeError):
+-                    if fld is None or fld.get_transform(part) is None:
++                    # If part is 'pk', it's always valid, so don't raise an error
++                    if part != 'pk' and (fld is None or fld.get_transform(part) is None):
+                         errors.append(
+                             checks.Error(
+                                 "'ordering' refers to the nonexistent field, "
+diff --git a/tests/invalid_models_tests/test_models.py b/tests/invalid_models_tests/test_models.py
+index 0f1d1e4dc3..83775e3d96 100644
+--- a/tests/invalid_models_tests/test_models.py
++++ b/tests/invalid_models_tests/test_models.py
+@@ -824,6 +824,7 @@ class OtherModelTests(SimpleTestCase):
+         with register_lookup(models.CharField, Lower):
+             self.assertEqual(Model.check(), [])
+ 
++
+     def test_ordering_pointing_to_foreignkey_field(self):
+         class Parent(models.Model):
+             pass
+@@ -836,6 +837,33 @@ class OtherModelTests(SimpleTestCase):
+ 
+         self.assertFalse(Child.check())
+ 
++    def test_ordering_pointing_to_related_pk(self):
++        class Parent(models.Model):
++            pass
++
++        class Child(models.Model):
++            parent = models.ForeignKey(Parent, models.CASCADE)
++
++            class Meta:
++                ordering = ('parent__pk',)
++
++        self.assertFalse(Child.check())
++
++    def test_ordering_pointing_to_two_related_pk(self):
++        class Parent2(models.Model):
++            pass
++
++        class Parent1(models.Model):
++            parent2 = models.ForeignKey(Parent2, models.CASCADE)
++
++        class Child(models.Model):
++            parent1 = models.ForeignKey(Parent1, models.CASCADE)
++
++            class Meta:
++                ordering = ('parent1__parent2__pk',)
++
++        self.assertFalse(Child.check())
++
+     def test_name_beginning_with_underscore(self):
+         class _Model(models.Model):
+             pass

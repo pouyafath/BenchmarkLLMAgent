@@ -1,0 +1,63 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 7d226955d5..6167221583 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -90,14 +90,30 @@ class DeconstructableSerializer(BaseSerializer):
+ 
+     @staticmethod
+     def _serialize_path(path):
+-        module, name = path.rsplit(".", 1)
++        # Try to split into module and name
++        parts = path.split(".")
++        if len(parts) < 2:
++            # Not enough parts, can't determine module and name
++            return path, set()
++
++        # Try the simple case first: module.class_name
++        module = ".".join(parts[:-1])
++        name = parts[-1]
++
++        # Special case for django.db.models
+         if module == "django.db.models":
+-            imports = {"from django.db import models"}
+-            name = "models.%s" % name
+-        else:
+-            imports = {"import %s" % module}
+-            name = path
+-        return name, imports
++            return "models.%s" % name, {"from django.db import models"}
++
++        # For other cases, we need to be more careful
++        # Try to import the module to see if it exists
++        try:
++            __import__(module)
++            # Module exists, so we can use the standard import
++            return path, {"import %s" % module}
++        except (ImportError, ValueError):
++            # Module doesn't exist, which means we have a nested class
++            # In this case, use the full path and don't add a separate import
++            return path, set()
+ 
+     def serialize(self):
+         return self.serialize_deconstructed(*self.value.deconstruct())
+@@ -269,6 +285,20 @@ class TypeSerializer(BaseSerializer):
+             if module == builtins.__name__:
+                 return self.value.__name__, set()
+             else:
++                # Check if the class has a deconstruct method
++                if hasattr(self.value, 'deconstruct'):
++                    # Use deconstruct to get the proper path
++                    try:
++                        # Create a dummy instance to call deconstruct
++                        dummy_instance = self.value()
++                        name, path, args, kwargs = dummy_instance.deconstruct()
++                        if path:
++                            # Use the path from deconstruct
++                            from django.db.migrations.serializer import DeconstructableSerializer
++                            return DeconstructableSerializer._serialize_path(path)
++                    except (TypeError, AttributeError, Exception):
++                        # deconstruct failed, fall back to default behavior
++                        pass
+                 return "%s.%s" % (module, self.value.__name__), {"import %s" % module}
+ 
+ 

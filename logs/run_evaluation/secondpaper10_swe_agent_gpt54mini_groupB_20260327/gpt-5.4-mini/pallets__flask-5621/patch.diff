@@ -1,0 +1,42 @@
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..1aad88de 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -214,6 +214,7 @@ class App(Scaffold):
+     #: This attribute can also be configured from the config with the
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
++    secret_keys = ConfigAttribute[t.Union[list[str | bytes], tuple[str | bytes, ...], None]]("SECRET_KEYS")
+ 
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..97456fe4 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,13 +313,23 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        secret_key = app.secret_key
++        secret_keys = app.config.get("SECRET_KEYS")
++
++        if secret_keys is None:
++            if not secret_key:
++                return None
++            secret_keys = [secret_key]
++        elif not secret_keys:
+             return None
++        elif secret_key and secret_keys[-1] != secret_key:
++            secret_keys = [*secret_keys, secret_key]
++
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret_keys,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,

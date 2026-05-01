@@ -1,0 +1,582 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 786 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   Lib/fontTools/feaLib/builder.py
+	modified:   Lib/fontTools/otlLib/builder.py
+	modified:   Tests/feaLib/data/spec4h1.ttx
+	modified:   Tests/feaLib/data/spec5d1.ttx
+	modified:   Tests/otlLib/builder_test.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 7cdac78423b259e77641fe3a1cf3a0b1cc5ec049
+Author: Jens Kutilek <webmail@kutilek.de>
+Date:   Tue Jan 23 18:59:09 2024 +0100
+
+    Add transformRoundFunc parameter to RoundingPens (#3426)
+    
+    * Add optional transformRoundFunc to RoundingPen and RoundingPointPen
+    * Add tests
+    * Add doc about comparing UFO to TTF glyphs
+    * Use floatToFixedToFloat for example with rounding
+
+diff --git a/Lib/fontTools/pens/hashPointPen.py b/Lib/fontTools/pens/hashPointPen.py
+index b82468ec9..f15dcabbf 100644
+--- a/Lib/fontTools/pens/hashPointPen.py
++++ b/Lib/fontTools/pens/hashPointPen.py
+@@ -31,6 +31,20 @@ class HashPointPen(AbstractPointPen):
+     >    # The hash values are identical, the outline has not changed.
+     >    # Compile the hinting code ...
+     >    pass
++
++    If you want to compare a glyph from a source format which supports floating point
++    coordinates and transformations against a glyph from a format which has restrictions
++    on the precision of floats, e.g. UFO vs. TTF, you must use an appropriate rounding
++    function to make the values comparable. For TTF fonts with composites, this
++    construct can be used to make the transform values conform to F2Dot14:
++
++    > ttf_hash_pen = HashPointPen(ttf_glyph_width, ttFont.getGlyphSet())
++    > ttf_round_pen = RoundingPointPen(ttf_hash_pen, transformRoundFunc=partial(floatToFixedToFloat, precisionBits=14))
++    > ufo_hash_pen = HashPointPen(ufo_glyph.width, ufo)
++    > ttf_glyph.drawPoints(ttf_round_pen, ttFont["glyf"])
++    > ufo_round_pen = RoundingPointPen(ufo_hash_pen, transformRoundFunc=partial(floatToFixedToFloat, precisionBits=14))
++    > ufo_glyph.drawPoints(ufo_round_pen)
++    > assert ttf_hash_pen.hash == ufo_hash_pen.hash
+     """
+ 
+     def __init__(self, glyphWidth=0, glyphSet=None):
+diff --git a/Lib/fontTools/pens/roundingPen.py b/Lib/fontTools/pens/roundingPen.py
+index 2a7c476c3..176bcc7a5 100644
+--- a/Lib/fontTools/pens/roundingPen.py
++++ b/Lib/fontTools/pens/roundingPen.py
+@@ -1,4 +1,4 @@
+-from fontTools.misc.roundTools import otRound
++from fontTools.misc.roundTools import noRound, otRound
+ from fontTools.misc.transform import Transform
+ from fontTools.pens.filterPen import FilterPen, FilterPointPen
+ 
+@@ -8,7 +8,9 @@ __all__ = ["RoundingPen", "RoundingPointPen"]
+ 
+ class RoundingPen(FilterPen):
+     """
+-    Filter pen that rounds point coordinates and component XY offsets to integer.
++    Filter pen that rounds point coordinates and component XY offsets to integer. For
++    rounding the component transform values, a separate round function can be passed to
++    the pen.
+ 
+     >>> from fontTools.pens.recordingPen import RecordingPen
+     >>> recpen = RecordingPen()
+@@ -28,9 +30,10 @@ class RoundingPen(FilterPen):
+     True
+     """
+ 
+-    def __init__(self, outPen, roundFunc=otRound):
++    def __init__(self, outPen, roundFunc=otRound, transformRoundFunc=noRound):
+         super().__init__(outPen)
+         self.roundFunc = roundFunc
++        self.transformRoundFunc = transformRoundFunc
+ 
+     def moveTo(self, pt):
+         self._outPen.moveTo((self.roundFunc(pt[0]), self.roundFunc(pt[1])))
+@@ -49,12 +52,16 @@ class RoundingPen(FilterPen):
+         )
+ 
+     def addComponent(self, glyphName, transformation):
++        xx, xy, yx, yy, dx, dy = transformation
+         self._outPen.addComponent(
+             glyphName,
+             Transform(
+-                *transformation[:4],
+-                self.roundFunc(transformation[4]),
+-                self.roundFunc(transformation[5]),
++                self.transformRoundFunc(xx),
++                self.transformRoundFunc(xy),
++                self.transformRoundFunc(yx),
++                self.transformRoundFunc(yy),
++                self.roundFunc(dx),
++                self.roundFunc(dy),
+             ),
+         )
+ 
+@@ -62,6 +69,8 @@ class RoundingPen(FilterPen):
+ class RoundingPointPen(FilterPointPen):
+     """
+     Filter point pen that rounds point coordinates and component XY offsets to integer.
++    For rounding the component scale values, a separate round function can be passed to
++    the pen.
+ 
+     >>> from fontTools.pens.recordingPen import RecordingPointPen
+     >>> recpen = RecordingPointPen()
+@@ -87,26 +96,35 @@ class RoundingPointPen(FilterPointPen):
+     True
+     """
+ 
+-    def __init__(self, outPen, roundFunc=otRound):
++    def __init__(self, outPen, roundFunc=otRound, transformRoundFunc=noRound):
+         super().__init__(outPen)
+         self.roundFunc = roundFunc
++        self.transformRoundFunc = transformRoundFunc
+ 
+-    def addPoint(self, pt, segmentType=None, smooth=False, name=None, **kwargs):
++    def addPoint(
++        self, pt, segmentType=None, smooth=False, name=None, identifier=None, **kwargs
++    ):
+         self._outPen.addPoint(
+             (self.roundFunc(pt[0]), self.roundFunc(pt[1])),
+             segmentType=segmentType,
+             smooth=smooth,
+             name=name,
++            identifier=identifier,
+             **kwargs,
+         )
+ 
+-    def addComponent(self, baseGlyphName, transformation, **kwargs):
++    def addComponent(self, baseGlyphName, transformation, identifier=None, **kwargs):
++        xx, xy, yx, yy, dx, dy = transformation
+         self._outPen.addComponent(
+-            baseGlyphName,
+-            Transform(
+-                *transformation[:4],
+-                self.roundFunc(transformation[4]),
+-                self.roundFunc(transformation[5]),
++            baseGlyphName=baseGlyphName,
++            transformation=Transform(
++                self.transformRoundFunc(xx),
++                self.transformRoundFunc(xy),
++                self.transformRoundFunc(yx),
++                self.transformRoundFunc(yy),
++                self.roundFunc(dx),
++                self.roundFunc(dy),
+             ),
++            identifier=identifier,
+             **kwargs,
+         )
+diff --git a/Tests/pens/roundingPen_test.py b/Tests/pens/roundingPen_test.py
+new file mode 100644
+index 000000000..3c1f00e4c
+--- /dev/null
++++ b/Tests/pens/roundingPen_test.py
+@@ -0,0 +1,69 @@
++from fontTools.misc.fixedTools import floatToFixedToFloat
++from fontTools.pens.recordingPen import RecordingPen, RecordingPointPen
++from fontTools.pens.roundingPen import RoundingPen, RoundingPointPen
++from functools import partial
++
++
++tt_scale_round = partial(floatToFixedToFloat, precisionBits=14)
++
++
++class RoundingPenTest(object):
++    def test_general(self):
++        recpen = RecordingPen()
++        roundpen = RoundingPen(recpen)
++        roundpen.moveTo((0.4, 0.6))
++        roundpen.lineTo((1.6, 2.5))
++        roundpen.qCurveTo((2.4, 4.6), (3.3, 5.7), (4.9, 6.1))
++        roundpen.curveTo((6.4, 8.6), (7.3, 9.7), (8.9, 10.1))
++        roundpen.addComponent("a", (1.5, 0, 0, 1.5, 10.5, -10.5))
++        assert recpen.value == [
++            ("moveTo", ((0, 1),)),
++            ("lineTo", ((2, 3),)),
++            ("qCurveTo", ((2, 5), (3, 6), (5, 6))),
++            ("curveTo", ((6, 9), (7, 10), (9, 10))),
++            ("addComponent", ("a", (1.5, 0, 0, 1.5, 11, -10))),
++        ]
++
++    def test_transform_round(self):
++        recpen = RecordingPen()
++        roundpen = RoundingPen(recpen, transformRoundFunc=tt_scale_round)
++        # The 0.913 is equal to 91.3% scale in a source editor
++        roundpen.addComponent("a", (0.9130000305, 0, 0, -1, 10.5, -10.5))
++        # The value should compare equal to its F2Dot14 representation
++        assert recpen.value == [
++            ("addComponent", ("a", (0.91302490234375, 0, 0, -1, 11, -10))),
++        ]
++
++
++class RoundingPointPenTest(object):
++    def test_general(self):
++        recpen = RecordingPointPen()
++        roundpen = RoundingPointPen(recpen)
++        roundpen.beginPath()
++        roundpen.addPoint((0.4, 0.6), "line")
++        roundpen.addPoint((1.6, 2.5), "line")
++        roundpen.addPoint((2.4, 4.6))
++        roundpen.addPoint((3.3, 5.7))
++        roundpen.addPoint((4.9, 6.1), "qcurve")
++        roundpen.endPath()
++        roundpen.addComponent("a", (1.5, 0, 0, 1.5, 10.5, -10.5))
++        assert recpen.value == [
++            ("beginPath", (), {}),
++            ("addPoint", ((0, 1), "line", False, None), {}),
++            ("addPoint", ((2, 3), "line", False, None), {}),
++            ("addPoint", ((2, 5), None, False, None), {}),
++            ("addPoint", ((3, 6), None, False, None), {}),
++            ("addPoint", ((5, 6), "qcurve", False, None), {}),
++            ("endPath", (), {}),
++            ("addComponent", ("a", (1.5, 0, 0, 1.5, 11, -10)), {}),
++        ]
++
++    def test_transform_round(self):
++        recpen = RecordingPointPen()
++        roundpen = RoundingPointPen(recpen, transformRoundFunc=tt_scale_round)
++        # The 0.913 is equal to 91.3% scale in a source editor
++        roundpen.addComponent("a", (0.913, 0, 0, -1, 10.5, -10.5))
++        # The value should compare equal to its F2Dot14 representation
++        assert recpen.value == [
++            ("addComponent", ("a", (0.91302490234375, 0, 0, -1, 11, -10)), {}),
++        ]
++ git -c core.fileMode=false diff 7cdac78423b259e77641fe3a1cf3a0b1cc5ec049
+diff --git a/Lib/fontTools/feaLib/builder.py b/Lib/fontTools/feaLib/builder.py
+index 36eed9514..2d0a6da23 100644
+--- a/Lib/fontTools/feaLib/builder.py
++++ b/Lib/fontTools/feaLib/builder.py
+@@ -1338,7 +1338,7 @@ class Builder(object):
+         # substitutions to be specified on target sequences that contain
+         # glyph classes, the implementation software will enumerate
+         # all specific glyph sequences if glyph classes are detected"
+-        for g in sorted(itertools.product(*glyphs)):
++        for g in sorted(itertools.product(*glyphs), key=lambda components: (-len(components),)):
+             lookup.ligatures[g] = replacement
+ 
+     # GSUB 5/6
+diff --git a/Lib/fontTools/otlLib/builder.py b/Lib/fontTools/otlLib/builder.py
+index 4b457f4d9..dd382e5b2 100644
+--- a/Lib/fontTools/otlLib/builder.py
++++ b/Lib/fontTools/otlLib/builder.py
+@@ -1573,11 +1573,13 @@ def _getLigatureKey(components):
+     # When building the OpenType lookup, we need to make sure that
+     # the longest sequence of components is listed first, so we
+     # use the negative length as the primary key for sorting.
+-    # To make buildLigatureSubstSubtable() deterministic, we use the
+-    # component sequence as the secondary key.
++    # To preserve the original declaration order for ligatures with the same length,
++    # we don't use a secondary key. Python's stable sort will maintain the
++    # original order for ligatures with equal length.
+ 
+-    # For example, this will sort (f,f,f) < (f,f,i) < (f,f) < (f,i) < (f,l).
+-    return (-len(components), components)
++    # For example, this will sort (f,f,f) first (length 3), then preserve
++    # the original order for (f,f), (f,i), (f,l) (all length 2).
++    return (-len(components),)
+ 
+ 
+ def buildLigatureSubstSubtable(mapping):
+diff --git a/Tests/feaLib/data/spec4h1.ttx b/Tests/feaLib/data/spec4h1.ttx
+index 0e42fc56e..a399ab2b4 100644
+--- a/Tests/feaLib/data/spec4h1.ttx
++++ b/Tests/feaLib/data/spec4h1.ttx
+@@ -147,8 +147,8 @@
+         <!-- SubTableCount=1 -->
+         <LigatureSubst index="0">
+           <LigatureSet glyph="c">
+-            <Ligature components="s" glyph="c_s"/>
+             <Ligature components="t" glyph="c_t"/>
++            <Ligature components="s" glyph="c_s"/>
+           </LigatureSet>
+         </LigatureSubst>
+       </Lookup>
+diff --git a/Tests/feaLib/data/spec5d1.ttx b/Tests/feaLib/data/spec5d1.ttx
+index 77dfc93b8..8763c931e 100644
+--- a/Tests/feaLib/data/spec5d1.ttx
++++ b/Tests/feaLib/data/spec5d1.ttx
+@@ -43,16 +43,16 @@
+         <!-- SubTableCount=1 -->
+         <LigatureSubst index="0">
+           <LigatureSet glyph="one">
+-            <Ligature components="fraction,two" glyph="onehalf"/>
+-            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+             <Ligature components="slash,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
+-          </LigatureSet>
+-          <LigatureSet glyph="one.oldstyle">
+             <Ligature components="fraction,two" glyph="onehalf"/>
+             <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
++          </LigatureSet>
++          <LigatureSet glyph="one.oldstyle">
+             <Ligature components="slash,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
++            <Ligature components="fraction,two" glyph="onehalf"/>
++            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+           </LigatureSet>
+         </LigatureSubst>
+       </Lookup>
+@@ -62,16 +62,16 @@
+         <!-- SubTableCount=1 -->
+         <LigatureSubst index="0">
+           <LigatureSet glyph="one">
+-            <Ligature components="fraction,two" glyph="onehalf"/>
+-            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+             <Ligature components="slash,two" glyph="onehalf"/>
++            <Ligature components="fraction,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
++            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+           </LigatureSet>
+           <LigatureSet glyph="one.oldstyle">
+-            <Ligature components="fraction,two" glyph="onehalf"/>
+-            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+             <Ligature components="slash,two" glyph="onehalf"/>
++            <Ligature components="fraction,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
++            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+           </LigatureSet>
+         </LigatureSubst>
+       </Lookup>
+diff --git a/Tests/otlLib/builder_test.py b/Tests/otlLib/builder_test.py
+index b7a6caa2f..1645a4edb 100644
+--- a/Tests/otlLib/builder_test.py
++++ b/Tests/otlLib/builder_test.py
+@@ -1055,7 +1055,9 @@ class BuilderTest(object):
+         components = lambda s: [tuple(word) for word in s.split()]
+         c = components("fi fl ff ffi fff")
+         c.sort(key=builder._getLigatureKey)
+-        assert c == components("fff ffi ff fi fl")
++        # With stable sort by length only, ligatures with the same length
++        # preserve their original declaration order
++        assert c == components("ffi fff fi fl ff")
+ 
+     def test_getSinglePosValueKey(self):
+         device = builder.buildDevice({10: 1, 11: 3})
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info
+  writing /tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  warning: no files found matching '.appveyor.yml'
+  warning: no files found matching '.travis.yml'
+  warning: no files found matching '*.sh' under directory '.travis'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-t7gzs9qn/fonttools.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-t7gzs9qn/fonttools-4.47.3.dev0.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+WARNING: fonttools 4.47.3.dev0 does not provide the extra 'test'
+Building wheels for collected packages: fonttools
+  Building editable for fonttools (pyproject.toml): started
+  Running command Building editable for fonttools (pyproject.toml)
+  running editable_wheel
+  creating /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info
+  writing /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  warning: no files found matching '.appveyor.yml'
+  warning: no files found matching '.travis.yml'
+  warning: no files found matching '*.sh' under directory '.travis'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools-4.47.3.dev0.dist-info'
+  creating /tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools-4.47.3.dev0.dist-info/WHEEL
+  running build_py
+  running egg_info
+  creating /tmp/tmp9ixguah7.build-temp/fonttools.egg-info
+  writing /tmp/tmp9ixguah7.build-temp/fonttools.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmp9ixguah7.build-temp/fonttools.egg-info/dependency_links.txt
+  writing entry points to /tmp/tmp9ixguah7.build-temp/fonttools.egg-info/entry_points.txt
+  writing requirements to /tmp/tmp9ixguah7.build-temp/fonttools.egg-info/requires.txt
+  writing top-level names to /tmp/tmp9ixguah7.build-temp/fonttools.egg-info/top_level.txt
+  writing manifest file '/tmp/tmp9ixguah7.build-temp/fonttools.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmp9ixguah7.build-temp/fonttools.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  warning: no files found matching '.appveyor.yml'
+  warning: no files found matching '.travis.yml'
+  warning: no files found matching '*.sh' under directory '.travis'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/tmp9ixguah7.build-temp/fonttools.egg-info/SOURCES.txt'
+
+          Editable install will be performed using .pth file to extend `sys.path` with:
+          ['Lib']
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable__.fonttools-4.47.3.dev0.pth'
+  creating '/tmp/pip-wheel-l1nsyl1j/.tmp-5ypczm1x/fonttools-4.47.3.dev0-0.editable-py3-none-any.whl' and adding '/tmp/tmpimqszahofonttools-4.47.3.dev0-0.editable-py3-none-any.whl' to it
+  adding 'fonttools-4.47.3.dev0.dist-info/LICENSE'
+  adding 'fonttools-4.47.3.dev0.dist-info/METADATA'
+  adding 'fonttools-4.47.3.dev0.dist-info/WHEEL'
+  adding 'fonttools-4.47.3.dev0.dist-info/entry_points.txt'
+  adding 'fonttools-4.47.3.dev0.dist-info/top_level.txt'
+  adding 'fonttools-4.47.3.dev0.dist-info/RECORD'
+  Building editable for fonttools (pyproject.toml): finished with status 'done'
+  Created wheel for fonttools: filename=fonttools-4.47.3.dev0-0.editable-py3-none-any.whl size=58875 sha256=f488160abc619b9abc834edd2cf71a951e01b986c3e909ca03fccf44d7fcfec8
+  Stored in directory: /tmp/pip-ephem-wheel-cache-axs13qfm/wheels/b2/50/f1/218f2e9962a80d01a4b1297698978f9fb3b60056aa24343f24
+Successfully built fonttools
+Installing collected packages: fonttools
+  Attempting uninstall: fonttools
+    Found existing installation: fonttools 4.47.3.dev0
+    Uninstalling fonttools-4.47.3.dev0:
+      Removing file or directory /usr/local/bin/fonttools
+      Removing file or directory /usr/local/bin/pyftmerge
+      Removing file or directory /usr/local/bin/pyftsubset
+      Removing file or directory /usr/local/bin/ttx
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__editable__.fonttools-4.47.3.dev0.pth
+      Removing file or directory /usr/local/lib/python3.8/site-packages/fonttools-4.47.3.dev0.dist-info/
+      Successfully uninstalled fonttools-4.47.3.dev0
+  changing mode of /usr/local/bin/fonttools to 755
+  changing mode of /usr/local/bin/pyftmerge to 755
+  changing mode of /usr/local/bin/pyftsubset to 755
+  changing mode of /usr/local/bin/ttx to 755
+Successfully installed fonttools-4.47.3.dev0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 7cdac78423b259e77641fe3a1cf3a0b1cc5ec049 Tests/otlLib/builder_test.py
+Updated 1 path from 1c27832eb
++ git apply -v -
+Checking patch Tests/otlLib/builder_test.py...
+Applied patch Tests/otlLib/builder_test.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA Tests/otlLib/builder_test.py
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-7.4.4, pluggy-1.3.0
+rootdir: /testbed
+configfile: setup.cfg
+collected 67 items
+
+Tests/otlLib/builder_test.py ........................................... [ 64%]
+..........F.............                                                 [100%]
+
+=================================== FAILURES ===================================
+_____________________ BuilderTest.test_getLigatureSortKey ______________________
+
+self = <otlLib.builder_test.BuilderTest object at 0x7fce51b8dac0>
+
+    def test_getLigatureSortKey(self):
+        components = lambda s: [tuple(word) for word in s.split()]
+        c = components("fi fl ff ffi fff")
+>       c.sort(key=otTables.LigatureSubst._getLigatureSortKey)
+E       AttributeError: type object 'LigatureSubst' has no attribute '_getLigatureSortKey'
+
+Tests/otlLib/builder_test.py:1057: AttributeError
+==================================== PASSES ====================================
+_______________ test_buildStatTable[axes1-None-2-expected_ttx1] ________________
+------------------------------ Captured log call -------------------------------
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 2 missing from name table
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 2 missing from name table
+_______________ test_buildStatTable[axes2-None-18-expected_ttx2] _______________
+------------------------------ Captured log call -------------------------------
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 18 missing from name table
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 18 missing from name table
+_______________ test_buildStatTable[axes3-None-2-expected_ttx3] ________________
+------------------------------ Captured log call -------------------------------
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 2 missing from name table
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 2 missing from name table
+___________ test_buildStatTable[axes4-axisValues4-18-expected_ttx4] ____________
+------------------------------ Captured log call -------------------------------
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 18 missing from name table
+WARNING  fontTools.ttLib.tables.otConverters:otConverters.py:462 name id 18 missing from name table
+=========================== short test summary info ============================
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAnchor_format1
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAnchor_format2
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAnchor_format3
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAttachList
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAttachList_empty
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAttachPoint
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAttachPoint_empty
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildAttachPoint_duplicate
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildBaseArray
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildBaseRecord
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildCaretValueForCoord
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildCaretValueForPoint
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildComponentRecord
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildComponentRecord_empty
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildComponentRecord_None
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildCoverage
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildCursivePos
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildDevice_format1
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildDevice_format2
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildDevice_format3
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigatureArray
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigatureAttach
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigatureAttach_emptyComponents
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigatureAttach_noComponents
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigCaretList
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigCaretList_bothCoordsAndPointsForSameGlyph
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigCaretList_empty
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigCaretList_None
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigGlyph_coords
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigGlyph_empty
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigGlyph_None
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLigGlyph_points
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLookup
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLookup_badFlags
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLookup_conflictingSubtableTypes
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLookup_noSubtables
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildLookup_markFilterSet
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkArray
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkBasePosSubtable
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkGlyphSetsDef
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkGlyphSetsDef_empty
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkGlyphSetsDef_None
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkLigPosSubtable
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMarkRecord
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildMark2Record
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildPairPosClassesSubtable
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildPairPosGlyphs
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildPairPosGlyphsSubtable
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildSinglePos
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildSinglePos_ValueFormat0
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildSinglePosSubtable_format1
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildSinglePosSubtable_format2
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_buildValue
+PASSED Tests/otlLib/builder_test.py::BuilderTest::test_getSinglePosValueKey
+PASSED Tests/otlLib/builder_test.py::ClassDefBuilderTest::test_build_usingClass0
+PASSED Tests/otlLib/builder_test.py::ClassDefBuilderTest::test_build_notUsingClass0
+PASSED Tests/otlLib/builder_test.py::ClassDefBuilderTest::test_canAdd
+PASSED Tests/otlLib/builder_test.py::ClassDefBuilderTest::test_add_exception
+PASSED Tests/otlLib/builder_test.py::test_buildStatTable[axes0-None-Regular-expected_ttx0]
+PASSED Tests/otlLib/builder_test.py::test_buildStatTable[axes1-None-2-expected_ttx1]
+PASSED Tests/otlLib/builder_test.py::test_buildStatTable[axes2-None-18-expected_ttx2]
+PASSED Tests/otlLib/builder_test.py::test_buildStatTable[axes3-None-2-expected_ttx3]
+PASSED Tests/otlLib/builder_test.py::test_buildStatTable[axes4-axisValues4-18-expected_ttx4]
+PASSED Tests/otlLib/builder_test.py::test_buildStatTable_platform_specific_names
+PASSED Tests/otlLib/builder_test.py::test_stat_infinities
+PASSED Tests/otlLib/builder_test.py::ChainContextualRulesetTest::test_makeRulesets
+FAILED Tests/otlLib/builder_test.py::BuilderTest::test_getLigatureSortKey - A...
+========================= 1 failed, 66 passed in 0.27s =========================
++ : '>>>>> End Test Output'
++ git checkout 7cdac78423b259e77641fe3a1cf3a0b1cc5ec049 Tests/otlLib/builder_test.py
+Updated 1 path from 1c27832eb

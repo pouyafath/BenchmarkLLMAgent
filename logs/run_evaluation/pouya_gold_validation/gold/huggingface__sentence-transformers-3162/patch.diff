@@ -1,0 +1,960 @@
+diff --git a/examples/sentence_transformer/applications/semantic-search/README.md b/examples/sentence_transformer/applications/semantic-search/README.md
+index 1f19204..bdab4d2 100644
+--- a/examples/sentence_transformer/applications/semantic-search/README.md
++++ b/examples/sentence_transformer/applications/semantic-search/README.md
+@@ -92,6 +92,10 @@ To get the optimal speed for the :func:`util.semantic_search <sentence_transform
+ 
+ For further details, see [semantic_search_quora_elasticsearch.py](semantic_search_quora_elasticsearch.py).
+ 
++## OpenSearch
++[OpenSearch](https://opensearch.org/) is a community-driven, open-source search engine that supports vector search capabilities. It allows you to index dense vectors and perform efficient similarity search using approximate nearest neighbor algorithms. OpenSearch can be used to implement both traditional keyword-based search (BM25) and semantic search, making it possible to compare and combine both approaches.
++
++For an example implementation, see [semantic_search_nq_opensearch.py](semantic_search_nq_opensearch.py), which shows how to use OpenSearch with the Natural Questions dataset, demonstrating both semantic search and BM25 search capabilities.
+ 
+ ## Approximate Nearest Neighbor
+ ```{eval-rst}
+diff --git a/examples/sentence_transformer/applications/semantic-search/semantic_search_nq_opensearch.py b/examples/sentence_transformer/applications/semantic-search/semantic_search_nq_opensearch.py
+new file mode 100644
+index 0000000..b0d16a9
+--- /dev/null
++++ b/examples/sentence_transformer/applications/semantic-search/semantic_search_nq_opensearch.py
+@@ -0,0 +1,153 @@
++"""
++This script contains an example how to perform semantic search with OpenSearch.
++
++As dataset, we use the Natural Questions dataset: https://ai.google.com/research/NaturalQuestions/
++
++The answers are indexed to OpenSearch together with their respective sentence embeddings.
++
++You need OpenSearch up and running locally:
++https://docs.opensearch.org/docs/latest/getting-started/quickstart/
++
++Further, you need the Python OpenSearch Client installed:
++https://docs.opensearch.org/docs/latest/clients/python-low-level/, e.g.:
++```
++pip install opensearch-py
++```
++
++This script was created for `opensearch` v2.17.0+.
++
++As embeddings model, we use the SBERT model 'nq-distilbert-base-v1',
++which is specifically trained for question answering on the Natural Questions dataset.
++"""
++
++import time
++
++from datasets import load_dataset
++from opensearchpy import OpenSearch, helpers
++from tqdm import tqdm
++
++from sentence_transformers import SentenceTransformer
++
++# 1. Load the natural-questions dataset with 100K answers
++dataset = load_dataset("sentence-transformers/natural-questions", split="train")
++num_docs = 10_000  # We use 10k documents for this example
++corpus = dataset["answer"][:num_docs]
++print(f"Finish loading data. Corpus size: {len(corpus)}")
++
++# 2. Come up with some initial queries
++queries = dataset["query"][:2]
++
++# 3. Load the model
++model = SentenceTransformer("nq-distilbert-base-v1")
++
++# 4. Encode the corpus
++print("Start encoding corpus...")
++start_time = time.time()
++corpus_embeddings = model.encode(corpus, batch_size=32, show_progress_bar=True)
++print(f"Corpus encoding time: {time.time() - start_time:.6f} seconds")
++
++
++# Function to create index and ingest documents
++def create_and_ingest_index(os_client, index_name, corpus, embeddings):
++    if os_client.indices.exists(index=index_name):
++        os_client.indices.delete(index=index_name)
++
++    os_index = {
++        "settings": {"index.knn": True},
++        "mappings": {
++            "properties": {
++                "answer": {"type": "text"},  # For BM25 search
++                "answer_vector": {
++                    "type": "knn_vector",
++                    "dimension": 768,
++                    "space_type": "cosinesimil",
++                    "method": {
++                        "name": "hnsw",
++                        "engine": "lucene",
++                    },
++                },
++            }
++        },
++    }
++
++    os_client.indices.create(index=index_name, body=os_index)
++
++    # Ingest documents in batches
++    batch_size = 500
++    for start_idx in tqdm(range(0, len(corpus), batch_size)):
++        end_idx = start_idx + batch_size
++        bulk_data = []
++
++        for idx, (answer, embedding) in enumerate(zip(corpus[start_idx:end_idx], embeddings[start_idx:end_idx])):
++            doc_id = str(start_idx + idx)
++            bulk_data.append(
++                {
++                    "_index": index_name,
++                    "_id": doc_id,
++                    "_source": {
++                        "answer": answer,
++                        "answer_vector": embedding.tolist(),
++                    },
++                }
++            )
++
++        helpers.bulk(os_client, bulk_data)
++
++    os_client.indices.refresh(index=index_name)
++    return os_client, index_name
++
++
++# Initialize variables
++os_client = OpenSearch("http://localhost:9200")
++corpus_index = None
++
++while True:
++    # 5. Encode the queries
++    start_time = time.time()
++    query_embeddings = model.encode(queries)
++    encode_time = time.time() - start_time
++    print(f"Query encoding time: {encode_time:.6f} seconds")
++
++    # 6. Perform semantic search using OpenSearch
++    if corpus_index is None:
++        # Create index and ingest documents on first query
++        print("Creating index and ingesting documents...")
++        os_client, index_name = create_and_ingest_index(os_client, "nq", corpus, corpus_embeddings)
++        corpus_index = (os_client, index_name)
++
++    # Perform search
++    start_time = time.time()
++    semantic_results = []
++    bm25_results = []
++    os_client, index_name = corpus_index
++
++    for query, query_embedding in zip(queries, query_embeddings):
++        # BM25 search
++        bm25_result = os_client.search(index=index_name, body={"query": {"match": {"answer": query}}, "size": 5})
++        bm25_results.append(bm25_result["hits"]["hits"])
++
++        # Semantic search
++        semantic_result = os_client.search(
++            index=index_name,
++            body={"size": 5, "query": {"knn": {"answer_vector": {"vector": query_embedding.tolist(), "k": 5}}}},
++        )
++        semantic_results.append(semantic_result["hits"]["hits"])
++
++    search_time = time.time() - start_time
++
++    # 7. Output the results
++    print(f"Query encoding time: {encode_time:.6f} seconds, search time: {search_time:.6f} seconds")
++    for query, bm25_hits, semantic_hits in zip(queries, bm25_results, semantic_results):
++        print(f"Query: {query}")
++
++        print("\nBM25 results:")
++        for hit in bm25_hits:
++            print(f"(Score: {hit['_score']:.4f}) {hit['_source']['answer']}, corpus_id: {hit['_id']}")
++
++        print("\nSemantic Search results:")
++        for hit in semantic_hits:
++            print(f"(Score: {hit['_score']:.4f}) {hit['_source']['answer']}, corpus_id: {hit['_id']}")
++        print("\n========\n")
++
++    # 8. Prompt for more queries
++    queries = [input("Please enter a question: ")]
+diff --git a/sentence_transformers/__init__.py b/sentence_transformers/__init__.py
+index 6c738b3..0f6aee6 100644
+--- a/sentence_transformers/__init__.py
++++ b/sentence_transformers/__init__.py
+@@ -22,6 +22,7 @@ from sentence_transformers.LoggingHandler import LoggingHandler
+ from sentence_transformers.model_card import SentenceTransformerModelCardData
+ from sentence_transformers.quantization import quantize_embeddings
+ from sentence_transformers.readers import InputExample
++from sentence_transformers.sampler import DefaultBatchSampler, MultiDatasetDefaultBatchSampler
+ from sentence_transformers.SentenceTransformer import SentenceTransformer
+ from sentence_transformers.similarity_functions import SimilarityFunction
+ from sentence_transformers.trainer import SentenceTransformerTrainer
+@@ -51,5 +52,7 @@ __all__ = [
+     "export_optimized_onnx_model",
+     "export_dynamic_quantized_onnx_model",
+     "export_static_quantized_openvino_model",
++    "DefaultBatchSampler",
++    "MultiDatasetDefaultBatchSampler",
+     "mine_hard_negatives",
+ ]
+diff --git a/sentence_transformers/cross_encoder/training_args.py b/sentence_transformers/cross_encoder/training_args.py
+index 9d07447..c45868e 100644
+--- a/sentence_transformers/cross_encoder/training_args.py
++++ b/sentence_transformers/cross_encoder/training_args.py
+@@ -25,10 +25,10 @@ class CrossEncoderTrainingArguments(SentenceTransformerTrainingArguments):
+                prompts. This should only be used if your training/evaluation/test datasets are a
+                :class:`datasets.DatasetDict` or a dictionary of :class:`datasets.Dataset`.
+ 
+-        batch_sampler (Union[:class:`~sentence_transformers.training_args.BatchSamplers`, `str`], *optional*):
++        batch_sampler (Union[:class:`~sentence_transformers.training_args.BatchSamplers`, `str`, :class:`~sentence_transformers.sampler.DefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.DefaultBatchSampler`]], *optional*):
+             The batch sampler to use. See :class:`~sentence_transformers.training_args.BatchSamplers` for valid options.
+             Defaults to ``BatchSamplers.BATCH_SAMPLER``.
+-        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`], *optional*):
++        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
+             The multi-dataset batch sampler to use. See :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`
+             for valid options. Defaults to ``MultiDatasetBatchSamplers.PROPORTIONAL``.
+     """
+diff --git a/sentence_transformers/models/WordEmbeddings.py b/sentence_transformers/models/WordEmbeddings.py
+index 65dbd59..88070a8 100644
+--- a/sentence_transformers/models/WordEmbeddings.py
++++ b/sentence_transformers/models/WordEmbeddings.py
+@@ -4,6 +4,8 @@ import gzip
+ import logging
+ import os
+ 
++from transformers import PreTrainedTokenizerBase
++
+ try:
+     from typing import Self
+ except ImportError:
+@@ -17,7 +19,7 @@ from tqdm import tqdm
+ from sentence_transformers.models.Module import Module
+ from sentence_transformers.util import fullname, http_get, import_from_string
+ 
+-from .tokenizer import WhitespaceTokenizer, WordTokenizer
++from .tokenizer import TransformersTokenizerWrapper, WhitespaceTokenizer, WordTokenizer
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -28,12 +30,16 @@ class WordEmbeddings(Module):
+ 
+     def __init__(
+         self,
+-        tokenizer: WordTokenizer,
++        tokenizer: WordTokenizer | PreTrainedTokenizerBase,
+         embedding_weights,
+         update_embeddings: bool = False,
+         max_seq_length: int = 1000000,
+     ):
+         nn.Module.__init__(self)
++        if isinstance(tokenizer, PreTrainedTokenizerBase):
++            tokenizer = TransformersTokenizerWrapper(tokenizer)
++        elif not isinstance(tokenizer, WordTokenizer):
++            raise ValueError("tokenizer must be a WordTokenizer or a HuggingFace tokenizer. ")
+         if isinstance(embedding_weights, list):
+             embedding_weights = np.asarray(embedding_weights)
+ 
+diff --git a/sentence_transformers/models/tokenizer/WordTokenizer.py b/sentence_transformers/models/tokenizer/WordTokenizer.py
+index a64d020..6cb7208 100644
+--- a/sentence_transformers/models/tokenizer/WordTokenizer.py
++++ b/sentence_transformers/models/tokenizer/WordTokenizer.py
+@@ -3,6 +3,8 @@ from __future__ import annotations
+ from abc import ABC, abstractmethod
+ from collections.abc import Iterable
+ 
++from transformers import AutoTokenizer, PreTrainedTokenizerBase
++
+ ENGLISH_STOP_WORDS = [
+     "!",
+     '"',
+@@ -414,3 +416,26 @@ class WordTokenizer(ABC):
+     @abstractmethod
+     def load(input_path: str):
+         pass
++
++
++class TransformersTokenizerWrapper(WordTokenizer):
++    def __init__(self, tokenizer: PreTrainedTokenizerBase):
++        super().__init__()
++        self.tokenizer = tokenizer
++
++    def tokenize(self, sentence: str):
++        encoded = self.tokenizer(sentence)
++        return encoded["input_ids"][0]
++
++    def set_vocab(self, vocab: Iterable[str]):
++        pass
++
++    def get_vocab(self, vocab: Iterable[str]):
++        return self.tokenizer.get_vocab()
++
++    def save(self, output_path: str):
++        self.tokenizer.save_pretrained(output_path)
++
++    @staticmethod
++    def load(input_path: str):
++        return TransformersTokenizerWrapper(AutoTokenizer.from_pretrained(input_path, use_fast=True))
+diff --git a/sentence_transformers/models/tokenizer/__init__.py b/sentence_transformers/models/tokenizer/__init__.py
+index 9dcab52..7e4268b 100644
+--- a/sentence_transformers/models/tokenizer/__init__.py
++++ b/sentence_transformers/models/tokenizer/__init__.py
+@@ -2,6 +2,12 @@ from __future__ import annotations
+ 
+ from .PhraseTokenizer import PhraseTokenizer
+ from .WhitespaceTokenizer import WhitespaceTokenizer
+-from .WordTokenizer import ENGLISH_STOP_WORDS, WordTokenizer
++from .WordTokenizer import ENGLISH_STOP_WORDS, TransformersTokenizerWrapper, WordTokenizer
+ 
+-__all__ = ["WordTokenizer", "WhitespaceTokenizer", "PhraseTokenizer", "ENGLISH_STOP_WORDS"]
++__all__ = [
++    "WordTokenizer",
++    "WhitespaceTokenizer",
++    "PhraseTokenizer",
++    "ENGLISH_STOP_WORDS",
++    "TransformersTokenizerWrapper",
++]
+diff --git a/sentence_transformers/sampler.py b/sentence_transformers/sampler.py
+index 121b92e..dd2c599 100644
+--- a/sentence_transformers/sampler.py
++++ b/sentence_transformers/sampler.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import logging
++from abc import ABC, abstractmethod
+ from collections import defaultdict
+ from collections.abc import Iterator
+ from itertools import accumulate, cycle
+@@ -25,7 +26,6 @@ class SetEpochMixin:
+ 
+     def __init__(self, *args, **kwargs) -> None:
+         super().__init__(*args, **kwargs)
+-
+         self.epoch = 0
+ 
+     def set_epoch(self, epoch: int) -> None:
+@@ -43,10 +43,30 @@ class DefaultBatchSampler(SetEpochMixin, BatchSampler):
+         batch_size (int): Number of samples per batch.
+         drop_last (bool): If True, drop the last incomplete batch if the dataset size
+             is not divisible by the batch size.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
++            The first column name from ``valid_label_columns`` found in the dataset will
++            be used as the label column.
++        generator (torch.Generator, optional): Optional random number generator for shuffling
++            the indices.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+     """
+ 
++    def __init__(
++        self,
++        dataset: Dataset,
++        batch_size: int,
++        drop_last: bool,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
++    ) -> None:
++        super().__init__(dataset, batch_size=batch_size, drop_last=drop_last)
++        self.valid_label_columns = valid_label_columns
++        self.generator = generator
++        self.seed = seed
++
+ 
+-class GroupByLabelBatchSampler(SetEpochMixin, BatchSampler):
++class GroupByLabelBatchSampler(DefaultBatchSampler):
+     """
+     This sampler groups samples by their labels and aims to create batches such that
+     each batch contains samples where the labels are as homogeneous as possible.
+@@ -64,12 +84,12 @@ class GroupByLabelBatchSampler(SetEpochMixin, BatchSampler):
+         batch_size (int): Number of samples per batch. Must be divisible by 2.
+         drop_last (bool): If True, drop the last incomplete batch if the dataset size
+             is not divisible by the batch size.
+-        valid_label_columns (List[str]): List of column names to check for labels.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
+             The first column name from ``valid_label_columns`` found in the dataset will
+             be used as the label column.
+         generator (torch.Generator, optional): Optional random number generator for shuffling
+             the indices.
+-        seed (int, optional): Seed for the random number generator to ensure reproducibility.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+     """
+ 
+     def __init__(
+@@ -77,21 +97,24 @@ class GroupByLabelBatchSampler(SetEpochMixin, BatchSampler):
+         dataset: Dataset,
+         batch_size: int,
+         drop_last: bool,
+-        valid_label_columns: list[str] = None,
+-        generator: torch.Generator = None,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
+         seed: int = 0,
+     ) -> None:
+-        super().__init__(dataset, batch_size, drop_last)
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
+         self.dataset = dataset
+-        self.batch_size = batch_size
+-        self.drop_last = drop_last
+-        self.generator = generator
+-        self.seed = seed
+ 
+         if self.batch_size % 2 == 1:
+             raise ValueError("The batch size for `GroupByLabelBatchSampler` must be divisible by 2.")
+ 
+-        labels = self._determine_labels_to_use(dataset, valid_label_columns)
++        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
+         groups = defaultdict(list)
+         for sample_idx, label in enumerate(labels):
+             groups[label].append(sample_idx)
+@@ -103,7 +126,7 @@ class GroupByLabelBatchSampler(SetEpochMixin, BatchSampler):
+         }
+ 
+     @staticmethod
+-    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str]) -> list[Any]:
++    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
+         for column_name in valid_label_columns or []:
+             if column_name in dataset.column_names:
+                 return dataset[column_name]
+@@ -113,7 +136,7 @@ class GroupByLabelBatchSampler(SetEpochMixin, BatchSampler):
+         )
+ 
+     def __iter__(self) -> Iterator[list[int]]:
+-        if self.generator and self.seed:
++        if self.generator and self.seed is not None:
+             self.generator.manual_seed(self.seed + self.epoch)
+ 
+         partial_batch = []
+@@ -130,14 +153,14 @@ class GroupByLabelBatchSampler(SetEpochMixin, BatchSampler):
+             yield partial_batch
+ 
+ 
+-class NoDuplicatesBatchSampler(SetEpochMixin, BatchSampler):
++class NoDuplicatesBatchSampler(DefaultBatchSampler):
+     def __init__(
+         self,
+         dataset: Dataset,
+         batch_size: int,
+         drop_last: bool,
+-        valid_label_columns: list[str] = [],
+-        generator: torch.Generator = None,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
+         seed: int = 0,
+     ) -> None:
+         """
+@@ -159,21 +182,24 @@ class NoDuplicatesBatchSampler(SetEpochMixin, BatchSampler):
+             batch_size (int): Number of samples per batch.
+             drop_last (bool): If True, drop the last incomplete batch if the dataset size
+                 is not divisible by the batch size.
+-            valid_label_columns (List[str]): List of column names to check for labels.
++            valid_label_columns (List[str], optional): List of column names to check for labels.
+                 The first column name from ``valid_label_columns`` found in the dataset will
+                 be used as the label column.
+             generator (torch.Generator, optional): Optional random number generator for shuffling
+                 the indices.
+-            seed (int, optional): Seed for the random number generator to ensure reproducibility.
++            seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+         """
+-        super().__init__(dataset, batch_size, drop_last)
+-        if label_columns := set(dataset.column_names) & set(valid_label_columns):
+-            dataset = dataset.remove_columns(label_columns)
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
++        if label_columns := set(dataset.column_names) & set(self.valid_label_columns or []):
++            dataset = dataset.remove_columns(list(label_columns))
+         self.dataset = dataset
+-        self.batch_size = batch_size
+-        self.drop_last = drop_last
+-        self.generator = generator
+-        self.seed = seed
+ 
+     def __iter__(self) -> Iterator[list[int]]:
+         """
+@@ -181,7 +207,7 @@ class NoDuplicatesBatchSampler(SetEpochMixin, BatchSampler):
+         batch. If not, add the sample values to the batch keep going until the batch is full. If the batch is full, yield
+         the batch indices and continue with the next batch.
+         """
+-        if self.generator and self.seed:
++        if self.generator and self.seed is not None:
+             self.generator.manual_seed(self.seed + self.epoch)
+ 
+         # We create a dictionary to None because we need a data structure that:
+@@ -222,36 +248,60 @@ class NoDuplicatesBatchSampler(SetEpochMixin, BatchSampler):
+             return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+ 
+ 
+-class RoundRobinBatchSampler(SetEpochMixin, BatchSampler):
++class MultiDatasetDefaultBatchSampler(SetEpochMixin, BatchSampler, ABC):
+     """
+-    Batch sampler that yields batches in a round-robin fashion from multiple batch samplers, until one is exhausted.
+-    With this sampler, it's unlikely that all samples from each dataset are used, but we do ensure that each dataset
+-    is sampled from equally.
++    Abstract base batch sampler that yields batches from multiple batch samplers.
++    This class must be subclassed to implement specific sampling strategies, and
++    cannot be used directly.
+ 
+     Args:
+         dataset (ConcatDataset): A concatenation of multiple datasets.
+         batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
+         generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
+-        seed (int, optional): A seed for the generator. Defaults to None.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+     """
+ 
+     def __init__(
+         self,
+         dataset: ConcatDataset,
+         batch_samplers: list[BatchSampler],
+-        generator: torch.Generator = None,
+-        seed: int = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
+     ) -> None:
+         if len(dataset.datasets) != len(batch_samplers):
+             raise ValueError("The number of batch samplers must match the number of datasets in the ConcatDataset.")
+-        super().__init__(dataset, batch_samplers[0].batch_size, batch_samplers[0].drop_last)
++        super().__init__(dataset, batch_size=batch_samplers[0].batch_size, drop_last=batch_samplers[0].drop_last)
+         self.dataset = dataset
+         self.batch_samplers = batch_samplers
+         self.generator = generator
+         self.seed = seed
+ 
++    @abstractmethod
+     def __iter__(self) -> Iterator[list[int]]:
+-        if self.generator and self.seed:
++        """Yield batches from the underlying datasets in a specific order."""
++        pass
++
++    @abstractmethod
++    def __len__(self) -> int:
++        """Return the number of batches in the sampler."""
++        pass
++
++
++class RoundRobinBatchSampler(MultiDatasetDefaultBatchSampler):
++    """
++    Batch sampler that yields batches in a round-robin fashion from multiple batch samplers, until one is exhausted.
++    With this sampler, it's unlikely that all samples from each dataset are used, but we do ensure that each dataset
++    is sampled from equally.
++
++    Args:
++        dataset (ConcatDataset): A concatenation of multiple datasets.
++        batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
++        generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
++
++    def __iter__(self) -> Iterator[list[int]]:
++        if self.generator and self.seed is not None:
+             self.generator.manual_seed(self.seed + self.epoch)
+ 
+         num_samples = [len(dataset) for dataset in self.dataset.datasets]
+@@ -270,29 +320,17 @@ class RoundRobinBatchSampler(SetEpochMixin, BatchSampler):
+         return min(len(sampler) for sampler in self.batch_samplers) * len(self.batch_samplers)
+ 
+ 
+-class ProportionalBatchSampler(SetEpochMixin, BatchSampler):
+-    def __init__(
+-        self,
+-        dataset: ConcatDataset,
+-        batch_samplers: list[BatchSampler],
+-        generator: torch.Generator,
+-        seed: int,
+-    ) -> None:
+-        """
+-        Batch sampler that samples from each dataset in proportion to its size, until all are exhausted simultaneously.
+-        With this sampler, all samples from each dataset are used and larger datasets are sampled from more frequently.
++class ProportionalBatchSampler(MultiDatasetDefaultBatchSampler):
++    """
++    Batch sampler that samples from each dataset in proportion to its size, until all are exhausted simultaneously.
++    With this sampler, all samples from each dataset are used and larger datasets are sampled from more frequently.
+ 
+-        Args:
+-            dataset (ConcatDataset): A concatenation of multiple datasets.
+-            batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
+-            generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
+-            seed (int, optional): A seed for the generator. Defaults to None.
+-        """
+-        super().__init__(dataset, batch_samplers[0].batch_size, batch_samplers[0].drop_last)
+-        self.dataset = dataset
+-        self.batch_samplers = batch_samplers
+-        self.generator = generator
+-        self.seed = seed
++    Args:
++        dataset (ConcatDataset): A concatenation of multiple datasets.
++        batch_samplers (List[BatchSampler]): A list of batch samplers, one for each dataset in the ConcatDataset.
++        generator (torch.Generator, optional): A generator for reproducible sampling. Defaults to None.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
+ 
+     def __iter__(self) -> Iterator[list[int]]:
+         self.generator.manual_seed(self.seed + self.epoch)
+diff --git a/sentence_transformers/trainer.py b/sentence_transformers/trainer.py
+index d01d114..fab4eb2 100644
+--- a/sentence_transformers/trainer.py
++++ b/sentence_transformers/trainer.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import inspect
+ import logging
+ import os
+ from collections import OrderedDict
+@@ -26,6 +27,7 @@ from sentence_transformers.models import Pooling
+ from sentence_transformers.sampler import (
+     DefaultBatchSampler,
+     GroupByLabelBatchSampler,
++    MultiDatasetDefaultBatchSampler,
+     NoDuplicatesBatchSampler,
+     ProportionalBatchSampler,
+     RoundRobinBatchSampler,
+@@ -552,6 +554,7 @@ class SentenceTransformerTrainer(Trainer):
+         drop_last: bool,
+         valid_label_columns: list[str] | None = None,
+         generator: torch.Generator | None = None,
++        seed: int = 0,
+     ) -> BatchSampler | None:
+         """
+         Returns the appropriate batch sampler based on the ``batch_sampler`` argument in ``self.args``.
+@@ -571,35 +574,40 @@ class SentenceTransformerTrainer(Trainer):
+                 be used as the label column.
+             generator (torch.Generator, optional): Optional random number generator for shuffling
+                 the indices.
++            seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
+         """
++
++        batch_sampler_kwargs = {
++            "batch_size": batch_size,
++            "drop_last": drop_last,
++            "valid_label_columns": valid_label_columns,
++            "generator": generator,
++            "seed": seed,
++        }
++        # If the batch sampler is a DefaultBatchSampler subclass, initialize it
++        if inspect.isclass(self.args.batch_sampler) and issubclass(self.args.batch_sampler, DefaultBatchSampler):
++            return self.args.batch_sampler(dataset, **batch_sampler_kwargs)
++
++        # If it's a callable, call it
++        if callable(self.args.batch_sampler):
++            return self.args.batch_sampler(dataset, **batch_sampler_kwargs)
++
++        # Otherwise it's a BatchSamplers enum. None of those work with IterableDatasets, so we
++        # don't use them in that case
+         if isinstance(dataset, IterableDataset):
+             if self.args.batch_sampler != BatchSamplers.BATCH_SAMPLER:
+                 logger.warning("When using an IterableDataset, you cannot specify a batch sampler.")
+             return None
+ 
++        # Lastly, use the samplers that match the enum values
+         if self.args.batch_sampler == BatchSamplers.NO_DUPLICATES:
+-            return NoDuplicatesBatchSampler(
+-                dataset=dataset,
+-                batch_size=batch_size,
+-                drop_last=drop_last,
+-                valid_label_columns=valid_label_columns,
+-                generator=generator,
+-            )
++            return NoDuplicatesBatchSampler(dataset, **batch_sampler_kwargs)
+ 
+         if self.args.batch_sampler == BatchSamplers.GROUP_BY_LABEL:
+-            return GroupByLabelBatchSampler(
+-                dataset=dataset,
+-                batch_size=batch_size,
+-                drop_last=drop_last,
+-                valid_label_columns=valid_label_columns,
+-            )
++            return GroupByLabelBatchSampler(dataset, **batch_sampler_kwargs)
+ 
+         if self.args.batch_sampler == BatchSamplers.BATCH_SAMPLER:
+-            return DefaultBatchSampler(
+-                RandomSampler(dataset, generator=generator),
+-                batch_size=batch_size,
+-                drop_last=drop_last,
+-            )
++            return DefaultBatchSampler(RandomSampler(dataset, generator=generator), **batch_sampler_kwargs)
+ 
+     def get_multi_dataset_batch_sampler(
+         self,
+@@ -622,21 +630,28 @@ class SentenceTransformerTrainer(Trainer):
+             generator (torch.Generator, optional): Optional random number generator for shuffling the indices.
+             seed (int, optional): Optional seed for the random number generator
+         """
++
++        multi_batch_sampler_kwargs = {
++            "batch_samplers": batch_samplers,
++            "generator": generator,
++            "seed": seed,
++        }
++        # If the multi-dataset batch sampler is a DefaultBatchSampler subclass, initialize it
++        if inspect.isclass(self.args.multi_dataset_batch_sampler) and issubclass(
++            self.args.multi_dataset_batch_sampler, MultiDatasetDefaultBatchSampler
++        ):
++            return self.args.multi_dataset_batch_sampler(dataset, **multi_batch_sampler_kwargs)
++
++        # If it's a callable, call it
++        if callable(self.args.multi_dataset_batch_sampler):
++            return self.args.multi_dataset_batch_sampler(dataset, **multi_batch_sampler_kwargs)
++
++        # Otherwise, it's an MultiDatasetBatchSamplers instance and we use the samplers that match the enum values
+         if self.args.multi_dataset_batch_sampler == MultiDatasetBatchSamplers.ROUND_ROBIN:
+-            return RoundRobinBatchSampler(
+-                dataset=dataset,
+-                batch_samplers=batch_samplers,
+-                generator=generator,
+-                seed=seed,
+-            )
++            return RoundRobinBatchSampler(dataset=dataset, **multi_batch_sampler_kwargs)
+ 
+         if self.args.multi_dataset_batch_sampler == MultiDatasetBatchSamplers.PROPORTIONAL:
+-            return ProportionalBatchSampler(
+-                dataset=dataset,
+-                batch_samplers=batch_samplers,
+-                generator=generator,
+-                seed=seed,
+-            )
++            return ProportionalBatchSampler(dataset=dataset, **multi_batch_sampler_kwargs)
+ 
+     def get_train_dataloader(self) -> DataLoader:
+         """
+diff --git a/sentence_transformers/training_args.py b/sentence_transformers/training_args.py
+index da9a65d..a520de3 100644
+--- a/sentence_transformers/training_args.py
++++ b/sentence_transformers/training_args.py
+@@ -39,11 +39,13 @@ class BatchSamplers(ExplicitEnum):
+         - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
+         - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
+ 
+-    If you want to use a custom batch sampler, you can create a new Trainer class that inherits from
+-    :class:`~sentence_transformers.trainer.SentenceTransformerTrainer` and overrides the
+-    :meth:`~sentence_transformers.trainer.SentenceTransformerTrainer.get_batch_sampler` method. The
+-    method must return a class instance that supports ``__iter__`` and ``__len__`` methods. The former
+-    should yield a list of indices for each batch, and the latter should return the number of batches.
++    If you want to use a custom batch sampler, then you can subclass
++    :class:`~sentence_transformers.sampler.DefaultBatchSampler` and pass the class (not an instance) to the
++    ``batch_sampler`` argument in :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
++    (or :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, etc.).
++    Alternatively, you can pass a function that accepts ``dataset``, ``batch_size``, ``drop_last``,
++    ``valid_label_columns``, ``generator``, and ``seed`` and returns a
++    :class:`~sentence_transformers.sampler.DefaultBatchSampler` instance.
+ 
+     Usage:
+         ::
+@@ -92,6 +94,14 @@ class MultiDatasetBatchSamplers(ExplicitEnum):
+       which samples from each dataset in proportion to its size.
+       With this strategy, all samples from each dataset are used and larger datasets are sampled from more frequently.
+ 
++    If you want to use a custom multi-dataset batch sampler, then you can subclass
++    :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler` and pass the class (not an instance) to the
++    ``multi_dataset_batch_sampler`` argument in :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`.
++    (or :class:`~sentence_transformers.cross_encoder.training_args.CrossEncoderTrainingArguments`, etc.). Alternatively,
++    you can pass a function that accepts ``dataset`` (a :class:`~torch.utils.data.ConcatDataset`), ``batch_samplers``
++    (i.e. a list of batch sampler for each of the datasets in the :class:`~torch.utils.data.ConcatDataset`), ``generator``,
++    and ``seed`` and returns a :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler` instance.
++
+     Usage:
+         ::
+ 
+@@ -163,10 +173,10 @@ class SentenceTransformerTrainingArguments(TransformersTrainingArguments):
+                prompts. This should only be used if your training/evaluation/test datasets are a
+                :class:`datasets.DatasetDict` or a dictionary of :class:`datasets.Dataset`.
+ 
+-        batch_sampler (Union[:class:`~sentence_transformers.training_args.BatchSamplers`, `str`], *optional*):
++        batch_sampler (Union[:class:`~sentence_transformers.training_args.BatchSamplers`, `str`, :class:`~sentence_transformers.sampler.DefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.DefaultBatchSampler`]], *optional*):
+             The batch sampler to use. See :class:`~sentence_transformers.training_args.BatchSamplers` for valid options.
+             Defaults to ``BatchSamplers.BATCH_SAMPLER``.
+-        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`], *optional*):
++        multi_dataset_batch_sampler (Union[:class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`, `str`, :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`, Callable[[...], :class:`~sentence_transformers.sampler.MultiDatasetDefaultBatchSampler`]], *optional*):
+             The multi-dataset batch sampler to use. See :class:`~sentence_transformers.training_args.MultiDatasetBatchSamplers`
+             for valid options. Defaults to ``MultiDatasetBatchSamplers.PROPORTIONAL``.
+     """
+@@ -189,8 +199,14 @@ class SentenceTransformerTrainingArguments(TransformersTrainingArguments):
+     def __post_init__(self):
+         super().__post_init__()
+ 
+-        self.batch_sampler = BatchSamplers(self.batch_sampler)
+-        self.multi_dataset_batch_sampler = MultiDatasetBatchSamplers(self.multi_dataset_batch_sampler)
++        self.batch_sampler = (
++            BatchSamplers(self.batch_sampler) if isinstance(self.batch_sampler, str) else self.batch_sampler
++        )
++        self.multi_dataset_batch_sampler = (
++            MultiDatasetBatchSamplers(self.multi_dataset_batch_sampler)
++            if isinstance(self.multi_dataset_batch_sampler, str)
++            else self.multi_dataset_batch_sampler
++        )
+ 
+         # The `compute_loss` method in `SentenceTransformerTrainer` is overridden to only compute the prediction loss,
+         # so we set `prediction_loss_only` to `True` here to avoid
+@@ -218,3 +234,11 @@ class SentenceTransformerTrainingArguments(TransformersTrainingArguments):
+                     "Setting `dataloader_drop_last=True`."
+                 )
+             self.dataloader_drop_last = True
++
++    def to_dict(self):
++        training_args_dict = super().to_dict()
++        if callable(training_args_dict["batch_sampler"]):
++            del training_args_dict["batch_sampler"]
++        if callable(training_args_dict["multi_dataset_batch_sampler"]):
++            del training_args_dict["multi_dataset_batch_sampler"]
++        return training_args_dict
+diff --git a/sentence_transformers/util.py b/sentence_transformers/util.py
+index 2c19087..d8b2719 100644
+--- a/sentence_transformers/util.py
++++ b/sentence_transformers/util.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import functools
++import hashlib
+ import heapq
+ import importlib
+ import logging
+@@ -540,6 +541,7 @@ def mine_hard_negatives(
+     use_faiss: bool = False,
+     use_multi_process: list[str] | bool = False,
+     verbose: bool = True,
++    cache_folder: str | None = None,
+     as_triplets: bool | None = None,
+     margin: float | None = None,
+ ) -> Dataset:
+@@ -687,6 +689,10 @@ def mine_hard_negatives(
+             is available, and 4 CPU processes if it's not available. You can also pass a list of PyTorch devices like
+             ["cuda:0", "cuda:1", ...] or ["cpu", "cpu", "cpu", "cpu"].
+         verbose (bool): Whether to print statistics and logging. Defaults to True.
++        cache_folder (str, optional): Directory path for caching embeddings. If provided, the function will save
++            ``query_embeddings_{hash}.npy`` and ``corpus_embeddings_{hash}.npy`` under this folder after the first run,
++            and on subsequent calls will load from these files if they exist to avoid recomputation. The hashes are
++            computed based on the model name and the queries/corpus. Defaults to None.
+         as_triplets (bool, optional): Deprecated. Use `output_format` instead. Defaults to None.
+         margin (float, optional): Deprecated. Use `absolute_margin` or `relative_margin` instead. Defaults to None.
+ 
+@@ -773,7 +779,7 @@ def mine_hard_negatives(
+ 
+     # Deduplicate the corpus
+     # make sure all the positives are also in the corpus and de-duplicate it.
+-    corpus = list(set(corpus) | set(positives))
++    corpus = list(dict.fromkeys(corpus + positives))
+ 
+     # corpus_idx maps the corpus text into its position in the corpus
+     # This position does not necessarily matches the original corpus, as it was de-duplicated.
+@@ -781,7 +787,7 @@ def mine_hard_negatives(
+ 
+     # Deduplicate the queries, but keep the original one for later reference.
+     all_queries = queries.copy()
+-    queries = list(set(queries))
++    queries = list(dict.fromkeys(queries))
+     queries_idx = {query: idx for idx, query in enumerate(queries)}
+     n_queries = len(queries)
+     batch_idx = torch.arange(n_queries).unsqueeze(-1)
+@@ -795,29 +801,72 @@ def mine_hard_negatives(
+         avg_positives_per_query = np.mean(positives_per_query)
+         print(f"Found an average of {avg_positives_per_query:.3f} positives per query.")
+ 
++    corpus_embeddings = None
++    query_embeddings = None
++
++    if cache_folder:
++        os.makedirs(cache_folder, exist_ok=True)
++
++        model_name = model.model_card_data.base_model or ""
++        query_hash = hashlib.md5((model_name + "".join(queries)).encode()).hexdigest()
++        corpus_hash = hashlib.md5((model_name + "".join(corpus)).encode()).hexdigest()
++
++        query_cache_file = os.path.join(cache_folder, f"query_embeddings_{query_hash}.npy")
++        corpus_cache_file = os.path.join(cache_folder, f"corpus_embeddings_{corpus_hash}.npy")
++
++        if os.path.exists(query_cache_file):
++            query_embeddings = np.load(query_cache_file)
++            if verbose:
++                print(f"[Cache] Loaded query embeddings from {query_cache_file} (shape={query_embeddings.shape})")
++
++        if os.path.exists(corpus_cache_file):
++            corpus_embeddings = np.load(corpus_cache_file)
++            if verbose:
++                print(f"[Cache] Loaded corpus embeddings from {corpus_cache_file} (shape={corpus_embeddings.shape})")
++
+     # Embed the corpus and the queries
+-    if use_multi_process:
+-        pool = model.start_multi_process_pool(
+-            target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
+-        )
+-        corpus_embeddings = model.encode_multi_process(
+-            corpus, pool, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=True
+-        )
+-        query_embeddings = model.encode_multi_process(
+-            queries, pool, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=True
+-        )
+-        model.stop_multi_process_pool(pool)
+-    else:
+-        corpus_embeddings = model.encode(
+-            corpus, batch_size=batch_size, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=True
+-        )
+-        query_embeddings = model.encode(
+-            queries,
+-            batch_size=batch_size,
+-            normalize_embeddings=True,
+-            convert_to_numpy=True,
+-            show_progress_bar=True,
+-        )
++    if corpus_embeddings is None or query_embeddings is None:
++        if use_multi_process:
++            pool = model.start_multi_process_pool(
++                target_devices=None if isinstance(use_multi_process, bool) else use_multi_process
++            )
++            if corpus_embeddings is None:
++                corpus_embeddings = model.encode_multi_process(
++                    corpus, pool, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=True
++                )
++            if query_embeddings is None:
++                query_embeddings = model.encode_multi_process(
++                    queries, pool, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=True
++                )
++            model.stop_multi_process_pool(pool)
++        else:
++            if corpus_embeddings is None:
++                corpus_embeddings = model.encode(
++                    corpus,
++                    batch_size=batch_size,
++                    normalize_embeddings=True,
++                    convert_to_numpy=True,
++                    show_progress_bar=True,
++                )
++            if query_embeddings is None:
++                query_embeddings = model.encode(
++                    queries,
++                    batch_size=batch_size,
++                    normalize_embeddings=True,
++                    convert_to_numpy=True,
++                    show_progress_bar=True,
++                )
++
++    if cache_folder:
++        if not os.path.exists(query_cache_file):
++            np.save(query_cache_file, query_embeddings)
++            if verbose:
++                print(f"[Cache] Saved query embeddings to {query_cache_file}")
++
++        if not os.path.exists(corpus_cache_file):
++            np.save(corpus_cache_file, corpus_embeddings)
++            if verbose:
++                print(f"[Cache] Saved corpus embeddings to {corpus_cache_file}")
+ 
+     if use_faiss:
+         import faiss
+@@ -994,6 +1043,9 @@ def mine_hard_negatives(
+     indices = torch.cat([indices[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
+     negative_scores = torch.cat([negative_scores[idx].repeat(n_positives[idx], 1) for idx in range(n_queries)])
+ 
++    if verbose:
++        print("Negative candidates mined, preparing dataset...")
++
+     if output_format == "triplet":
+         # If calling as triples and there are multiple positives per query, we will explode the dataset into triplets.
+         indices_to_keep = negative_scores != -float("inf")

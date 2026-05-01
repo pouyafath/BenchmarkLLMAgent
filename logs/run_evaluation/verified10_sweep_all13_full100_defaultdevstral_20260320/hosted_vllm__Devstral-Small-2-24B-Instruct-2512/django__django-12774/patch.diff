@@ -1,0 +1,46 @@
+diff --git a/django/db/models/query.py b/django/db/models/query.py
+index d9c9b0db04..fe923d6ca6 100644
+--- a/django/db/models/query.py
++++ b/django/db/models/query.py
+@@ -16,6 +16,7 @@ from django.db import (
+     router, transaction,
+ )
+ from django.db.models import AutoField, DateField, DateTimeField, sql
++from django.db.models.constraints import UniqueConstraint
+ from django.db.models.constants import LOOKUP_SEP
+ from django.db.models.deletion import Collector
+ from django.db.models.expressions import Case, Expression, F, Value, When
+@@ -682,6 +683,24 @@ class QuerySet:
+         for obj in (self.reverse() if self.ordered else self.order_by('-pk'))[:1]:
+             return obj
+ 
++
++    def _is_unique_field(self, field_name):
++        """
++        Check if a field is unique by checking both the field's unique attribute
++        and any UniqueConstraint constraints on the model.
++        """
++        field = self.model._meta.get_field(field_name)
++        # Check if the field has unique=True
++        if field.unique:
++            return True
++        # Check if the field is part of any UniqueConstraint
++        for constraint in self.model._meta.constraints:
++            if isinstance(constraint, UniqueConstraint):
++                # Check if this field is in the constraint's fields
++                if field_name in constraint.fields:
++                    return True
++        return False
++
+     def in_bulk(self, id_list=None, *, field_name='pk'):
+         """
+         Return a dictionary mapping each of the given IDs to the object with
+@@ -689,7 +708,7 @@ class QuerySet:
+         """
+         assert not self.query.is_sliced, \
+             "Cannot use 'limit' or 'offset' with in_bulk"
+-        if field_name != 'pk' and not self.model._meta.get_field(field_name).unique:
++        if field_name != 'pk' and not self._is_unique_field(field_name):
+             raise ValueError("in_bulk()'s field_name must be a unique field but %r isn't." % field_name)
+         if id_list is not None:
+             if not id_list:

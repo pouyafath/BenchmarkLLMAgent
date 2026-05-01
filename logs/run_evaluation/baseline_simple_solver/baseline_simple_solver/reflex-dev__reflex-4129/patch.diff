@@ -1,0 +1,43 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,1 +1,38 @@
+-from reflex.utils import serialization
++from reflex.utils import serialization
++import sys
++
++# Registry for dynamically created State subclasses.
++_DYNAMIC_STATE_REGISTRY: dict[str, type["State"]] = {}
++
++
++class _StateMeta(type):
++    """Metaclass for :class:`State` that ensures dynamically created subclasses
++    (e.g., those defined inside a function) are importable and thus pickleable.
++
++    When a subclass is defined inside a local scope its ``__qualname__`` contains
++    ``<locals>`` which makes the default pickling mechanism fail with
++    ``AttributeError: Can't pickle local object``. This metaclass detects such
++    classes and registers them in the ``reflex.state`` module, updating their
++    ``__module__`` attribute so that they can be located during unpickling.
++    """
++
++    def __new__(mcls, name, bases, namespace, **kwargs):
++        cls = super().__new__(mcls, name, bases, namespace, **kwargs)
++        # Detect locally defined classes via the presence of '<locals>' in the qualname.
++        if "<locals>" in getattr(cls, "__qualname__", ""):
++            # Register the class in the current module (reflex.state) to make it importable.
++            module = sys.modules.get(__name__)
++            if module:
++                setattr(module, name, cls)
++                cls.__module__ = module.__name__
++                _DYNAMIC_STATE_REGISTRY[name] = cls
++        return cls
++
++
++class State(metaclass=_StateMeta):
++    """Base class for application state.
++
++    Users can subclass :class:`State` to define reactive state variables.
++    The metaclass ensures that even dynamically created subclasses are
++    pickle‑compatible.
++    """

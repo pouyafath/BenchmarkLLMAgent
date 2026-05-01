@@ -1,0 +1,137 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2f31a86d2..126ff280b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,8 +5,11 @@ This project adheres to [Semantic Versioning](http://semver.org/).
+ ## Unreleased
+ 
+ ### Fixed
++- Fix issue where user-specified `color_continuous_scale` was ignored when template had `autocolorscale=True` [[#5439](https://github.com/plotly/plotly.py/pull/5439)], with thanks to @antonymilne for the contribution!
+ - Update tests to be compatible with numpy 2.4 [[#5522](https://github.com/plotly/plotly.py/pull/5522)], with thanks to @thunze for the contribution!
+ 
++### Updated
++- The `__eq__` method for  `graph_objects` classes now returns `NotImplemented` to give the other operand an opportunity to handle the comparison [[#5547](https://github.com/plotly/plotly.py/pull/5547)], with thanks to @RazerM for the contribution!
+ 
+ ## [6.7.0] - 2026-04-09
+ 
+diff --git a/plotly/basedatatypes.py b/plotly/basedatatypes.py
+index 6821eeb8d..ec4038b7f 100644
+--- a/plotly/basedatatypes.py
++++ b/plotly/basedatatypes.py
+@@ -789,7 +789,7 @@ class BaseFigure(object):
+     def __eq__(self, other):
+         if not isinstance(other, BaseFigure):
+             # Require objects to both be BaseFigure instances
+-            return False
++            return NotImplemented
+         else:
+             # Compare plotly_json representations
+ 
+@@ -5017,7 +5017,7 @@ class BasePlotlyType(object):
+         """
+         if not isinstance(other, self.__class__):
+             # Require objects to be of the same plotly type
+-            return False
++            return NotImplemented
+         else:
+             # Compare plotly_json representations
+ 
+diff --git a/plotly/conftest.py b/plotly/conftest.py
+deleted file mode 100644
+index 1e1361dd5..000000000
+--- a/plotly/conftest.py
++++ /dev/null
+@@ -1,24 +0,0 @@
+-import os
+-
+-
+-def pytest_ignore_collect(path):
+-    # Ignored files, most of them are raising a chart studio error
+-    ignored_paths = [
+-        "exploding_module.py",
+-        "chunked_requests.py",
+-        "v2.py",
+-        "v1.py",
+-        "presentation_objs.py",
+-        "widgets.py",
+-        "dashboard_objs.py",
+-        "grid_objs.py",
+-        "config.py",
+-        "presentation_objs.py",
+-        "session.py",
+-    ]
+-    if (
+-        os.path.basename(str(path)) in ignored_paths
+-        or "plotly/plotly/plotly/__init__.py" in str(path)
+-        or "plotly/api/utils.py" in str(path)
+-    ):
+-        return True
+diff --git a/plotly/express/_core.py b/plotly/express/_core.py
+index 2756346c5..bcd5a40c0 100644
+--- a/plotly/express/_core.py
++++ b/plotly/express/_core.py
+@@ -2507,6 +2507,9 @@ def get_groups_and_orders(args, grouper):
+ def make_figure(args, constructor, trace_patch=None, layout_patch=None):
+     trace_patch = trace_patch or {}
+     layout_patch = layout_patch or {}
++    # Track if color_continuous_scale was explicitly provided by user
++    # (before apply_default_cascade fills it from template/defaults)
++    user_provided_colorscale = args.get("color_continuous_scale") is not None
+     apply_default_cascade(args, constructor=constructor)
+ 
+     args = build_dataframe(args, constructor)
+@@ -2725,7 +2728,7 @@ def make_figure(args, constructor, trace_patch=None, layout_patch=None):
+         range_color = args["range_color"] or [None, None]
+ 
+         colorscale_validator = ColorscaleValidator("colorscale", "make_figure")
+-        layout_patch["coloraxis1"] = dict(
++        coloraxis_dict = dict(
+             colorscale=colorscale_validator.validate_coerce(
+                 args["color_continuous_scale"]
+             ),
+@@ -2736,6 +2739,11 @@ def make_figure(args, constructor, trace_patch=None, layout_patch=None):
+                 title_text=get_decorated_label(args, args[colorvar], colorvar)
+             ),
+         )
++        # Set autocolorscale=False if user explicitly provided colorscale. Otherwise a template
++        # that sets autocolorscale=True would override the user provided colorscale.
++        if user_provided_colorscale:
++            coloraxis_dict["autocolorscale"] = False
++        layout_patch["coloraxis1"] = coloraxis_dict
+     for v in ["height", "width"]:
+         if args[v]:
+             layout_patch[v] = args[v]
+diff --git a/plotly/express/_imshow.py b/plotly/express/_imshow.py
+index 4d9b23909..576b114d5 100644
+--- a/plotly/express/_imshow.py
++++ b/plotly/express/_imshow.py
+@@ -239,6 +239,9 @@ def imshow(
+     axes labels and ticks.
+     """
+     args = locals()
++    # Track if color_continuous_scale was explicitly provided by user
++    # (before apply_default_cascade fills it from template/defaults)
++    user_provided_colorscale = args.get("color_continuous_scale") is not None
+     apply_default_cascade(args, constructor=None)
+     labels = labels.copy()
+     nslices_facet_col = 1
+@@ -457,7 +460,7 @@ def imshow(
+             layout["xaxis"] = dict(scaleanchor="y", constrain="domain")
+             layout["yaxis"]["constrain"] = "domain"
+         colorscale_validator = ColorscaleValidator("colorscale", "imshow")
+-        layout["coloraxis1"] = dict(
++        coloraxis_dict = dict(
+             colorscale=colorscale_validator.validate_coerce(
+                 args["color_continuous_scale"]
+             ),
+@@ -465,6 +468,11 @@ def imshow(
+             cmin=zmin,
+             cmax=zmax,
+         )
++        # Set autocolorscale=False if user explicitly provided colorscale. Otherwise a template
++        # that sets autocolorscale=True would override the user provided colorscale.
++        if user_provided_colorscale:
++            coloraxis_dict["autocolorscale"] = False
++        layout["coloraxis1"] = coloraxis_dict
+         if labels["color"]:
+             layout["coloraxis1"]["colorbar"] = dict(title_text=labels["color"])

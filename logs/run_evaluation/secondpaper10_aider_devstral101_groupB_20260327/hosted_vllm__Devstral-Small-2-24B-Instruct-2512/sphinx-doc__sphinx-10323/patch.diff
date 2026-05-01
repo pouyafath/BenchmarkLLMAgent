@@ -1,0 +1,83 @@
+diff --git a/sphinx/util/inspect.py b/sphinx/util/inspect.py
+index 81c2ba6cd..981fff26a 100644
+--- a/sphinx/util/inspect.py
++++ b/sphinx/util/inspect.py
+@@ -464,6 +464,8 @@ class DefaultValue:
+         return self.value == other
+ 
+     def __repr__(self) -> str:
++        if self.value is None:
++            return "None"
+         return self.value
+ 
+ 
+@@ -753,7 +755,17 @@ def signature_from_ast(node: ast.FunctionDef, code: str = '') -> inspect.Signatu
+             if defaults[i] is Parameter.empty:
+                 default = Parameter.empty
+             else:
+-                default = DefaultValue(ast_unparse(defaults[i], code))  # type: ignore
++            # FIX: Handle None defaults
++
++                unparsed = ast_unparse(defaults[i], code)
++
++                if unparsed == "None":
++
++                    default = DefaultValue(None)
++
++                else:
++
++                    default = DefaultValue(unparsed)
+ 
+             annotation = ast_unparse(arg.annotation, code) or Parameter.empty
+             params.append(Parameter(arg.arg, Parameter.POSITIONAL_ONLY,
+@@ -763,7 +775,17 @@ def signature_from_ast(node: ast.FunctionDef, code: str = '') -> inspect.Signatu
+         if defaults[i + posonlyargs] is Parameter.empty:
+             default = Parameter.empty
+         else:
+-            default = DefaultValue(ast_unparse(defaults[i + posonlyargs], code))  # type: ignore  # NOQA
++            # FIX: Handle None defaults
++
++                unparsed = ast_unparse(defaults[i + posonlyargs], code)
++
++                if unparsed == "None":
++
++                    default = DefaultValue(None)
++
++                else:
++
++                    default = DefaultValue(unparsed)
+ 
+         annotation = ast_unparse(arg.annotation, code) or Parameter.empty
+         params.append(Parameter(arg.arg, Parameter.POSITIONAL_OR_KEYWORD,
+@@ -778,7 +800,17 @@ def signature_from_ast(node: ast.FunctionDef, code: str = '') -> inspect.Signatu
+         if args.kw_defaults[i] is None:
+             default = Parameter.empty
+         else:
+-            default = DefaultValue(ast_unparse(args.kw_defaults[i], code))  # type: ignore  # NOQA
++            # FIX: Handle None defaults
++
++                unparsed = ast_unparse(args.kw_defaults[i], code)
++
++                if unparsed == "None":
++
++                    default = DefaultValue(None)
++
++                else:
++
++                    default = DefaultValue(unparsed)
+         annotation = ast_unparse(arg.annotation, code) or Parameter.empty
+         params.append(Parameter(arg.arg, Parameter.KEYWORD_ONLY, default=default,
+                                 annotation=annotation))
+diff --git a/tests/test_util_inspect.py b/tests/test_util_inspect.py
+index 5840e9d1e..bd3f14300 100644
+--- a/tests/test_util_inspect.py
++++ b/tests/test_util_inspect.py
+@@ -336,7 +336,7 @@ def test_signature_from_str_default_values():
+     assert sig.parameters['h'].default == "{'a': 1}"
+     assert sig.parameters['i'].default == '{1, 2, 3}'
+     assert sig.parameters['j'].default == 'lambda x, y: ...'
+-    assert sig.parameters['k'].default == 'None'
++    assert sig.parameters['k'].default == None
+     assert sig.parameters['l'].default == 'object()'
+     assert sig.parameters['m'].default == 'foo.bar.CONSTANT'
+ 

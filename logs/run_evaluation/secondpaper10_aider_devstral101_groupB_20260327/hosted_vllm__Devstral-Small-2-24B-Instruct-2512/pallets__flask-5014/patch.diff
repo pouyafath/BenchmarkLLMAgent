@@ -1,0 +1,70 @@
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index 37a15ff2..ff3abb9f 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -8,6 +8,12 @@ import re
+ import sys
+ import traceback
+ import typing as t
++try:
++    from importlib.metadata import version
++except ImportError:
++    # Fallback for older Python versions
++    from importlib_metadata import version
++
+ from functools import update_wrapper
+ from operator import attrgetter
+ 
+@@ -244,10 +250,11 @@ def get_version(ctx, param, value):
+     import werkzeug
+     from . import __version__
+ 
++    werkzeug_version = version("werkzeug")
+     click.echo(
+         f"Python {platform.python_version()}\n"
+         f"Flask {__version__}\n"
+-        f"Werkzeug {werkzeug.__version__}",
++        f"Werkzeug {werkzeug_version}",
+         color=ctx.color,
+     )
+     ctx.exit()
+diff --git a/src/flask/testing.py b/src/flask/testing.py
+index 8cb2d1bd..52593bbc 100644
+--- a/src/flask/testing.py
++++ b/src/flask/testing.py
+@@ -1,4 +1,10 @@
+ import typing as t
++try:
++    from importlib.metadata import version
++except ImportError:
++    # Fallback for older Python versions
++    from importlib_metadata import version
++
+ from contextlib import contextmanager
+ from contextlib import ExitStack
+ from copy import copy
+@@ -20,6 +26,15 @@ if t.TYPE_CHECKING:  # pragma: no cover
+     from .app import Flask
+ 
+ 
++
++def get_werkzeug_version() -> str:
++    """Get Werkzeug version in a compatible way."""
++    try:
++        return version("werkzeug")
++    except Exception:
++        # Fallback if version cannot be determined
++        return "unknown"
++
+ class EnvironBuilder(werkzeug.test.EnvironBuilder):
+     """An :class:`~werkzeug.test.EnvironBuilder`, that takes defaults from the
+     application.
+@@ -114,7 +129,7 @@ class FlaskClient(Client):
+         self._context_stack = ExitStack()
+         self.environ_base = {
+             "REMOTE_ADDR": "127.0.0.1",
+-            "HTTP_USER_AGENT": f"werkzeug/{werkzeug.__version__}",
++            "HTTP_USER_AGENT": f"werkzeug/{get_werkzeug_version()}",
+         }
+ 
+     @contextmanager

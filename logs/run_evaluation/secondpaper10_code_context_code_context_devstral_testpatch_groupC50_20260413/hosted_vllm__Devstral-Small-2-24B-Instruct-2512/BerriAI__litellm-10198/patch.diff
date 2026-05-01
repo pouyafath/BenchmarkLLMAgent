@@ -1,0 +1,162 @@
+diff --git a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+index d4c74f491..44fca2c0f 100644
+--- a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
++++ b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+@@ -740,6 +740,34 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+ 
+         return model_response
+ 
++    def is_candidate_token_count_inclusive(self, usage_metadata: dict) -> bool:
++        """
++        Check if candidatesTokenCount includes thoughtsTokenCount
++        For Gemini 2.5 Flash and similar models, the candidatesTokenCount may or may not include the thinking tokens.
++        This method determines which case we're dealing with.
++        """
++        candidates_token_count = usage_metadata.get("candidatesTokenCount", 0)
++        thoughts_token_count = usage_metadata.get("thoughtsTokenCount", 0)
++        total_token_count = usage_metadata.get("totalTokenCount", 0)
++        prompt_token_count = usage_metadata.get("promptTokenCount", 0)
++
++        # If there are no thinking tokens, candidates is always inclusive
++        if thoughts_token_count == 0:
++            return True
++
++        # Calculate expected completion tokens
++        expected_completion_tokens = total_token_count - prompt_token_count
++
++        # If candidates + thoughts equals expected completion tokens, then candidates is exclusive
++        if candidates_token_count + thoughts_token_count == expected_completion_tokens:
++            return False
++        # If candidates equals expected completion tokens, then candidates is inclusive
++        elif candidates_token_count == expected_completion_tokens:
++            return True
++        else:
++            # Default to inclusive for safety
++            return True
++
+     def _calculate_usage(
+         self,
+         completion_response: GenerateContentResponseBody,
+@@ -769,14 +797,21 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+             text_tokens=text_tokens,
+         )
+         ## GET USAGE ##
++        usage_metadata = completion_response["usageMetadata"]
++        is_inclusive = self.is_candidate_token_count_inclusive(usage_metadata)
++
++        # Calculate completion tokens
++        if is_inclusive:
++            # candidatesTokenCount already includes thoughtsTokenCount
++            completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
++        else:
++            # candidatesTokenCount is exclusive, add thoughtsTokenCount
++            completion_tokens = usage_metadata.get("candidatesTokenCount", 0) + usage_metadata.get("thoughtsTokenCount", 0)
++
+         usage = Usage(
+-            prompt_tokens=completion_response["usageMetadata"].get(
+-                "promptTokenCount", 0
+-            ),
+-            completion_tokens=completion_response["usageMetadata"].get(
+-                "candidatesTokenCount", 0
+-            ),
+-            total_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0),
++            prompt_tokens=usage_metadata.get("promptTokenCount", 0),
++            completion_tokens=completion_tokens,
++            total_tokens=usage_metadata.get("totalTokenCount", 0),
+             prompt_tokens_details=prompt_tokens_details,
+             reasoning_tokens=reasoning_tokens,
+         )
+diff --git a/tests/litellm/llms/vertex_ai/gemini/test_vertex_and_google_ai_studio_gemini.py b/tests/litellm/llms/vertex_ai/gemini/test_vertex_and_google_ai_studio_gemini.py
+index 0c6a95a97..23715e894 100644
+--- a/tests/litellm/llms/vertex_ai/gemini/test_vertex_and_google_ai_studio_gemini.py
++++ b/tests/litellm/llms/vertex_ai/gemini/test_vertex_and_google_ai_studio_gemini.py
+@@ -10,7 +10,8 @@ from litellm import ModelResponse
+ from litellm.llms.vertex_ai.gemini.vertex_and_google_ai_studio_gemini import (
+     VertexGeminiConfig,
+ )
+-from litellm.types.utils import ChoiceLogprobs
++from litellm.types.llms.vertex_ai import UsageMetadata
++from litellm.types.utils import ChoiceLogprobs, Usage
+ 
+ 
+ def test_top_logprobs():
+@@ -259,3 +260,52 @@ def test_vertex_ai_empty_content():
+     content, reasoning_content = v.get_assistant_content_message(parts=parts)
+     assert content is None
+     assert reasoning_content is None
++
++@pytest.mark.parametrize(
++    "usage_metadata, inclusive, expected_usage",
++    [
++        (
++            UsageMetadata(
++                promptTokenCount=10,
++                candidatesTokenCount=10,
++                totalTokenCount=20,
++                thoughtsTokenCount=5,
++            ),
++            True,
++            Usage(
++                prompt_tokens=10,
++                completion_tokens=10,
++                total_tokens=20,
++                reasoning_tokens=5,
++            ),
++        ),
++        (
++            UsageMetadata(
++                promptTokenCount=10,
++                candidatesTokenCount=5,
++                totalTokenCount=20,
++                thoughtsTokenCount=5,
++            ),
++            False,
++            Usage(
++                prompt_tokens=10,
++                completion_tokens=10,
++                total_tokens=20,
++                reasoning_tokens=5,
++            ),
++        ),
++    ],
++)
++def test_vertex_ai_candidate_token_count_inclusive(
++    usage_metadata, inclusive, expected_usage
++):
++    """
++    Test that the candidate token count is inclusive of the thinking token count
++    """
++    v = VertexGeminiConfig()
++    assert v.is_candidate_token_count_inclusive(usage_metadata) is inclusive
++
++    usage = v._calculate_usage(completion_response={"usageMetadata": usage_metadata})
++    assert usage.prompt_tokens == expected_usage.prompt_tokens
++    assert usage.completion_tokens == expected_usage.completion_tokens
++    assert usage.total_tokens == expected_usage.total_tokens
+diff --git a/tests/llm_translation/test_gemini.py b/tests/llm_translation/test_gemini.py
+index 35aa22722..c5e6ff06b 100644
+--- a/tests/llm_translation/test_gemini.py
++++ b/tests/llm_translation/test_gemini.py
+@@ -116,4 +116,20 @@ def test_gemini_thinking():
+         messages=messages, # make sure call works
+     )
+     print(response.choices[0].message)
+-    assert response.choices[0].message.content is not None
+\ No newline at end of file
++    assert response.choices[0].message.content is not None
++def test_gemini_thinking_budget_0():
++    litellm._turn_on_debug()
++    from litellm.types.utils import Message, CallTypes
++    from litellm.utils import return_raw_request
++    import json
++
++    raw_request = return_raw_request(
++        endpoint=CallTypes.completion,
++        kwargs={
++            "model": "gemini/gemini-2.5-flash-preview-04-17",
++            "messages": [{"role": "user", "content": "Explain the concept of Occam's Razor and provide a simple, everyday example"}],
++            "thinking": {"type": "enabled", "budget_tokens": 0}
++        }
++    )
++    print(raw_request)
++    assert "0" in json.dumps(raw_request["raw_request_body"])

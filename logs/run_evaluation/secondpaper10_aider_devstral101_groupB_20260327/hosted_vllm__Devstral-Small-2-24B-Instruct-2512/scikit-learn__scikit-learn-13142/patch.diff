@@ -1,0 +1,91 @@
+diff --git a/sklearn/model_selection/_search.py b/sklearn/model_selection/_search.py
+index 1f27ab7bf..efb33ad1a 100644
+--- a/sklearn/model_selection/_search.py
++++ b/sklearn/model_selection/_search.py
+@@ -644,48 +644,48 @@ class BaseSearchCV(BaseEstimator, MetaEstimatorMixin, metaclass=ABCMeta):
+                                     error_score=self.error_score,
+                                     verbose=self.verbose)
+         results = {}
++        def evaluate_candidates(candidate_params):
++            candidate_params = list(candidate_params)
++            n_candidates = len(candidate_params)
++
++            if self.verbose > 0:
++                print("Fitting {0} folds for each of {1} candidates,"
++                      " totalling {2} fits".format(
++                          n_splits, n_candidates, n_candidates * n_splits))
++
++            out = parallel(delayed(_fit_and_score)(clone(base_estimator),
++                                                   X, y,
++                                                   train=train, test=test,
++                                                   parameters=parameters,
++                                                   **fit_and_score_kwargs)
++                           for parameters, (train, test)
++                           in product(candidate_params,
++                                      cv.split(X, y, groups)))
++
++            if len(out) < 1:
++                raise ValueError('No fits were performed. '
++                                 'Was the CV iterator empty? '
++                                 'Were there no candidates?')
++            elif len(out) != n_candidates * n_splits:
++                raise ValueError('cv.split and cv.get_n_splits returned '
++                                 'inconsistent results. Expected {} '
++                                 'splits, got {}'
++                                 .format(n_splits,
++                                         len(out) // n_candidates))
++
++            all_candidate_params.extend(candidate_params)
++            all_out.extend(out)
++
++            nonlocal results
++            results = self._format_results(
++                all_candidate_params, scorers, n_splits, all_out)
++            return results
++
+         with parallel:
+             all_candidate_params = []
+             all_out = []
+ 
+-            def evaluate_candidates(candidate_params):
+-                candidate_params = list(candidate_params)
+-                n_candidates = len(candidate_params)
+-
+-                if self.verbose > 0:
+-                    print("Fitting {0} folds for each of {1} candidates,"
+-                          " totalling {2} fits".format(
+-                              n_splits, n_candidates, n_candidates * n_splits))
+-
+-                out = parallel(delayed(_fit_and_score)(clone(base_estimator),
+-                                                       X, y,
+-                                                       train=train, test=test,
+-                                                       parameters=parameters,
+-                                                       **fit_and_score_kwargs)
+-                               for parameters, (train, test)
+-                               in product(candidate_params,
+-                                          cv.split(X, y, groups)))
+-
+-                if len(out) < 1:
+-                    raise ValueError('No fits were performed. '
+-                                     'Was the CV iterator empty? '
+-                                     'Were there no candidates?')
+-                elif len(out) != n_candidates * n_splits:
+-                    raise ValueError('cv.split and cv.get_n_splits returned '
+-                                     'inconsistent results. Expected {} '
+-                                     'splits, got {}'
+-                                     .format(n_splits,
+-                                             len(out) // n_candidates))
+-
+-                all_candidate_params.extend(candidate_params)
+-                all_out.extend(out)
+-
+-                nonlocal results
+-                results = self._format_results(
+-                    all_candidate_params, scorers, n_splits, all_out)
+-                return results
+-
+-            self._run_search(evaluate_candidates)
++        self._run_search(evaluate_candidates)
+ 
+         # For multi-metric evaluation, store the best_index_, best_params_ and
+         # best_score_ iff refit is one of the scorer names

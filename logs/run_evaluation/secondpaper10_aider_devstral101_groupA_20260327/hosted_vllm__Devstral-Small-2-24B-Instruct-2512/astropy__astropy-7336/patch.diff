@@ -1,0 +1,222 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index 988776fd1..430aee179 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -3,6 +3,7 @@ import re
+ import copy
+ import warnings
+ import collections
++import collections.abc
+ 
+ import numpy as np
+ 
+@@ -1796,7 +1797,7 @@ def _get_frame(args, kwargs):
+         # to allow the first argument to set the class.  That's OK because
+         # _parse_coordinate_arg goes and checks that the frames match between
+         # the first and all the others
+-        if (isinstance(arg, (collections.Sequence, np.ndarray)) and
++        if (isinstance(arg, (collections.abc.Sequence, np.ndarray)) and
+              len(args) == 1 and len(arg) > 0):
+             arg = arg[0]
+ 
+@@ -1966,7 +1967,7 @@ def _parse_coordinate_arg(coords, frame, units, init_kwargs):
+         # 2-d array of coordinate values.  Handle specially for efficiency.
+         values = coords.transpose()  # Iterates over repr attrs
+ 
+-    elif isinstance(coords, (collections.Sequence, np.ndarray)):
++    elif isinstance(coords, (collections.abc.Sequence, np.ndarray)):
+         # Handles list-like input.
+ 
+         vals = []
+diff --git a/astropy/extern/configobj/configobj.py b/astropy/extern/configobj/configobj.py
+index 0c02b9b7a..aa9e63f56 100755
+--- a/astropy/extern/configobj/configobj.py
++++ b/astropy/extern/configobj/configobj.py
+@@ -17,6 +17,7 @@ import os
+ import re
+ import sys
+ import collections
++import collections.abc
+ 
+ from codecs import BOM_UTF8, BOM_UTF16, BOM_UTF16_BE, BOM_UTF16_LE
+ 
+@@ -594,7 +595,7 @@ class Section(dict):
+             if key not in self:
+                 self.sections.append(key)
+             dict.__setitem__(self, key, value)
+-        elif isinstance(value, collections.Mapping) and not unrepr:
++        elif isinstance(value, collections.abc.Mapping) and not unrepr:
+             # First create the new depth level,
+             # then create the section
+             if key not in self:
+@@ -801,8 +802,8 @@ class Section(dict):
+         ConfigObj({'section1': {'option1': 'False', 'subsection': {'more_options': 'False'}}})
+         """
+         for key, val in list(indict.items()):
+-            if (key in self and isinstance(self[key], collections.Mapping) and
+-                                isinstance(val, collections.Mapping)):
++            if (key in self and isinstance(self[key], collections.abc.Mapping) and
++                                isinstance(val, collections.abc.Mapping)):
+                 self[key].merge(val)
+             else:
+                 self[key] = val
+@@ -2434,7 +2435,7 @@ def flatten_errors(cfg, res, levels=None, results=None):
+     for (key, val) in list(res.items()):
+         if val == True:
+             continue
+-        if isinstance(cfg.get(key), collections.Mapping):
++        if isinstance(cfg.get(key), collections.abc.Mapping):
+             # Go down one level
+             levels.append(key)
+             flatten_errors(cfg[key], val, levels, results)
+diff --git a/astropy/io/fits/header.py b/astropy/io/fits/header.py
+index aa65c5c22..500d93e8a 100644
+--- a/astropy/io/fits/header.py
++++ b/astropy/io/fits/header.py
+@@ -1,6 +1,7 @@
+ # Licensed under a 3-clause BSD style license - see PYFITS.rst
+ 
+ import collections
++import collections.abc
+ import copy
+ import itertools
+ import re
+@@ -1904,8 +1905,8 @@ class Header:
+             self[key] = value
+ 
+ 
+-collections.MutableSequence.register(Header)
+-collections.MutableMapping.register(Header)
++collections.abc.MutableSequence.register(Header)
++collections.abc.MutableMapping.register(Header)
+ 
+ 
+ class _CardAccessor:
+@@ -1976,8 +1977,8 @@ class _CardAccessor:
+         return False
+ 
+ 
+-collections.Mapping.register(_CardAccessor)
+-collections.Sequence.register(_CardAccessor)
++collections.abc.Mapping.register(_CardAccessor)
++collections.abc.Sequence.register(_CardAccessor)
+ 
+ 
+ class _HeaderComments(_CardAccessor):
+diff --git a/astropy/table/np_utils.py b/astropy/table/np_utils.py
+index 1ee73c485..e396eba44 100644
+--- a/astropy/table/np_utils.py
++++ b/astropy/table/np_utils.py
+@@ -7,6 +7,7 @@ Redistribution license restrictions apply.
+ 
+ from itertools import chain
+ import collections
++import collections.abc
+ from collections import OrderedDict, Counter
+ 
+ import numpy as np
+@@ -146,7 +147,7 @@ def common_dtype(cols):
+ 
+ def _check_for_sequence_of_structured_arrays(arrays):
+     err = '`arrays` arg must be a sequence (e.g. list) of structured arrays'
+-    if not isinstance(arrays, collections.Sequence):
++    if not isinstance(arrays, collections.abc.Sequence):
+         raise TypeError(err)
+     for array in arrays:
+         # Must be structured array
+diff --git a/astropy/table/operations.py b/astropy/table/operations.py
+index dea57bc2a..b69bc068e 100644
+--- a/astropy/table/operations.py
++++ b/astropy/table/operations.py
+@@ -11,6 +11,7 @@ High-level table operations:
+ from copy import deepcopy
+ import warnings
+ import collections
++import collections.abc
+ import itertools
+ from collections import OrderedDict, Counter
+ 
+@@ -41,7 +42,7 @@ def _get_list_of_tables(tables):
+     from .table import Table, Row
+ 
+     # Make sure we have a list of things
+-    if not isinstance(tables, collections.Sequence):
++    if not isinstance(tables, collections.abc.Sequence):
+         tables = [tables]
+ 
+     # Make sure each thing is a Table or Row
+@@ -753,7 +754,7 @@ def _join(left, right, keys=None, join_type='inner',
+                     .format(out_name, out[out_name].__class__.__name__))
+ 
+     # If col_name_map supplied as a dict input, then update.
+-    if isinstance(_col_name_map, collections.Mapping):
++    if isinstance(_col_name_map, collections.abc.Mapping):
+         _col_name_map.update(col_name_map)
+ 
+     return out
+@@ -862,7 +863,7 @@ def _vstack(arrays, join_type='outer', col_name_map=None, metadata_conflicts='wa
+             idx0 = idx1
+ 
+     # If col_name_map supplied as a dict input, then update.
+-    if isinstance(_col_name_map, collections.Mapping):
++    if isinstance(_col_name_map, collections.abc.Mapping):
+         _col_name_map.update(col_name_map)
+ 
+     return out
+@@ -960,7 +961,7 @@ def _hstack(arrays, join_type='outer', uniq_col_name='{col_name}_{table_name}',
+                 out[out_name] = array[name][:n_rows]
+ 
+     # If col_name_map supplied as a dict input, then update.
+-    if isinstance(_col_name_map, collections.Mapping):
++    if isinstance(_col_name_map, collections.abc.Mapping):
+         _col_name_map.update(col_name_map)
+ 
+     return out
+diff --git a/astropy/table/row.py b/astropy/table/row.py
+index 1aa2d6c5d..ea0b68517 100644
+--- a/astropy/table/row.py
++++ b/astropy/table/row.py
+@@ -2,6 +2,7 @@
+ 
+ 
+ import collections
++import collections.abc
+ 
+ import numpy as np
+ 
+@@ -178,4 +179,4 @@ class Row:
+         return str(self).encode('utf-8')
+ 
+ 
+-collections.Sequence.register(Row)
++collections.abc.Sequence.register(Row)
+diff --git a/astropy/utils/metadata.py b/astropy/utils/metadata.py
+index f5cc22aa3..b7e204263 100644
+--- a/astropy/utils/metadata.py
++++ b/astropy/utils/metadata.py
+@@ -8,6 +8,7 @@ from ..utils import wraps
+ import warnings
+ 
+ import collections
++import collections.abc
+ from collections import OrderedDict
+ from copy import deepcopy
+ 
+@@ -374,7 +375,7 @@ class MetaData:
+     """
+     A descriptor for classes that have a ``meta`` property.
+ 
+-    This can be set to any valid `~collections.Mapping`.
++    This can be set to any valid `~collections.abc.Mapping`.
+ 
+     Parameters
+     ----------
+@@ -407,7 +408,7 @@ class MetaData:
+         if value is None:
+             instance._meta = OrderedDict()
+         else:
+-            if isinstance(value, collections.Mapping):
++            if isinstance(value, collections.abc.Mapping):
+                 if self.copy:
+                     instance._meta = deepcopy(value)
+                 else:

@@ -1,0 +1,34 @@
+diff --git a/lib/matplotlib/_constrained_layout.py b/lib/matplotlib/_constrained_layout.py
+--- a/lib/matplotlib/_constrained_layout.py
++++ b/lib/matplotlib/_constrained_layout.py
+@@ -104,7 +104,7 @@
+         if compress:
+             layoutgrids = compress_fixed_aspect(layoutgrids, fig)
+             layoutgrids[fig].update_variables()
+-            if check_no_collapsed_axes(layoutgrids, fig):
++            if check_no_collapsed_axes(layoutgrids, fig) and not \
++                    is_suptitle_causing_issue(fig):
+                 reposition_axes(layoutgrids, fig, renderer, h_pad=h_pad,
+                                 w_pad=w_pad, hspace=hspace, wspace=wspace)
+             else:
+                 _api.warn_external(warn_collapsed)
+@@ -112,6 +112,10 @@
+         else:
+             _api.warn_external(warn_collapsed)
+     return layoutgrids
+
+
++def is_suptitle_causing_issue(fig):
++    """
++    Check if the suptitle is causing the issue with spacing.
++    """
++    suptitle = fig.suptitle
++    if suptitle is not None:
++        # Check if the suptitle's position is causing the issue
++        # by comparing its y-coordinate to the top margin of the figure.
++        fig_bbox = fig.bbox
++        suptitle_bbox = suptitle.get_window_extent(renderer=fig.canvas.renderer)
++        suptitle_y = suptitle_bbox.y0
++        fig_top_margin = fig_bbox.y0 + fig_bbox.height * 0.05
++        return suptitle_y < fig_top_margin
++    return False

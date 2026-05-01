@@ -1,0 +1,66 @@
+diff --git a/src/cfnlint/rules/resources/iam/Policy.py b/src/cfnlint/rules/resources/iam/Policy.py
+index d2f0162f0..d346c18cb 100644
+--- a/src/cfnlint/rules/resources/iam/Policy.py
++++ b/src/cfnlint/rules/resources/iam/Policy.py
+@@ -23,6 +23,25 @@ def _scalar_or_array(validator: Validator, subschema: Any, instance: Any, schema
+         yield from validator.descend(instance, subschema)
+ 
+ 
++def _contains_intrinsic_function(instance: Any) -> bool:
++    """Check if a value contains any intrinsic functions"""
++    if isinstance(instance, dict):
++        if len(instance) == 1 and next(iter(instance.keys())) in {
++            "Ref", "Fn::GetAtt", "Fn::Sub", "Fn::Join", "Fn::Select",
++            "Fn::FindInMap", "Fn::ImportValue", "Fn::Base64", "Fn::Cidr",
++            "Fn::GetAZs", "Fn::If", "Fn::Contains", "Fn::Length", "Fn::Split",
++            "Fn::Transform", "Fn::ToJsonString", "Fn::ForEach::[a-zA-Z0-9]+"
++        }:
++            return True
++        for value in instance.values():
++            if _contains_intrinsic_function(value):
++                return True
++    elif isinstance(instance, list):
++        for item in instance:
++            if _contains_intrinsic_function(item):
++                return True
++    return False
++
+ class Policy(CfnLintJsonSchema):
+     """Check IAM policies"""
+ 
+@@ -43,7 +62,7 @@ class Policy(CfnLintJsonSchema):
+             )
+             store = {
+                 "policy": policy_schema,
+-                schema_name: self.identity_schema,
++                "policy_resource": self.identity_schema,
+             }
+             # To reduce reduntant schemas use a schema resolver
+             # this is deprecated in 4.18 of jsonschema
+@@ -57,9 +76,12 @@ class Policy(CfnLintJsonSchema):
+         policy: Any,
+         schema: dict[str, Any],
+     ) -> ValidationResult:
++        # Track if the original policy was a string
++        original_policy_is_string = validator.is_type(policy, "string")
++
+         # First time child rules are configured against the rule
+         # so we can run this now
+-        if validator.is_type(policy, "string"):
++        if original_policy_is_string:
+             try:
+                 iam_validator = validator.extend(
+                     validators={
+@@ -87,5 +109,12 @@ class Policy(CfnLintJsonSchema):
+ 
+         for err in iam_validator.iter_errors(policy):
+             if not err.validator.startswith("fn_") and err.validator not in ["cfnLint"]:
++                # Skip pattern validation errors for values that contain intrinsic functions
++                # but only when the policy is provided as an object (not a string)
++                # This allows CDK-generated templates with intrinsic functions to pass validation
++                if (not original_policy_is_string and
++                    _contains_intrinsic_function(err.instance) and
++                    err.validator in ["pattern", "type", "anyOf"]):
++                    continue
+                 err.rule = self
+             yield err

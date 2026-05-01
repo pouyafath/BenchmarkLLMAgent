@@ -1,0 +1,43 @@
+diff --git a/astropy/units/decorators.py b/astropy/units/decorators.py
+index 8bece5a85..4cccf551b 100644
+--- a/astropy/units/decorators.py
++++ b/astropy/units/decorators.py
+@@ -221,7 +221,10 @@ class QuantityInput:
+             with add_enabled_equivalencies(self.equivalencies):
+                 return_ = wrapped_function(*func_args, **func_kwargs)
+             if wrapped_signature.return_annotation is not inspect.Signature.empty:
+-                return return_.to(wrapped_signature.return_annotation)
++                if return_ is not None:
++                    return return_.to(wrapped_signature.return_annotation)
++                else:
++                    return return_
+             else:
+                 return return_
+ 
+diff --git a/astropy/units/tests/test_quantity_decorator.py b/astropy/units/tests/test_quantity_decorator.py
+index 1ab5d3648..d31eca9ec 100644
+--- a/astropy/units/tests/test_quantity_decorator.py
++++ b/astropy/units/tests/test_quantity_decorator.py
+@@ -327,3 +327,22 @@ def test_args_None_kwarg():
+ 
+     with pytest.raises(TypeError):
+         x, y = myfunc_args(None, None)
++
++def test_return_none_with_annotation():
++    """Test that the decorator handles None return values correctly when return annotation is None."""
++    @u.quantity_input
++    def myfunc(x: u.deg) -> None:
++        return None
++
++    result = myfunc(1 * u.arcsec)
++    assert result is None
++
++def test_return_quantity_with_annotation():
++    """Test that the decorator still converts return values when they are not None."""
++    @u.quantity_input
++    def myfunc(x: u.deg) -> u.km:
++        return 1 * u.m
++
++    result = myfunc(1 * u.arcsec)
++    assert isinstance(result, u.Quantity)
++    assert result.unit == u.km

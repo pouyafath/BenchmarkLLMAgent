@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#10908",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "CountVectorizer's get_feature_names raise not NotFittedError when the vocabulary parameter is provided",
+  "original_body": "CountVectorizer's get_feature_names raise not NotFittedError when the vocabulary parameter is provided\nIf you initialize a `CounterVectorizer` and try to perform a transformation without training you will get a `NotFittedError` exception.\r\n\r\n```python\r\nIn [1]: from sklearn.feature_extraction.text import CountVectorizer\r\nIn [2]: vectorizer = CountVectorizer()\r\nIn [3]: corpus = [\r\n    ...:     'This is the first document.',\r\n    ...:     'This is the second second document.',\r\n    ...:     'And the third one.',\r\n    ...:     'Is this the first document?',\r\n    ...: ]\r\n\r\nIn [4]: vectorizer.transform(corpus)\r\nNotFittedError: CountVectorizer - Vocabulary wasn't fitted.\r\n```\r\nOn the other hand if you provide the `vocabulary` at the initialization of the vectorizer you could transform a corpus without a prior training, right?\r\n\r\n```python\r\nIn [1]: from sklearn.feature_extraction.text import CountVectorizer\r\n\r\nIn [2]: vectorizer = CountVectorizer()\r\n\r\nIn [3]: corpus = [\r\n    ...:     'This is the first document.',\r\n    ...:     'This is the second second document.',\r\n    ...:     'And the third one.',\r\n    ...:     'Is this the first document?',\r\n    ...: ]\r\n\r\nIn [4]: vocabulary = ['and', 'document', 'first', 'is', 'one', 'second', 'the', 'third', 'this']\r\n\r\nIn [5]: vectorizer = CountVectorizer(vocabulary=vocabulary)\r\n\r\nIn [6]: hasattr(vectorizer, \"vocabulary_\")\r\nOut[6]: False\r\n\r\nIn [7]: vectorizer.get_feature_names()\r\nNotFittedError: CountVectorizer - Vocabulary wasn't fitted.\r\n\r\nIn [8]: vectorizer.transform(corpus)\r\nOut[8]:\r\n<4x9 sparse matrix of type '<class 'numpy.int64'>'\r\n        with 19 stored elements in Compressed Sparse Row format>\r\n\r\nIn [9]: hasattr(vectorizer, \"vocabulary_\")\r\nOut[9]: True\r\n```\r\n\r\nThe `CountVectorizer`'s `transform` calls `_validate_vocabulary` method which sets the `vocabulary_` instance variable.\r\n\r\nIn the same manner I believe that the `get_feature_names` method should not raise `NotFittedError` if the vocabulary parameter is provided but the vectorizer has not been trained.\r\n\n",
+  "enhanced_title": "CountVectorizer.get_feature_names() should not raise NotFittedError when vocabulary is provided",
+  "enhanced_body": "## Summary\nWhen a \\`CountVectorizer\\` is initialized with a \\`vocabulary\\` parameter, the \\`get_feature_names()\\` method incorrectly raises a \\`NotFittedError\\` even though the vectorizer can perform transformations without prior fitting. This inconsistency should be resolved.\n\n## Current Behavior\n1. When \\`CountVectorizer\\` is initialized without a vocabulary:\n   - \\`transform()\\` raises \\`NotFittedError\\` (expected)\n   - \\`get_feature_names()\\` raises \\`NotFittedError\\` (expected)\n\n2. When \\`CountVectorizer\\` is initialized with a vocabulary:\n   - \\`transform()\\` works without prior fitting (expected)\n   - \\`get_feature_names()\\` raises \\`NotFittedError\\` (inconsistent behavior)\n\n## Expected Behavior\nThe \\`get_feature_names()\\` method should work when a vocabulary is provided during initialization, similar to how \\`transform()\\` works in this scenario.\n\n## Reproduction Steps\n```python\nfrom sklearn.feature_extraction.text import CountVectorizer\n\n# Initialize with vocabulary\nvectorizer = CountVectorizer(vocabulary=['and', 'document', 'first', 'is', 'one', 'second', 'the', 'third', 'this'])\n\n# This works (no fitting required)\nvectorizer.transform(['This is a test document'])\n\n# This fails with NotFittedError (inconsistent)\nvectorizer.get_feature_names()\n```\n\n## Environment\n- scikit-learn version: (not specified in issue)\n- Python version: (not specified in issue)\n- Platform: (not specified in issue)\n\n## Technical Details\nThe issue occurs because:\n1. \\`transform()\\` calls \\`_validate_vocabulary()\\` which sets the \\`vocabulary_\\` attribute\n2. \\`get_feature_names()\\` checks for \\`vocabulary_\\` attribute without calling \\`_validate_vocabulary()\\`\n3. When vocabulary is provided at initialization, it should be available for feature names without requiring fitting\n\n## Affected Components\nBased on the hints, the fix likely involves:\n- \\`sklearn/feature_extraction/text.py\\` (CountVectorizer implementation)\n- The \\`get_feature_names()\\` method specifically\n- Possibly the \\`_validate_vocabulary()\\` method interaction\n\n## Proposed Solution\nThe \\`get_feature_names()\\` method should either:\n1. Call \\`_validate_vocabulary()\\` before checking for fitted status, or\n2. Directly use the provided vocabulary when available\n\nThis would make the behavior consistent with \\`transform()\\` which already handles this case correctly.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpp7db3zm7/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

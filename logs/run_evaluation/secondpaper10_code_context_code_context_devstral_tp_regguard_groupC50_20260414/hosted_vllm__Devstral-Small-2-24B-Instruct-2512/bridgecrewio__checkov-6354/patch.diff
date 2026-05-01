@@ -1,0 +1,38 @@
+diff --git a/checkov/terraform/checks/module/generic/RevisionVersionTag.py b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+index 14626ecf0..104a3e06c 100644
+--- a/checkov/terraform/checks/module/generic/RevisionVersionTag.py
++++ b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+@@ -1,7 +1,7 @@
+ from __future__ import annotations
+ 
+ import re
+-from typing import Any
++from typing import Any, Dict, List
+ 
+ from checkov.common.models.enums import CheckResult, CheckCategories
+ from checkov.terraform.checks.module.base_module_check import BaseModuleCheck
+@@ -17,7 +17,7 @@ class RevisionVersionTag(BaseModuleCheck):
+         categories = [CheckCategories.SUPPLY_CHAIN]
+         super().__init__(name=name, id=id, categories=categories)
+ 
+-    def scan_module_conf(self, conf: dict[str, list[Any]]) -> CheckResult:
++    def scan_module_conf(self, conf: Dict[str, List[Any]]) -> CheckResult:
+         # this check is a more lenient version of the hash check, so if that one passes (or is unknown due to a local module),
+         # then we are done
+         hash_result = RevisionHashCheck.scan_module_conf(conf)
+@@ -30,7 +30,14 @@ class RevisionVersionTag(BaseModuleCheck):
+             if ("?ref" in source_url or "&ref" in source_url) and re.search(VERSION_PATTERN, source_url):
+                 return CheckResult.PASSED
+ 
+-        return CheckResult.FAILED
++        # Check for version attribute (used by Terraform Registry modules)
++        version = conf.get("version")
++        if version and isinstance(version, list) and len(version) > 0:
++            version_str = version[0]
++            # Check if version looks like a semantic version (e.g., "5.39.1", "4.3.0")
++            if re.match(r'^\d+\.\d+\.\d+$', version_str):
++                return CheckResult.PASSED
+ 
++        return CheckResult.FAILED
+ 
+ check = RevisionVersionTag()

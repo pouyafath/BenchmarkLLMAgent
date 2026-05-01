@@ -1,0 +1,447 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 30 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   geopandas/plotting.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 2276f624cf0ab85a43df17fb3f21058ca08d1123
+Author: Martin Fleischmann <martin@martinfleischmann.net>
+Date:   Sat Nov 16 23:08:07 2024 +0100
+
+    BUG: fix uniform sampling of polygons (#3471)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 1f3c9d8a..730ce887 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -18,6 +18,7 @@ New features and improvements:
+ Bug fixes:
+ 
+ - Fix an issue that showed numpy dtypes in bbox in `to_geo_dict` and `__geo_interface__`. (#3436)
++- Fix an issue in `sample_points` that could occasionally result in non-uniform distribution (#3470)
+ 
+ New features and improvements:
+ 
+diff --git a/geopandas/tools/_random.py b/geopandas/tools/_random.py
+index 210c44e3..1d930657 100644
+--- a/geopandas/tools/_random.py
++++ b/geopandas/tools/_random.py
+@@ -86,4 +86,5 @@ def _uniform_polygon(geom, size, generator):
+         )
+         valid_samples = batch[batch.sindex.query(geom, predicate="contains")]
+         candidates.extend(valid_samples)
++    generator.shuffle(candidates)  # avoid the artifacts of STRTree ordering
+     return GeoSeries(candidates[:size]).union_all()
+diff --git a/geopandas/tools/tests/test_random.py b/geopandas/tools/tests/test_random.py
+index a8d9a4fb..9d4c14b9 100644
+--- a/geopandas/tools/tests/test_random.py
++++ b/geopandas/tools/tests/test_random.py
+@@ -1,5 +1,7 @@
+ import numpy
+ 
++import shapely
++
+ import geopandas
+ from geopandas.tools._random import uniform
+ 
+@@ -65,3 +67,22 @@ def test_uniform_generator(polygons):
+ 
+     assert sample.equals(gen_sample)
+     assert not sample.equals(gen_sample2)
++
++
++@pytest.mark.parametrize("size", range(5, 12))
++def test_unimodality(size):  # GH 3470
++    circle = shapely.Point(0, 0).buffer(1)
++    generator = numpy.random.default_rng(seed=1)
++    centers_x = []
++    centers_y = []
++    for _ in range(200):
++        pts = shapely.get_coordinates(uniform(circle, size=2**size, rng=generator))
++        centers_x.append(numpy.mean(pts[:, 0]))
++        centers_y.append(numpy.mean(pts[:, 1]))
++
++    numpy.testing.assert_allclose(numpy.mean(centers_x), 0, atol=1e-2)
++    numpy.testing.assert_allclose(numpy.mean(centers_y), 0, atol=1e-2)
++
++    stats = pytest.importorskip("scipy.stats")
++    assert stats.shapiro(centers_x).pvalue > 0.05
++    assert stats.shapiro(centers_y).pvalue > 0.05
++ git -c core.fileMode=false diff 2276f624cf0ab85a43df17fb3f21058ca08d1123
+diff --git a/geopandas/plotting.py b/geopandas/plotting.py
+index 5b22236a..429738d0 100644
+--- a/geopandas/plotting.py
++++ b/geopandas/plotting.py
+@@ -882,7 +882,7 @@ def plot_dataframe(
+         merged_kwds = style_kwds.copy()
+         merged_kwds.update(missing_kwds)
+ 
+-        plot_series(expl_series[nan_idx], ax=ax, **merged_kwds)
++        plot_series(expl_series[nan_idx], ax=ax, aspect=aspect, **merged_kwds)
+ 
+     if legend and not color:
+         if legend_kwds is None:
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.10/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running dist_info
+  creating /tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info
+  writing /tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/pip-modern-metadata-o7js2ttc/geopandas.egg-info/SOURCES.txt'
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  creating '/tmp/pip-modern-metadata-o7js2ttc/geopandas-1.0.1+43.g2276f624.dirty.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: numpy>=1.24 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+43.g2276f624.dirty) (2.1.1)
+Requirement already satisfied: pyogrio>=0.7.2 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+43.g2276f624.dirty) (0.10.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+43.g2276f624.dirty) (24.1)
+Requirement already satisfied: pandas>=2.0.0 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+43.g2276f624.dirty) (2.2.3)
+Requirement already satisfied: pyproj>=3.5.0 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+43.g2276f624.dirty) (3.7.0)
+Requirement already satisfied: shapely>=2.0.0 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+43.g2276f624.dirty) (2.0.6)
+WARNING: geopandas 1.0.1+43.g2276f624.dirty does not provide the extra 'test'
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.10/site-packages (from pandas>=2.0.0->geopandas==1.0.1+43.g2276f624.dirty) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.10/site-packages (from pandas>=2.0.0->geopandas==1.0.1+43.g2276f624.dirty) (2024.2)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.10/site-packages (from pandas>=2.0.0->geopandas==1.0.1+43.g2276f624.dirty) (2024.2)
+Requirement already satisfied: certifi in /usr/local/lib/python3.10/site-packages (from pyogrio>=0.7.2->geopandas==1.0.1+43.g2276f624.dirty) (2024.8.30)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.10/site-packages (from python-dateutil>=2.8.2->pandas>=2.0.0->geopandas==1.0.1+43.g2276f624.dirty) (1.16.0)
+Building wheels for collected packages: geopandas
+  Building editable for geopandas (pyproject.toml): started
+  Running command Building editable for geopandas (pyproject.toml)
+  /usr/local/lib/python3.10/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running editable_wheel
+  creating /tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info
+  writing /tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas.egg-info/SOURCES.txt'
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  creating '/tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas-1.0.1+43.g2276f624.dirty.dist-info'
+  creating /tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas-1.0.1+43.g2276f624.dirty.dist-info/WHEEL
+  running build_py
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running egg_info
+  creating /tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info
+  writing /tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/tmpp8bxgg6u.build-temp/geopandas.egg-info/SOURCES.txt'
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  adding '__editable___geopandas_1_0_1_43_g2276f624_dirty_finder.py'
+  adding '__editable__.geopandas-1.0.1+43.g2276f624.dirty.pth'
+  creating '/tmp/pip-wheel-tn23e4cx/tmpcmwtw2h8/geopandas-1.0.1+43.g2276f624.dirty-0.editable-py3-none-any.whl' and adding '/tmp/tmpogi_nvlegeopandas-1.0.1+43.g2276f624.dirty-0.editable-py3-none-any.whl' to it
+  adding 'geopandas-1.0.1+43.g2276f624.dirty.dist-info/LICENSE.txt'
+  adding 'geopandas-1.0.1+43.g2276f624.dirty.dist-info/METADATA'
+  adding 'geopandas-1.0.1+43.g2276f624.dirty.dist-info/WHEEL'
+  adding 'geopandas-1.0.1+43.g2276f624.dirty.dist-info/top_level.txt'
+  adding 'geopandas-1.0.1+43.g2276f624.dirty.dist-info/RECORD'
+  /usr/local/lib/python3.10/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for geopandas (pyproject.toml): finished with status 'done'
+  Created wheel for geopandas: filename=geopandas-1.0.1+43.g2276f624.dirty-0.editable-py3-none-any.whl size=4691 sha256=681928998c7ef49ac3a30f48e484ea271c21d59109d001b9042b78528156b24a
+  Stored in directory: /tmp/pip-ephem-wheel-cache-5l4mymo2/wheels/0d/a6/cb/465a7b303d624cc531250fa27c75d038ddc29430bdb6ba7c9f
+Successfully built geopandas
+Installing collected packages: geopandas
+  Attempting uninstall: geopandas
+    Found existing installation: geopandas 1.0.1+43.g2276f624
+    Uninstalling geopandas-1.0.1+43.g2276f624:
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable__.geopandas-1.0.1+43.g2276f624.pth
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable___geopandas_1_0_1_43_g2276f624_finder.py
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__pycache__/__editable___geopandas_1_0_1_43_g2276f624_finder.cpython-310.pyc
+      Removing file or directory /usr/local/lib/python3.10/site-packages/geopandas-1.0.1+43.g2276f624.dist-info/
+      Successfully uninstalled geopandas-1.0.1+43.g2276f624
+Successfully installed geopandas-1.0.1+43.g2276f624.dirty
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout 2276f624cf0ab85a43df17fb3f21058ca08d1123 geopandas/tests/test_plotting.py
+Updated 0 paths from e9dd7f3d
++ git apply -v -
+Checking patch geopandas/tests/test_plotting.py...
+Applied patch geopandas/tests/test_plotting.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -v -rA geopandas/tests geopandas/tests/test_plotting.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.3.3, pluggy-1.5.0 -- /usr/local/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-5.0.0, xdist-3.6.1
+collecting ... collected 110 items
+
+geopandas/tests/test_plotting.py::TestPointPlotting::test_figsize PASSED [  0%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_default_colors PASSED [  1%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_series_color_no_index PASSED [  2%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_series_color_index PASSED [  3%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_colormap PASSED [  4%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_single_color PASSED [  5%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_markersize PASSED [  6%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_markerstyle PASSED [  7%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_style_kwargs PASSED [  8%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_style_kwargs_alpha PASSED [  9%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_legend PASSED  [ 10%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_subplots_norm PASSED [ 10%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_plot PASSED [ 11%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry PASSED [ 12%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry_colors[geoms0] PASSED [ 13%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry_colors[geoms1] PASSED [ 14%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry_colors[geoms2] PASSED [ 15%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_multipoints PASSED [ 16%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_multipoints_alpha PASSED [ 17%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_categories PASSED [ 18%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_missing PASSED [ 19%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_no_missing_and_missing_kwds PASSED [ 20%]
+geopandas/tests/test_plotting.py::TestPointPlotting::test_missing_aspect PASSED [ 20%]
+geopandas/tests/test_plotting.py::TestPointZPlotting::test_plot PASSED   [ 21%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_autolim_false PASSED [ 22%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_autolim_true PASSED [ 23%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_single_color PASSED [ 24%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_linestyle PASSED [ 25%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_linewidth PASSED [ 26%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_alpha PASSED [ 27%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_path_effects PASSED [ 28%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_subplots_norm PASSED [ 29%]
+geopandas/tests/test_plotting.py::TestLineStringPlotting::test_multilinestrings PASSED [ 30%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_autolim_false PASSED [ 30%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_autolim_true PASSED [ 31%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_single_color PASSED [ 32%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_vmin_vmax PASSED [ 33%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_style_kwargs_color PASSED [ 34%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_style_kwargs_linestyle PASSED [ 35%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_style_kwargs_linewidth PASSED [ 36%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_legend_kwargs PASSED [ 37%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_colorbar_kwargs PASSED [ 38%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_fmt_ignore PASSED [ 39%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_color PASSED [ 40%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_linestyle PASSED [ 40%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_linewidth PASSED [ 41%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_alpha PASSED [ 42%]
+geopandas/tests/test_plotting.py::TestPolygonPlotting::test_subplots_norm PASSED [ 43%]
+geopandas/tests/test_plotting.py::TestPolygonZPlotting::test_plot PASSED [ 44%]
+geopandas/tests/test_plotting.py::TestColorParamArray::test_color_single PASSED [ 45%]
+geopandas/tests/test_plotting.py::TestColorParamArray::test_color_multi PASSED [ 46%]
+geopandas/tests/test_plotting.py::TestGeometryCollectionPlotting::test_colors PASSED [ 47%]
+geopandas/tests/test_plotting.py::TestGeometryCollectionPlotting::test_values PASSED [ 48%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_colors PASSED [ 49%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs PASSED [ 50%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_linestyle PASSED [ 50%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_linestyle_listlike SKIPPED [ 51%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_linewidth PASSED [ 52%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_linewidth_listlike SKIPPED [ 53%]
+geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_alpha PASSED [ 54%]
+geopandas/tests/test_plotting.py::TestGeographicAspect::test_auto PASSED [ 55%]
+geopandas/tests/test_plotting.py::TestGeographicAspect::test_manual PASSED [ 56%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_legend PASSED [ 57%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_bin_labels PASSED [ 58%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_invalid_labels_length PASSED [ 59%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_negative_legend PASSED [ 60%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_fmt PASSED [ 60%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_interval PASSED [ 61%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_scheme_name_compat[FISHER_JENKS] PASSED [ 62%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_scheme_name_compat[FISHERJENKS] PASSED [ 63%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_schemes PASSED [ 64%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_classification_kwds PASSED [ 65%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_invalid_scheme PASSED [ 66%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_cax_legend_passing PASSED [ 67%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_cax_legend_height PASSED [ 68%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_empty_bins PASSED [ 69%]
+geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_equally_formatted_bins PASSED [ 70%]
+geopandas/tests/test_plotting.py::TestPlotCollections::test_points PASSED [ 70%]
+geopandas/tests/test_plotting.py::TestPlotCollections::test_points_values PASSED [ 71%]
+geopandas/tests/test_plotting.py::TestPlotCollections::test_linestrings PASSED [ 72%]
+geopandas/tests/test_plotting.py::TestPlotCollections::test_linestrings_values PASSED [ 73%]
+geopandas/tests/test_plotting.py::TestPlotCollections::test_polygons PASSED [ 74%]
+geopandas/tests/test_plotting.py::TestPlotCollections::test_polygons_values PASSED [ 75%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-line] PASSED [ 76%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-bar] PASSED [ 77%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-barh] PASSED [ 78%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-kde] PASSED [ 79%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-density] PASSED [ 80%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-area] PASSED [ 80%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-hist] PASSED [ 81%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-box] PASSED [ 82%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-pie] PASSED [ 83%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-scatter] PASSED [ 84%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-hexbin] PASSED [ 85%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-line] SKIPPED [ 86%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-bar] SKIPPED [ 87%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-barh] SKIPPED [ 88%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-kde] SKIPPED [ 89%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-density] SKIPPED [ 90%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-area] SKIPPED [ 90%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-hist] SKIPPED [ 91%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-box] SKIPPED [ 92%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-pie] SKIPPED [ 93%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-scatter] SKIPPED [ 94%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[pdf-hexbin] SKIPPED [ 95%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_geo_kind[png] PASSED [ 96%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_geo_kind[pdf] SKIPPED [ 97%]
+geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_invalid_kind PASSED [ 98%]
+geopandas/tests/test_plotting.py::test_column_values PASSED              [ 99%]
+geopandas/tests/test_plotting.py::test_polygon_patch PASSED              [100%]
+
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_figsize
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_default_colors
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_series_color_no_index
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_series_color_index
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_colormap
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_single_color
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_markersize
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_markerstyle
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_style_kwargs
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_style_kwargs_alpha
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_legend
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_subplots_norm
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_plot
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry_colors[geoms0]
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry_colors[geoms1]
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_empty_geometry_colors[geoms2]
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_multipoints
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_multipoints_alpha
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_categories
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_missing
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_no_missing_and_missing_kwds
+PASSED geopandas/tests/test_plotting.py::TestPointPlotting::test_missing_aspect
+PASSED geopandas/tests/test_plotting.py::TestPointZPlotting::test_plot
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_autolim_false
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_autolim_true
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_single_color
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_linestyle
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_linewidth
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_alpha
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_style_kwargs_path_effects
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_subplots_norm
+PASSED geopandas/tests/test_plotting.py::TestLineStringPlotting::test_multilinestrings
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_autolim_false
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_autolim_true
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_single_color
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_vmin_vmax
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_style_kwargs_color
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_style_kwargs_linestyle
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_style_kwargs_linewidth
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_legend_kwargs
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_colorbar_kwargs
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_fmt_ignore
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_color
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_linestyle
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_linewidth
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_multipolygons_alpha
+PASSED geopandas/tests/test_plotting.py::TestPolygonPlotting::test_subplots_norm
+PASSED geopandas/tests/test_plotting.py::TestPolygonZPlotting::test_plot
+PASSED geopandas/tests/test_plotting.py::TestColorParamArray::test_color_single
+PASSED geopandas/tests/test_plotting.py::TestColorParamArray::test_color_multi
+PASSED geopandas/tests/test_plotting.py::TestGeometryCollectionPlotting::test_colors
+PASSED geopandas/tests/test_plotting.py::TestGeometryCollectionPlotting::test_values
+PASSED geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_colors
+PASSED geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs
+PASSED geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_linestyle
+PASSED geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_linewidth
+PASSED geopandas/tests/test_plotting.py::TestNonuniformGeometryPlotting::test_style_kwargs_alpha
+PASSED geopandas/tests/test_plotting.py::TestGeographicAspect::test_auto
+PASSED geopandas/tests/test_plotting.py::TestGeographicAspect::test_manual
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_legend
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_bin_labels
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_invalid_labels_length
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_negative_legend
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_fmt
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_interval
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_scheme_name_compat[FISHER_JENKS]
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_scheme_name_compat[FISHERJENKS]
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_schemes
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_classification_kwds
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_invalid_scheme
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_cax_legend_passing
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_cax_legend_height
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_empty_bins
+PASSED geopandas/tests/test_plotting.py::TestMapclassifyPlotting::test_equally_formatted_bins
+PASSED geopandas/tests/test_plotting.py::TestPlotCollections::test_points
+PASSED geopandas/tests/test_plotting.py::TestPlotCollections::test_points_values
+PASSED geopandas/tests/test_plotting.py::TestPlotCollections::test_linestrings
+PASSED geopandas/tests/test_plotting.py::TestPlotCollections::test_linestrings_values
+PASSED geopandas/tests/test_plotting.py::TestPlotCollections::test_polygons
+PASSED geopandas/tests/test_plotting.py::TestPlotCollections::test_polygons_values
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-line]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-bar]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-barh]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-kde]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-density]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-area]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-hist]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-box]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-pie]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-scatter]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_pandas_kind[png-hexbin]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_geo_kind[png]
+PASSED geopandas/tests/test_plotting.py::TestGeoplotAccessor::test_invalid_kind
+PASSED geopandas/tests/test_plotting.py::test_column_values
+PASSED geopandas/tests/test_plotting.py::test_polygon_patch
+SKIPPED [1] geopandas/tests/test_plotting.py:1067: array-like style_kwds not supported for mixed geometry types (#1379)
+SKIPPED [1] geopandas/tests/test_plotting.py:1086: array-like style_kwds not supported for mixed geometry types (#1379)
+SKIPPED [12] ../usr/local/lib/python3.10/site-packages/matplotlib/testing/compare.py:282: Don't know how to convert .pdf files to png
+======================= 96 passed, 14 skipped in 24.15s ========================
++ : '>>>>> End Test Output'
++ git checkout 2276f624cf0ab85a43df17fb3f21058ca08d1123 geopandas/tests/test_plotting.py
+Updated 1 path from e9dd7f3d

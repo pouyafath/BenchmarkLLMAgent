@@ -1,0 +1,80 @@
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index 37a15ff2..695cdcda 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -1018,20 +1018,34 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         for rule in rules
+     ]
+ 
+-    headers = ("Endpoint", "Methods", "Rule")
++    def get_domain(rule):
++        """Get the domain for a rule."""
++        subdomain = rule.subdomain
++        server_name = current_app.config.get("SERVER_NAME")
++
++        if subdomain:
++            if server_name:
++                return f"{subdomain}.{server_name}"
++            return subdomain
++        return server_name or ""
++
++    domains = [get_domain(rule) for rule in rules]
++
++    headers = ("Domain", "Endpoint", "Methods", "Rule")
+     widths = (
++        max(len(domain) for domain in domains),
+         max(len(rule.endpoint) for rule in rules),
+         max(len(methods) for methods in rule_methods),
+         max(len(rule.rule) for rule in rules),
+     )
+     widths = [max(len(h), w) for h, w in zip(headers, widths)]
+-    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}".format(*widths)
++    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}  {{3:<{3}}}".format(*widths)
+ 
+     click.echo(row.format(*headers).strip())
+     click.echo(row.format(*("-" * width for width in widths)))
+ 
+-    for rule, methods in zip(rules, rule_methods):
+-        click.echo(row.format(rule.endpoint, methods, rule.rule).rstrip())
++    for rule, domain, methods in zip(rules, domains, rule_methods):
++        click.echo(row.format(domain, rule.endpoint, methods, rule.rule).rstrip())
+ 
+ 
+ cli = FlaskGroup(
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 0d9625b1..b4b09368 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -463,9 +463,31 @@ class TestRoutes:
+ 
+     def expect_order(self, order, output):
+         # skip the header and match the start of each row
++        # The first column is now Domain, so we need to skip it
+         for expect, line in zip(order, output.splitlines()[2:]):
++            # Find the endpoint in the line (it's in the second column now)
++            # The line format is: Domain  Endpoint  Methods  Rule
++            # The columns are separated by double spaces, so we need to find the second column
++            # Find the first double space to get to the end of the domain column
++            first_double_space = line.find('  ')
++            if first_double_space != -1:
++                # Skip to the second column (endpoint) - find first non-whitespace after domain
++                endpoint_start = first_double_space + 2
++                # Skip any leading whitespace in the endpoint column
++                while endpoint_start < len(line) and line[endpoint_start] == ' ':
++                    endpoint_start += 1
++                # Find the next double space to get the endpoint
++                second_double_space = line.find('  ', endpoint_start)
++                if second_double_space != -1:
++                    endpoint = line[endpoint_start:second_double_space]
++                else:
++                    endpoint = line[endpoint_start:]
++            else:
++                # Fallback to old behavior if format is unexpected
++                endpoint = line
++
+             # do this instead of startswith for nicer pytest output
+-            assert line[: len(expect)] == expect
++            assert endpoint[: len(expect)] == expect
+ 
+     def test_simple(self, invoke):
+         result = invoke(["routes"])

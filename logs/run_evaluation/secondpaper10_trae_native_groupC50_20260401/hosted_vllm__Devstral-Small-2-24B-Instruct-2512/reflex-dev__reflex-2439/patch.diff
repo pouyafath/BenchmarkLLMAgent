@@ -1,0 +1,167 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..a26e2307 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
+ from reflex.components.base import Fragment
+ from reflex.components.component import BaseComponent, Component, MemoizationLeaf
+ from reflex.components.tags import MatchTag, Tag
++from reflex.constants import Hooks
+ from reflex.utils import format, imports, types
+ from reflex.utils.exceptions import MatchTypeError
+ from reflex.vars import BaseVar, Var, VarData
+@@ -168,6 +169,63 @@ class Match(MemoizationLeaf):
+                     f" of type {type(case[-1])!r} is not {return_type}"
+                 )
+ 
++
++    @classmethod
++    def _collect_var_data_from_match_cases(cls, match_cases: List[List[BaseVar]], default: Optional[BaseVar]) -> List[VarData | None]:
++        """Recursively collect VarData from all components within match cases.
++
++        Args:
++            match_cases: The match cases.
++            default: The default case.
++
++        Returns:
++            List of VarData objects from all components and vars in the match cases.
++        """
++        var_data = []
++
++        # Collect VarData from all elements in match cases
++        for case in match_cases:
++            for element in case:
++                if isinstance(element, BaseVar):
++                    var_data.append(element._var_data)
++                elif isinstance(element, BaseComponent):
++                    # Recursively collect VarData from the component and its children
++                    var_data.extend(cls._collect_var_data_from_component(element))
++
++        # Collect VarData from default case
++        if isinstance(default, BaseVar):
++            var_data.append(default._var_data)
++        elif isinstance(default, BaseComponent):
++            var_data.extend(cls._collect_var_data_from_component(default))
++
++        return var_data
++
++    @classmethod
++    def _collect_var_data_from_component(cls, component: BaseComponent) -> List[VarData | None]:
++        """Recursively collect VarData from a component and its children.
++
++        Args:
++            component: The component to collect VarData from.
++
++        Returns:
++            List of VarData objects from the component and its children.
++        """
++        var_data = []
++
++        # Collect VarData from the component itself
++        if hasattr(component, '_var_data') and component._var_data is not None:
++            var_data.append(component._var_data)
++
++        # If the component has children, recursively collect VarData from them
++        if hasattr(component, 'children') and component.children:
++            for child in component.children:
++                if isinstance(child, BaseVar):
++                    var_data.append(child._var_data)
++                elif isinstance(child, BaseComponent):
++                    var_data.extend(cls._collect_var_data_from_component(child))
++
++        return var_data
++
+     @classmethod
+     def _create_match_cond_var_or_component(
+         cls,
+@@ -210,10 +268,7 @@ class Match(MemoizationLeaf):
+ 
+         # match cases and default should all be Vars at this point.
+         # Retrieve var data of every var in the match cases and default.
+-        var_data = [
+-            *[el._var_data for case in match_cases for el in case],
+-            default._var_data,  # type: ignore
+-        ]
++        var_data = cls._collect_var_data_from_match_cases(match_cases, default)
+ 
+         return match_cond_var._replace(
+             _var_name=format.format_match(
+@@ -243,6 +298,78 @@ class Match(MemoizationLeaf):
+         tag.name = "match"
+         return dict(tag)
+ 
++
++    def _get_vars(self) -> list[Var]:
++        """Walk all Vars used in this component, including those in match cases.
++
++        Returns:
++            Each var referenced by the component and its match cases.
++        """
++        vars = super()._get_vars()
++
++        # Collect vars from all match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseVar):
++                    vars.append(element)
++                elif isinstance(element, BaseComponent):
++                    # Recursively collect vars from the component
++                    vars.extend(self._collect_vars_from_component(element))
++
++        # Collect vars from default case
++        if isinstance(self.default, BaseVar):
++            vars.append(self.default)
++        elif isinstance(self.default, BaseComponent):
++            vars.extend(self._collect_vars_from_component(self.default))
++
++        return vars
++
++    def _collect_vars_from_component(self, component: BaseComponent) -> list[Var]:
++        """Recursively collect vars from a component and its children.
++
++        Args:
++            component: The component to collect vars from.
++
++        Returns:
++            List of vars from the component and its children.
++        """
++        vars = []
++
++        # Collect vars from the component itself
++        vars.extend(component._get_vars())
++
++        # If the component has children, recursively collect vars from them
++        if hasattr(component, 'children') and component.children:
++            for child in component.children:
++                if isinstance(child, BaseVar):
++                    vars.append(child)
++                elif isinstance(child, BaseComponent):
++                    vars.extend(self._collect_vars_from_component(child))
++
++        return vars
++
++    def _get_events_hooks(self) -> set[str]:
++        """Get the hooks required by events referenced in this component and its match cases.
++
++        Returns:
++            The hooks for the events.
++        """
++        hooks = super()._get_events_hooks()
++
++        # Collect hooks from all match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseComponent) and element.event_triggers:
++                    hooks.add(Hooks.EVENTS)
++                    break  # Only need to add once per case
++
++        # Collect hooks from default case
++        if isinstance(self.default, BaseComponent) and self.default.event_triggers:
++            hooks.add(Hooks.EVENTS)
++
++        return hooks
++
++
+     def _get_imports(self):
+         merged_imports = super()._get_imports()
+         # Obtain the imports of all components the in match case.

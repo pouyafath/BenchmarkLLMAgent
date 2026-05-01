@@ -1,0 +1,124 @@
+diff --git a/django/db/models/expressions.py b/django/db/models/expressions.py
+index 8d37c457ce..dfae8d54ce 100644
+--- a/django/db/models/expressions.py
++++ b/django/db/models/expressions.py
+@@ -9,10 +9,23 @@ from django.db.models import fields
+ from django.db.models.constants import LOOKUP_SEP
+ from django.db.models.query_utils import Q
+ from django.utils.deconstruct import deconstructible
+-from django.utils.functional import cached_property
++from django.utils.functional import cached_property, empty
+ from django.utils.hashable import make_hashable
+ 
+ 
++def force_evaluate_lazy_object(value):
++    """Force evaluation of lazy objects like SimpleLazyObject or Promise."""
++    # Handle unevaluated lazy objects
++    if hasattr(value, '_wrapped') and getattr(value, '_wrapped', None) is empty:
++        # This is a LazyObject/SimpleLazyObject that hasn't been evaluated yet
++        value._setup()
++        # Return the wrapped value, not the lazy object itself
++        return value._wrapped
++    # Handle already evaluated lazy objects (return their _wrapped value)
++    elif hasattr(value, '_wrapped') and not getattr(value, '_wrapped', None) is empty:
++        return value._wrapped
++    return value
++
+ class SQLiteNumericMixin:
+     """
+     Some expressions with output_field=DecimalField() must be cast to
+@@ -323,11 +336,11 @@ class BaseExpression:
+         field = self.output_field
+         internal_type = field.get_internal_type()
+         if internal_type == 'FloatField':
+-            return lambda value, expression, connection: None if value is None else float(value)
++            return lambda value, expression, connection: None if value is None else float(force_evaluate_lazy_object(value))
+         elif internal_type.endswith('IntegerField'):
+-            return lambda value, expression, connection: None if value is None else int(value)
++            return lambda value, expression, connection: None if value is None else int(force_evaluate_lazy_object(value))
+         elif internal_type == 'DecimalField':
+-            return lambda value, expression, connection: None if value is None else Decimal(value)
++            return lambda value, expression, connection: None if value is None else Decimal(force_evaluate_lazy_object(value))
+         return self._convert_value_noop
+ 
+     def get_lookup(self, lookup):
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index caa03665ea..680c79ead4 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -21,7 +21,7 @@ from django.utils.dateparse import (
+     parse_date, parse_datetime, parse_duration, parse_time,
+ )
+ from django.utils.duration import duration_microseconds, duration_string
+-from django.utils.functional import Promise, cached_property
++from django.utils.functional import Promise, cached_property, empty
+ from django.utils.ipv6 import clean_ipv6_address
+ from django.utils.itercompat import is_iterable
+ from django.utils.text import capfirst
+@@ -81,6 +81,26 @@ def return_None():
+     return None
+ 
+ 
++def force_evaluate_lazy_object(value):
++    """Force evaluation of lazy objects like SimpleLazyObject or Promise."""
++    # Handle unevaluated lazy objects
++    if hasattr(value, '_wrapped') and getattr(value, '_wrapped', None) is empty:
++        # This is a LazyObject/SimpleLazyObject that hasn't been evaluated yet
++        value._setup()
++        # Return the wrapped value, not the lazy object itself
++        return value._wrapped
++    # Handle already evaluated lazy objects (return their _wrapped value)
++    elif hasattr(value, '_wrapped') and not getattr(value, '_wrapped', None) is empty:
++        result = value._wrapped
++        # Handle model instances by returning their primary key
++        if hasattr(result, 'pk'):
++            return result.pk
++        return result
++    # Handle model instances by returning their primary key
++    elif hasattr(value, 'pk'):
++        return value.pk
++    return value
++
+ @total_ordering
+ class Field(RegisterLookupMixin):
+     """Base class for all field types"""
+@@ -1498,6 +1518,7 @@ class DecimalField(Field):
+         if isinstance(value, float):
+             return self.context.create_decimal_from_float(value)
+         try:
++            value = force_evaluate_lazy_object(value)
+             return decimal.Decimal(value)
+         except decimal.InvalidOperation:
+             raise exceptions.ValidationError(
+@@ -1682,6 +1703,7 @@ class FloatField(Field):
+         if value is None:
+             return None
+         try:
++            value = force_evaluate_lazy_object(value)
+             return float(value)
+         except (TypeError, ValueError) as e:
+             raise e.__class__(
+@@ -1695,6 +1717,7 @@ class FloatField(Field):
+         if value is None:
+             return value
+         try:
++            value = force_evaluate_lazy_object(value)
+             return float(value)
+         except (TypeError, ValueError):
+             raise exceptions.ValidationError(
+@@ -1769,6 +1792,7 @@ class IntegerField(Field):
+         if value is None:
+             return None
+         try:
++            value = force_evaluate_lazy_object(value)
+             return int(value)
+         except (TypeError, ValueError) as e:
+             raise e.__class__(
+@@ -1782,6 +1806,7 @@ class IntegerField(Field):
+         if value is None:
+             return value
+         try:
++            value = force_evaluate_lazy_object(value)
+             return int(value)
+         except (TypeError, ValueError):
+             raise exceptions.ValidationError(

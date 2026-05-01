@@ -1,0 +1,45 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..82cedf52 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -9,7 +9,6 @@ from reflex.utils import format, imports, types
+ from reflex.utils.exceptions import MatchTypeError
+ from reflex.vars import BaseVar, Var, VarData
+ 
+-
+ class Match(MemoizationLeaf):
+     """Match cases based on a condition."""
+ 
+@@ -22,6 +21,32 @@ class Match(MemoizationLeaf):
+     # The catchall case to match.
+     default: Any
+ 
++    def __init__(self, cond: Var[Any], match_cases: List, default: Any, **kwargs):
++        """Initialize the Match component.
++
++        Args:
++            cond: The condition to determine which case to match.
++            match_cases: The list of match cases.
++            default: The default case.
++            **kwargs: Additional kwargs to pass to the parent class.
++        """
++        # Initialize the parent class
++        super().__init__(**kwargs)
++
++        # Set the fields
++        self.cond = cond
++        self.match_cases = match_cases
++        self.default = default
++
++        # Add all return components from match_cases to children
++        for case in self.match_cases:
++            if isinstance(case[-1], BaseComponent):
++                self.children.append(case[-1])
++
++        # Add the default component to children if it's a BaseComponent
++        if isinstance(self.default, BaseComponent):
++            self.children.append(self.default)
++
+     @classmethod
+     def create(cls, cond: Any, *cases) -> Union[Component, BaseVar]:
+         """Create a Match Component.

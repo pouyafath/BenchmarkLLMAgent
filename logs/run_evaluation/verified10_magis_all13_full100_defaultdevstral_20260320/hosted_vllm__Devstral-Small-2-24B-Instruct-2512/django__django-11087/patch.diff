@@ -1,0 +1,38 @@
+diff --git a/django/contrib/contenttypes/fields.py b/django/contrib/contenttypes/fields.py
+index ed98ecb48c..e78e7e4dad 100644
+--- a/django/contrib/contenttypes/fields.py
++++ b/django/contrib/contenttypes/fields.py
+@@ -472,12 +472,14 @@ class GenericRelation(ForeignObject):
+     def bulk_related_objects(self, objs, using=DEFAULT_DB_ALIAS):
+         """
+         Return all objects related to ``objs`` via this ``GenericRelation``.
++        Only fetch the primary key to avoid UnicodeDecodeError with invalid UTF-8 data.
+         """
+-        return self.remote_field.model._base_manager.db_manager(using).filter(**{
++        qs = self.remote_field.model._base_manager.db_manager(using).filter(**{
+             "%s__pk" % self.content_type_field_name: ContentType.objects.db_manager(using).get_for_model(
+                 self.model, for_concrete_model=self.for_concrete_model).pk,
+             "%s__in" % self.object_id_field_name: [obj.pk for obj in objs]
+         })
++        return qs.only(self.remote_field.model._meta.pk.attname)
+ 
+ 
+ class ReverseGenericManyToOneDescriptor(ReverseManyToOneDescriptor):
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 3a462f1c4c..0d0935bf18 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -231,10 +231,12 @@ class Collector:
+     def related_objects(self, related, objs):
+         """
+         Get a QuerySet of objects related to `objs` via the relation `related`.
++        Only fetch the primary key to avoid UnicodeDecodeError with invalid UTF-8 data.
+         """
+-        return related.related_model._base_manager.using(self.using).filter(
++        qs = related.related_model._base_manager.using(self.using).filter(
+             **{"%s__in" % related.field.name: objs}
+         )
++        return qs.only(related.related_model._meta.pk.attname)
+ 
+     def instances_with_model(self):
+         for model, instances in self.data.items():

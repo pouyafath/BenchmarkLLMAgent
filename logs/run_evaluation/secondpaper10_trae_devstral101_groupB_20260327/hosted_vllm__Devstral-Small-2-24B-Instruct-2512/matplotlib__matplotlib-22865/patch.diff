@@ -1,0 +1,30 @@
+diff --git a/lib/matplotlib/colorbar.py b/lib/matplotlib/colorbar.py
+index c59b0ac815..65a6d0e602 100644
+--- a/lib/matplotlib/colorbar.py
++++ b/lib/matplotlib/colorbar.py
+@@ -651,8 +651,23 @@ class Colorbar:
+             if not self.drawedges:
+                 if len(self._y) >= self.n_rasterize:
+                     self.solids.set_rasterized(True)
+-        self.dividers.set_segments(
+-            np.dstack([X, Y])[1:-1] if self.drawedges else [])
++        if self.drawedges:
++            # Create dividers based on all boundaries, including extensions
++            segments = []
++            boundaries = self._boundaries
++            if self.orientation == "horizontal":
++                # For horizontal colorbars, create vertical segments
++                for i in range(len(boundaries) - 1):
++                    x = boundaries[i]
++                    segments.append([[x, 0], [x, 1]])
++            else:
++                # For vertical colorbars, create horizontal segments
++                for i in range(len(boundaries) - 1):
++                    y = boundaries[i]
++                    segments.append([[0, y], [1, y]])
++            self.dividers.set_segments(segments)
++        else:
++            self.dividers.set_segments([])
+ 
+     def _add_solids_patches(self, X, Y, C, mappable):
+         hatches = mappable.hatches * len(C)  # Have enough hatches.

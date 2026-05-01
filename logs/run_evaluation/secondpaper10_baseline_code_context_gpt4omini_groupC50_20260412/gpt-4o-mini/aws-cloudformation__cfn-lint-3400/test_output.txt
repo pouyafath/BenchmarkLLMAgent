@@ -1,0 +1,572 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 462 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	test/fixtures/specs/test-s3-policy.json
+
+nothing added to commit but untracked files present (use "git add" to track)
++ git show
+commit ed39a193ba383ea966b4b8bda000d4828d0be7aa
+Author: Kevin DeJong <kddejong@amazon.com>
+Date:   Tue Jun 25 08:43:53 2024 -0700
+
+    Allow Ref AWS::NoValue in FindInMap parameters (#3399)
+
+diff --git a/src/cfnlint/jsonschema/_filter.py b/src/cfnlint/jsonschema/_filter.py
+index 820404646..2c24b9967 100644
+--- a/src/cfnlint/jsonschema/_filter.py
++++ b/src/cfnlint/jsonschema/_filter.py
+@@ -36,18 +36,18 @@ class FunctionFilter:
+         init=False,
+         default_factory=lambda: [
+             "dependencies",
+-            "if",
+-            "then",
+-            "else",
+-            "required",
+-            "requiredXor",
+-            "requiredAtLeastOne",
+             "dependentExcluded",
+             "dependentRequired",
+-            "minItems",
+-            "minProperties",
++            "else",
++            "if",
+             "maxItems",
+             "maxProperties",
++            "minItems",
++            "minProperties",
++            "required",
++            "requiredAtLeastOne",
++            "requiredXor",
++            "then",
+             "uniqueItems",
+         ],
+     )
+@@ -116,6 +116,12 @@ class FunctionFilter:
+                     return
+                 return
+ 
++        # if there are no functions then we don't need to worry
++        # about ref AWS::NoValue or If conditions
++        if not validator.context.functions:
++            yield instance, schema
++            return
++
+         # dependencies, required, minProperties, maxProperties
+         # need to have filtered properties to validate
+         # because of Ref: AWS::NoValue
+diff --git a/src/cfnlint/rules/functions/FindInMap.py b/src/cfnlint/rules/functions/FindInMap.py
+index 192ebccd9..78734f240 100644
+--- a/src/cfnlint/rules/functions/FindInMap.py
++++ b/src/cfnlint/rules/functions/FindInMap.py
+@@ -62,24 +62,62 @@ class FindInMap(BaseFn):
+                 scalar_schema,
+                 scalar_schema,
+                 {
++                    "functions": [],
+                     "schema": {
++                        "findinmap_parameters": True,
+                         "type": ["object"],
+                         "properties": {
+                             "DefaultValue": {
+-                                "type": ("array",) + singular_types,
++                                "default_value": True,
+                             }
+                         },
+                         "additionalProperties": False,
+                         "required": ["DefaultValue"],
+-                    }
++                    },
+                 },
+             ]
+ 
+         return schema
+ 
++    def _default_value(
++        self, validator: Validator, s: Any, instance: Any, schema: Any
++    ) -> ValidationResult:
++        validator = validator.evolve(
++            context=validator.context.evolve(
++                functions=["Ref"],
++            ),
++        )
++        yield from validator.descend(
++            instance,
++            {
++                "type": ("array",) + singular_types,
++            },
++        )
++
+     def fn_findinmap(
+         self, validator: Validator, s: Any, instance: Any, schema: Any
+     ) -> ValidationResult:
++
++        if validator.context.transforms.has_language_extensions_transform():
++            # we have to use a special validator for this
++            # as we don't want DefaultValue: !Ref AWS::NoValue
++            # is valid
++            mapping_validator = validator.extend(
++                validators={
++                    "default_value": self._default_value,
++                },
++            )(validator.schema)
++            validator = mapping_validator.evolve(
++                context=validator.context.evolve(
++                    resources={},
++                ),
++                cfn=validator.cfn,
++                function_filter=validator.function_filter,
++                resolver=validator.resolver,
++            )
++            yield from super().validate(validator, s, instance, schema)
++            return
++
+         validator = validator.evolve(
+             context=validator.context.evolve(
+                 resources={},
+diff --git a/test/unit/module/jsonschema/test_filter.py b/test/unit/module/jsonschema/test_filter.py
+index 0a012e2d0..9d399e845 100644
+--- a/test/unit/module/jsonschema/test_filter.py
++++ b/test/unit/module/jsonschema/test_filter.py
+@@ -20,7 +20,7 @@ def filter():
+ 
+ 
+ @pytest.mark.parametrize(
+-    "name,instance,schema,path,expected",
++    "name,instance,schema,path,functions,expected",
+     [
+         (
+             "Don't validate dynamic references inside of function",
+@@ -28,21 +28,60 @@ def filter():
+             {"enum": "Foo"},
+             deque(["Foo", "Test", "Fn::Sub"]),
+             [],
++            [],
+         ),
+         (
+             "Validate dynamic references",
+             "{{resolve:ssm:secret}}",
+             {"enum": "Foo"},
+             deque(["Foo", "Test"]),
++            [],
+             [
+                 ("{{resolve:ssm:secret}}", {"dynamicReference": {"enum": "Foo"}}),
+             ],
+         ),
++        (
++            "Lack of functions returns the schema and instance",
++            {
++                "Foo": {"Ref": "AWS::NoValue"},
++            },
++            {"required": ["Foo"]},
++            deque([]),
++            [],
++            [
++                (
++                    {
++                        "Foo": {"Ref": "AWS::NoValue"},
++                    },
++                    {"required": ["Foo"]},
++                ),
++            ],
++        ),
++        (
++            "Filtered schemas",
++            {
++                "Foo": {"Ref": "AWS::NoValue"},
++            },
++            {"required": ["Foo"]},
++            deque([]),
++            ["Ref", "Fn::If"],
++            [
++                (
++                    {},
++                    {"required": ["Foo"]},
++                ),
++                ({"Foo": {"Ref": "AWS::NoValue"}}, {"cfnLint": [""]}),
++            ],
++        ),
+     ],
+ )
+-def test_filter(name, instance, schema, path, expected, filter):
++def test_filter(name, instance, schema, path, functions, expected, filter):
+     validator = CfnTemplateValidator(
+-        context=Context(regions=["us-east-1"], path=Path(path)),
++        context=Context(
++            regions=["us-east-1"],
++            path=Path(path),
++            functions=functions,
++        ),
+         schema=schema,
+     )
+     results = list(filter.filter(validator, instance, schema))
+diff --git a/test/unit/rules/functions/test_find_in_map.py b/test/unit/rules/functions/test_find_in_map.py
+index 9f6e51c73..fb23ba095 100644
+--- a/test/unit/rules/functions/test_find_in_map.py
++++ b/test/unit/rules/functions/test_find_in_map.py
+@@ -46,7 +46,7 @@ def context(cfn):
+             {"Fn::FindInMap": ["A", "B", "C"]},
+             {"type": "string"},
+             {},
+-            [],
++            None,
+             [],
+         ),
+         (
+@@ -54,7 +54,7 @@ def context(cfn):
+             {"Fn::FindInMap": ["foo", "bar", "key", "key2"]},
+             {"type": "string"},
+             {},
+-            [],
++            None,
+             [
+                 ValidationError(
+                     "['foo', 'bar', 'key', 'key2'] is too long (3)",
+@@ -69,7 +69,7 @@ def context(cfn):
+             {"Fn::FindInMap": {"foo": "bar"}},
+             {"type": "string"},
+             {},
+-            [],
++            None,
+             [
+                 ValidationError(
+                     "{'foo': 'bar'} is not of type 'array'",
+@@ -84,7 +84,7 @@ def context(cfn):
+             {"Fn::FindInMap": [{"Fn::GetAtt": "MyResource.Arn"}, "foo", "bar"]},
+             {"type": "string"},
+             {},
+-            [],
++            None,
+             [
+                 ValidationError(
+                     "{'Fn::GetAtt': 'MyResource.Arn'} is not of type 'string'",
+@@ -99,7 +99,7 @@ def context(cfn):
+             {"Fn::FindInMap": ["A", "B", "C", {"DefaultValue": "D"}]},
+             {"type": "string"},
+             {"transforms": Transforms(["AWS::LanguageExtensions"])},
+-            [],
++            None,
+             [],
+         ),
+         (
+@@ -107,7 +107,7 @@ def context(cfn):
+             {"Fn::FindInMap": ["A", "B", "C", []]},
+             {"type": "string"},
+             {"transforms": Transforms(["AWS::LanguageExtensions"])},
+-            [],
++            None,
+             [
+                 ValidationError(
+                     "[] is not of type 'object'",
+@@ -122,7 +122,7 @@ def context(cfn):
+             {"Fn::FindInMap": ["A", "B", "C", {}]},
+             {"type": "string"},
+             {"transforms": Transforms(["AWS::LanguageExtensions"])},
+-            [],
++            None,
+             [
+                 ValidationError(
+                     "'DefaultValue' is a required property",
+@@ -147,6 +147,21 @@ def context(cfn):
+                 ),
+             ],
+         ),
++        (
++            "Valid Fn::FindInMap with a Ref to AWS::NoValue",
++            {
++                "Fn::FindInMap": [
++                    "A",
++                    "B",
++                    "C",
++                    {"DefaultValue": {"Ref": "AWS::NoValue"}},
++                ]
++            },
++            {"type": "string"},
++            {"transforms": Transforms(["AWS::LanguageExtensions"])},
++            [],
++            [],
++        ),
+     ],
+ )
+ def test_validate(
+@@ -162,10 +177,14 @@ def test_validate(
+ ):
+     context = context.evolve(**context_evolve)
+     ref_mock = MagicMock()
+-    ref_mock.return_value = iter(ref_mock_values)
++    ref_mock.return_value = iter(ref_mock_values or [])
+     validator = CfnTemplateValidator({}).extend(validators={"ref": ref_mock})(
+         context=context, cfn=cfn
+     )
+     errs = list(rule.fn_findinmap(validator, schema, instance, {}))
+-    assert ref_mock.call_count == len(ref_mock_values)
++
++    if ref_mock_values is None:
++        ref_mock.assert_not_called()
++    else:
++        assert ref_mock.call_count == len(ref_mock_values) or 1
+     assert errs == expected, f"Test {name!r} got {errs!r}"
+diff --git a/test/unit/rules/resources/ecs/test_task_definition_essentials.py b/test/unit/rules/resources/ecs/test_task_definition_essentials.py
+index cb6b556d1..ade6c27d6 100644
+--- a/test/unit/rules/resources/ecs/test_task_definition_essentials.py
++++ b/test/unit/rules/resources/ecs/test_task_definition_essentials.py
+@@ -57,8 +57,8 @@ def rule():
+                     "At least one essential container is required",
+                     rule=TaskDefinitionEssentialContainer(),
+                     path=deque([]),
+-                    validator="minItems",
+-                    schema_path=deque(["minItems"]),
++                    validator="contains",
++                    schema_path=deque(["contains"]),
+                 )
+             ],
+         ),
+diff --git a/test/unit/rules/resources/route53/test_recordsets.py b/test/unit/rules/resources/route53/test_recordsets.py
+index 70637e510..af86f05e2 100644
+--- a/test/unit/rules/resources/route53/test_recordsets.py
++++ b/test/unit/rules/resources/route53/test_recordsets.py
+@@ -341,22 +341,6 @@ def rule():
+                 ],
+             },
+             [
+-                ValidationError(
+-                    "['cname1.example.com', 'foo√bar'] is too long (1)",
+-                    rule=RecordSet(),
+-                    path=deque(["ResourceRecords"]),
+-                    validator="maxItems",
+-                    schema_path=deque(
+-                        [
+-                            "allOf",
+-                            3,
+-                            "then",
+-                            "properties",
+-                            "ResourceRecords",
+-                            "maxItems",
+-                        ]
+-                    ),
+-                ),
+                 ValidationError(
+                     "'foo√bar' is not valid under any of the given schemas",
+                     rule=RecordSet(),
+@@ -398,6 +382,22 @@ def rule():
+                         ]
+                     ),
+                 ),
++                ValidationError(
++                    "['cname1.example.com', 'foo√bar'] is too long (1)",
++                    rule=RecordSet(),
++                    path=deque(["ResourceRecords"]),
++                    validator="maxItems",
++                    schema_path=deque(
++                        [
++                            "allOf",
++                            3,
++                            "then",
++                            "properties",
++                            "ResourceRecords",
++                            "maxItems",
++                        ]
++                    ),
++                ),
+             ],
+         ),
+         (
++ git -c core.fileMode=false diff ed39a193ba383ea966b4b8bda000d4828d0be7aa
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.10/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  running dist_info
+  creating /tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info
+  writing /tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-55qk61ty/cfn_lint.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-55qk61ty/cfn_lint-1.3.4.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: pyyaml>5.4 in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (6.0.1)
+Requirement already satisfied: aws-sam-translator>=1.89.0 in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (1.89.0)
+Requirement already satisfied: jsonpatch in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (1.33)
+Requirement already satisfied: networkx<4,>=2.4 in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (3.3)
+Requirement already satisfied: sympy>=1.0.0 in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (1.12.1)
+Requirement already satisfied: regex in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (2024.5.15)
+Requirement already satisfied: typing-extensions in /usr/local/lib/python3.10/site-packages (from cfn-lint==1.3.4) (4.12.2)
+WARNING: cfn-lint 1.3.4 does not provide the extra 'test'
+Requirement already satisfied: boto3==1.*,>=1.19.5 in /usr/local/lib/python3.10/site-packages (from aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (1.34.132)
+Requirement already satisfied: jsonschema<5,>=3.2 in /usr/local/lib/python3.10/site-packages (from aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (4.22.0)
+Requirement already satisfied: pydantic<3,>=1.8 in /usr/local/lib/python3.10/site-packages (from aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (2.7.4)
+Requirement already satisfied: botocore<1.35.0,>=1.34.132 in /usr/local/lib/python3.10/site-packages (from boto3==1.*,>=1.19.5->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (1.34.132)
+Requirement already satisfied: jmespath<2.0.0,>=0.7.1 in /usr/local/lib/python3.10/site-packages (from boto3==1.*,>=1.19.5->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (1.0.1)
+Requirement already satisfied: s3transfer<0.11.0,>=0.10.0 in /usr/local/lib/python3.10/site-packages (from boto3==1.*,>=1.19.5->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (0.10.2)
+Requirement already satisfied: mpmath<1.4.0,>=1.1.0 in /usr/local/lib/python3.10/site-packages (from sympy>=1.0.0->cfn-lint==1.3.4) (1.3.0)
+Requirement already satisfied: jsonpointer>=1.9 in /usr/local/lib/python3.10/site-packages (from jsonpatch->cfn-lint==1.3.4) (3.0.0)
+Requirement already satisfied: attrs>=22.2.0 in /usr/local/lib/python3.10/site-packages (from jsonschema<5,>=3.2->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (23.2.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in /usr/local/lib/python3.10/site-packages (from jsonschema<5,>=3.2->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (2023.12.1)
+Requirement already satisfied: referencing>=0.28.4 in /usr/local/lib/python3.10/site-packages (from jsonschema<5,>=3.2->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (0.35.1)
+Requirement already satisfied: rpds-py>=0.7.1 in /usr/local/lib/python3.10/site-packages (from jsonschema<5,>=3.2->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (0.18.1)
+Requirement already satisfied: annotated-types>=0.4.0 in /usr/local/lib/python3.10/site-packages (from pydantic<3,>=1.8->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (0.7.0)
+Requirement already satisfied: pydantic-core==2.18.4 in /usr/local/lib/python3.10/site-packages (from pydantic<3,>=1.8->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (2.18.4)
+Requirement already satisfied: python-dateutil<3.0.0,>=2.1 in /usr/local/lib/python3.10/site-packages (from botocore<1.35.0,>=1.34.132->boto3==1.*,>=1.19.5->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (2.9.0.post0)
+Requirement already satisfied: urllib3!=2.2.0,<3,>=1.25.4 in /usr/local/lib/python3.10/site-packages (from botocore<1.35.0,>=1.34.132->boto3==1.*,>=1.19.5->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (2.2.2)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.10/site-packages (from python-dateutil<3.0.0,>=2.1->botocore<1.35.0,>=1.34.132->boto3==1.*,>=1.19.5->aws-sam-translator>=1.89.0->cfn-lint==1.3.4) (1.16.0)
+Building wheels for collected packages: cfn-lint
+  Building editable for cfn-lint (pyproject.toml): started
+  Running command Building editable for cfn-lint (pyproject.toml)
+  /usr/local/lib/python3.10/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  running editable_wheel
+  creating /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info
+  writing /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint-1.3.4.dist-info'
+  creating /tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint-1.3.4.dist-info/WHEEL
+  running build_py
+  running egg_info
+  creating /tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info
+  writing /tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/dependency_links.txt
+  writing entry points to /tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/entry_points.txt
+  writing requirements to /tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/requires.txt
+  writing top-level names to /tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/top_level.txt
+  writing manifest file '/tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/tmpf9rwhi8d.build-temp/cfn_lint.egg-info/SOURCES.txt'
+
+          Editable install will be performed using .pth file to extend `sys.path` with:
+          ['src']
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable__.cfn_lint-1.3.4.pth'
+  creating '/tmp/pip-wheel-ixc1xic5/tmpodfu661p/cfn_lint-1.3.4-0.editable-py3-none-any.whl' and adding '/tmp/tmp7lu5qcfrcfn_lint-1.3.4-0.editable-py3-none-any.whl' to it
+  adding 'cfn_lint-1.3.4.dist-info/LICENSE'
+  adding 'cfn_lint-1.3.4.dist-info/METADATA'
+  adding 'cfn_lint-1.3.4.dist-info/WHEEL'
+  adding 'cfn_lint-1.3.4.dist-info/entry_points.txt'
+  adding 'cfn_lint-1.3.4.dist-info/top_level.txt'
+  adding 'cfn_lint-1.3.4.dist-info/RECORD'
+  Building editable for cfn-lint (pyproject.toml): finished with status 'done'
+  Created wheel for cfn-lint: filename=cfn_lint-1.3.4-0.editable-py3-none-any.whl size=8591 sha256=99f1cf704d1779c14bef27f183440446c261afcdbebb082872cdfdc9b7231238
+  Stored in directory: /tmp/pip-ephem-wheel-cache-4t4kekbe/wheels/0d/a6/cb/465a7b303d624cc531250fa27c75d038ddc29430bdb6ba7c9f
+Successfully built cfn-lint
+Installing collected packages: cfn-lint
+  Attempting uninstall: cfn-lint
+    Found existing installation: cfn-lint 1.3.4
+    Uninstalling cfn-lint-1.3.4:
+      Removing file or directory /usr/local/bin/cfn-lint
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable__.cfn_lint-1.3.4.pth
+      Removing file or directory /usr/local/lib/python3.10/site-packages/cfn_lint-1.3.4.dist-info/
+      Successfully uninstalled cfn-lint-1.3.4
+  changing mode of /usr/local/bin/cfn-lint to 755
+Successfully installed cfn-lint-1.3.4
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout ed39a193ba383ea966b4b8bda000d4828d0be7aa test/unit/rules/resources/iam/test_resource_policy.py
+Updated 0 paths from ff5bfc750
++ git apply -v -
+Checking patch test/unit/module/jsonschema/test_keywords.py...
+Checking patch test/unit/rules/functions/test_sub_not_join_cdk.py...
+Checking patch test/unit/rules/resources/iam/test_resource_policy.py...
+Applied patch test/unit/module/jsonschema/test_keywords.py cleanly.
+Applied patch test/unit/rules/functions/test_sub_not_join_cdk.py cleanly.
+Applied patch test/unit/rules/resources/iam/test_resource_policy.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA test/unit/module/jsonschema/test_keywords.py test/unit/rules/functions/test_sub_not_join_cdk.py test/unit/rules/resources/iam/test_resource_policy.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.2.2, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+collected 9 items
+
+test/unit/module/jsonschema/test_keywords.py ...                         [ 33%]
+test/unit/rules/functions/test_sub_not_join_cdk.py F                     [ 44%]
+test/unit/rules/resources/iam/test_resource_policy.py .....              [100%]
+
+=================================== FAILURES ===================================
+_ test_validate[Invalid Fn::Join with an empty string-instance0-schema0-expected0] _
+
+name = 'Invalid Fn::Join with an empty string'
+instance = {'Fn::Join': ['', ['foo', 'bar']]}, schema = {'type': 'string'}
+expected = [], rule = I1022: Use Sub instead of Join
+validator = create.<locals>.Validator(_type_checker=<TypeChecker types={'array', 'boolean', 'date', 'integer', 'null', 'number', '... at 0x7f333a113d90>, 'Fn::Length': <function unresolvable at 0x7f333a113d90>, 'Ref': <function ref at 0x7f333a113e20>})
+
+    @pytest.mark.parametrize(
+        "name,instance,schema,expected",
+        [
+            (
+                "Invalid Fn::Join with an empty string",
+                {"Fn::Join": ["", ["foo", "bar"]]},
+                {"type": "string"},
+                [],
+            ),
+        ],
+    )
+    def test_validate(name, instance, schema, expected, rule, validator):
+        errs = list(rule.validate(validator, schema, instance, {}))
+>       assert errs == expected, f"Test {name!r} got {errs!r}"
+E       AssertionError: Test 'Invalid Fn::Join with an empty string' got [<ValidationError: 'Prefer using Fn::Sub over Fn::Join with an empty delimiter'>]
+E       assert [<ValidationE...y delimiter'>] == []
+E         
+E         Left contains one more item: <ValidationError: 'Prefer using Fn::Sub over Fn::Join with an empty delimiter'>
+E         Use -v to get more diff
+
+test/unit/rules/functions/test_sub_not_join_cdk.py:44: AssertionError
+==================================== PASSES ====================================
+_______ test_anyof[Invalid anyOf with error rule-foo-schema2-expected2] ________
+----------------------------- Captured stdout call -----------------------------
+foo
+foo
+=========================== short test summary info ============================
+PASSED test/unit/module/jsonschema/test_keywords.py::test_anyof[Valid anyOf-foo-schema0-expected0]
+PASSED test/unit/module/jsonschema/test_keywords.py::test_anyof[Valid anyOf with error rule-foo-schema1-expected1]
+PASSED test/unit/module/jsonschema/test_keywords.py::test_anyof[Invalid anyOf with error rule-foo-schema2-expected2]
+PASSED test/unit/rules/resources/iam/test_resource_policy.py::TestResourcePolicy::test_object_basic
+PASSED test/unit/rules/resources/iam/test_resource_policy.py::TestResourcePolicy::test_object_multiple_effect
+PASSED test/unit/rules/resources/iam/test_resource_policy.py::TestResourcePolicy::test_object_statements
+PASSED test/unit/rules/resources/iam/test_resource_policy.py::TestResourcePolicy::test_principal_wildcard
+PASSED test/unit/rules/resources/iam/test_resource_policy.py::TestResourcePolicy::test_string_statements
+FAILED test/unit/rules/functions/test_sub_not_join_cdk.py::test_validate[Invalid Fn::Join with an empty string-instance0-schema0-expected0]
+========================= 1 failed, 8 passed in 0.14s ==========================
++ : '>>>>> End Test Output'
++ git checkout ed39a193ba383ea966b4b8bda000d4828d0be7aa test/unit/rules/resources/iam/test_resource_policy.py
+Updated 1 path from ff5bfc750

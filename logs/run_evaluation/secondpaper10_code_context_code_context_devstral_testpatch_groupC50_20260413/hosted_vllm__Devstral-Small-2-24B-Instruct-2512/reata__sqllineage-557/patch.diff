@@ -1,0 +1,47 @@
+diff --git a/sqllineage/core/parser/__init__.py b/sqllineage/core/parser/__init__.py
+index ddbd237..b6ab725 100644
+--- a/sqllineage/core/parser/__init__.py
++++ b/sqllineage/core/parser/__init__.py
+@@ -33,13 +33,19 @@ class SourceHandlerMixin:
+                     for src_col in tgt_col_from_query.to_source_columns(
+                         holder.get_alias_mapping_from_table_group(tbl_grp),
+                     ):
+-                        if len(write_columns := holder.write_columns) == len(col_grp):
+-                            # example query: create view test (col3) select col1 as col2 from tab
+-                            # without write_columns = [col3] information, by default src_col = col1 and tgt_col = col2
+-                            # when write_columns exist and length matches, we want tgt_col = col3 instead of col2
+-                            # for invalid query: create view test (col3, col4) select col1 as col2 from tab,
+-                            # when the length doesn't match, we fall back to default behavior
+-                            tgt_col_resolved = write_columns[idx]
++                        if write_columns := holder.write_columns:
++                            # If write_columns are provided (either explicitly in SQL or from metadata provider),
++                            # use them as the target columns instead of the aliases
++                            if len(write_columns) == len(col_grp):
++                                # example query: create view test (col3) select col1 as col2 from tab
++                                # when write_columns exist and length matches, we want tgt_col = col3 instead of col2
++                                tgt_col_resolved = write_columns[idx]
++                            elif len(write_columns) > 0:
++                                # example query: insert into target select col1 as col2 from source
++                                # when write_columns are provided from metadata but length doesn't match,
++                                # we still use write_columns[idx] if available, otherwise fall back to default
++                                if idx < len(write_columns):
++                                    tgt_col_resolved = write_columns[idx]
+                         # lateral column alias handling
+                         lca_flag = False
+                         if SQLLineageConfig.LATERAL_COLUMN_ALIAS_REFERENCE:
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+index 7610bac..c28a261 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+@@ -104,6 +104,11 @@ class CreateInsertExtractor(BaseExtractor):
+                 if segment.type in ["table_reference", "object_reference"]:
+                     write_obj = SqlFluffTable.of(segment)
+                     holder.add_write(write_obj)
++                    # If no explicit write_columns, populate from metadata provider
++                    if not holder.write_columns and self.metadata_provider:
++                        target_columns = self.metadata_provider.get_table_columns(write_obj)
++                        if target_columns:
++                            holder.add_write_column(*target_columns)
+                 elif segment.type == "literal":
+                     if segment.raw.isnumeric():
+                         # Special Handling for Spark Bucket Table DDL

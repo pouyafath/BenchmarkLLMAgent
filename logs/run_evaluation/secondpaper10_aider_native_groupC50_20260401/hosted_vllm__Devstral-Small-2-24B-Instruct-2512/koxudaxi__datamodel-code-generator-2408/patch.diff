@@ -1,0 +1,29 @@
+diff --git a/src/datamodel_code_generator/parser/jsonschema.py b/src/datamodel_code_generator/parser/jsonschema.py
+index 34ee95f3..1d71a4c1 100644
+--- a/src/datamodel_code_generator/parser/jsonschema.py
++++ b/src/datamodel_code_generator/parser/jsonschema.py
+@@ -669,6 +669,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
+         super().__init__(source=source, config=config, **options)
+ 
+         self.remote_object_cache: DefaultPutDict[str, dict[str, YamlValue]] = DefaultPutDict()
++        self._remote_ref_warning_shown: set[str] = set()
+         self.raw_obj: dict[str, YamlValue] = {}
+         self._root_id: Optional[str] = None  # noqa: UP045
+         self._root_id_base_path: Optional[str] = None  # noqa: UP045
+@@ -3825,7 +3826,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
+                         "Use --allow-remote-refs to enable HTTP fetching of remote references."
+                     )
+                     raise Error(msg)
+-                if self.allow_remote_refs is None:
++                if self.allow_remote_refs is None and resolved_ref not in self._remote_ref_warning_shown:
+                     import warnings  # noqa: PLC0415
+ 
+                     warnings.warn(
+@@ -3835,6 +3836,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
+                         FutureWarning,
+                         stacklevel=2,
+                     )
++                    self._remote_ref_warning_shown.add(resolved_ref)
+             return self._get_ref_body_from_url(resolved_ref)
+         return self._get_ref_body_from_remote(resolved_ref)
+ 

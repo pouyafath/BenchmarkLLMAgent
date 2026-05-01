@@ -1,0 +1,24 @@
+diff --git a/src/pdm/_types.py b/src/pdm/_types.py
+index dd753efb..bd0b07a1 100644
+--- a/src/pdm/_types.py
++++ b/src/pdm/_types.py
+@@ -35,6 +35,10 @@ class RepositoryConfig:
+         self.exclude_packages = [_normalize_pattern(p) for p in self.exclude_packages]
+ 
+     def populate_auth(self) -> None:
++        # Check if we already have cached auth info
++        if hasattr(self, '_auth_cached') and self._auth_cached:
++            return
++
+         if self.username is None or self.password is None:
+             from pdm.models.auth import keyring
+ 
+@@ -42,6 +46,8 @@ class RepositoryConfig:
+             auth = keyring.get_auth_info(service, self.username)
+             if auth is not None:
+                 self.username, self.password = auth
++        # Mark that we've cached the auth info (whether we found credentials or not)
++        self._auth_cached = True
+ 
+     def passive_update(self, other: RepositoryConfig | None = None, **kwargs: Any) -> None:
+         """An update method that prefers the existing value over the new one."""

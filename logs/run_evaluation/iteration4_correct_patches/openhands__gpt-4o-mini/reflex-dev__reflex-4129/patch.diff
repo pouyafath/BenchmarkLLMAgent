@@ -1,0 +1,69 @@
+diff --git a/reflex/istate/dynamic.py b/reflex/istate/dynamic.py
+--- a/reflex/istate/dynamic.py
++++ b/reflex/istate/dynamic.py
+@@ -0,0 +1,50 @@
++"""Dynamic state management for Reflex."""
++
++from reflex import State
++
++_DYNAMIC_STATE_CACHE = {}
++
++def dynamic_state():
++    """Create a dynamic state class that can be pickled."""
++    class _DynamicState(State):
++        dynamic: str = ""
++        l: list[str] = []
++
++        def on_load(self):
++            self.dynamic = "Hello, world!"
++
++    # Cache the dynamically created class in a known module
++    _DYNAMIC_STATE_CACHE[_DynamicState.__name__] = _DynamicState
++    return _DynamicState
++
++def get_dynamic_state(name: str):
++    """Retrieve a cached dynamic state class by name."""
++    return _DYNAMIC_STATE_CACHE.get(name)
++
++DynamicState = dynamic_state()
++
++def index() -> State:
++    """Example index function using DynamicState."""
++    return DynamicState.dynamic
++
++app = State()
++app.add_page(index, on_load=DynamicState.on_load)
++
++if __name__ == "__main__":
++    app.run()
++
++def clear_dynamic_state_cache():
++    """Clear the dynamic state cache."""
++    _DYNAMIC_STATE_CACHE.clear()
++
++def list_dynamic_states():
++    """List all cached dynamic state classes."""
++    return list(_DYNAMIC_STATE_CACHE.keys())
++
++def remove_dynamic_state(name: str):
++    """Remove a dynamic state class from the cache."""
++    _DYNAMIC_STATE_CACHE.pop(name, None)
++
++def dynamic_state_exists(name: str) -> bool:
++    """Check if a dynamic state class exists in the cache."""
++    return name in _DYNAMIC_STATE_CACHE
++
++def clear_dynamic_state(name: str):
++    """Clear a specific dynamic state from the cache."""
++    if name in _DYNAMIC_STATE_CACHE:
++        del _DYNAMIC_STATE_CACHE[name]
++    else:
++        raise KeyError(f"Dynamic state '{name}' not found in cache.")
++    
++def get_all_dynamic_states():
++    """Get all dynamic states in the cache."""
++    return _DYNAMIC_STATE_CACHE.copy()
++    
++def reset_dynamic_states():
++    """Reset all dynamic states."""
++    _DYNAMIC_STATE_CACHE.clear()

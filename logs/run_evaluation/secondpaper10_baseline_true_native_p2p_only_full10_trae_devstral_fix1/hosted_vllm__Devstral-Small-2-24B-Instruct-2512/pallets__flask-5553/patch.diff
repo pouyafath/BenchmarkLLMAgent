@@ -1,0 +1,43 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..870a90f4 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -1,4 +1,5 @@
+ from __future__ import annotations
++import warnings
+ 
+ import collections.abc as cabc
+ import os
+@@ -184,6 +185,8 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL_SCHEME": None,
++            "SERVER_NAME_DEPRECATION_WARNINGS": True,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -451,7 +454,22 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        if self.config["CANONICAL_URL_SCHEME"] is not None:
++            # Use CANONICAL_URL_SCHEME for URL generation
++            return self.url_map.bind(
++                self.config["CANONICAL_URL_SCHEME"],
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=self.config["PREFERRED_URL_SCHEME"],
++            )
++        elif self.config["SERVER_NAME"] is not None:
++            # Fallback to SERVER_NAME for backward compatibility
++            if self.config.get("SERVER_NAME_DEPRECATION_WARNINGS", True):
++                warnings.warn(
++                    "SERVER_NAME is deprecated and will be removed in Flask 3.0. "
++                    "Use CANONICAL_URL_SCHEME for URL generation instead.",
++                    DeprecationWarning,
++                    stacklevel=2
++                )
+             return self.url_map.bind(
+                 self.config["SERVER_NAME"],
+                 script_name=self.config["APPLICATION_ROOT"],

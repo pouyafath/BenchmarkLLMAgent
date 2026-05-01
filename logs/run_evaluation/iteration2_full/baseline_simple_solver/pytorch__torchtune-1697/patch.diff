@@ -1,0 +1,94 @@
+diff --git a/torchtune/data/packed_dataset.py b/torchtune/data/packed_dataset.py
+--- a/torchtune/data/packed_dataset.py
++++ b/torchtune/data/packed_dataset.py
+@@ -1,46 +1,44 @@
+-    def _pad_pack(self, pack: Dict[str, List[int]]) -> Dict[str, torch.Tensor]:
+-        """
+-        Pad a packed sample to ``self.max_seq_len``.
+-
+-        Args:
+-            pack (Dict[str, List[int]]): A dictionary containing the packed
+-                ``tokens`` and ``labels``.
+-
+-        Returns:
+-            Dict[str, torch.Tensor]: The padded sample.
+-        """
+-        # Compute how many padding tokens we need.
+-        pad_len = self.max_seq_len - len(pack[\"tokens\"])
+-
+-        # Create a range of padding token ids (e.g., [0, 1, 2, ...]).
+-        # NOTE: ``torch.arange`` expects the *end* argument to be greater than the
+-        # *start* argument when ``step`` is positive.  When ``pad_len`` is zero or
+-        # negative (which can happen when a single sequence is longer than
+-        # ``max_seq_len`` and ``split_across_pack`` is ``True``), the original
+-        # implementation would raise ``RuntimeError: upper bound and larger bound
+-        # inconsistent with step sign``.  We guard against this case by ensuring
+-        # ``pad_len`` is non‑negative.
+-        if pad_len < 0:
+-            # If the packed sequence is longer than ``max_seq_len`` we simply
+-            # truncate it to ``max_seq_len``.  This mirrors the behaviour of the
+-            # original packing logic which splits sequences across packs when
+-            # possible, but also provides a safe fallback for pathological
+-            # inputs.
+-            pack[\"tokens\"] = pack[\"tokens\"][: self.max_seq_len]
+-            pack[\"labels\"] = pack[\"labels\"][: self.max_seq_len]
+-            pad_len = 0
+-
+-        pad_range = torch.arange(pad_len, dtype=torch.long)
+-
+-        # Pad tokens and labels with the appropriate padding values.
+-        padded_tokens = torch.cat(
+-            [torch.tensor(pack[\"tokens\"], dtype=torch.long), pad_range]
+-        )
+-        padded_labels = torch.cat(
+-            [torch.tensor(pack[\"labels\"], dtype=torch.long), pad_range]
+-        )
+-
+-        return {
+-            \"tokens\": padded_tokens,
+-            \"labels\": padded_labels,
+-        }
++    def _pad_pack(self, pack: Dict[str, List[int]]) -> Dict[str, torch.Tensor]:
++        """
++        Pad a packed sample to ``self.max_seq_len``.
++
++        This method now robustly handles the edge‑case where a single packed
++        sequence exceeds ``max_seq_len`` (which can happen when
++        ``split_across_pack=True`` and the original sequence length is greater
++        than ``2 * max_seq_len``).  In such scenarios the previous implementation
++        attempted to create a ``torch.arange`` with a negative length, raising
++        ``RuntimeError: upper bound and larger bound inconsistent with step sign``.
++
++        The updated logic truncates any over‑length sequence to ``max_seq_len``
++        and only pads when the sequence is shorter than the target length.
++
++        Args:
++            pack (Dict[str, List[int]]): A dictionary containing the packed
++                ``tokens`` and ``labels``.
++
++        Returns:
++            Dict[str, torch.Tensor]: The padded (or truncated) sample.
++        """
++        # Truncate if the packed sequence is longer than ``max_seq_len``.
++        if len(pack[\"tokens\"]) > self.max_seq_len:
++            pack[\"tokens\"] = pack[\"tokens\"][: self.max_seq_len]
++            pack[\"labels\"] = pack[\"labels\"][: self.max_seq_len]
++
++        # Compute how many padding tokens we need.
++        pad_len = self.max_seq_len - len(pack[\"tokens\"])
++
++        # ``pad_len`` is guaranteed to be non‑negative here.
++        pad_range = torch.arange(pad_len, dtype=torch.long)
++
++        # Pad tokens and labels with the appropriate padding values.
++        padded_tokens = torch.cat(
++            [torch.tensor(pack[\"tokens\"], dtype=torch.long), pad_range]
++        )
++        padded_labels = torch.cat(
++            [torch.tensor(pack[\"labels\"], dtype=torch.long), pad_range]
++        )
++
++        return {
++            \"tokens\": padded_tokens,
++            \"labels\": padded_labels,
++        }

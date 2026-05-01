@@ -1,0 +1,22 @@
+diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py
+index b98abfafb..e9eeee77e 100644
+--- a/astropy/units/quantity.py
++++ b/astropy/units/quantity.py
+@@ -640,7 +640,16 @@ class Quantity(np.ndarray):
+         # input to that expected (e.g., radian for np.sin), or to get
+         # consistent units between two inputs (e.g., in np.add) --
+         # and the unit of the result (or tuple of units for nout > 1).
+-        converters, unit = converters_and_unit(function, method, *inputs)
++        try:
++            converters, unit = converters_and_unit(function, method, *inputs)
++        except UnitsError:
++            # If unit conversion is not possible, return NotImplemented to allow
++            # NumPy's operator dispatch mechanism to try the reflected method
++            # on the other operand (e.g., __radd__).
++            # However, for unary operations, we should still raise the error.
++            if function.nin == 2 and method == "__call__":
++                return NotImplemented
++            raise
+ 
+         out = kwargs.get("out", None)
+         # Avoid loop back by turning any Quantity output into array views.

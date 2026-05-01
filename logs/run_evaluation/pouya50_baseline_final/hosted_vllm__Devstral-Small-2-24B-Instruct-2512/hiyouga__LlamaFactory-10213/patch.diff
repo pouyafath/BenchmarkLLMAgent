@@ -1,0 +1,68 @@
+diff --git a/src/llamafactory/model/loader.py b/src/llamafactory/model/loader.py
+index d838d217..d3d3a87f 100644
+--- a/src/llamafactory/model/loader.py
++++ b/src/llamafactory/model/loader.py
+@@ -126,7 +126,62 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
+ def load_config(model_args: "ModelArguments") -> "PretrainedConfig":
+     r"""Load model config."""
+     init_kwargs = _get_init_kwargs(model_args)
+-    return AutoConfig.from_pretrained(model_args.model_name_or_path, **init_kwargs)
++    try:
++        return AutoConfig.from_pretrained(model_args.model_name_or_path, **init_kwargs)
++    except ValueError as e:
++        if "does not recognize this architecture" in str(e):
++            # Handle unknown model types by trying to load config.json manually
++            # and mapping to a compatible model type
++            import json
++            import os
++            from transformers import PretrainedConfig
++
++            config_path = os.path.join(model_args.model_name_or_path, "config.json")
++            if os.path.exists(config_path):
++                with open(config_path, 'r') as f:
++                    config_dict = json.load(f)
++
++                # Map unknown model types to compatible ones
++                model_type = config_dict.get("model_type")
++                if model_type == "qwen3_5":
++                    # Map qwen3_5 to qwen3 for compatibility
++                    config_dict["model_type"] = "qwen3"
++                    config = PretrainedConfig.from_dict(config_dict)
++                    logger.info_rank0(f"Mapped model type '{model_type}' to 'qwen3' for compatibility.")
++                    return config
++                elif model_type == "qwen3_5_moe":
++                    # Map qwen3_5_moe to qwen3_moe for compatibility
++                    config_dict["model_type"] = "qwen3_moe"
++                    config = PretrainedConfig.from_dict(config_dict)
++                    logger.info_rank0(f"Mapped model type '{model_type}' to 'qwen3_moe' for compatibility.")
++                    return config
++                elif model_type == "qwen3_5_vl":
++                    # Map qwen3_5_vl to qwen3_vl for compatibility
++                    config_dict["model_type"] = "qwen3_vl"
++                    config = PretrainedConfig.from_dict(config_dict)
++                    logger.info_rank0(f"Mapped model type '{model_type}' to 'qwen3_vl' for compatibility.")
++                    return config
++                elif model_type == "qwen3_5_vl_moe":
++                    # Map qwen3_5_vl_moe to qwen3_vl_moe for compatibility
++                    config_dict["model_type"] = "qwen3_vl_moe"
++                    config = PretrainedConfig.from_dict(config_dict)
++                    logger.info_rank0(f"Mapped model type '{model_type}' to 'qwen3_vl_moe' for compatibility.")
++                    return config
++                elif model_type == "qwen3_5_omni":
++                    # Map qwen3_5_omni to qwen3_omni for compatibility
++                    config_dict["model_type"] = "qwen3_omni"
++                    config = PretrainedConfig.from_dict(config_dict)
++                    logger.info_rank0(f"Mapped model type '{model_type}' to 'qwen3_omni' for compatibility.")
++                    return config
++                elif model_type == "qwen3_5_omni_moe":
++                    # Map qwen3_5_omni_moe to qwen3_omni_moe for compatibility
++                    config_dict["model_type"] = "qwen3_omni_moe"
++                    config = PretrainedConfig.from_dict(config_dict)
++                    logger.info_rank0(f"Mapped model type '{model_type}' to 'qwen3_omni_moe' for compatibility.")
++                    return config
++
++        # Re-raise the original exception if we couldn't handle it
++        raise
+ 
+ 
+ def load_model(

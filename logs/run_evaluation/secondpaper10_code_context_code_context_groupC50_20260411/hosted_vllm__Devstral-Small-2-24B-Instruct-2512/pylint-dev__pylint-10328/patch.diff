@@ -1,0 +1,86 @@
+diff --git a/pylint/checkers/refactoring/implicit_booleaness_checker.py b/pylint/checkers/refactoring/implicit_booleaness_checker.py
+index abcbdd594..b7c0ba991 100644
+--- a/pylint/checkers/refactoring/implicit_booleaness_checker.py
++++ b/pylint/checkers/refactoring/implicit_booleaness_checker.py
+@@ -13,7 +13,6 @@ from pylint import checkers
+ from pylint.checkers import utils
+ from pylint.interfaces import HIGH, INFERENCE
+ 
+-
+ def _is_constant_zero(node: str | nodes.NodeNG) -> bool:
+     # We have to check that node.value is not False because node.value == 0 is True
+     # when node.value is False
+@@ -21,7 +20,6 @@ def _is_constant_zero(node: str | nodes.NodeNG) -> bool:
+         isinstance(node, astroid.Const) and node.value == 0 and node.value is not False
+     )
+ 
+-
+ class ImplicitBooleanessChecker(checkers.BaseChecker):
+     """Checks for incorrect usage of comparisons or len() inside conditions.
+ 
+@@ -289,12 +287,15 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         if not is_base_comprehension_type and self.instance_has_bool(target_instance):
+             return
+ 
++        # Check if the comparison is in a boolean context
++        is_in_boolean_context = utils.is_test_condition(node)
++
+         # No need to check for operator when visiting compare node
+         if operator in {"==", "!=", ">=", ">", "<=", "<"}:
+             self.add_message(
+                 "use-implicit-booleaness-not-comparison",
+                 args=self._implicit_booleaness_message_args(
+-                    literal_node, operator, target_node
++                    literal_node, operator, target_node, is_in_boolean_context
+                 ),
+                 node=node,
+                 confidence=HIGH,
+@@ -309,7 +310,7 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         }.get(type(node), "iterable")
+ 
+     def _implicit_booleaness_message_args(
+-        self, literal_node: nodes.NodeNG, operator: str, target_node: nodes.NodeNG
++        self, literal_node: nodes.NodeNG, operator: str, target_node: nodes.NodeNG, is_in_boolean_context: bool = True
+     ) -> tuple[str, str, str]:
+         """Helper to get the right message for "use-implicit-booleaness-not-comparison"."""
+         description = self._get_node_description(literal_node)
+@@ -324,7 +325,10 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         elif isinstance(target_node, (nodes.Attribute, nodes.Name)):
+             instance_name = target_node.as_string()
+         original_comparison = f"{instance_name} {operator} {collection_literal}"
+-        suggestion = f"{instance_name}" if operator == "!=" else f"not {instance_name}"
++        if is_in_boolean_context:
++            suggestion = f"{instance_name}" if operator == "!=" else f"not {instance_name}"
++        else:
++            suggestion = f"bool({instance_name})"
+         return original_comparison, suggestion, description
+ 
+     @staticmethod
+diff --git a/tests/functional/u/use/use_implicit_booleaness_not_comparison.txt b/tests/functional/u/use/use_implicit_booleaness_not_comparison.txt
+index 97c04ff1b..07aa2baba 100644
+--- a/tests/functional/u/use/use_implicit_booleaness_not_comparison.txt
++++ b/tests/functional/u/use/use_implicit_booleaness_not_comparison.txt
+@@ -5,9 +5,9 @@ use-implicit-booleaness-not-comparison:28:3:28:19::"""empty_dict == {}"" can be
+ use-implicit-booleaness-not-comparison:31:3:31:20::"""empty_tuple == ()"" can be simplified to ""not empty_tuple"", if it is strictly a sequence, as an empty tuple is falsey":HIGH
+ use-implicit-booleaness-not-comparison:34:3:34:19::"""empty_list == []"" can be simplified to ""not empty_list"", if it is strictly a sequence, as an empty list is falsey":HIGH
+ use-implicit-booleaness-not-comparison:37:3:37:19::"""empty_dict == {}"" can be simplified to ""not empty_dict"", if it is strictly a sequence, as an empty dict is falsey":HIGH
+-use-implicit-booleaness-not-comparison:42:11:42:18:bad_tuple_return:"""t == ()"" can be simplified to ""not t"", if it is strictly a sequence, as an empty tuple is falsey":HIGH
+-use-implicit-booleaness-not-comparison:46:11:46:18:bad_list_return:"""b == []"" can be simplified to ""not b"", if it is strictly a sequence, as an empty list is falsey":HIGH
+-use-implicit-booleaness-not-comparison:50:11:50:18:bad_dict_return:"""c == {}"" can be simplified to ""not c"", if it is strictly a sequence, as an empty dict is falsey":HIGH
++use-implicit-booleaness-not-comparison:42:11:42:18:bad_tuple_return:"""t == ()"" can be simplified to ""bool(t)"", if it is strictly a sequence, as an empty tuple is falsey":HIGH
++use-implicit-booleaness-not-comparison:46:11:46:18:bad_list_return:"""b == []"" can be simplified to ""bool(b)"", if it is strictly a sequence, as an empty list is falsey":HIGH
++use-implicit-booleaness-not-comparison:50:11:50:18:bad_dict_return:"""c == {}"" can be simplified to ""bool(c)"", if it is strictly a sequence, as an empty dict is falsey":HIGH
+ use-implicit-booleaness-not-comparison:52:7:52:24::"""empty_tuple == ()"" can be simplified to ""not empty_tuple"", if it is strictly a sequence, as an empty tuple is falsey":HIGH
+ use-implicit-booleaness-not-comparison:53:7:53:23::"""empty_list == []"" can be simplified to ""not empty_list"", if it is strictly a sequence, as an empty list is falsey":HIGH
+ use-implicit-booleaness-not-comparison:54:7:54:23::"""empty_dict != {}"" can be simplified to ""empty_dict"", if it is strictly a sequence, as an empty dict is falsey":HIGH
+@@ -16,8 +16,8 @@ use-implicit-booleaness-not-comparison:56:7:56:23::"""empty_list <= []"" can be
+ use-implicit-booleaness-not-comparison:57:7:57:23::"""empty_tuple > ()"" can be simplified to ""not empty_tuple"", if it is strictly a sequence, as an empty tuple is falsey":HIGH
+ use-implicit-booleaness-not-comparison:58:7:58:23::"""empty_list >= []"" can be simplified to ""not empty_list"", if it is strictly a sequence, as an empty list is falsey":HIGH
+ use-implicit-booleaness-not-comparison:87:3:87:10::"""a == []"" can be simplified to ""not a"", if it is strictly a sequence, as an empty list is falsey":HIGH
+-use-implicit-booleaness-not-comparison:99:3:99:10::"""e == []"" can be simplified to ""not e"", if it is strictly a sequence, as an empty list is falsey":HIGH
+-use-implicit-booleaness-not-comparison:99:15:99:22::"""f == {}"" can be simplified to ""not f"", if it is strictly a sequence, as an empty dict is falsey":HIGH
++use-implicit-booleaness-not-comparison:99:3:99:10::"""e == []"" can be simplified to ""bool(e)"", if it is strictly a sequence, as an empty list is falsey":HIGH
++use-implicit-booleaness-not-comparison:99:15:99:22::"""f == {}"" can be simplified to ""bool(f)"", if it is strictly a sequence, as an empty dict is falsey":HIGH
+ use-implicit-booleaness-not-comparison:137:3:137:14::"""A.lst == []"" can be simplified to ""not A.lst"", if it is strictly a sequence, as an empty list is falsey":HIGH
+ use-implicit-booleaness-not-comparison:141:3:141:14::"""A.lst == []"" can be simplified to ""not A.lst"", if it is strictly a sequence, as an empty list is falsey":HIGH
+ use-implicit-booleaness-not-comparison:145:3:145:20::"""A.test(...) == []"" can be simplified to ""not A.test(...)"", if it is strictly a sequence, as an empty list is falsey":HIGH

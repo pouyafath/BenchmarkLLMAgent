@@ -1,0 +1,43 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,3 +1,31 @@
+         return False
+ 
++# --------------------------------------------------------------------------- #
++# Registry for dynamically created State subclasses
++# --------------------------------------------------------------------------- #
++
++# Mapping from a fully‑qualified name (module + qualname) to the actual State
++# subclass. This allows us to locate classes that were defined in a local
++# scope (e.g. inside a function) when pickling/unpickling.
++_STATE_CLASS_REGISTRY: dict[str, Type["BaseState"]] = {}
++
++
++def _register_state_class(cls: Type["BaseState"]) -> None:
++    """Register a State subclass for later lookup during pickling.
++
++    If the class was defined inside a local function its ``__qualname__`` will
++    contain ``<locals>`` which makes it unpickleable by default.  By forcing the
++    ``__module__`` attribute to a known importable module (``reflex.state``) and
++    storing the class in a registry we can reconstruct it safely.
++    """
++    # Build a fully‑qualified identifier.
++    fq_name = f"{cls.__module__}.{cls.__qualname__}"
++    _STATE_CLASS_REGISTRY[fq_name] = cls
++
++    # If the class originates from a local scope, adjust its module so that
++    # ``pickle`` can locate it via ``import reflex.state``.
++    if "<locals>" in cls.__qualname__:
++        cls.__module__ = "reflex.state"
++
++
+ class BaseState(Base):
+@@ -104,4 +132,6 @@
+     def __init_subclass__(cls, **kwargs):
+-        super().__init_subclass__(**kwargs)
++        super().__init_subclass__(**kwargs)
++        # Register every subclass for pickling support.
++        _register_state_class(cls)
+ 
+     def __init__(self, *args, **kwargs):

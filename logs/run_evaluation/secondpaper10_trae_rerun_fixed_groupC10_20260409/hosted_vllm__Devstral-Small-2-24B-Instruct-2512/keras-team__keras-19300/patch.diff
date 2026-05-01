@@ -1,0 +1,33 @@
+diff --git a/keras/ops/nn.py b/keras/ops/nn.py
+index 6731d9980..4f1a98ec1 100644
+--- a/keras/ops/nn.py
++++ b/keras/ops/nn.py
+@@ -538,6 +538,19 @@ def softmax(x, axis=-1):
+     array([0.09003057, 0.24472847, 0.66524096], shape=(3,), dtype=float64)
+ 
+     """
++    if any_symbolic_tensors((x,)):
++        return Softmax(axis).symbolic_call(x)
++    # Also check for SymbolicTensor (tf.Tensor that's not EagerTensor)
++    # This happens when ops are used inside layer.call() during model building
++    if isinstance(x, backend.KerasTensor):
++        return Softmax(axis).symbolic_call(x)
++    # Check for tf.Tensor that's not an EagerTensor
++    try:
++        import tensorflow as tf
++        if isinstance(x, tf.Tensor) and not isinstance(x, tf.__internal__.EagerTensor):
++            return Softmax(axis).symbolic_call(x)
++    except ImportError:
++        pass
+     if isinstance(axis, int) and backend.shape(x)[axis] == 1:
+         warnings.warn(
+             f"You are using a softmax over axis {axis} "
+@@ -546,8 +559,6 @@ def softmax(x, axis=-1):
+             "the value 1, which is likely not what you intended. "
+             "Did you mean to use a sigmoid instead?"
+         )
+-    if any_symbolic_tensors((x,)):
+-        return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, tuple):
+         original_shape = x.shape
+         new_shape = []

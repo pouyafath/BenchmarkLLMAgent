@@ -1,0 +1,43 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..ad49db11f 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -208,6 +208,25 @@ class _BaseHeterogeneousEnsemble(
+ 
+     @abstractmethod
+     def __init__(self, estimators):
++        # Validate estimators parameter
++        if not isinstance(estimators, (tuple, list)):
++            raise ValueError("estimators must be a list or tuple of (str, estimator) pairs")
++
++        if len(estimators) == 0:
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "non-empty list of (string, estimator) tuples."
++            )
++
++        for item in estimators:
++            if not isinstance(item, (tuple, list)) or len(item) != 2:
++                raise ValueError("Each estimator must be a (str, estimator) pair")
++            if not isinstance(item[0], str):
++                raise ValueError("First element of each estimator pair must be a string")
++            # Allow 'drop' as a special string value, otherwise require BaseEstimator
++            if item[1] != "drop" and not isinstance(item[1], BaseEstimator):
++                raise ValueError("Second element of each estimator pair must be an estimator")
++
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):
+diff --git a/sklearn/ensemble/_voting.py b/sklearn/ensemble/_voting.py
+index bcf2d7497..557db4f94 100644
+--- a/sklearn/ensemble/_voting.py
++++ b/sklearn/ensemble/_voting.py
+@@ -53,7 +53,7 @@ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
+     """
+ 
+     _parameter_constraints: dict = {
+-        "estimators": [list],
++        "estimators": [list, tuple],
+         "weights": ["array-like", None],
+         "n_jobs": [None, Integral],
+         "verbose": ["verbose"],

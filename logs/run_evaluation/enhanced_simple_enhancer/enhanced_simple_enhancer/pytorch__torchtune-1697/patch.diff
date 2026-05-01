@@ -1,0 +1,62 @@
+diff --git a/torchtune/datasets/_packed.py b/torchtune/datasets/_packed.py
+--- a/torchtune/datasets/_packed.py
++++ b/torchtune/datasets/_packed.py
+@@ -1,39 +1,44 @@
+     def _split_and_add_pack(self, current_pack: PACK_TYPE) -> PACK_TYPE:
+         """Splits the current pack at the boundary, processes it, adds it to ``self.packs`` and
+         returns the start of the next pack."""
+ 
+         if self.split_across_pack:
+             boundary = self.max_seq_len
+             # The last elem in ``seq_lens`` ensures that ``sum(seq_lens) == self.max_seq_len``
+             leftover_seq_len = self.max_seq_len - sum(current_pack["seq_lens"][:-1])
+             seq_len_padding = [leftover_seq_len] if leftover_seq_len > 0 else []
+         else:
+             boundary = self.previous_sample_boundary
+             # If we aren't splitting across packs, we leave out the last sample b/c
+             # it will go into the next pack
+             seq_len_padding = []
+ 
+         pack = {
+             "tokens": current_pack["tokens"][:boundary],
+             "labels": current_pack["labels"][:boundary],
+             "input_pos": current_pack["input_pos"][:boundary],
+             "seq_lens": current_pack["seq_lens"][:-1] + seq_len_padding,
+         }
+ 
+         # Process and add the pack
+         self._add_pack(pack)
+ 
+-        # Return the length of the first sample in next pack if we are splitting across packs,
+-        # otherwise return the length of the last sample in the current pack
+-        next_seq_len = (
+-            len(current_pack["tokens"][boundary:])
+-            if self.split_across_pack
+-            else current_pack["seq_lens"][-1]
+-        )
+-
+-        return {
+-            "tokens": current_pack["tokens"][boundary:],
+-            "labels": current_pack["labels"][boundary:],
+-            "input_pos": current_pack["input_pos"][boundary:],
+-            ... (66 more lines)
+-        }
++        # Build the next pack's state. When splitting across packs we need to retain the
++        # remaining portion of the current (potentially oversized) sample.  The ``seq_lens``
++        # entry for this remainder must reflect its actual length so that subsequent
++        # packing logic (especially padding) can compute correct boundaries.
++        remaining_tokens = current_pack["tokens"][boundary:]
++        remaining_labels = current_pack["labels"][boundary:]
++        remaining_input_pos = current_pack["input_pos"][boundary:]
++        remaining_len = len(remaining_tokens)
++
++        next_pack: PACK_TYPE = {
++            "tokens": remaining_tokens,
++            "labels": remaining_labels,
++            "input_pos": remaining_input_pos,
++            # If there is a remaining portion, its length becomes the first (and only)
++            # entry in ``seq_lens``; otherwise we start with an empty list.
++            "seq_lens": [remaining_len] if remaining_len > 0 else [],
++        }
++
++        return next_pack

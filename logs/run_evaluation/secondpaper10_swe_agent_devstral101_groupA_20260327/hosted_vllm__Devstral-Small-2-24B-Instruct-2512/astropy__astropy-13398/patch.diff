@@ -1,0 +1,183 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..1d6e1a9a3 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -47,6 +47,7 @@ from . import galactic_transforms
+ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
++from . import itrs_observed_transforms
+ from . import icrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..495cbda17
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,165 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS
++without geocentric aberration corrections.
++"""
++
++import numpy as np
++import erfa
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                UnitSphericalRepresentation,
++                                                CartesianRepresentation)
++from astropy.coordinates.matrix_utilities import rotation_matrix, matrix_transpose
++
++from .itrs import ITRS
++from .altaz import AltAz
++from .hadec import HADec
++from .utils import PIOVER2, get_jd12
++from ..erfa_astrom import erfa_astrom
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Compute the rotation matrix for transforming from ITRS to an observed frame.
++
++    This function creates a rotation matrix that transforms ITRS coordinates
++    directly to observed frames (AltAz or HADec) without applying geocentric
++    aberration corrections. The transformation accounts for the observer's
++    location and the Earth's orientation at the specified time.
++
++    Parameters
++    ----------
++    observed_frame : AltAz or HADec
++        The target observed frame with location and obstime attributes.
++
++    Returns
++    -------
++    numpy.ndarray
++        A 3x3 rotation matrix for transforming ITRS to the observed frame.
++    """
++    # Get the observer's location in ITRS coordinates
++    observer_itrs = observed_frame.location.get_itrs(observed_frame.obstime)
++
++    # Compute the rotation matrix from ITRS to CIRS
++    # (This is the inverse of the CIRS to ITRS transformation)
++    # We'll use the same approach as in intermediate_rotation_transforms.py
++
++    # Get Earth Rotation Angle (ERA) for the observer's time
++    era = erfa.era00(*get_jd12(observed_frame.obstime, 'ut1'))
++
++    # Get polar motion
++    xp, yp, _ = erfa.xys00a(*get_jd12(observed_frame.obstime, 'ut1'))
++    sp = erfa.sp00(*get_jd12(observed_frame.obstime, 'tt'))
++    pmmat = erfa.pom00(xp, yp, sp)
++
++    # Compute the rotation matrix from ITRS to CIRS
++    cirs_to_itrs_mat = erfa.c2tcio(np.eye(3), era, pmmat)
++    itrs_to_cirs_mat = matrix_transpose(cirs_to_itrs_mat)
++
++    # Get observer's geodetic latitude and longitude from EarthLocation
++    lon = observed_frame.location.lon.to(u.radian).value
++    lat = observed_frame.location.lat.to(u.radian).value
++
++    # Create rotation matrix for local horizontal coordinates
++    # This transforms from CIRS (equatorial) to local horizontal (AltAz)
++
++    # Rotation 1: Around z-axis by -longitude (to align with meridian)
++    rot_lon = rotation_matrix(-lon, 'z')
++
++    # Rotation 2: Around y-axis by (90° - latitude) to get to horizontal
++    rot_lat = rotation_matrix(np.radians(90) - lat, 'y')
++
++    # Combine rotations: CIRS -> local horizontal
++    cirs_to_local = np.dot(rot_lat, rot_lon)
++
++    # Total transformation: ITRS -> CIRS -> local horizontal
++    itrs_to_local = np.dot(cirs_to_local, itrs_to_cirs_mat)
++
++    return itrs_to_local
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_observed(itrs_coo, observed_frame):
++    """
++    Transform ITRS coordinates to observed frames (AltAz or HADec) without
++    geocentric aberration corrections.
++
++    This transformation is designed for nearby objects (satellites, airplanes,
++    buildings) where geocentric aberration is not appropriate for topocentric
++    observations.
++
++    Parameters
++    ----------
++    itrs_coo : ITRS
++        The ITRS coordinate to transform.
++    observed_frame : AltAz or HADec
++        The target observed frame with location and obstime attributes.
++
++    Returns
++    -------
++    observed_frame : AltAz or HADec
++        The coordinate in the observed frame.
++    """
++    # Get the rotation matrix for ITRS to observed frame
++    rot_mat = itrs_to_observed_mat(observed_frame)
++
++    # Transform the Cartesian coordinates
++    cart_repr = itrs_coo.cartesian
++    new_cart = CartesianRepresentation(
++        x=cart_repr.x * 0 + rot_mat[0, 0] * cart_repr.x +
++           rot_mat[0, 1] * cart_repr.y + rot_mat[0, 2] * cart_repr.z,
++        y=cart_repr.y * 0 + rot_mat[1, 0] * cart_repr.x +
++           rot_mat[1, 1] * cart_repr.y + rot_mat[1, 2] * cart_repr.z,
++        z=cart_repr.z * 0 + rot_mat[2, 0] * cart_repr.x +
++           rot_mat[2, 1] * cart_repr.y + rot_mat[2, 2] * cart_repr.z,
++        copy=False
++    )
++
++    # Convert to spherical representation for the observed frame
++    sph_repr = new_cart.represent_as(SphericalRepresentation)
++
++    return observed_frame.realize_frame(sph_repr)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def observed_to_itrs(observed_coo, itrs_frame):
++    """
++    Transform observed frames (AltAz or HADec) back to ITRS without
++    geocentric aberration corrections.
++
++    This is the inverse transformation of itrs_to_observed.
++
++    Parameters
++    ----------
++    observed_coo : AltAz or HADec
++        The observed coordinate to transform.
++    itrs_frame : ITRS
++        The target ITRS frame with obstime attribute.
++
++    Returns
++    -------
++    itrs_frame : ITRS
++        The coordinate in the ITRS frame.
++    """
++    # Get the rotation matrix for ITRS to observed frame
++    rot_mat = itrs_to_observed_mat(observed_coo)
++
++    # The inverse transformation is the transpose of the rotation matrix
++    inv_rot_mat = matrix_transpose(rot_mat)
++
++    # Transform the Cartesian coordinates back
++    cart_repr = observed_coo.cartesian
++    new_cart = CartesianRepresentation(
++        x=cart_repr.x * 0 + inv_rot_mat[0, 0] * cart_repr.x +
++           inv_rot_mat[0, 1] * cart_repr.y + inv_rot_mat[0, 2] * cart_repr.z,
++        y=cart_repr.y * 0 + inv_rot_mat[1, 0] * cart_repr.x +
++           inv_rot_mat[1, 1] * cart_repr.y + inv_rot_mat[1, 2] * cart_repr.z,
++        z=cart_repr.z * 0 + inv_rot_mat[2, 0] * cart_repr.x +
++           inv_rot_mat[2, 1] * cart_repr.y + inv_rot_mat[2, 2] * cart_repr.z,
++        copy=False
++    )
++
++    return itrs_frame.realize_frame(new_cart)

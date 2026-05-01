@@ -1,0 +1,37 @@
+diff --git a/mesonbuild/options.py b/mesonbuild/options.py
+index ac90b2292..a8b82b2b6 100644
+--- a/mesonbuild/options.py
++++ b/mesonbuild/options.py
+@@ -1289,6 +1289,8 @@ class OptionStore:
+         (project_default_options, cmd_line_options, machine_file_options) = self.first_handle_prefix(project_default_options_in,
+                                                                                                      cmd_line_options_in,
+                                                                                                      machine_file_options_in)
++        # Track which options were set by machine files so we don't overwrite them with project_default_options
++        machine_file_option_keys = set()
+         for key, valstr in machine_file_options.items():
+             # Due to backwards compatibility we ignore all build-machine options
+             # when building natively.
+@@ -1298,10 +1300,12 @@ class OptionStore:
+                 self.augments[key] = valstr
+             elif key in self.options:
+                 self.set_option(key, valstr, first_invocation)
++                machine_file_option_keys.add(key)
+             else:
+                 proj_key = key.as_root()
+                 if proj_key in self.options:
+                     self.set_option(proj_key, valstr, first_invocation)
++                    machine_file_option_keys.add(proj_key)
+                 else:
+                     self.pending_options[key] = valstr
+         for keystr, valstr in project_default_options.items():
+@@ -1327,7 +1331,9 @@ class OptionStore:
+             if key.subproject:
+                 self.augments[key] = valstr
+             elif key in self.options:
+-                self.set_option(key, valstr, first_invocation)
++                # Don't overwrite options that were set by machine files
++                if key not in machine_file_option_keys:
++                    self.set_option(key, valstr, first_invocation)
+             else:
+                 # Setting a project option with default_options.
+                 # Argubly this should be a hard error, the default

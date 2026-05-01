@@ -1,0 +1,24 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index a791908caf..7382297fd0 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -426,12 +426,17 @@ class SQLCompiler:
+                 # must have the same columns list. Set the selects defined on
+                 # the query on all combined queries, if not already set.
+                 if not compiler.query.values_select and self.query.values_select:
+-                    compiler.query = compiler.query.clone()
+-                    compiler.query.set_values((
++                    # Clone the query to avoid modifying the original query object
++                    # which could affect other querysets that share the same query.
++                    cloned_query = compiler.query.clone()
++                    cloned_query.set_values((
+                         *self.query.extra_select,
+                         *self.query.values_select,
+                         *self.query.annotation_select,
+                     ))
++                    # Use the cloned query for SQL generation
++                    part_sql, part_args = cloned_query.get_compiler(self.using, self.connection).as_sql()
++                    continue
+                 part_sql, part_args = compiler.as_sql()
+                 if compiler.query.combinator:
+                     # Wrap in a subquery if wrapping in parentheses isn't

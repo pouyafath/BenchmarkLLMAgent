@@ -1,0 +1,47 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..b952dd74a 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -211,11 +211,42 @@ class _BaseHeterogeneousEnsemble(
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):
++        # Validate that estimators is a list or tuple
++        if not isinstance(self.estimators, (list, tuple)):
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "list or tuple of (string, estimator) tuples."
++            )
++
+         if len(self.estimators) == 0:
+             raise ValueError(
+                 "Invalid 'estimators' attribute, 'estimators' should be a "
+                 "non-empty list of (string, estimator) tuples."
+             )
++
++        # Validate that each estimator is a tuple or list with exactly 2 elements
++        for i, estimator in enumerate(self.estimators):
++            if not isinstance(estimator, (tuple, list)) or len(estimator) != 2:
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, 'estimators' should be a "
++                    f"list of (string, estimator) tuples. Got {type(estimator).__name__} "
++                    f"at index {i}."
++                )
++
++            name, est = estimator
++            if not isinstance(name, str):
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, the first element of each "
++                    f"tuple should be a string. Got {type(name).__name__} at index {i}."
++                )
++
++            if est != "drop" and not isinstance(est, BaseEstimator):
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, the second element of each "
++                    f"tuple should be an estimator or 'drop'. Got {type(est).__name__} "
++                    f"at index {i}."
++                )
++
+         names, estimators = zip(*self.estimators)
+         # defined by MetaEstimatorMixin
+         self._validate_names(names)

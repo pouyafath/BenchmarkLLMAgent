@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#12973",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "LassoLarsIC: unintuitive copy_X behaviour",
+  "original_body": "LassoLarsIC: unintuitive copy_X behaviour\nHi, I would like to report what seems to be a bug in the treatment of the `copy_X` parameter of the `LassoLarsIC` class. Because it's a simple bug, it's much easier to see in the code directly than in the execution, so I am not posting steps to reproduce it.\r\n\r\nAs you can see here, LassoLarsIC accepts a copy_X parameter.\r\nhttps://github.com/scikit-learn/scikit-learn/blob/7389dbac82d362f296dc2746f10e43ffa1615660/sklearn/linear_model/least_angle.py#L1487\r\n\r\nHowever, it also takes a copy_X parameter a few lines below, in the definition of ```fit```.\r\n    ```def fit(self, X, y, copy_X=True):```\r\n\r\nNow there are two values (potentially contradicting each other) for copy_X and each one is used once. Therefore ```fit``` can have a mixed behaviour. Even worse, this can be completely invisible to the user, since copy_X has a default value of True. Let's assume that I'd like it to be False, and have set it to False in the initialization, `my_lasso = LassoLarsIC(copy_X=False)`. I then call ```my_lasso.fit(X, y)``` and my choice will be silently overwritten. \r\n\r\nIdeally I think that copy_X should be removed as an argument in ```fit```. No other estimator seems to have a duplication in class parameters and fit arguments (I've checked more than ten in the linear models module). However, this would break existing code. Therefore I propose that ```fit``` takes a default value of `None` and only overwrites the existing value if the user has explicitly passed it as an argument to ```fit```. I will submit a PR to that effect.\n",
+  "enhanced_title": "LassoLarsIC: Inconsistent copy_X Parameter Handling Between Constructor and fit() Method",
+  "enhanced_body": "## Summary\nThe `LassoLarsIC` class has inconsistent handling of the `copy_X` parameter between its constructor and `fit()` method, leading to unpredictable behavior where the constructor's parameter value may be silently overridden.\n\n## Problem Description\nThe `LassoLarsIC` class accepts a `copy_X` parameter in its constructor, but the `fit()` method also accepts a `copy_X` parameter with a default value of `True`. This creates two potential sources of truth for the same parameter, where the `fit()` method's parameter takes precedence, potentially overriding the user's explicit choice made during initialization.\n\n## Expected Behavior\n- The `copy_X` parameter set during initialization should be respected unless explicitly overridden in the `fit()` call\n- The behavior should be consistent with other scikit-learn estimators that don't duplicate parameters between constructor and fit method\n\n## Actual Behavior\n- When `copy_X=False` is set during initialization, calling `fit()` without parameters will still copy the data because `fit()` has its own default `copy_X=True`\n- The user's explicit choice in the constructor is silently overridden\n- This inconsistency is not documented and could lead to unexpected memory usage or performance characteristics\n\n## Reproduction Steps\n1. Initialize LassoLarsIC with copy_X=False:\n   ```python\n   from sklearn.linear_model import LassoLarsIC\n   import numpy as np\n\n   X = np.random.rand(100, 5)\n   y = np.random.rand(100)\n\n   model = LassoLarsIC(copy_X=False)\n   ```\n2. Call fit() without specifying copy_X:\n   ```python\n   model.fit(X, y)\n   ```\n3. Observe that the data is still copied despite copy_X=False in initialization\n\n## Affected Files\n- `sklearn/linear_model/least_angle.py` (lines 1487 and fit method definition)\n\n## Environment\n- scikit-learn version: Any version with current implementation\n- Python version: 3.12.13\n- This affects all platforms where scikit-learn is used\n\n## Proposed Solution\nThe `fit()` method should:\n1. Accept `copy_X=None` as default instead of `True`\n2. Use the instance's `copy_X` value when `None` is passed\n3. Only override when user explicitly provides a value to `fit()`\n\nThis maintains backward compatibility while fixing the inconsistent behavior.\n\n## Additional Notes\n- No other estimator in the linear models module duplicates parameters between constructor and fit method\n- This inconsistency could lead to unexpected memory usage patterns in production code\n- The fix should include proper documentation of the parameter behavior\n\"\n```",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpt_xb7062/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

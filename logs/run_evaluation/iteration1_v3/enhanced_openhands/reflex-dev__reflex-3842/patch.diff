@@ -1,0 +1,78 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,5 +1,14 @@
+     def __init__(self, *args, **kwargs):
+         """Initialize the state."""
+         super().__init__(*args, **kwargs)
+-        # existing initialization logic …
++        # existing initialization logic …
++        # ------------------------------------------------------------------
++        # Dependency tracking for cached vars
++        # ------------------------------------------------------------------
++        # Cache for computed vars (used by the existing var descriptor)
++        self._var_cache: dict[str, Any] = {}
++        # Mapping from a var name to the set of vars that depend on it
++        self._var_dependents: dict[str, set[str]] = defaultdict(set)
++        # Stack used while computing a var to record dependency relationships
++        self._var_compute_stack: list[str] = []
+ 
+@@ -106,4 +115,58 @@
+     @abstractmethod
+     def render(self) -> Component:
+         """Render the component tree."""
+         raise NotImplementedError
++
++    # ----------------------------------------------------------------------
++    # Dependency tracking helpers
++    # ----------------------------------------------------------------------
++    @classmethod
++    def __init_subclass__(cls, **kwargs):
++        """Wrap all ImmutableComputedVar/ComputedVar descriptors with a
++        dependency‑tracking proxy so that we can invalidate dependent vars
++        when a source var changes."""
++        super().__init_subclass__(**kwargs)
++        for name, attr in cls.__dict__.items():
++            # The var decorators return instances of ImmutableComputedVar or ComputedVar.
++            if isinstance(attr, (ImmutableComputedVar, ComputedVar)):
++                setattr(cls, name, _DependencyTrackingVar(name, attr))
++
++    def _invalidate_var_cache(self, name: str) -> None:
++        """Invalidate the cached value for ``name`` and recursively invalidate any
++        vars that depend on it."""
++        # Remove the cached value for the var itself.
++        self._var_cache.pop(name, None)
++        # Recursively invalidate dependents.
++        for dependent in list(self._var_dependents.get(name, [])):
++            self._invalidate_var_cache(dependent)
++        # Clean up the dependency graph entry for this var.
++        self._var_dependents.pop(name, None)
++
++
++class _DependencyTrackingVar:
++    """A descriptor proxy that records var dependencies during evaluation."""
++
++    def __init__(self, name: str, descriptor: Union[ImmutableComputedVar, ComputedVar]):
++        self.name = name
++        self.descriptor = descriptor
++
++    def __get__(self, instance: BaseState | None, owner: Type[BaseState]) -> Any:
++        if instance is None:
++            return self
++        # Push the current var onto the compute stack.
++        instance._var_compute_stack.append(self.name)
++        try:
++            # Delegate the actual value retrieval to the original descriptor.
++            value = self.descriptor.__get__(instance, owner)
++        finally:
++            # Pop the current var after computation.
++            instance._var_compute_stack.pop()
++        # If there is a parent var still on the stack, record the dependency.
++        if instance._var_compute_stack:
++            parent = instance._var_compute_stack[-1]
++            instance._var_dependents[parent].add(self.name)
++        return value
++
++    def __set__(self, instance: BaseState, value: Any) -> None:
++        # Forward any set operation to the original descriptor.
++        self.descriptor.__set__(instance, value)

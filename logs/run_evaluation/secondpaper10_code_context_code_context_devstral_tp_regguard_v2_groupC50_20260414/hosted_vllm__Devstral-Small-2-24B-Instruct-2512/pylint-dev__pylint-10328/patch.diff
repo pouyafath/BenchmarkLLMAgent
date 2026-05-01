@@ -1,0 +1,42 @@
+diff --git a/pylint/checkers/refactoring/implicit_booleaness_checker.py b/pylint/checkers/refactoring/implicit_booleaness_checker.py
+index abcbdd594..79f6f618d 100644
+--- a/pylint/checkers/refactoring/implicit_booleaness_checker.py
++++ b/pylint/checkers/refactoring/implicit_booleaness_checker.py
+@@ -294,7 +294,7 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+             self.add_message(
+                 "use-implicit-booleaness-not-comparison",
+                 args=self._implicit_booleaness_message_args(
+-                    literal_node, operator, target_node
++                    literal_node, operator, target_node, node
+                 ),
+                 node=node,
+                 confidence=HIGH,
+@@ -309,7 +309,7 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         }.get(type(node), "iterable")
+ 
+     def _implicit_booleaness_message_args(
+-        self, literal_node: nodes.NodeNG, operator: str, target_node: nodes.NodeNG
++        self, literal_node: nodes.NodeNG, operator: str, target_node: nodes.NodeNG, node: nodes.NodeNG | None = None
+     ) -> tuple[str, str, str]:
+         """Helper to get the right message for "use-implicit-booleaness-not-comparison"."""
+         description = self._get_node_description(literal_node)
+@@ -324,9 +324,18 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         elif isinstance(target_node, (nodes.Attribute, nodes.Name)):
+             instance_name = target_node.as_string()
+         original_comparison = f"{instance_name} {operator} {collection_literal}"
+-        suggestion = f"{instance_name}" if operator == "!=" else f"not {instance_name}"
++        # Check if we are in a boolean context
++        is_boolean_ctx = self._is_boolean_context(node) if node is not None else False
++        if is_boolean_ctx:
++            suggestion = f"{instance_name}" if operator == "!=" else f"not {instance_name}"
++        else:
++            suggestion = f"bool({instance_name})" if operator == "!=" else f"not {instance_name}"
+         return original_comparison, suggestion, description
+ 
++    def _is_boolean_context(self, node: nodes.NodeNG) -> bool:
++        """Check if a node is in a boolean context."""
++        return utils.is_test_condition(node)
++
+     @staticmethod
+     def base_names_of_instance(
+         node: util.UninferableBase | bases.Instance,

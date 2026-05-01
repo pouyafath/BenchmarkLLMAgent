@@ -1,0 +1,23 @@
+diff --git a/sklearn/svm/_base.py b/sklearn/svm/_base.py
+index f5b35f39a..3301d5037 100644
+--- a/sklearn/svm/_base.py
++++ b/sklearn/svm/_base.py
+@@ -1190,7 +1190,17 @@ def _fit_liblinear(
+                 " class: %r" % classes_[0]
+             )
+ 
+-        class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
++        if sample_weight is not None and class_weight == "balanced":
++            # Compute class weights taking into account sample weights
++            class_weights_sum = np.zeros(len(classes_), dtype=np.float64)
++            for i, cls in enumerate(classes_):
++                mask = (y == cls)
++                class_weights_sum[i] = np.sum(sample_weight[mask])
++            total_weight = np.sum(sample_weight)
++            recip_freq = total_weight / (len(classes_) * class_weights_sum)
++            class_weight_ = recip_freq[np.searchsorted(classes_, y)]
++        else:
++            class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
+     else:
+         class_weight_ = np.empty(0, dtype=np.float64)
+         y_ind = y

@@ -1,0 +1,124 @@
+diff --git a/sphinx/domains/cpp.py b/sphinx/domains/cpp.py
+index fe52d881d..f9b65ced2 100644
+--- a/sphinx/domains/cpp.py
++++ b/sphinx/domains/cpp.py
+@@ -35,7 +35,8 @@ from sphinx.util.cfamily import (
+     BaseParser, DefinitionError, UnsupportedMultiCharacterCharLiteral,
+     identifier_re, anon_identifier_re, integer_literal_re, octal_literal_re,
+     hex_literal_re, binary_literal_re, float_literal_re,
+-    char_literal_re
++    char_literal_re,
++    user_defined_literal_re
+ )
+ from sphinx.util.docfields import Field, GroupedField
+ from sphinx.util.docutils import SphinxDirective
+@@ -837,6 +838,21 @@ class ASTNumberLiteral(ASTLiteral):
+         txt = str(self)
+         signode.append(nodes.Text(txt, txt))
+ 
++class ASTUserDefinedLiteral(ASTLiteral):
++    def __init__(self, data: str) -> None:
++        self.data = data
++
++    def _stringify(self, transform: StringifyTransform) -> str:
++        return self.data
++
++    def get_id(self, version: int) -> str:
++        return "LU%sE" % self.data
++
++    def describe_signature(self, signode: TextElement, mode: str,
++                           env: "BuildEnvironment", symbol: "Symbol") -> None:
++        txt = str(self)
++        signode.append(nodes.Text(txt, txt))
++
+ 
+ class ASTStringLiteral(ASTLiteral):
+     def __init__(self, data: str) -> None:
+@@ -854,6 +870,21 @@ class ASTStringLiteral(ASTLiteral):
+         txt = str(self)
+         signode.append(nodes.Text(txt, txt))
+ 
++class ASTUserDefinedLiteral(ASTLiteral):
++    def __init__(self, data: str) -> None:
++        self.data = data
++
++    def _stringify(self, transform: StringifyTransform) -> str:
++        return self.data
++
++    def get_id(self, version: int) -> str:
++        return "LU%sE" % self.data
++
++    def describe_signature(self, signode: TextElement, mode: str,
++                           env: "BuildEnvironment", symbol: "Symbol") -> None:
++        txt = str(self)
++        signode.append(nodes.Text(txt, txt))
++
+ 
+ class ASTCharLiteral(ASTLiteral):
+     def __init__(self, prefix: str, data: str) -> None:
+@@ -881,6 +912,21 @@ class ASTCharLiteral(ASTLiteral):
+         txt = str(self)
+         signode.append(nodes.Text(txt, txt))
+ 
++class ASTUserDefinedLiteral(ASTLiteral):
++    def __init__(self, data: str) -> None:
++        self.data = data
++
++    def _stringify(self, transform: StringifyTransform) -> str:
++        return self.data
++
++    def get_id(self, version: int) -> str:
++        return "LU%sE" % self.data
++
++    def describe_signature(self, signode: TextElement, mode: str,
++                           env: "BuildEnvironment", symbol: "Symbol") -> None:
++        txt = str(self)
++        signode.append(nodes.Text(txt, txt))
++
+ 
+ class ASTThisLiteral(ASTExpression):
+     def _stringify(self, transform: StringifyTransform) -> str:
+@@ -4662,6 +4708,15 @@ class DefinitionParser(BaseParser):
+                       integer_literal_re, octal_literal_re]:
+             pos = self.pos
+             if self.match(regex):
++                # Check for UDL suffix after numeric literals
++                # Save current position after numeric literal
++                numeric_end = self.pos
++                udl_match = self.match(user_defined_literal_re)
++                if udl_match and self.last_match.start(0) == numeric_end:
++                    # This is a UDL, not a regular number literal
++                    return ASTUserDefinedLiteral(self.definition[pos:self.pos + len(self.last_match.group(0))])
++                # No UDL suffix, continue with standard suffix handling
++                self.pos = numeric_end
+                 while self.current_char in 'uUlLfF':
+                     self.pos += 1
+                 return ASTNumberLiteral(self.definition[pos:self.pos])
+@@ -4682,7 +4737,9 @@ class DefinitionParser(BaseParser):
+                 self.fail("Can not handle character literal"
+                           " resulting in multiple decoded characters.")
+ 
+-        # TODO: user-defined lit
++        # user-defined-literal
++        if self.match(user_defined_literal_re):
++            return ASTUserDefinedLiteral(self.last_match.group(0))
+         return None
+ 
+     def _parse_fold_or_paren_expression(self) -> ASTExpression:
+diff --git a/sphinx/util/cfamily.py b/sphinx/util/cfamily.py
+index 790a492a5..21fcc3068 100644
+--- a/sphinx/util/cfamily.py
++++ b/sphinx/util/cfamily.py
+@@ -67,6 +67,12 @@ char_literal_re = re.compile(r'''(?x)
+     )'
+ ''')
+ 
++user_defined_literal_re = re.compile(r'''(?x)
++    [0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?[a-zA-Z_][a-zA-Z0-9_]*  # floating-point literals with suffix
++    | [0-9]+[a-zA-Z_][a-zA-Z0-9_]*  # integer literals with suffix
++    | [a-zA-Z_][a-zA-Z0-9_]*  # other literals with suffix
++''')
++
+ 
+ def verify_description_mode(mode: str) -> None:
+     if mode not in ('lastIsName', 'noneIsName', 'markType', 'markName', 'param'):

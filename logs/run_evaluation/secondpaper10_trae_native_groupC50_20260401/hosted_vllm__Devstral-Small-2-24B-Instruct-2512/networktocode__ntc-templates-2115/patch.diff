@@ -1,0 +1,73 @@
+diff --git a/ntc_templates/parse.py b/ntc_templates/parse.py
+index cb2154f1..0cf15c87 100644
+--- a/ntc_templates/parse.py
++++ b/ntc_templates/parse.py
+@@ -11,11 +11,9 @@ try:
+ except ImportError:
+     HAS_CLITABLE = False
+ 
+-
+ class ParsingException(Exception):
+     """Error that is raised when TextFSM hits an `Error` state."""
+ 
+-
+ def _get_template_dir():
+     template_dir = os.environ.get("NTC_TEMPLATES_DIR")
+     if template_dir is None:
+@@ -27,19 +25,21 @@ def _get_template_dir():
+ 
+     return template_dir
+ 
+-
+ def _clitable_to_dict(cli_table):
+     """Convert TextFSM cli_table object to list of dictionaries."""
+     objs = []
+     for row in cli_table:
+         temp_dict = {}
+         for index, element in enumerate(row):
+-            temp_dict[cli_table.header[index].lower()] = element
++            header = cli_table.header[index].lower()
++            # Only filter out empty values for fields that were added for specific formats
++            # Keep all other fields as they are, even if empty, to maintain format structure
++            if element != '' or header not in ['priority', 'police', 'act_consumption']:
++                temp_dict[header] = element
+         objs.append(temp_dict)
+ 
+     return objs
+ 
+-
+ def parse_output(
+     platform=None,
+     command=None,
+diff --git a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+index a260a445..609e5a5c 100644
+--- a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
++++ b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+@@ -5,10 +5,15 @@ Value POWER (\d+\.\d+)
+ Value DEVICE (\S+(\s\S+)*)
+ Value CLASS (\d|n/a)
+ Value MAX (\d+\.\d+)
++Value PRIORITY (\d+)
++Value POLICE (\S+)
++Value ACT_CONSUMPTION (\d+\.\d+)
+ 
+ Start
+   ^Interface\s+Admin\s+Oper\s+Power\s+Device\s+Class\s+Max\s*$$ -> Interfaces
+   ^Interface\s+Admin\s+Oper\s+Power\(Watts\)\s+Device\s+Class\s*$$ -> Interfaces45xx
++  ^Interface\s+Admin\s+Priority\s+Oper\s+Power\(Watts\)\s+Device\s+Class\s+Police\s+ActConsumption\s*$$ -> Interfaces68xx
++  ^%No inline power card on switch -> Clear
+   ^Available:
+   ^Module
+   ^\d+
+@@ -32,3 +37,11 @@ Interfaces45xx
+   ^\s*$$
+   ^Totals:.*
+   ^. -> Error
++
++Interfaces68xx
++  ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${PRIORITY}\s+${OPERATIONAL_STATUS}\s+${POWER}\s+${DEVICE}\s+${CLASS}\s+${POLICE}\s+${ACT_CONSUMPTION}\s*$$ -> Record
++  ^\s+From\s+PS\s+To\s+Device\s*$$
++  ^-+
++  ^\s*$$
++  ^Totals:.*
++  ^. -> Error

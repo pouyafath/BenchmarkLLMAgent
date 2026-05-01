@@ -1,0 +1,48 @@
+diff --git a/sklearn/covariance/_graph_lasso.py b/sklearn/covariance/_graph_lasso.py
+index 73fa4f1fd..89fce6011 100644
+--- a/sklearn/covariance/_graph_lasso.py
++++ b/sklearn/covariance/_graph_lasso.py
+@@ -1002,30 +1002,25 @@ class GraphicalLassoCV(BaseGraphicalLasso):
+ 
+         t0 = time.time()
+         for i in range(n_refinements):
+-            with warnings.catch_warnings():
+-                # No need to see the convergence warnings on this grid:
+-                # they will always be points that will not converge
+-                # during the cross-validation
+-                warnings.simplefilter("ignore", ConvergenceWarning)
+                 # Compute the cross-validated loss on the current grid
+ 
+                 # NOTE: Warm-restarting graphical_lasso_path has been tried,
+                 # and this did not allow to gain anything
+                 # (same execution time with or without).
+-                this_path = Parallel(n_jobs=self.n_jobs, verbose=self.verbose)(
+-                    delayed(graphical_lasso_path)(
+-                        X[train],
+-                        alphas=alphas,
+-                        X_test=X[test],
+-                        mode=self.mode,
+-                        tol=self.tol,
+-                        enet_tol=self.enet_tol,
+-                        max_iter=int(0.1 * self.max_iter),
+-                        verbose=inner_verbose,
+-                        eps=self.eps,
+-                    )
+-                    for train, test in cv.split(X, y, **routed_params.splitter.split)
++            this_path = Parallel(n_jobs=self.n_jobs, verbose=self.verbose)(
++                delayed(graphical_lasso_path)(
++                    X[train],
++                    alphas=alphas,
++                    X_test=X[test],
++                    mode=self.mode,
++                    tol=self.tol,
++                    enet_tol=self.enet_tol,
++                    max_iter=int(0.1 * self.max_iter),
++                    verbose=inner_verbose,
++                    eps=self.eps,
+                 )
++                for train, test in cv.split(X, y, **routed_params.splitter.split)
++            )
+ 
+             # Little danse to transform the list in what we need
+             covs, _, scores = zip(*this_path)

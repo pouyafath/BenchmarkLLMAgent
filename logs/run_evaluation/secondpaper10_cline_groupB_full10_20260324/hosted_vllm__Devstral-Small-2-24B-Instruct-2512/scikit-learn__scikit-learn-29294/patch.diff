@@ -1,0 +1,36 @@
+diff --git a/sklearn/covariance/_graph_lasso.py b/sklearn/covariance/_graph_lasso.py
+index 73fa4f1fd..da6737c2b 100644
+--- a/sklearn/covariance/_graph_lasso.py
++++ b/sklearn/covariance/_graph_lasso.py
+@@ -1107,16 +1107,21 @@ class GraphicalLassoCV(BaseGraphicalLasso):
+         self.alpha_ = best_alpha
+ 
+         # Finally fit the model with the selected alpha
+-        self.covariance_, self.precision_, self.costs_, self.n_iter_ = _graphical_lasso(
+-            emp_cov,
+-            alpha=best_alpha,
+-            mode=self.mode,
+-            tol=self.tol,
+-            enet_tol=self.enet_tol,
+-            max_iter=self.max_iter,
+-            verbose=inner_verbose,
+-            eps=self.eps,
+-        )
++        with warnings.catch_warnings():
++            # Suppress ConvergenceWarning for the final fit, as it's expected
++            # that the model may not converge perfectly at the optimal alpha.
++            # Users can still access convergence information via n_iter_.
++            warnings.simplefilter("ignore", ConvergenceWarning)
++            self.covariance_, self.precision_, self.costs_, self.n_iter_ = _graphical_lasso(
++                emp_cov,
++                alpha=best_alpha,
++                mode=self.mode,
++                tol=self.tol,
++                enet_tol=self.enet_tol,
++                max_iter=self.max_iter,
++                verbose=inner_verbose,
++                eps=self.eps,
++            )
+         return self
+ 
+     def get_metadata_routing(self):

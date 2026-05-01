@@ -1,0 +1,57 @@
+diff --git a/src/pdm/_types.py b/src/pdm/_types.py
+index dd753efb..29a0dc97 100644
+--- a/src/pdm/_types.py
++++ b/src/pdm/_types.py
+@@ -29,31 +29,51 @@ class RepositoryConfig:
+     client_key: str | None = None
+     include_packages: list[str] = dc.field(default_factory=list)
+     exclude_packages: list[str] = dc.field(default_factory=list)
++    _auth_populated: bool = dc.field(default=False, init=False)
+ 
+     def __post_init__(self) -> None:
+         self.include_packages = [_normalize_pattern(p) for p in self.include_packages]
+         self.exclude_packages = [_normalize_pattern(p) for p in self.exclude_packages]
+ 
+     def populate_auth(self) -> None:
+-        if self.username is None or self.password is None:
++        # Only query the keyring if we haven't already populated auth
++        # and if username or password is still None
++        if not self._auth_populated and (self.username is None or self.password is None):
+             from pdm.models.auth import keyring
+ 
+             service = f"pdm-{self.config_prefix}-{self.name}"
+             auth = keyring.get_auth_info(service, self.username)
+             if auth is not None:
+                 self.username, self.password = auth
++            self._auth_populated = True
+ 
+     def passive_update(self, other: RepositoryConfig | None = None, **kwargs: Any) -> None:
+         """An update method that prefers the existing value over the new one."""
++        # Track if username or password is being updated
++        username_changed = False
++        password_changed = False
++
+         if other is not None:
+             for k in other.__dataclass_fields__:
+                 v = getattr(other, k)
+                 if getattr(self, k) is None and v is not None:
++                    if k == "username":
++                        username_changed = True
++                    elif k == "password":
++                        password_changed = True
+                     setattr(self, k, v)
+         for k, v in kwargs.items():
+             if getattr(self, k) is None and v is not None:
++                if k == "username":
++                    username_changed = True
++                elif k == "password":
++                    password_changed = True
+                 setattr(self, k, v)
+ 
++        # If username or password changed, reset the auth populated flag
++        if username_changed or password_changed:
++            self._auth_populated = False
++
+     def __rich__(self) -> str:
+         config_prefix = f"{self.config_prefix}.{self.name}." if self.name else f"{self.config_prefix}."
+         lines: list[str] = []

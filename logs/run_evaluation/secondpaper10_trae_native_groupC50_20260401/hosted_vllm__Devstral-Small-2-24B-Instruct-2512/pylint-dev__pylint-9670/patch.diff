@@ -1,0 +1,36 @@
+diff --git a/pylint/checkers/base/basic_error_checker.py b/pylint/checkers/base/basic_error_checker.py
+index e58be2309..99c56dbea 100644
+--- a/pylint/checkers/base/basic_error_checker.py
++++ b/pylint/checkers/base/basic_error_checker.py
+@@ -285,15 +285,24 @@ class BasicErrorChecker(_BasicChecker):
+                     self.add_message("return-in-init", node=node)
+         # Check for duplicate names by clustering args with same name for detailed report
+         arg_clusters = {}
+-        arguments: Iterator[Any] = filter(None, [node.args.args, node.args.kwonlyargs])
++        # Include all argument types: positional-only, positional-or-keyword, keyword-only, vararg, and kwarg
++        arguments = [node.args.posonlyargs, node.args.args, node.args.kwonlyargs]
++        if node.args.vararg_node:
++            arguments.append([node.args.vararg_node])
++        if node.args.kwarg_node:
++            arguments.append([node.args.kwarg_node])
+         for arg in itertools.chain.from_iterable(arguments):
+             if arg.name in arg_clusters:
+-                self.add_message(
+-                    "duplicate-argument-name",
+-                    node=arg,
+-                    args=(arg.name,),
+-                    confidence=HIGH,
+-                )
++                # Only report the first duplicate occurrence for each name
++                if arg_clusters[arg.name] is not None:
++                    self.add_message(
++                        "duplicate-argument-name",
++                        node=arg,
++                        args=(arg.name,),
++                        confidence=HIGH,
++                    )
++                    # Mark this name as already reported to avoid multiple reports
++                    arg_clusters[arg.name] = None
+             else:
+                 arg_clusters[arg.name] = arg
+ 

@@ -1,0 +1,48 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..350715f41a 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -496,6 +496,34 @@ def _validate_linestyle(ls):
+     raise ValueError(f"linestyle {ls!r} is not a valid on-off ink sequence.")
+ 
+ 
++def _validate_marker(marker):
++    """
++    A validator for marker styles, accepting both string and integer values.
++
++    Parameters
++    ----------
++    marker : str or int
++        The marker to validate. Can be a string marker name (e.g., "+", "o")
++        or an integer marker code (e.g., 5 for CARETRIGHT).
++
++    Returns
++    -------
++    str or int
++        The validated marker (returns the original value if valid).
++    """
++    from matplotlib import markers as mk
++
++    if isinstance(marker, str):
++        return marker
++    elif isinstance(marker, int):
++        # Check if it's a valid numeric marker
++        if marker in mk.MarkerStyle.markers:
++            return marker
++        else:
++            raise ValueError(f"Invalid marker integer: {marker}")
++    else:
++        raise ValueError(f"Marker must be string or int, got {type(marker)}")
++
+ validate_fillstyle = ValidateInStrings(
+     'markers.fillstyle', ['full', 'left', 'right', 'bottom', 'top', 'none'])
+ 
+@@ -645,7 +673,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': _listify_validator(_validate_marker),
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }

@@ -1,0 +1,27 @@
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..42916958c 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -801,6 +801,22 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+             else:
+                 LOGGER.error(f"{filename} could not be processed by glob.glob")
+ 
++        # Check if any files were found by glob
++        if not all_filenames:
++            # If no files were found, check if the original filename exists
++            # This handles the case where a specific file doesn't exist
++            for filename in filenames:
++                # Only include the filename if it doesn't contain wildcards
++                # (i.e., it's a specific file path, not a glob pattern)
++                if '*' not in filename and '?' not in filename:
++                    if os.path.exists(filename):
++                        all_filenames.append(filename)
++                    else:
++                        # File doesn't exist, include it so decode() can handle the error
++                        all_filenames.append(filename)
++                # For glob patterns that don't match, leave the list empty
++                # This maintains backward compatibility
++
+         return sorted(list(map(str, map(Path, all_filenames))))
+ 
+     @property

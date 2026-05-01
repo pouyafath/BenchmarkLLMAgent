@@ -1,0 +1,28 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 0a5e5ff673..2244c17140 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -482,6 +482,9 @@ class Model(metaclass=ModelBase):
+                     _setattr(self, field.name, rel_obj)
+             else:
+                 if val is not _DEFERRED:
++                    # Convert enum values to their actual values
++                    if val is not None and hasattr(val, 'value') and not callable(getattr(val, 'value')):
++                        val = field.to_python(val.value)
+                     _setattr(self, field.attname, val)
+ 
+         if kwargs:
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index d610dc86f0..13eb5c97cf 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -792,6 +792,9 @@ class Field(RegisterLookupMixin):
+         """Perform preliminary non-db specific value checks and conversions."""
+         if isinstance(value, Promise):
+             value = value._proxy____cast()
++        # Handle enum values by extracting their .value attribute
++        if hasattr(value, 'value') and not callable(getattr(value, 'value')):
++            value = value.value
+         return value
+ 
+     def get_db_prep_value(self, value, connection, prepared=False):

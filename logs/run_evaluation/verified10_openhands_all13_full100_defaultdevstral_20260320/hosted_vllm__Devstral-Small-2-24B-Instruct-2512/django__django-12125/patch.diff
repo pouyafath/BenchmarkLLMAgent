@@ -1,0 +1,64 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 7d226955d5..fd4313f1a4 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -90,13 +90,47 @@ class DeconstructableSerializer(BaseSerializer):
+ 
+     @staticmethod
+     def _serialize_path(path):
+-        module, name = path.rsplit(".", 1)
++        # Handle inner classes properly
++        # For example, test_app.models.Outer.Inner should import test_app.models
++        # and use Outer.Inner in the code
++        parts = path.rsplit(".", 1)
++        if len(parts) == 2:
++            module, name = parts
++        else:
++            module = ""
++            name = path
++
+         if module == "django.db.models":
+             imports = {"from django.db import models"}
+             name = "models.%s" % name
+         else:
+-            imports = {"import %s" % module}
+-            name = path
++            # Check if we have inner classes by looking for capitalized names in the module path
++            # Split the module path and check each component
++            module_parts = module.split(".")
++            if len(module_parts) >= 2:
++                # Check if the last component is capitalized (likely a class)
++                last_component = module_parts[-1]
++                if last_component[0].isupper():
++                    # This is an inner class case
++                    # Find the first non-capitalized component from the end
++                    # e.g., test_app.models.Outer.Inner -> test_app.models is the module
++                    # e.g., test_app.models.Outer.Inner.Nested -> test_app.models is the module
++                    for i in range(len(module_parts) - 1, 0, -1):
++                        if not module_parts[i][0].isupper():
++                            break
++                    # Everything before the first non-capitalized component is the module
++                    actual_module = ".".join(module_parts[:i+1])
++                    # Everything after is the qualified class name
++                    class_name = ".".join(module_parts[i+1:])
++                    imports = {"import %s" % actual_module}
++                    name = "%s.%s" % (class_name, name)
++                else:
++                    # Normal module path
++                    imports = {"import %s" % module}
++                    name = path
++            else:
++                imports = {"import %s" % module}
++                name = path
+         return name, imports
+ 
+     def serialize(self):
+@@ -269,7 +303,7 @@ class TypeSerializer(BaseSerializer):
+             if module == builtins.__name__:
+                 return self.value.__name__, set()
+             else:
+-                return "%s.%s" % (module, self.value.__name__), {"import %s" % module}
++                return "%s.%s" % (module, self.value.__qualname__), {"import %s" % module}
+ 
+ 
+ class UUIDSerializer(BaseSerializer):

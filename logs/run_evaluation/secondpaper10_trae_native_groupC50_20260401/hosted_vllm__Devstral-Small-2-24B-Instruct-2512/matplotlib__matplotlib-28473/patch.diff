@@ -1,0 +1,80 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..a0c3081dab 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,19 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
++        # For module:// format, preserve case to allow importing modules with
++        # mixed case names (e.g., module://foo.Bar should import foo.Bar).
++        if backend.startswith("module://"):
++            # Don't lowercase module:// format backends
++            backend_name = backend
++        else:
++            backend_name = backend.lower()
+ 
+         # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
++        backend_name = self._name_to_module.get(backend_name, backend_name)
+ 
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        return (backend_name[9:] if backend_name.startswith("module://")
++                else f"matplotlib.backends.backend_{backend_name}")
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.
+@@ -341,35 +347,41 @@ class BackendRegistry:
+         framework : str or None
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
++        # Preserve original backend string for module:// format to maintain case
++        backend_original = backend
+         if isinstance(backend, str):
+-            backend = backend.lower()
++            # For module:// format, preserve case; otherwise lowercase
++            if backend.startswith("module://"):
++                backend_name = backend
++            else:
++                backend_name = backend.lower()
+         else:  # Might be _auto_backend_sentinel or None
+             # Use whatever is already running...
+             from matplotlib import get_backend
+-            backend = get_backend()
++            backend_name = get_backend()
+ 
+         # Is backend already known (built-in or dynamically loaded)?
+-        gui = (self._BUILTIN_BACKEND_TO_GUI_FRAMEWORK.get(backend) or
+-               self._backend_to_gui_framework.get(backend))
++        gui = (self._BUILTIN_BACKEND_TO_GUI_FRAMEWORK.get(backend_name) or
++               self._backend_to_gui_framework.get(backend_name))
+ 
+         # Is backend "module://something"?
+-        if gui is None and isinstance(backend, str) and backend.startswith("module://"):
++        if gui is None and isinstance(backend_name, str) and backend_name.startswith("module://"):
+             gui = "unknown"
+ 
+         # Is backend a possible entry point?
+         if gui is None and not self._loaded_entry_points:
+             self._ensure_entry_points_loaded()
+-            gui = self._backend_to_gui_framework.get(backend)
++            gui = self._backend_to_gui_framework.get(backend_name)
+ 
+         # Backend known but not its gui framework.
+         if gui == "unknown":
+-            gui = self._get_gui_framework_by_loading(backend)
+-            self._backend_to_gui_framework[backend] = gui
++            gui = self._get_gui_framework_by_loading(backend_original)
++            self._backend_to_gui_framework[backend_original] = gui
+ 
+         if gui is None:
+-            raise RuntimeError(f"'{backend}' is not a recognised backend name")
++            raise RuntimeError(f"'{backend_name}' is not a recognised backend name")
+ 
+-        return backend, gui if gui != "headless" else None
++        return backend_original, gui if gui != "headless" else None
+ 
+     def resolve_gui_or_backend(self, gui_or_backend):
+         """

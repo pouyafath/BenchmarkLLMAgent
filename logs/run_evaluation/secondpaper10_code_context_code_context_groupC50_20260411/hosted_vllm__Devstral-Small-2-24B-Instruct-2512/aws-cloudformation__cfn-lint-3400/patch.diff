@@ -1,0 +1,28 @@
+diff --git a/src/cfnlint/rules/functions/SubNotJoin.py b/src/cfnlint/rules/functions/SubNotJoin.py
+index 135d1507b..78c4c24eb 100644
+--- a/src/cfnlint/rules/functions/SubNotJoin.py
++++ b/src/cfnlint/rules/functions/SubNotJoin.py
+@@ -10,7 +10,6 @@ from cfnlint.jsonschema import ValidationError, ValidationResult
+ from cfnlint.jsonschema.protocols import Validator
+ from cfnlint.rules import CloudFormationLintRule
+ 
+-
+ class SubNotJoin(CloudFormationLintRule):
+     """Check if Join is being used with no join characters"""
+ 
+@@ -35,6 +34,15 @@ class SubNotJoin(CloudFormationLintRule):
+         return True
+ 
+     def _check_elements(self, elements):
++        # Check if any element is a Ref to AWS::Partition
++        # If so, don't suggest conversion to Fn::Sub
++        for element in elements:
++            if isinstance(element, dict):
++                if len(element) == 1:
++                    for key, value in element.items():
++                        if key == "Ref" and value == "AWS::Partition":
++                            return False
++
+         for element in elements:
+             if not self._check_element(element):
+                 return False

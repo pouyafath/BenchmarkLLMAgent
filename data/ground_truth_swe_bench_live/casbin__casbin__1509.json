@@ -1,0 +1,29 @@
+{
+  "issue_id": "casbin__casbin-1512",
+  "pr_number": 1512,
+  "pr_base_sha": "78ef2c179deed40f0d695a9d914fe8f508ea7c5d",
+  "pr_files": [
+    {
+      "filename": "examples/blp_model.conf",
+      "status": "modified",
+      "additions": 14,
+      "deletions": 0,
+      "changes": 14
+    },
+    {
+      "filename": "model/function.go",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1
+    },
+    {
+      "filename": "util/builtin_operators_blp.go",
+      "status": "modified",
+      "additions": 60,
+      "deletions": 0,
+      "changes": 60
+    }
+  ],
+  "patch": "diff --git a/examples/blp_model.conf b/examples/blp_model.conf\nnew file mode 100644\nindex 000000000..bc919c8fc\n--- /dev/null\n+++ b/examples/blp_model.conf\n@@ -0,0 +1,14 @@\n+[request_definition]\n+r = sub, sub_level, obj, obj_level, act\n+\n+[policy_definition]\n+p = sub, obj, act\n+\n+[role_definition]\n+g = _, _\n+\n+[policy_effect]\n+e = some(where (p.eft == allow))\n+\n+[matchers]\n+m = levelMatch(r.sub_level, r.obj_level, r.act) \n\\ No newline at end of file\ndiff --git a/model/function.go b/model/function.go\nindex f1a8d0075..7c4268f7e 100644\n--- a/model/function.go\n+++ b/model/function.go\n@@ -49,6 +49,7 @@ func LoadFunctionMap() FunctionMap {\n \tfm.AddFunction(\"regexMatch\", util.RegexMatchFunc)\n \tfm.AddFunction(\"ipMatch\", util.IPMatchFunc)\n \tfm.AddFunction(\"globMatch\", util.GlobMatchFunc)\n+\tfm.AddFunction(\"levelMatch\", util.LevelMatchFunc)\n \n \treturn *fm\n }\ndiff --git a/util/builtin_operators_blp.go b/util/builtin_operators_blp.go\nnew file mode 100644\nindex 000000000..95588eb45\n--- /dev/null\n+++ b/util/builtin_operators_blp.go\n@@ -0,0 +1,60 @@\n+// Copyright 2025 The casbin Authors. All Rights Reserved.\n+//\n+// Licensed under the Apache License, Version 2.0 (the \"License\");\n+// you may not use this file except in compliance with the License.\n+// You may obtain a copy of the License at\n+//\n+//      http://www.apache.org/licenses/LICENSE-2.0\n+//\n+// Unless required by applicable law or agreed to in writing, software\n+// distributed under the License is distributed on an \"AS IS\" BASIS,\n+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n+// See the License for the specific language governing permissions and\n+// limitations under the License.\n+\n+package util\n+\n+import (\n+\t\"fmt\"\n+)\n+\n+// levelMatch enforces Bell-LaPadula security model.\n+// Simple Security Property: no read-up.\n+// Star Property: no write-down.\n+func levelMatch(subjectLevel, objectLevel, action interface{}) bool {\n+\tsubLevel := int(subjectLevel.(float64))\n+\tobjLevel := int(objectLevel.(float64))\n+\tact := action.(string)\n+\n+\tif act == \"read\" {\n+\t\treturn subLevel >= objLevel\n+\t}\n+\tif act == \"write\" {\n+\t\treturn subLevel <= objLevel\n+\t}\n+\treturn false\n+}\n+\n+// LevelMatchFunc is the wrapper for levelMatch.\n+func LevelMatchFunc(args ...interface{}) (interface{}, error) {\n+\tif len(args) != 3 {\n+\t\treturn false, fmt.Errorf(\"levelMatch: expected 3 arguments (subjectLevel, objectLevel, action), but got %d\", len(args))\n+\t}\n+\n+\tsubjectLevel, ok := args[0].(float64)\n+\tif !ok {\n+\t\treturn false, fmt.Errorf(\"levelMatch: subjectLevel argument must be a number\")\n+\t}\n+\n+\tobjectLevel, ok := args[1].(float64)\n+\tif !ok {\n+\t\treturn false, fmt.Errorf(\"levelMatch: objectLevel argument must be a number\")\n+\t}\n+\n+\taction, ok := args[2].(string)\n+\tif !ok {\n+\t\treturn false, fmt.Errorf(\"levelMatch: action argument must be a string\")\n+\t}\n+\n+\treturn levelMatch(subjectLevel, objectLevel, action), nil\n+}\n"
+}

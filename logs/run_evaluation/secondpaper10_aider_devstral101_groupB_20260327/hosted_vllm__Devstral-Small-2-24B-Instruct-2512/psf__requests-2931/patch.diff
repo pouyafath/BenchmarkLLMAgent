@@ -1,0 +1,77 @@
+diff --git a/requests/compat.py b/requests/compat.py
+index 70edff7..67b7bf3 100644
+--- a/requests/compat.py
++++ b/requests/compat.py
+@@ -40,6 +40,7 @@ if is_py2:
+     from Cookie import Morsel
+     from StringIO import StringIO
+     from .packages.urllib3.packages.ordered_dict import OrderedDict
++    from collections import MutableMapping, Mapping
+ 
+     builtin_str = str
+     bytes = str
+@@ -54,6 +55,7 @@ elif is_py3:
+     from http.cookies import Morsel
+     from io import StringIO
+     from collections import OrderedDict
++    from collections.abc import MutableMapping, Mapping
+ 
+     builtin_str = str
+     str = str
+diff --git a/requests/cookies.py b/requests/cookies.py
+index d61ec2d..8331584 100644
+--- a/requests/cookies.py
++++ b/requests/cookies.py
+@@ -8,6 +8,7 @@ requests.utils imports from here, so be careful with imports.
+ 
+ import copy
+ import time
++from .compat import MutableMapping
+ import collections
+ from .compat import cookielib, urlparse, urlunparse, Morsel
+ 
+@@ -160,7 +161,7 @@ class CookieConflictError(RuntimeError):
+     Use .get and .set and include domain and path args in order to be more specific."""
+ 
+ 
+-class RequestsCookieJar(cookielib.CookieJar, collections.MutableMapping):
++class RequestsCookieJar(cookielib.CookieJar, MutableMapping):
+     """Compatibility class; is a cookielib.CookieJar, but exposes a dict
+     interface.
+ 
+diff --git a/requests/sessions.py b/requests/sessions.py
+index 9eaa36a..97fe756 100644
+--- a/requests/sessions.py
++++ b/requests/sessions.py
+@@ -9,7 +9,7 @@ requests (cookies, auth, proxies).
+ 
+ """
+ import os
+-from collections import Mapping
++from .compat import Mapping
+ from datetime import datetime
+ 
+ from .auth import _basic_auth_str
+diff --git a/requests/structures.py b/requests/structures.py
+index 3e5f2fa..f74f58d 100644
+--- a/requests/structures.py
++++ b/requests/structures.py
+@@ -8,15 +8,16 @@ Data structures that power Requests.
+ 
+ """
+ 
++from .compat import MutableMapping
+ import collections
+ 
+ 
+-class CaseInsensitiveDict(collections.MutableMapping):
++class CaseInsensitiveDict(MutableMapping):
+     """
+     A case-insensitive ``dict``-like object.
+ 
+     Implements all methods and operations of
+-    ``collections.MutableMapping`` as well as dict's ``copy``. Also
++    ``MutableMapping`` as well as dict's ``copy``. Also
+     provides ``lower_items``.
+ 
+     All keys are expected to be strings. The structure remembers the

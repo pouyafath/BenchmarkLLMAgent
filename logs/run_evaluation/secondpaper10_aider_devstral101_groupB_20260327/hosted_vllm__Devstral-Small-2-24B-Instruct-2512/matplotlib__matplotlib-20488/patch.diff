@@ -1,0 +1,32 @@
+diff --git a/lib/matplotlib/colors.py b/lib/matplotlib/colors.py
+index e0c42c5b6..3a25e60b5 100644
+--- a/lib/matplotlib/colors.py
++++ b/lib/matplotlib/colors.py
+@@ -1473,10 +1473,15 @@ def _make_norm_from_scale(scale_cls, base_norm_cls=None, *, init=None):
+                 value = np.clip(value, self.vmin, self.vmax)
+             t_value = self._trf.transform(value).reshape(np.shape(value))
+             t_vmin, t_vmax = self._trf.transform([self.vmin, self.vmax])
+-            if not np.isfinite([t_vmin, t_vmax]).all():
++            # Allow infinity in t_vmax if t_vmin is finite
++            if not np.isfinite(t_vmin) or (not np.isfinite(t_vmax) and t_vmax != np.inf):
+                 raise ValueError("Invalid vmin or vmax")
+             t_value -= t_vmin
+-            t_value /= (t_vmax - t_vmin)
++            if np.isfinite(t_vmax):
++                t_value /= (t_vmax - t_vmin)
++            else:
++                # When t_vmax is infinity, all finite values map to 0
++                t_value[:] = 0.0
+             t_value = np.ma.masked_invalid(t_value, copy=False)
+             return t_value[0] if is_scalar else t_value
+ 
+@@ -1486,7 +1491,8 @@ def _make_norm_from_scale(scale_cls, base_norm_cls=None, *, init=None):
+             if self.vmin > self.vmax:
+                 raise ValueError("vmin must be less or equal to vmax")
+             t_vmin, t_vmax = self._trf.transform([self.vmin, self.vmax])
+-            if not np.isfinite([t_vmin, t_vmax]).all():
++            # Allow infinity in t_vmax if t_vmin is finite
++            if not np.isfinite(t_vmin) or (not np.isfinite(t_vmax) and t_vmax != np.inf):
+                 raise ValueError("Invalid vmin or vmax")
+             value, is_scalar = self.process_value(value)
+             rescaled = value * (t_vmax - t_vmin)

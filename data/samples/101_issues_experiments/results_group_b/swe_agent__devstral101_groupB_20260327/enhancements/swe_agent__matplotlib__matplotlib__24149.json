@@ -1,0 +1,45 @@
+{
+  "issue_id": "matplotlib/matplotlib#24149",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "[Bug]: ax.bar raises for all-nan data on matplotlib 3.6.1",
+  "original_body": "[Bug]: ax.bar raises for all-nan data on matplotlib 3.6.1 \n### Bug summary\n\n`ax.bar` raises an exception in 3.6.1 when passed only nan data. This irrevocably breaks seaborn's histogram function (which draws and then removes a \"phantom\" bar to trip the color cycle).\n\n### Code for reproduction\n\n```python\nimport numpy as np\r\nimport matplotlib.pyplot as plt\r\nf, ax = plt.subplots()\r\nax.bar([np.nan], [np.nan])\n```\n\n\n### Actual outcome\n\n```python-traceback\r\n---------------------------------------------------------------------------\r\nStopIteration                             Traceback (most recent call last)\r\nCell In [1], line 4\r\n      2 import matplotlib.pyplot as plt\r\n      3 f, ax = plt.subplots()\r\n----> 4 ax.bar([np.nan], [np.nan])[0].get_x()\r\n\r\nFile ~/miniconda/envs/py310/lib/python3.10/site-packages/matplotlib/__init__.py:1423, in _preprocess_data.<locals>.inner(ax, data, *args, **kwargs)\r\n   1420 @functools.wraps(func)\r\n   1421 def inner(ax, *args, data=None, **kwargs):\r\n   1422     if data is None:\r\n-> 1423         return func(ax, *map(sanitize_sequence, args), **kwargs)\r\n   1425     bound = new_sig.bind(ax, *args, **kwargs)\r\n   1426     auto_label = (bound.arguments.get(label_namer)\r\n   1427                   or bound.kwargs.get(label_namer))\r\n\r\nFile ~/miniconda/envs/py310/lib/python3.10/site-packages/matplotlib/axes/_axes.py:2373, in Axes.bar(self, x, height, width, bottom, align, **kwargs)\r\n   2371 x0 = x\r\n   2372 x = np.asarray(self.convert_xunits(x))\r\n-> 2373 width = self._convert_dx(width, x0, x, self.convert_xunits)\r\n   2374 if xerr is not None:\r\n   2375     xerr = self._convert_dx(xerr, x0, x, self.convert_xunits)\r\n\r\nFile ~/miniconda/envs/py310/lib/python3.10/site-packages/matplotlib/axes/_axes.py:2182, in Axes._convert_dx(dx, x0, xconv, convert)\r\n   2170 try:\r\n   2171     # attempt to add the width to x0; this works for\r\n   2172     # datetime+timedelta, for instance\r\n   (...)\r\n   2179     # removes the units from unit packages like `pint` that\r\n   2180     # wrap numpy arrays.\r\n   2181     try:\r\n-> 2182         x0 = cbook._safe_first_finite(x0)\r\n   2183     except (TypeError, IndexError, KeyError):\r\n   2184         pass\r\n\r\nFile ~/miniconda/envs/py310/lib/python3.10/site-packages/matplotlib/cbook/__init__.py:1749, in _safe_first_finite(obj, skip_nonfinite)\r\n   1746     raise RuntimeError(\"matplotlib does not \"\r\n   1747                        \"support generators as input\")\r\n   1748 else:\r\n-> 1749     return next(val for val in obj if safe_isfinite(val))\r\n\r\nStopIteration: \r\n```\n\n### Expected outcome\n\nOn 3.6.0 this returns a `BarCollection` with one Rectangle, having `nan` for `x` and `height`.\n\n### Additional information\n\nI assume it's related to this bullet in the release notes:\r\n\r\n- Fix barplot being empty when first element is NaN\r\n\r\nBut I don't know the context for it to investigate further (could these link to PRs?)\r\n\r\nFurther debugging:\r\n\r\n```python\r\nax.bar([np.nan], [0])  # Raises\r\nax.bar([0], [np.nan])  # Works\r\n```\r\n\r\nSo it's about the x position specifically.\n\n### Operating system\n\nMacos\n\n### Matplotlib Version\n\n3.6.1\n\n### Matplotlib Backend\n\n_No response_\n\n### Python version\n\n_No response_\n\n### Jupyter version\n\n_No response_\n\n### Installation\n\npip\n",
+  "enhanced_title": "[Bug]: ax.bar() raises StopIteration with all-NaN x-values in matplotlib 3.6.1",
+  "enhanced_body": "## Summary\n`ax.bar()` raises a `StopIteration` exception in matplotlib 3.6.1 when passed arrays containing only NaN values for the x-coordinates. This regression breaks seaborn's histogram functionality, which uses a phantom bar to trigger the color cycle.\n\n## Steps to Reproduce\n1. Create a figure and axis using `plt.subplots()`\n2. Call `ax.bar()` with arrays containing only NaN values for both x and height parameters\n3. Observe the `StopIteration` exception\n\n## Minimal Reproduction Code\n```python\nimport numpy as np\nimport matplotlib.pyplot as plt\n\nf, ax = plt.subplots()\nax.bar([np.nan], [np.nan])  # This raises StopIteration in 3.6.1\n```\n\n## Actual Behavior\nThe code raises a `StopIteration` exception in the `_safe_first_finite()` function when trying to find the first finite value in an all-NaN array.\n\n## Expected Behavior\nThe function should return a `BarCollection` with one `Rectangle` having NaN values for both x and height, as it did in matplotlib 3.6.0.\n\n## Additional Test Cases\n```python\n# These demonstrate the specific issue with x-coordinates\nax.bar([np.nan], [0])  # Raises StopIteration\nax.bar([0], [np.nan])  # Works correctly (NaN in height is handled)\n```\n\n## Root Cause Analysis\nThe issue appears related to the fix mentioned in the 3.6.1 release notes:\n- \"Fix barplot being empty when first element is NaN\"\n\nThis change likely modified the behavior in `matplotlib/axes/_axes.py` in the `bar()` method or related functions, specifically in the `_convert_dx()` method which calls `_safe_first_finite()`.\n\n## Affected Components\nBased on the traceback and hints:\n- `matplotlib/axes/_axes.py` (lines 2373, 2182)\n- `matplotlib/cbook/__init__.py` (line 1749, `_safe_first_finite()` function)\n\n## Environment\n- Operating System: macOS\n- Matplotlib Version: 3.6.1\n- Installation Method: pip\n- Python Version: 3.10 (inferred from traceback)\n\n## Impact\nThis regression affects:\n1. Seaborn's histogram functionality\n2. Any code that might pass all-NaN data to `ax.bar()`\n3. Code that relies on the previous behavior of handling NaN x-coordinates\n\n## Suggested Fix\nThe `_safe_first_finite()` function should handle the case where all values are NaN by either:\n1. Returning NaN explicitly\n2. Raising a more informative exception\n3. Maintaining backward compatibility with the 3.6.0 behavior",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpe0w6flxw/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

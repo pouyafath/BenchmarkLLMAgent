@@ -1,0 +1,26 @@
+diff --git a/sentence_transformers/models/Router.py b/sentence_transformers/models/Router.py
+index 56f1513b..12976092 100644
+--- a/sentence_transformers/models/Router.py
++++ b/sentence_transformers/models/Router.py
+@@ -192,6 +192,21 @@ class Router(InputModule, nn.Sequential):
+ 
+         super().__init__(ordered_dict)
+ 
++        # Update sub_modules to reference the registered modules
++        # This ensures that device operations work correctly
++        self.sub_modules = {}
++        for name, models in self._modules.items():
++            # Extract the route name from the module name (format: "route_idx_TypeName")
++            # e.g., "query_0_MockModule" -> "query"
++            # The route name is everything before the second underscore
++            parts = name.split('_')
++            if len(parts) >= 2:
++                route_name = '_'.join(parts[:-2])  # Everything except the last two parts
++                if route_name not in self.sub_modules:
++                    self.sub_modules[route_name] = []
++                self.sub_modules[route_name].append(models)
++
++        
+     @classmethod
+     def for_query_document(
+         cls,

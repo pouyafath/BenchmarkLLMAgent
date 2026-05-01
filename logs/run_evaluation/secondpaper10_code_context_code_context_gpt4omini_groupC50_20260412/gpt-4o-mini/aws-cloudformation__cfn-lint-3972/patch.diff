@@ -1,0 +1,20 @@
+diff --git a/src/cfnlint/rules/resources/PrimaryIdentifiers.py b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+index bf3305c44..410618628 100644
+--- a/src/cfnlint/rules/resources/PrimaryIdentifiers.py
++++ b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+@@ -43,6 +43,15 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+         return conditions1
+ 
+     def _validate_resource_type_uniqueness(self, cfn, resource_type, ids):
++    if resource_type == "AWS::CodeBuild::Project":
++        names = {}
++        for resource_name, resource_attributes in cfn.get_resources(resource_type).items():
++            name = resource_attributes.get("Properties", {}).get("Name")
++            if name in names:
++                matches.append(RuleMatch(["Resources", resource_name, "Properties", "Name"], f"Duplicate name found: {name}"))
++            else:
++                names[name] = resource_name
++
+         matches = []
+         seens = []
+         for resource_name, resource_attributes in cfn.get_resources(

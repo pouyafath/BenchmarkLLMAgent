@@ -1,0 +1,47 @@
+diff --git a/pylint/checkers/refactoring/refactoring_checker.py b/pylint/checkers/refactoring/refactoring_checker.py
+index 97e509025..b8988f4f0 100644
+--- a/pylint/checkers/refactoring/refactoring_checker.py
++++ b/pylint/checkers/refactoring/refactoring_checker.py
+@@ -483,6 +483,12 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+             "value by index lookup. "
+             "The value can be accessed directly instead.",
+         ),
++        "R1737": (
++            "Consider using yield from instead of for loop with yield",
++            "consider-using-yield-from",
++            "Used when a for loop that yields each item individually can be replaced "
++            "with yield from for better readability and performance.",
++        ),
+     }
+     options = (
+         (
+@@ -1751,6 +1757,29 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+         self._check_unnecessary_comprehension(node)
+         self._check_unnecessary_dict_index_lookup(node)
+         self._check_unnecessary_list_index_lookup(node)
++    def visit_yield(self, node: nodes.Yield) -> None:
++        """Check if yield can be replaced with yield from."""
++        # Check if this is a simple for loop that yields each item
++        parent = node.parent
++        if not isinstance(parent, nodes.Expr):
++            return
++        grandparent = parent.parent
++        if not isinstance(grandparent, nodes.For):
++            return
++        # Check if the yield statement is the only statement in the for loop body
++        if len(grandparent.body) != 1:
++            return
++        # Check if the yield value matches the for loop target
++        yield_value = node.value
++        if not isinstance(yield_value, nodes.Name):
++            return
++        # Get the for loop target (should be a single name, not tuple unpacking)
++        for_target = grandparent.target
++        if not isinstance(for_target, nodes.AssignName):
++            return
++        # Check if the yield value name matches the for loop target name
++        if yield_value.name == for_target.name:
++            self.add_message("consider-using-yield-from", node=grandparent)
+ 
+     def _check_unnecessary_comprehension(self, node: nodes.Comprehension) -> None:
+         if (

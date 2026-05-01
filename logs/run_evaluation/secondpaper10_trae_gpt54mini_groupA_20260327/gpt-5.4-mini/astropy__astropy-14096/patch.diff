@@ -1,0 +1,22 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..26efd2cf0 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -885,9 +885,14 @@ class SkyCoord(ShapedLikeNDArray):
+                     return getattr(self, "_" + attr, None)
+ 
+             # Some attributes might not fall in the above category but still
+-            # are available through self._sky_coord_frame.
+-            if not attr.startswith("_") and hasattr(self._sky_coord_frame, attr):
+-                return getattr(self._sky_coord_frame, attr)
++            # are available through self._sky_coord_frame. Access the attribute
++            # directly so AttributeError from user-defined properties/methods is
++            # not mistaken for a missing SkyCoord attribute.
++            if not attr.startswith("_"):
++                try:
++                    return getattr(self._sky_coord_frame, attr)
++                except AttributeError:
++                    pass
+ 
+             # Try to interpret as a new frame for transforming.
+             frame_cls = frame_transform_graph.lookup_name(attr)

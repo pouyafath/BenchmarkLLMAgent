@@ -1,0 +1,15 @@
+{
+  "issue_id": "rollup__rollup-6041",
+  "pr_number": 6041,
+  "pr_base_sha": "244dc20bab1cd59221b70cd759e0a0ec15044c2e",
+  "pr_files": [
+    {
+      "filename": "src/ast/nodes/BinaryExpression.ts",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 5,
+      "changes": 16
+    }
+  ],
+  "patch": "diff --git a/src/ast/nodes/BinaryExpression.ts b/src/ast/nodes/BinaryExpression.ts\nindex 5fd97123ead..c892972168c 100644\n--- a/src/ast/nodes/BinaryExpression.ts\n+++ b/src/ast/nodes/BinaryExpression.ts\n@@ -13,6 +13,7 @@ import {\n \tUNKNOWN_PATH\n } from '../utils/PathTracker';\n import { getRenderedLiteralValue } from '../utils/renderLiteralValue';\n+import ExternalVariable from '../variables/ExternalVariable';\n import NamespaceVariable from '../variables/NamespaceVariable';\n import ExpressionStatement from './ExpressionStatement';\n import type { LiteralValue } from './Literal';\n@@ -106,7 +107,9 @@ export default class BinaryExpression extends NodeBase implements DeoptimizableE\n \n \t\t// Optimize `'export' in namespace`\n \t\tif (this.operator === 'in' && this.right.variable instanceof NamespaceVariable) {\n-\t\t\treturn this.right.variable.context.traceExport(String(leftValue))[0] != null;\n+\t\t\tconst [variable] = this.right.variable.context.traceExport(String(leftValue));\n+\t\t\tif (variable instanceof ExternalVariable) return UnknownValue;\n+\t\t\treturn !!variable;\n \t\t}\n \n \t\tconst rightValue = this.right.getLiteralValueAtPath(EMPTY_PATH, recursionTracker, origin);\n@@ -120,7 +123,9 @@ export default class BinaryExpression extends NodeBase implements DeoptimizableE\n \n \tgetRenderedLiteralValue() {\n \t\t// Only optimize `'export' in ns`\n-\t\tif (this.operator !== 'in' || !this.right.variable?.isNamespace) return UnknownValue;\n+\t\tif (this.operator !== 'in' || !(this.right.variable instanceof NamespaceVariable)) {\n+\t\t\treturn UnknownValue;\n+\t\t}\n \n \t\tif (this.renderedLiteralValue !== UNASSIGNED) return this.renderedLiteralValue;\n \t\treturn (this.renderedLiteralValue = getRenderedLiteralValue(\n@@ -147,11 +152,12 @@ export default class BinaryExpression extends NodeBase implements DeoptimizableE\n \tinclude(\n \t\tcontext: InclusionContext,\n \t\tincludeChildrenRecursively: IncludeChildren,\n-\t\t_options?: InclusionOptions\n+\t\toptions?: InclusionOptions\n \t) {\n-\t\tthis.included = true;\n+\t\tif (!this.included) this.includeNode(context);\n \t\tif (typeof this.getRenderedLiteralValue() === 'symbol') {\n-\t\t\tsuper.include(context, includeChildrenRecursively, _options);\n+\t\t\tthis.left.include(context, includeChildrenRecursively, options);\n+\t\t\tthis.right.include(context, includeChildrenRecursively, options);\n \t\t}\n \t}\n \n"
+}

@@ -1,0 +1,30 @@
+diff --git a/sklearn/ensemble/gradient_boosting.py b/sklearn/ensemble/gradient_boosting.py
+index ec5f9a111..c1835fb51 100644
+--- a/sklearn/ensemble/gradient_boosting.py
++++ b/sklearn/ensemble/gradient_boosting.py
+@@ -1460,15 +1460,17 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
+                                  test_size=self.validation_fraction,
+                                  stratify=stratify))
+             if is_classifier(self):
+-                if self.n_classes_ != np.unique(y).shape[0]:
+-                    # We choose to error here. The problem is that the init
+-                    # estimator would be trained on y, which has some missing
+-                    # classes now, so its predictions would not have the
+-                    # correct shape.
++                # Check if validation set contains all classes present in training set
++                training_classes = np.unique(y)
++                validation_classes = np.unique(y_val)
++                if len(training_classes) > 0 and not np.all(np.isin(training_classes, validation_classes)):
++                    # We choose to error here. The problem is that the validation
++                    # data is missing some classes that are present in the training
++                    # data, which would make early stopping monitoring inaccurate.
+                     raise ValueError(
+-                        'The training data after the early stopping split '
+-                        'is missing some classes. Try using another random '
+-                        'seed.'
++                        "The validation data for early stopping is missing some classes "
++                        "that are present in the training data. Try using a different "
++                        "random seed or disabling early stopping."
+                     )
+         else:
+             X_val = y_val = sample_weight_val = None

@@ -1,0 +1,42 @@
+diff --git a/sphinx/util/inspect.py b/sphinx/util/inspect.py
+index 15f0d66e2..d00e26024 100644
+--- a/sphinx/util/inspect.py
++++ b/sphinx/util/inspect.py
+@@ -520,21 +520,30 @@ def signature_from_str(signature: str) -> inspect.Signature:
+     args = definition.args
+     params = []
+ 
++    # Handle all parameters with defaults assigned from the end
++    # In Python AST, all parameters (positional-only + regular) are treated as a sequence,
++    # and defaults are assigned from the END backwards to the last n parameters
++    all_params = []
+     if hasattr(args, "posonlyargs"):
+         for arg in args.posonlyargs:  # type: ignore
+             annotation = ast_unparse(arg.annotation) or Parameter.empty
+-            params.append(Parameter(arg.arg, Parameter.POSITIONAL_ONLY,
+-                                    annotation=annotation))
++            all_params.append((arg.arg, Parameter.POSITIONAL_ONLY, annotation))
+ 
+     for i, arg in enumerate(args.args):
+-        if len(args.args) - i <= len(args.defaults):
+-            default = ast_unparse(args.defaults[-len(args.args) + i])
++        annotation = ast_unparse(arg.annotation) or Parameter.empty
++        all_params.append((arg.arg, Parameter.POSITIONAL_OR_KEYWORD, annotation))
++
++    # Now assign defaults from the end backwards
++    num_defaults = len(args.defaults)
++    for i, (arg_name, arg_kind, annotation) in enumerate(all_params):
++        if i >= len(all_params) - num_defaults:
++            # This parameter gets a default (assigned from end backwards)
++            default_index = i - (len(all_params) - num_defaults)
++            default = ast_unparse(args.defaults[default_index])
+         else:
+             default = Parameter.empty
+ 
+-        annotation = ast_unparse(arg.annotation) or Parameter.empty
+-        params.append(Parameter(arg.arg, Parameter.POSITIONAL_OR_KEYWORD,
+-                                default=default, annotation=annotation))
++        params.append(Parameter(arg_name, arg_kind, default=default, annotation=annotation))
+ 
+     if args.vararg:
+         annotation = ast_unparse(args.vararg.annotation) or Parameter.empty

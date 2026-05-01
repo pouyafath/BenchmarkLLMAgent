@@ -1,0 +1,2886 @@
+diff --git a/jax/_src/ad_checkpoint.py b/jax/_src/ad_checkpoint.py
+index 4dd7e2699..cb307ef5a 100644
+--- a/jax/_src/ad_checkpoint.py
++++ b/jax/_src/ad_checkpoint.py
+@@ -644,7 +644,7 @@ def remat_partial_eval(trace: pe.JaxprTrace, *tracers: core.Tracer,
+   # set up unknown outputs with a recipe to call remat
+   res_tracers = map(trace.new_instantiated_const, residuals)
+   _, tracers_staged = partition_list(in_used_staged, tracers)
+-  in_jaxpr_tracers = res_tracers + map(trace.instantiate_const, tracers_staged)  # type: ignore
++  in_jaxpr_tracers = res_tracers + map(trace.instantiate_const, tracers_staged)  # pyrefly: ignore[bad-argument-type]
+   out_jaxpr_tracers = [pe.JaxprTracer(trace, pe.PartialVal.unknown(x.aval), None)
+                        for x in jaxpr_unknown.outvars]
+   if isinstance(prevent_cse, tuple):
+@@ -857,7 +857,7 @@ def _remat_lowering(
+     policy,
+ ):
+   if isinstance(prevent_cse, bool):
+-    prevent_cse = (prevent_cse,) * len(ctx.avals_in)  # type: ignore
++    prevent_cse = (prevent_cse,) * len(ctx.avals_in)  # pyrefly: ignore[bad-assignment]
+   assert isinstance(prevent_cse, tuple)
+   if differentiated and any(prevent_cse):
+     _, barrier_avals = partition_list(prevent_cse, ctx.avals_in)
+diff --git a/jax/_src/api.py b/jax/_src/api.py
+index a020f76fc..eea0b0919 100644
+--- a/jax/_src/api.py
++++ b/jax/_src/api.py
+@@ -2187,7 +2187,7 @@ def device_put(
+       _check_sharding(aval, d)
+     if core.trace_state_clean():
+       out_flat = dispatch._batched_device_put_impl(
+-          *x_flat, devices=device_flat, srcs=src_flat,  # type: ignore
++          *x_flat, devices=device_flat, srcs=src_flat,
+           copy_semantics=copy_semantics, dst_avals=dst_avals)
+     else:
+       out_flat = dispatch.device_put_p.bind(
+@@ -2452,7 +2452,7 @@ def eval_shape(fun: Callable, *args, **kwargs):
+   float32
+   """
+   if type(fun) is xc._xla.PjitFunction:
+-    return fun.trace(*args, **kwargs).out_info  # type: ignore
++    return fun.trace(*args, **kwargs).out_info  # pyrefly: ignore[missing-attribute]
+   try: hash(fun)
+   except TypeError: fun = partial(fun)
+   return jit(fun).trace(*args, **kwargs).out_info
+diff --git a/jax/_src/api_util.py b/jax/_src/api_util.py
+index 92d9e8f4d..349e4241d 100644
+--- a/jax/_src/api_util.py
++++ b/jax/_src/api_util.py
+@@ -288,7 +288,7 @@ def donation_vector(donate_argnums, donate_argnames, in_tree,
+     donate = bool(i in donate_argnums)
+     res.extend((donate,) * arg.num_leaves)
+   if kwargs_tree is not None:
+-    for key, val in zip(kwargs_tree.node_data()[1], kwargs_tree.children()):  # type: ignore
++    for key, val in zip(kwargs_tree.node_data()[1], kwargs_tree.children()):  # pyrefly: ignore[unsupported-operation]
+       donate = key in donate_argnames
+       res.extend((donate,) * val.num_leaves)
+   return tuple(res)
+diff --git a/jax/_src/checkify.py b/jax/_src/checkify.py
+index 9f619c6e4..9f7445d3e 100644
+--- a/jax/_src/checkify.py
++++ b/jax/_src/checkify.py
+@@ -240,7 +240,8 @@ class Error:
+             cur_effect = error_effect
+ 
+       if cur_effect is not None:
+-        return tree_unflatten(self._metadata[int(min_code)],  # type: ignore
++        assert min_code is not None
++        return tree_unflatten(self._metadata[int(min_code)],
+                               self._payload[cur_effect])
+     return None
+ 
+@@ -259,14 +260,15 @@ class Error:
+       min_code: Int | None = None
+       cur_effect: ErrorEffect | None = None
+       for error_effect, code in self._code.items():
+-        if self._pred[error_effect][idx]:   # type: ignore
+-          if min_code is None or code[idx] < min_code:  # type: ignore[index]
+-            min_code = code[idx]   # type: ignore
++        if self._pred[error_effect][idx]:  # pyrefly: ignore[bad-index]
++          if min_code is None or code[idx] < min_code:  # pyrefly: ignore[bad-index]
++            min_code = code[idx]  # pyrefly: ignore[bad-index]
+             cur_effect = error_effect
+ 
+       if cur_effect is not None:
++        assert min_code is not None
+         payload = tree_map(lambda x, i=idx: x[i], self._payload[cur_effect])
+-        jax_error = tree_unflatten(self._metadata[int(min_code)], payload)  # type: ignore
++        jax_error = tree_unflatten(self._metadata[int(min_code)], payload)
+         error_mapping[idx] = jax_error
+     if error_mapping:
+       return BatchedError(error_mapping)
+diff --git a/jax/_src/compiler.py b/jax/_src/compiler.py
+index ff44b6753..5ccd1b682 100644
+--- a/jax/_src/compiler.py
++++ b/jax/_src/compiler.py
+@@ -335,13 +335,13 @@ def backend_compile_and_load(
+       cross_compile_backend = _get_cross_compile_backend(backend)
+       if cross_compile_backend is not None and not host_callbacks:
+         cross_compile_topology = xc.get_topology_for_devices(backend.devices())
+-        return cross_compile_backend.compile(  # type: ignore
++        return cross_compile_backend.compile(
+             module,
+             topology=cross_compile_topology,
+             compile_options=options,
+         )
+       if host_callbacks:
+-        return backend.compile(  # type: ignore
++        return backend.compile(  # pyrefly: ignore[bad-return]
+             module,
+             executable_devices=executable_devices,
+             compile_options=options,
+@@ -350,7 +350,7 @@ def backend_compile_and_load(
+       # Some backends don't have `host_callbacks` option yet
+       # TODO(sharadmv): remove this fallback when all backends allow `compile`
+       # to take in `host_callbacks`
+-      return backend.compile(  # type: ignore
++      return backend.compile(  # pyrefly: ignore[bad-return]
+           module,
+           executable_devices=executable_devices,
+           compile_options=options,
+diff --git a/jax/_src/compute_on.py b/jax/_src/compute_on.py
+index 96095e84a..ac9e4db48 100644
+--- a/jax/_src/compute_on.py
++++ b/jax/_src/compute_on.py
+@@ -240,12 +240,12 @@ def _transpose_jaxpr(jaxpr, in_avals, in_tree):
+     primals_in, cts_in = tree_unflatten(in_tree, in_flat)
+     out = ad.backward_pass(jaxpr.jaxpr, False, jaxpr.consts, primals_in, cts_in)
+     out = [ct if not isinstance(ct, ad.Zero) else None for ct in out]
+-    cts_out, cell.out_tree = tree_flatten(out)  # type: ignore
++    cts_out, cell.out_tree = tree_flatten(out)  # pyrefly: ignore[missing-attribute]
+     return cts_out
+   dbg = jaxpr.jaxpr.debug_info.with_unknown_names()
+   trans_jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(
+       lu.wrap_init(transposed, debug_info=dbg), in_avals)
+-  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # type: ignore
++  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # pyrefly: ignore[missing-attribute]
+ 
+ def _compute_on_transpose(cts_in, *primals_in, jaxpr, compute_type,
+                           out_memory_spaces):
+diff --git a/jax/_src/core.py b/jax/_src/core.py
+index f54f8caed..e239fc749 100644
+--- a/jax/_src/core.py
++++ b/jax/_src/core.py
+@@ -28,7 +28,7 @@ import math
+ import operator
+ import threading
+ import types
+-from typing import (Any, ClassVar, Generic, NamedTuple, TypeVar,
++from typing import (Any, ClassVar, Generic, NamedTuple, TypeVar, final,
+                     overload, Union, TYPE_CHECKING)
+ import warnings
+ import weakref
+@@ -527,6 +527,7 @@ class DropVar(Var):
+     del context, print_dtype  # unused
+     return '_'
+ 
++@final
+ class Literal:
+   # See https://docs.jax.dev/en/latest/internals/constants.html
+   __slots__ = ["val", "aval"]
+diff --git a/jax/_src/custom_partitioning_sharding_rule.py b/jax/_src/custom_partitioning_sharding_rule.py
+index 46c122c95..6b1acddfb 100644
+--- a/jax/_src/custom_partitioning_sharding_rule.py
++++ b/jax/_src/custom_partitioning_sharding_rule.py
+@@ -499,8 +499,6 @@ def sdy_sharding_rule_to_mlir(
+       batching_group = _get_batching_group(value[0])
+       value = value[1:]
+       if batching_group in batching_group_to_rank:
+-        #  This type check error is not correct, disable it:
+-        # Incompatible types in assignment (expression has type "int | None"
+         current_batching_rank = batching_group_to_rank[batching_group]
+       else:
+         raise ValueError("Unreachabled code")
+@@ -509,11 +507,10 @@ def sdy_sharding_rule_to_mlir(
+       batching_group = None
+ 
+     for j in range(current_batching_rank):
+-      #  This type check error is not correct, disable it:
+-      # Argument 1 to "_get_batching_dim_factor_name" has incompatible type "str | None"; expected "str"  [arg-type]
++      assert batching_group is not None
+       dim_mappings.append(
+         sdy.DimMappingAttr.get(factor_indices=[
+-          factors_to_indices_sizes[_get_batching_dim_factor_name(batching_group, j)][0]])) # type: ignore
++          factors_to_indices_sizes[_get_batching_dim_factor_name(batching_group, j)][0]]))
+ 
+     for j, dim in enumerate(value):
+       if isinstance(dim, str):
+diff --git a/jax/_src/debugger/colab_debugger.py b/jax/_src/debugger/colab_debugger.py
+index 464f6474b..35341669d 100644
+--- a/jax/_src/debugger/colab_debugger.py
++++ b/jax/_src/debugger/colab_debugger.py
+@@ -226,7 +226,7 @@ class ColabDebugger(cli_debugger.CliDebugger):
+                thread_id: int):
+     super().__init__(frames, thread_id)
+     self._debugger_view = DebuggerView(self.current_frame())
+-    self.stdout = self.stdin = self._debugger_view  # type: ignore
++    self.stdout = self.stdin = self._debugger_view  # pyrefly: ignore[bad-assignment]
+ 
+   def do_up(self, arg, /):
+     super().do_up(arg)
+diff --git a/jax/_src/dispatch.py b/jax/_src/dispatch.py
+index 4007466dc..289367278 100644
+--- a/jax/_src/dispatch.py
++++ b/jax/_src/dispatch.py
+@@ -688,12 +688,13 @@ def _device_put_abstract_eval(*xs, devices, srcs, copy_semantics):
+ device_put_p.def_abstract_eval(_device_put_abstract_eval)
+ 
+ def _device_put_transpose(cts, *args, devices, srcs, copy_semantics):
+-  results, dp_cts = [None] * len(cts), []
++  results: list[Any | None] = [None] * len(cts)
++  dp_cts = []
+   for i, (ct, arg, device, src, cp) in enumerate(zip(
+       cts, args, devices, srcs, copy_semantics)):
+     if ad.is_undefined_primal(arg):
+       if type(ct) is ad.Zero:
+-        results[i] = ad.Zero(arg.aval.to_ct_aval())  # type: ignore
++        results[i] = ad.Zero(arg.aval.to_ct_aval())
+       else:
+         dp_cts.append((i, ct, arg, device, src, cp))
+ 
+diff --git a/jax/_src/dtypes.py b/jax/_src/dtypes.py
+index 79d0c50e6..ef1b58ece 100644
+--- a/jax/_src/dtypes.py
++++ b/jax/_src/dtypes.py
+@@ -1150,7 +1150,7 @@ class PrimalTangentDType(ExtendedDType):
+   type = primal_tangent_dtype_scalar
+   def __repr__(self): return self.name
+   @property
+-  def _rules(self):  # type: ignore
++  def _rules(self):  # pyrefly: ignore[bad-override]
+     return types.SimpleNamespace(
+       physical_element_aval=
+       lambda dtype: types.SimpleNamespace(shape=(), dtype=self.primal_dtype),
+diff --git a/jax/_src/errors.py b/jax/_src/errors.py
+index b8f75e679..4712a1f7a 100644
+--- a/jax/_src/errors.py
++++ b/jax/_src/errors.py
+@@ -29,7 +29,7 @@ class _JAXErrorMixin:
+     module_name = self._module_name
+     class_name = self.__class__.__name__
+     error_msg = f'{message}\nSee {error_page}#{module_name}.{class_name}'
+-    super().__init__(error_msg)  # type: ignore
++    super().__init__(error_msg)  # pyrefly: ignore[bad-argument-count]
+ 
+ 
+ @export
+diff --git a/jax/_src/export/_export.py b/jax/_src/export/_export.py
+index f5bc4d016..d8fb94cdb 100644
+--- a/jax/_src/export/_export.py
++++ b/jax/_src/export/_export.py
+@@ -39,8 +39,7 @@ from jax._src import effects
+ from jax._src import mesh as mesh_lib
+ from jax._src.interpreters import mlir
+ from jax._src.interpreters import pxla
+-# pyrefly: ignore [missing-import]
+-from jax._src.lax import linalg
++from jax._src.lax import linalg  # pyrefly: ignore[missing-import]
+ from jax._src.lib import xla_client
+ from jax._src.lib import _jax
+ from jax._src.lib.mlir import ir, passmanager
+@@ -793,7 +792,7 @@ def _export_lowered(
+     # This is currently the case for pjit
+     out_avals_flat = lowering.compile_args["global_out_avals"]
+   else:
+-    out_avals_flat = lowered.compile_args["out_avals"]  # type: ignore
++    out_avals_flat = lowered.compile_args["out_avals"]  # pyrefly: ignore[missing-attribute]
+ 
+   # Log and then check the module.
+   if logger.isEnabledFor(logging.DEBUG):
+@@ -839,7 +838,7 @@ def _export_lowered(
+     to_named_sharding_with_abstract_mesh(s, aval, cur_mesh)
+     for s, aval in zip(lowering.compile_args["out_shardings"], out_avals_flat))
+ 
+-  device_assignment = lowering._device_list  # type: ignore
++  device_assignment = lowering._device_list  # pyrefly: ignore[missing-attribute]
+   if _device_assignment_for_internal_jax2tf_use_only is not None:
+     _device_assignment_for_internal_jax2tf_use_only[0] = device_assignment
+ 
+@@ -880,7 +879,7 @@ def _export_lowered(
+       out_shardings_hlo=(None,) * len(out_named_shardings),
+ 
+       nr_devices=nr_devices,
+-      platforms=lowering._platforms,  # type: ignore
++      platforms=lowering._platforms,  # pyrefly: ignore[missing-attribute]
+       ordered_effects=ordered_effects,
+       unordered_effects=unordered_effects,
+       disabled_safety_checks=tuple(disabled_checks),
+@@ -1334,7 +1333,7 @@ def _get_named_sharding(
+     mem_kind = core.mem_space_to_kind(aval.memory_space)
+ 
+   return sharding_impls.cached_named_sharding(
+-      new_mesh, sharding_impls.parse_flatten_op_sharding(hlo_sharding, new_mesh)[0],  # type: ignore
++      new_mesh, sharding_impls.parse_flatten_op_sharding(hlo_sharding, new_mesh)[0],  # pyrefly: ignore[bad-argument-type]
+       memory_kind=mem_kind)
+ 
+ 
+@@ -1389,7 +1388,7 @@ def _get_vjp_fun(
+             vjp_in_avals))
+       vjp_out_shardings = tuple(
+         _get_named_sharding(has_named_shardings, named_sharding,
+-                            hlo_sharding, aval, mesh)  # type: ignore
++                            hlo_sharding, aval, mesh)  # pyrefly: ignore[bad-argument-type]
+         for named_sharding, hlo_sharding, aval in zip(
+           in_named_shardings, in_shardings_hlo, in_avals))
+     else:
+@@ -1785,8 +1784,8 @@ def wrap_with_sharding(
+   if x_sharding is None:
+     return x
+   if use_shardy:
+-    x_sharding = x_sharding._to_sdy_sharding(x_aval.ndim)  # type: ignore
++    x_sharding = x_sharding._to_sdy_sharding(x_aval.ndim)  # pyrefly: ignore[missing-attribute]
+   else:
+-    x_sharding = x_sharding.to_proto()  # type: ignore
++    x_sharding = x_sharding.to_proto()  # pyrefly: ignore[missing-attribute]
+   return mlir.wrap_with_sharding_op(ctx, x, x_aval, x_sharding,  # type: ignore[arg-type]
+                                     allow_shardy_lowering=use_shardy)
+diff --git a/jax/_src/export/serialization.py b/jax/_src/export/serialization.py
+index f9e12dd35..63ad57dce 100644
+--- a/jax/_src/export/serialization.py
++++ b/jax/_src/export/serialization.py
+@@ -276,21 +276,21 @@ def _serialize_array(
+ def _deserialize_exported(exp: ser_flatbuf.Exported) -> _export.Exported:
+   scope = shape_poly.SymbolicScope(())  # TODO(necula): serialize the constraints
+ 
+-  unique_avals = [  # type: ignore
++  unique_avals = [
+       _deserialize_aval(exp.UniqueAvals(i), scope=scope, sharding=None)
+       for i in range(exp.UniqueAvalsLength())]
+   unique_abstract_meshes = [
+       _deserialize_abstract_mesh(exp.UniqueAbstractMeshes(i))
+       for i in range(exp.UniqueAbstractMeshesLength())
+   ]
+-  uniques = _SerializedUniques.create_from_uniques(unique_avals,  # type: ignore
++  uniques = _SerializedUniques.create_from_uniques(unique_avals,  # pyrefly: ignore[bad-argument-type]
+                                                    unique_abstract_meshes,
+                                                    [])
+   unique_named_shardings = [
+       _deserialize_named_sharding(exp.UniqueNamedShardings(i), uniques=uniques)
+       for i in range(exp.UniqueNamedShardingsLength())
+   ]
+-  uniques = _SerializedUniques.create_from_uniques(unique_avals,  # type: ignore
++  uniques = _SerializedUniques.create_from_uniques(unique_avals,  # pyrefly: ignore[bad-argument-type]
+                                                    unique_abstract_meshes,
+                                                    unique_named_shardings)
+ 
+@@ -352,32 +352,32 @@ def _deserialize_exported(exp: ser_flatbuf.Exported) -> _export.Exported:
+ 
+     if exp.InAvalsIdxsLength() > 0:
+       in_avals = tuple(
+-          get_aval_by_idx(exp.InAvalsIdxs(i), in_shardings[i])  # type: ignore
++          get_aval_by_idx(exp.InAvalsIdxs(i), in_shardings[i])  # pyrefly: ignore[bad-argument-type]
+           for i in range(exp.InAvalsIdxsLength()))
+     elif exp.InAvalsLength() > 0:
+       # TODO(necula): remove 6 months after 4/4/26
+       in_avals = tuple(
+-          _deserialize_aval(exp.InAvals(i), scope=scope, sharding=in_shardings[i])  # type: ignore
++          _deserialize_aval(exp.InAvals(i), scope=scope, sharding=in_shardings[i])  # pyrefly: ignore[bad-argument-type]
+           for i in range(exp.InAvalsLength()))
+     else:
+       in_avals = ()
+ 
+     if exp.OutAvalsIdxsLength() > 0:
+       out_avals = tuple(
+-          get_aval_by_idx(exp.OutAvalsIdxs(i), out_shardings[i])  # type: ignore
++          get_aval_by_idx(exp.OutAvalsIdxs(i), out_shardings[i])  # pyrefly: ignore[bad-argument-type]
+                           for i in range(exp.OutAvalsIdxsLength()))
+     elif exp.OutAvalsLength() > 0:
+       # TODO(necula): remove 6 months after 4/4/26
+       out_avals = tuple(
+-        _deserialize_aval(exp.OutAvals(i), scope=scope, sharding=out_shardings[i])  # type: ignore
++        _deserialize_aval(exp.OutAvals(i), scope=scope, sharding=out_shardings[i])  # pyrefly: ignore[bad-argument-type]
+         for i in range(exp.OutAvalsLength())
+       )
+     else:
+       out_avals = ()
+ 
+-    in_shardings_hlo = tuple(_export.named_to_hlo_sharding(s, aval)  # type: ignore
++    in_shardings_hlo = tuple(_export.named_to_hlo_sharding(s, aval)  # pyrefly: ignore[bad-argument-type]
+                              for s, aval in zip(in_shardings, in_avals))
+-    out_shardings_hlo = tuple(_export.named_to_hlo_sharding(s, aval)  # type: ignore
++    out_shardings_hlo = tuple(_export.named_to_hlo_sharding(s, aval)  # pyrefly: ignore[bad-argument-type]
+                              for s, aval in zip(out_shardings, out_avals))
+   else:
+     # Export from before 1/15/26
+@@ -430,8 +430,8 @@ def _deserialize_exported(exp: ser_flatbuf.Exported) -> _export.Exported:
+       in_shardings_hlo=in_shardings_hlo,
+       out_shardings_hlo=out_shardings_hlo,
+       _has_named_shardings=has_named_shardings,
+-      _in_named_shardings=in_shardings,  # type: ignore
+-      _out_named_shardings=out_shardings,  # type: ignore
++      _in_named_shardings=in_shardings,  # pyrefly: ignore[bad-argument-type]
++      _out_named_shardings=out_shardings,  # pyrefly: ignore[bad-argument-type]
+       platforms=platforms,
+       ordered_effects=ordered_effects,
+       unordered_effects=unordered_effects,
+@@ -715,9 +715,9 @@ def _deserialize_partition_spec(spec: ser_flatbuf.PartitionSpec
+                                 ) -> partition_spec.PartitionSpec:
+   partitions = tuple(_deserialize_partition_spec_one_axis(spec.Partitions(i))
+                      for i in range(spec.PartitionsLength()))
+-  reduced = frozenset(spec.Reduced(i).decode("utf-8")  # type: ignore
++  reduced = frozenset(spec.Reduced(i).decode("utf-8")
+                       for i in range(spec.ReducedLength()))
+-  unreduced = frozenset(spec.Unreduced(i).decode("utf-8")  # type: ignore
++  unreduced = frozenset(spec.Unreduced(i).decode("utf-8")
+                         for i in range(spec.UnreducedLength()))
+   return partition_spec.PartitionSpec(*partitions,
+                                       reduced=reduced,
+@@ -754,7 +754,7 @@ def _deserialize_named_sharding(
+     # abstract_mesh.
+     amesh = _deserialize_abstract_mesh(s.Mesh())
+   spec = _deserialize_partition_spec(s.Spec())
+-  memory_kind = s.MemoryKind().decode("utf-8") if s.MemoryKind() is not None else None  # type: ignore
++  memory_kind = s.MemoryKind().decode("utf-8") if s.MemoryKind() is not None else None
+   return named_sharding.NamedSharding(amesh, spec, memory_kind=memory_kind)
+ 
+ 
+@@ -783,7 +783,7 @@ def _deserialize_aval(aval: ser_flatbuf.AbstractValue, *,
+   dtype = _dtype_kind_to_dtype[aval.Dtype()]
+   shape = shape_poly.symbolic_shape(
+       ",".join(
+-            aval.Shape(i).decode("utf-8") for i in range(aval.ShapeLength())  # type: ignore
++            aval.Shape(i).decode("utf-8") for i in range(aval.ShapeLength())
+         ),
+         scope=scope
+     )
+@@ -854,7 +854,7 @@ def _serialize_effect(builder: flatbuffers.Builder, eff: core.Effect) -> int:
+ 
+ 
+ def _deserialize_effect(eff: ser_flatbuf.Effect) -> core.Effect:
+-  effect_type_name = eff.TypeName().decode("utf-8")  # type: ignore
++  effect_type_name = eff.TypeName().decode("utf-8")
+   for existing_effect_type in effects.lowerable_effects._effect_types:
+     if str(existing_effect_type) == effect_type_name:
+       try:
+diff --git a/jax/_src/export/shape_poly.py b/jax/_src/export/shape_poly.py
+index 64baea3ca..56443cc20 100644
+--- a/jax/_src/export/shape_poly.py
++++ b/jax/_src/export/shape_poly.py
+@@ -221,9 +221,9 @@ class _DimFactor:
+         normalized_var = _DimExpr._from_var(self.var, scope)
+         if core.is_constant_dim(normalized_var):
+           return normalized_var
+-        non_trivial_normalization = (v1 := normalized_var._to_var()) is None or v1 != self.var  # type: ignore
++        non_trivial_normalization = (v1 := normalized_var._to_var()) is None or v1 != self.var  # pyrefly: ignore[missing-attribute]
+         if non_trivial_normalization:
+-          return normalized_var._evaluate(env)  # type: ignore
++          return normalized_var._evaluate(env)  # pyrefly: ignore[missing-attribute]
+         err_msg = (
+             f"Encountered dimension variable '{self.var}' that is not appearing in the shapes of the function arguments.\n"
+             f"The following dimension variables are appearing in the shapes of the function arguments: {list(env.keys())}.\n"
+@@ -763,7 +763,7 @@ class _DimExpr:
+     if modulo is not None:
+       raise NotImplementedError("__pow__ modulo not implemented")
+     if is_symbolic_dim(power):
+-      return power.__rpow__(self)  # type: ignore
++      return power.__rpow__(self)  # pyrefly: ignore[bad-argument-type]
+     if power != int(power):
+       raise ValueError(f"Symbolic dimension cannot be raised to non-integer powers: '{self}' ** '{power}'")
+     if power >= 0:
+@@ -1345,7 +1345,7 @@ def _dim_as_value_lowering(ctx: mlir.LoweringRuleContext, *,
+   res, = mlir.eval_dynamic_shape(ctx, (dim,))
+   assert isinstance(res, mlir.ir.Value)
+   out_type = mlir.aval_to_ir_type(ctx.avals_out[0])
+-  if out_type != res.type:  # type: ignore
++  if out_type != res.type:
+     return [mlir.hlo.convert(out_type, res)]
+   else:
+     return [res]
+@@ -1761,9 +1761,9 @@ class ShapeEvaluator:
+ 
+   def evaluate(self, e: DimSize):
+     if core.is_constant_dim(e):
+-      res = op.index(e)  # type: ignore
++      res = op.index(e)  # pyrefly: ignore[bad-argument-type]
+     else:
+-      res = e._evaluate(self.env)  # type: ignore
++      res = e._evaluate(self.env)  # pyrefly: ignore[missing-attribute]
+     return res
+ 
+ 
+@@ -2088,10 +2088,11 @@ def _solve_dim_equations(
+       return False  # This equation cannot yet be used to solve a variable
+ 
+     if var is not None:
++      assert var_k is not None
+       if var_k == 1:
+         var_value = dim_value
+       else:
+-        var_value, var_remainder = divmod(dim_value, core.dim_constant(var_k))  # type: ignore
++        var_value, var_remainder = divmod(dim_value, core.dim_constant(var_k))
+         shape_constraints.add_constraint(
+             Comparator.EQ, var_remainder, 0,
+             error_message_pieces=([
+@@ -2103,7 +2104,7 @@ def _solve_dim_equations(
+ 
+       if not isinstance(var_value, _DimExpr):
+         assert var_value.dtype == core.dim_value_dtype()  # type: ignore[attribute-error]
+-      shape_env[var] = var_value  # type: ignore
++      shape_env[var] = var_value  # pyrefly: ignore[unsupported-operation]
+       solution_error_message_pieces.extend([  # type: ignore[container-type-mismatch]
+         f"'{var}' = ", var_value,
+         f" from specification '{eqn.aval_dim_expr}' "
+@@ -2144,7 +2145,7 @@ def _solve_dim_equations(
+     for constr in scope._explicit_constraints:
+       # We can't just construct constr.e1 - constr.e2 because for an equality
+       # constraint it would be reduced to 0.
+-      c_diff = constr.diff._evaluate(shape_env) if not core.is_constant_dim(constr.diff) else constr.diff  # type: ignore
++      c_diff = constr.diff._evaluate(shape_env) if not core.is_constant_dim(constr.diff) else constr.diff  # pyrefly: ignore[missing-attribute]
+       shape_constraints.add_constraint(
+           constr.cmp, c_diff, 0,
+           error_message_pieces=[
+diff --git a/jax/_src/export/shape_poly_decision.py b/jax/_src/export/shape_poly_decision.py
+index 056c475f8..db943234d 100644
+--- a/jax/_src/export/shape_poly_decision.py
++++ b/jax/_src/export/shape_poly_decision.py
+@@ -86,7 +86,7 @@ class _DecisionByElimination:
+     # how the order matters for inequalities).
+     for constr in self.scope._explicit_constraints:
+       if not core.is_constant_dim(constr.diff):
+-        self.add_implicit_constraints_expr(constr.diff)  # type: ignore
++        self.add_implicit_constraints_expr(constr.diff)  # pyrefly: ignore[bad-argument-type]
+ 
+       self.combine_and_add_constraint(constr.cmp, constr.diff, 0,
+                                       constr.debug_str)
+@@ -244,7 +244,7 @@ class _DecisionByElimination:
+                 (new_eq == Comparator.EQ and const != 0)):
+               raise ValueError(f"Unsatisfiable constraints: {debug_str or str(e) + ' >= 0'}")
+           else:
+-            combinations.add((new_eq, new_e))  # type: ignore
++            combinations.add((new_eq, new_e))  # pyrefly: ignore[bad-argument-type]
+     return combinations
+ 
+   def bounds(self, e: DimSize,
+diff --git a/jax/_src/ffi.py b/jax/_src/ffi.py
+index 48c40dc00..7995e6d9e 100644
+--- a/jax/_src/ffi.py
++++ b/jax/_src/ffi.py
+@@ -487,13 +487,13 @@ def ffi_call(
+ 
+   output_layouts_: Sequence[FfiLayoutOptions] | None
+   if isinstance(result_shape_dtypes, Sequence):
+-    output_layouts_ = output_layouts  # type: ignore
++    output_layouts_ = output_layouts  # pyrefly: ignore[bad-assignment]
+     multiple_results = True
+     result_avals = _result_avals(result_shape_dtypes)
+   else:
+     multiple_results = False
+     result_avals = _result_avals([result_shape_dtypes])
+-    output_layouts_ = (output_layouts,)  # type: ignore
++    output_layouts_ = (output_layouts,)  # pyrefly: ignore[bad-assignment]
+ 
+   if custom_call_api_version >= 4 and legacy_backend_config is not None:
+     raise ValueError(
+@@ -631,7 +631,7 @@ def ffi_call_abstract_eval(
+   effects = {_FfiEffect} if has_side_effect else core.no_effects
+   return tuple(r if r is core.abstract_token else
+                r.update(sharding=(core.get_cur_mesh_sharding()
+-                                  if r.sharding.mesh.empty else r.sharding))  # type: ignore
++                                  if r.sharding.mesh.empty else r.sharding))  # pyrefly: ignore[missing-attribute]
+                for r in result_avals), effects
+ 
+ 
+diff --git a/jax/_src/frozen_dict.py b/jax/_src/frozen_dict.py
+index f443cce0d..8dc12abd8 100644
+--- a/jax/_src/frozen_dict.py
++++ b/jax/_src/frozen_dict.py
+@@ -48,5 +48,5 @@ class FrozenDict(Mapping[K, V]):
+   def __len__(self) -> int:
+     return len(self._d)
+ 
+-  def get(self, key: K) -> V | None:  # type: ignore
++  def get(self, key: K) -> V | None:  # pyrefly: ignore[bad-override]
+     return self._d.get(key, None)
+diff --git a/jax/_src/hijax.py b/jax/_src/hijax.py
+index 019879152..0b4359ac8 100644
+--- a/jax/_src/hijax.py
++++ b/jax/_src/hijax.py
+@@ -69,7 +69,7 @@ class HiPrimitive(core.Primitive):
+   def is_high(self, *avals, **params) -> bool:
+     return True
+ 
+-  def is_effectful(self, params) -> bool:  # type: ignore
++  def is_effectful(self, params) -> bool:  # pyrefly: ignore[bad-override]
+     return False  # default immutable
+ 
+   # type checking and forward type propagation
+@@ -156,21 +156,21 @@ class MutableHiType(core.AbstractValue):
+     assert False, "mutable hitypes should use lo_ty_qdd instead"
+ 
+   # define lowering from hijax value to lojax values and back, depending on qdd
+-  def new_from_loval(self, state: QDD, *vals: LoVal) -> HiVal:
++  def new_from_loval(self, state: QDD, /, *vals: LoVal) -> HiVal:
+     assert False, "must override"
+-  def read_loval(self, state: QDD, val: HiVal) -> list[LoVal]:
++  def read_loval(self, state: QDD, val: HiVal, /) -> list[LoVal]:
+     assert False, "must override"
+   # default implementations of newer apis
+-  def read_loval_in(self, state, val):
++  def read_loval_in(self, state, val, /):
+     return self.read_loval(state, val)
+-  def read_loval_out(self, qdd, hi):
++  def read_loval_out(self, qdd, hi, /):
+     return FlatTree.flatten(self.read_loval(qdd, hi))
+ 
+   # define how to mutate/set the mutable hijax value given immutable lojax vals
+-  def update_from_loval(self, state: QDD, val: HiVal, *lo_vals: LoVal) -> None:
++  def update_from_loval(self, state: QDD, val: HiVal, /, *lo_vals: LoVal) -> None:
+     assert False, "must override"
+   # default implementation of newer api
+-  def update_from_loval2(self, state, val, lo_vals_ft) -> None:
++  def update_from_loval2(self, state, val, lo_vals_ft, /) -> None:
+     self.update_from_loval(state, val, *lo_vals_ft.unflatten())
+ 
+   # autodiff interface
+@@ -233,29 +233,29 @@ class BoxTy(MutableHiType):
+   def __hash__(self): return hash(BoxTy)
+   def __eq__(self, other): return isinstance(other, BoxTy)
+ 
+-  def str_short(self, short_dtypes=False, **_) -> str:  # type: ignore
++  def str_short(self, short_dtypes=False, **_) -> str:  # pyrefly: ignore[bad-override]
+     return 'BoxTy'
+ 
+   # mutable interface
+   def lo_ty_qdd(self, box_state):
+     return [lo_ty for t in box_state.leaf_avals for lo_ty in t.lo_ty()]
+ 
+-  def new_from_loval(self, box_state: BoxTypeState, *lo_vals) -> Box:  # type: ignore
++  def new_from_loval(self, box_state: BoxTypeState, *lo_vals) -> Box:  # pyrefly: ignore[bad-override]
+     lo_vals_ = iter(lo_vals)
+-    hi_vals = [hi_ty.raise_val(*it.islice(lo_vals_, len(hi_ty.lo_ty())))  # type: ignore
++    hi_vals = [hi_ty.raise_val(*it.islice(lo_vals_, len(hi_ty.lo_ty())))  # pyrefly: ignore[missing-attribute]
+                for hi_ty in box_state.leaf_avals]
+     assert next(lo_vals_, None) is None
+     return Box._new(tree_unflatten(box_state.treedef, hi_vals))  # will be mutated
+ 
+-  def read_loval(self, box_state: BoxTypeState, box) -> list:  # type: ignore
++  def read_loval(self, box_state: BoxTypeState, box) -> list:  # pyrefly: ignore[bad-override]
+     leaf_vals, treedef = tree_flatten(box_get(box))
+     assert treedef == box_state.treedef
+     return [lo_val for hi_ty, hi_val in zip(box_state.leaf_avals, leaf_vals)
+-            for lo_val in hi_ty.lower_val(hi_val)]  # type: ignore
++            for lo_val in hi_ty.lower_val(hi_val)]  # pyrefly: ignore[missing-attribute]
+ 
+-  def update_from_loval(self, box_state: BoxTypeState, box, *lo_vals) -> None:  # type: ignore
++  def update_from_loval(self, box_state: BoxTypeState, box, *lo_vals) -> None:  # pyrefly: ignore[bad-override]
+     lo_vals_ = iter(lo_vals)
+-    hi_vals = [hi_ty.raise_val(*it.islice(lo_vals_, len(hi_ty.lo_ty())))  # type: ignore
++    hi_vals = [hi_ty.raise_val(*it.islice(lo_vals_, len(hi_ty.lo_ty())))  # pyrefly: ignore[missing-attribute]
+                for hi_ty in box_state.leaf_avals]
+     assert next(lo_vals_, None) is None
+     box_set(box, tree_unflatten(box_state.treedef, hi_vals))
+@@ -506,25 +506,25 @@ class VmapOf(VJPHiPrimitive):
+                 spmd_axis_name=self.axis_data.spmd_name or self.axis_data.explicit_mesh_axis)
+ 
+   def expand(self, *args):
+-    return api.vmap(self.prim.expand, in_axes=self.in_dims, out_axes=self.out_dim,  # type: ignore
++    return api.vmap(self.prim.expand, in_axes=self.in_dims, out_axes=self.out_dim,  # pyrefly: ignore[missing-attribute]
+                     **self._vmap_params)(*args)
+ 
+   def jvp(self, primals, tangents):
+     # TODO probably gonna get non-pytree-prefix errors because of sym zeros...
+-    return api.vmap(self.prim.jvp, in_axes=(self.in_dims, self.in_dims),  # type: ignore
++    return api.vmap(self.prim.jvp, in_axes=(self.in_dims, self.in_dims),  # pyrefly: ignore[missing-attribute]
+                     out_axes=(self.out_dim, self.out_dim),
+                     **self._vmap_params)(primals, tangents)
+ 
+   def vjp_fwd(self, in_nzs, *args):
+     store = lambda: None
+     def fwd(*args):
+-      primal_out, res, *maybe_out_nzs = self.prim.vjp_fwd(in_nzs, *args)  # type: ignore
++      primal_out, res, *maybe_out_nzs = self.prim.vjp_fwd(in_nzs, *args)  # pyrefly: ignore[missing-attribute]
+       store.out_nzs = maybe_out_nzs  # pyrefly: ignore[missing-attribute]
+       return primal_out, res
+     (primal_out, res), (_, res_axes) = api.vmap(
+         fwd, in_axes=self.in_dims, out_axes=(self.out_dim, batching.infer),
+         **self._vmap_params)(*args)
+-    return primal_out, (res, Static(res_axes)), *store.out_nzs  # type: ignore
++    return primal_out, (res, Static(res_axes)), *store.out_nzs  # pyrefly: ignore[missing-attribute]
+ 
+   def vjp_bwd_retval(self, res_, g):
+     # TODO probably gonna get non-pytree-prefix errors because of sym zeros...
+@@ -532,14 +532,14 @@ class VmapOf(VJPHiPrimitive):
+     in_dims = tree_map(lambda x: batching.sum_axis if x is None else x, self.in_dims,
+                        is_leaf=lambda x: x is None)
+     g = tree_map(partial(map_zero, self.axis_data), self.out_dim, g, is_leaf=lambda x: x is None)
+-    out = api.vmap(self.prim.vjp_bwd_retval, in_axes=(res_axes, self.out_dim),  # type: ignore
++    out = api.vmap(self.prim.vjp_bwd_retval, in_axes=(res_axes, self.out_dim),  # pyrefly: ignore[missing-attribute]
+                    out_axes=in_dims, **self._vmap_params, sum_match=True)(res, g)
+     return tree_map(partial(unmap_zero, self.axis_data), self.in_dims, out, is_leaf=lambda x: x is None)
+ 
+   def batch_dim_rule(self, axis_data, in_dims):
+     fix = lambda d, d_: d if (d is None or d_ is None) else d - (d_ < d)
+     in_dims_ = tree_map(fix, in_dims, self.in_dims, is_leaf=lambda x: x is None)
+-    out_dim = self.prim.batch_dim_rule(axis_data, in_dims_)  # type: ignore
++    out_dim = self.prim.batch_dim_rule(axis_data, in_dims_)  # pyrefly: ignore[missing-attribute]
+     return tree_map(lambda d, d_: d + (d_ < d), out_dim, self.out_dim)
+ 
+ def map_zero(axis_data, d, ct):
+@@ -711,7 +711,7 @@ class CustomVJPTraced(VJPHiPrimitive):
+     args_ = tuple(x.val if isinstance(x, Static) else x for x in args)
+     if self.symbolic_zeros:
+       args_ = tree_map(CustomVJPPrimal, args_, in_nzs)
+-    out, res = self.fwd(*args_)  # type: ignore
++    out, res = self.fwd(*args_)
+     if config.mutable_array_checks.value:
+       _check_for_returned_refs(self.fwd, (out, res), "fwd", tree_leaves(args),
+                                self.out_tree.num_leaves)
+@@ -957,24 +957,25 @@ class LogTy(MutableHiType):
+ 
+   def __hash__(self): return hash(LogTy)
+   def __eq__(self, other): return isinstance(other, LogTy)
+-  def str_short(self, short_dtypes=False, **_) -> str: return 'Log'  # type: ignore
++  def str_short(self, short_dtypes=False, **_) -> str:  # pyrefly: ignore[bad-override]
++    return 'Log'
+ 
+   def to_tangent_aval(self):
+     return LogTy()
+ 
+-  def read_loval_in(self, qdd, log):  # type: ignore
++  def read_loval_in(self, qdd, log):
+     () = qdd
+     return []
+ 
+-  def read_loval_out(self, qdd, log):  # type: ignore
++  def read_loval_out(self, qdd, log):
+     () = qdd
+     return FlatTree.flatten(log._dct)
+ 
+-  def new_from_loval(self, qdd):  # type: ignore
++  def new_from_loval(self, qdd):  # pyrefly: ignore[bad-override]
+     () = qdd
+     return Log._new()
+ 
+-  def update_from_loval2(self, qdd, log: Log, lo_ft) -> None:  # type: ignore
++  def update_from_loval2(self, qdd, log: Log, lo_ft) -> None:
+     () = qdd
+     updates = lo_ft.unflatten()
+     for k, v in updates.items():
+@@ -1001,7 +1002,7 @@ class NewLog(HiPrimitive):
+ 
+   def abstract_eval(self):
+     ty = LogTy()
+-    return core.AvalQDD(ty, ()), {log_effect}  # type: ignore
++    return core.AvalQDD(ty, ()), {log_effect}  # pyrefly: ignore[bad-argument-type]
+ 
+   def to_lojax(_):
+     return Log._new()
+diff --git a/jax/_src/internal_test_util/export_back_compat_test_data/cuda_svd_cusolver_gesvd.py b/jax/_src/internal_test_util/export_back_compat_test_data/cuda_svd_cusolver_gesvd.py
+index 7a4113d28..7063d8427 100644
+--- a/jax/_src/internal_test_util/export_back_compat_test_data/cuda_svd_cusolver_gesvd.py
++++ b/jax/_src/internal_test_util/export_back_compat_test_data/cuda_svd_cusolver_gesvd.py
+@@ -12,7 +12,6 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-# type: ignore
+ # ruff: noqa
+ 
+ import datetime
+diff --git a/jax/_src/internal_test_util/export_back_compat_test_data/rocm_svd_hipsolver_gesvd.py b/jax/_src/internal_test_util/export_back_compat_test_data/rocm_svd_hipsolver_gesvd.py
+index 0ab4f9d64..122d1f006 100644
+--- a/jax/_src/internal_test_util/export_back_compat_test_data/rocm_svd_hipsolver_gesvd.py
++++ b/jax/_src/internal_test_util/export_back_compat_test_data/rocm_svd_hipsolver_gesvd.py
+@@ -12,7 +12,6 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-# type: ignore
+ # ruff: noqa
+ 
+ import datetime
+diff --git a/jax/_src/interpreters/ad.py b/jax/_src/interpreters/ad.py
+index 14ca5f092..6571bc425 100644
+--- a/jax/_src/interpreters/ad.py
++++ b/jax/_src/interpreters/ad.py
+@@ -143,7 +143,7 @@ def linearize_subtrace(_f: Callable, _store: lu.Store, _is_vjp: bool,
+   out_tangents = map(partial(tangent_trace.to_jaxpr_tracer, source_info=source_info),
+                      out_tangents)
+   jaxpr, consts = tangent_trace.to_jaxpr(
+-      out_tangents, debug_info.with_unknown_names(), source_info)  # type: ignore
++      out_tangents, debug_info.with_unknown_names(), source_info)
+   which_env = [(isinstance(c, pe.DynamicJaxprTracer) and
+                 getattr(c._trace, 'tag', None) is _tag) for c in consts]
+   jaxpr = pe.move_envvars(jaxpr, tuple(which_env))
+@@ -399,7 +399,7 @@ def backward_pass3(
+       v, = eqn.outvars
+       lin_eqns.append(eqn)
+       if eqn.primitive is core.ref_p or eqn.primitive is core.empty_ref_p:
+-        env[v] = RefAccum(v.aval.inner_aval)  # type: ignore
++        env[v] = RefAccum(v.aval.inner_aval)  # pyrefly: ignore[missing-attribute]
+       elif eqn.primitive is core.freeze_p:
+         env[v] = ValAccum(v.aval)
+       elif eqn.primitive is core.accum_grad_in_ref_p:
+@@ -520,7 +520,7 @@ def ct_check(primal, ct):
+   if config.disable_bwd_checks.value:
+     return
+   ct_aval = ct.aval if type(ct) is Zero else typeof(ct)
+-  ct_aval_expected = primal.aval.to_ct_aval()  # type: ignore
++  ct_aval_expected = primal.aval.to_ct_aval()
+   if not core.typematch(ct_aval, ct_aval_expected, no_dtype_check=True):
+     # TODO(yashkatariya, mattjj): Add primitive name here for better error?
+     raise ValueError(
+@@ -1208,7 +1208,7 @@ def call_transpose_fancy(primitive, cts, *args, call_jaxpr, **params):
+     args = unproject_accums(specs, primals_ctrefs)
+     backward_pass3(call_jaxpr, False, (), args, cts)
+     cts_out = [x.freeze() if isinstance(x, ValAccum) else None for x in args]
+-    cts_out, cell.out_tree = tree_flatten(cts_out)  # type: ignore
++    cts_out, cell.out_tree = tree_flatten(cts_out)  # pyrefly: ignore[missing-attribute]
+     return cts_out
+ 
+   update_params = call_transpose_param_updaters.get(primitive)
+@@ -1217,7 +1217,7 @@ def call_transpose_fancy(primitive, cts, *args, call_jaxpr, **params):
+                            [type(x) is not Zero for x in cts])
+ 
+   out_flat = primitive.bind(*flat_args, subfuns=(transposed,), **params)
+-  for x, ct in zip(args, tree_unflatten(cell.out_tree, out_flat)):  # type: ignore
++  for x, ct in zip(args, tree_unflatten(cell.out_tree, out_flat)):  # pyrefly: ignore[missing-attribute]
+     if isinstance(x, ValAccum): x.accum(ct)
+ fancy_transposes[core.call_p] = partial(call_transpose_fancy, call_p)
+ 
+diff --git a/jax/_src/interpreters/batching.py b/jax/_src/interpreters/batching.py
+index 2c1b8e25e..1c5345b95 100644
+--- a/jax/_src/interpreters/batching.py
++++ b/jax/_src/interpreters/batching.py
+@@ -417,9 +417,9 @@ def _batch_jaxpr2(
+           axis_data.size, b, aval, axis_data.explicit_mesh_axis)
+       if axis_data.spmd_name is not None:
+         if config._check_vma.value:
+-          mat = aval.mat.update(  # type: ignore
+-              varying=aval.mat.varying  | frozenset(axis_data.spmd_name))  # type: ignore
+-          aval = aval.update(manual_axis_type=mat)  # type: ignore
++          mat = aval.mat.update(  # pyrefly: ignore[missing-attribute]
++              varying=aval.mat.varying  | frozenset(axis_data.spmd_name))  # pyrefly: ignore[missing-attribute]
++          aval = aval.update(manual_axis_type=mat)
+       avals_in2.append(aval)
+   jaxpr_out, _, consts = pe.trace_to_jaxpr_dynamic(f, avals_in2)
+   return core.ClosedJaxpr(jaxpr_out, consts), out_axes()
+diff --git a/jax/_src/interpreters/mlir.py b/jax/_src/interpreters/mlir.py
+index ca85ce252..9c46757b3 100644
+--- a/jax/_src/interpreters/mlir.py
++++ b/jax/_src/interpreters/mlir.py
+@@ -366,13 +366,13 @@ def _ndarray_constant_handler(val: np.ndarray | np.generic,
+   elif 0 in val.strides and val.size > 0:
+     zero_stride_axes, = np.where(np.equal(0, val.strides))
+     other_axes, = np.where(np.not_equal(0, val.strides))
+-    collapsed_val = val[tuple(0 if ax in zero_stride_axes else slice(None)  # type: ignore
++    collapsed_val = val[tuple(0 if ax in zero_stride_axes else slice(None)  # pyrefly: ignore[bad-index]
+                               for ax in range(val.ndim))]
+     out = hlo.broadcast_in_dim(
+         ir.RankedTensorType.get(
+             val.shape, dtype_to_ir_type(collapsed_val.dtype)),
+         _numpy_array_constant(collapsed_val),
+-        dense_int_array(other_axes))  # type: ignore
++        dense_int_array(other_axes))  # pyrefly: ignore[bad-argument-type]
+     return out
+   else:
+     return _numpy_array_constant(val)
+@@ -1055,7 +1055,7 @@ def eval_dynamic_shape_as_vals(ctx: LoweringRuleContext,
+     else:
+       assert isinstance(d, ir.Value)
+       i32_type = aval_to_ir_type(core.ShapedArray((), np.int32))
+-      if d.type != i32_type:  # type: ignore
++      if d.type != i32_type:
+         return hlo.convert(i32_type, d)
+       else:
+         return d
+@@ -1072,7 +1072,7 @@ def eval_dynamic_shape_as_ivals(
+     else:
+       assert isinstance(d, ir.Value)
+       i32_type = aval_to_ir_type(core.ShapedArray((), np.int32))
+-      if d.type != i32_type:  # type: ignore
++      if d.type != i32_type:
+         return hlo.convert(i32_type, d)
+       else:
+         return d
+@@ -1130,7 +1130,7 @@ def _to_physical_op_sharding(
+     return None
+   if isinstance(sharding, AUTO):
+     if config.use_shardy_partitioner.value:
+-      return sharding._to_sdy_sharding(aval.ndim)  # type: ignore
++      return sharding._to_sdy_sharding(aval.ndim)  # pyrefly: ignore[missing-attribute]
+     return None
+   assert isinstance(sharding, JSharding)
+   if isinstance(aval, AbstractRef):
+@@ -1156,7 +1156,7 @@ def _to_xla_layout(layout: Layout | None | AutoLayout,
+     return "auto"
+   if aval is core.abstract_token:
+     return None
+-  return str(layout._to_xla_layout(aval.dtype))  # type: ignore
++  return str(layout._to_xla_layout(aval.dtype))  # pyrefly: ignore[missing-attribute]
+ 
+ 
+ def _get_mem_kind(s: JSharding | AUTO | None) -> str | None:
+@@ -2250,7 +2250,9 @@ def _emit_lowering_rule_as_fun(
+ 
+   const_args, const_arg_avals = util.unzip2(core.eqn_params_const_args(params))
+ 
+-  input_types = map(_aval_to_ir_types, const_arg_avals + avals_in)  # type: ignore
++  input_types = map(
++      _aval_to_ir_types, itertools.chain(const_arg_avals, avals_in)
++  )
+   output_types = map(_aval_to_ir_types, avals_out)
+   token_types = [token_type() for _ in ordered_effects]
+   input_types = [*dim_var_types, *token_types, *input_types]
+@@ -2742,16 +2744,16 @@ def broadcast_in_dim(ctx: LoweringRuleContext, op, aval_out: core.AbstractValue,
+   # broadcast_dimension[i] is the axis of the result where the axis i of
+   # op is broadcast.
+   # Lower a possibly-dynamic broadcast_in_dim
+-  if dtypes.issubdtype(aval_out.dtype, dtypes.extended):  # type: ignore
+-    elt_shape = core.physical_element_aval(aval_out.dtype).shape  # type: ignore
+-    trailing_dims = [aval_out.ndim + i for i in range(len(elt_shape))]  # type: ignore
++  if dtypes.issubdtype(aval_out.dtype, dtypes.extended):  # pyrefly: ignore[missing-attribute]
++    elt_shape = core.physical_element_aval(aval_out.dtype).shape  # pyrefly: ignore[missing-attribute]
++    trailing_dims = [aval_out.ndim + i for i in range(len(elt_shape))]  # pyrefly: ignore[missing-attribute]
+     broadcast_dimensions = [*broadcast_dimensions, *trailing_dims]
+     physical_aval_out = core.physical_aval(aval_out)
+     return broadcast_in_dim(
+         ctx, op, physical_aval_out, broadcast_dimensions=broadcast_dimensions)
+   else:
+-    if not core.is_constant_shape(aval_out.shape):  # type: ignore
+-      shape = eval_dynamic_shape_as_tensor(ctx, aval_out.shape)  # type: ignore
++    if not core.is_constant_shape(aval_out.shape):  # pyrefly: ignore[missing-attribute]
++      shape = eval_dynamic_shape_as_tensor(ctx, aval_out.shape)  # pyrefly: ignore[missing-attribute]
+       (result_type,) = aval_to_ir_types(aval_out)
+       out = hlo.dynamic_broadcast_in_dim(
+           result_type, op,
+@@ -2760,7 +2762,7 @@ def broadcast_in_dim(ctx: LoweringRuleContext, op, aval_out: core.AbstractValue,
+       )
+     else:
+       assert all(d != ir.ShapedType.get_dynamic_size()
+-                 for d in aval_out.shape), aval_out  # type: ignore
++                 for d in aval_out.shape), aval_out  # pyrefly: ignore[missing-attribute]
+       (result_type,) = aval_to_ir_types(aval_out)
+       out = hlo.broadcast_in_dim(
+           result_type, op,
+@@ -2776,10 +2778,10 @@ def multi_broadcast_in_dim(ctx: LoweringRuleContext,
+   """Broadcasts multiple ops to the out_shape."""
+   out = []
+   for op, op_aval in zip(ops, ops_avals):
+-    op_aval_shape = op_aval.shape  # type: ignore
+-    op_aval_sharding = op_aval.sharding  # type: ignore
++    op_aval_shape = op_aval.shape  # pyrefly: ignore[missing-attribute]
++    op_aval_sharding = op_aval.sharding  # pyrefly: ignore[missing-attribute]
+     out_aval = core.ShapedArray(
+-        out_shape, op_aval.dtype, sharding=out_sharding)  # type: ignore
++        out_shape, op_aval.dtype, sharding=out_sharding)  # pyrefly: ignore[missing-attribute]
+     if core.definitely_equal_shape(op_aval_shape, out_shape):
+       if op_aval_sharding.spec.unreduced or op_aval_sharding.spec.reduced:
+         out.append(op)
+@@ -2800,8 +2802,8 @@ def multi_broadcast_in_dim(ctx: LoweringRuleContext,
+ 
+ def reshape(ctx: LoweringRuleContext, op, aval_out: core.AbstractValue) -> ir.Value:
+   aval_out = core.physical_aval(aval_out)
+-  if not core.is_constant_shape(aval_out.shape):  # type: ignore
+-    shape = eval_dynamic_shape_as_tensor(ctx, aval_out.shape)  # type: ignore
++  if not core.is_constant_shape(aval_out.shape):  # pyrefly: ignore[missing-attribute]
++    shape = eval_dynamic_shape_as_tensor(ctx, aval_out.shape)  # pyrefly: ignore[missing-attribute]
+     (result_type,) = aval_to_ir_types(aval_out)
+     return hlo.dynamic_reshape(
+         result_type, op, shape,
+@@ -2843,7 +2845,7 @@ def dynamic_slice(ctx: LoweringRuleContext, aval_out, x, *,
+   if dtypes.issubdtype(aval_out.dtype, dtypes.extended):
+     elt_shape = core.physical_element_aval(aval_out.dtype).shape
+     index_avals = ctx.avals_in[1:]
+-    dtype = index_avals[0].dtype if index_avals else np.int32  # type: ignore
++    dtype = index_avals[0].dtype if index_avals else np.int32  # pyrefly: ignore[missing-attribute]
+     trailing_zeros = [ir_constant(np.array(0, dtype))] * len(elt_shape)
+     start_indices = (*start_indices, *trailing_zeros)
+     aval_out = core.physical_aval(aval_out)
+@@ -2859,7 +2861,7 @@ def dynamic_slice(ctx: LoweringRuleContext, aval_out, x, *,
+       shape_tensor([0] * len(start_indices)),
+       shape_tensor(start_indices),
+       hlo.subtract(
+-        eval_dynamic_shape_as_tensor(ctx, x_aval.shape),  # type: ignore
++        eval_dynamic_shape_as_tensor(ctx, x_aval.shape),  # pyrefly: ignore[missing-attribute]
+         slice_sizes))
+     (result_type,) = aval_to_ir_types(aval_out)
+     return hlo.real_dynamic_slice(
+@@ -2876,7 +2878,7 @@ def dynamic_update_slice(ctx: LoweringRuleContext, aval_out, x, update, *,
+   if dtypes.issubdtype(aval_out.dtype, dtypes.extended):
+     elt_shape = core.physical_element_aval(aval_out.dtype).shape
+     index_avals = ctx.avals_in[2:]
+-    dtype = index_avals[0].dtype if index_avals else np.int32  # type: ignore
++    dtype = index_avals[0].dtype if index_avals else np.int32  # pyrefly: ignore[missing-attribute]
+     zeros = [ir_constant(np.array(0, dtype=dtype))] * len(elt_shape)
+     start_indices = (*start_indices, *zeros)
+     physical_aval_out = core.physical_aval(aval_out)
+@@ -2995,7 +2997,7 @@ def _wrap_with_spmd_op(name: str,
+                        has_side_effect: bool = False,
+                        allow_shardy_lowering: bool = False):
+   if config.use_shardy_partitioner.value and allow_shardy_lowering:
+-    return dialects.sdy.ShardingConstraintOp(x, sharding.build()).result  # type: ignore
++    return dialects.sdy.ShardingConstraintOp(x, sharding.build()).result  # pyrefly: ignore[missing-attribute]
+ 
+   # unspecified_dims indicate dimensions whose shardings are not specified and
+   # XLA sharding propagation can change them.
+@@ -3005,7 +3007,7 @@ def _wrap_with_spmd_op(name: str,
+   else:
+     backend_config = ""
+   (result_type,) = aval_to_ir_types(aval_out)
+-  out_shape = core.physical_aval(aval_out).shape  # type: ignore
++  out_shape = core.physical_aval(aval_out).shape  # pyrefly: ignore[missing-attribute]
+   if core.is_constant_shape(out_shape):
+     result_shapes = None
+   else:
+@@ -3080,7 +3082,7 @@ def wrap_with_layout_op(ctx: LoweringRuleContext,
+                         layout: Layout,
+                         aval_in: core.AbstractValue):
+   (result_type,) = aval_to_ir_types(aval_out)
+-  out_shape = core.physical_aval(aval_out).shape  # type: ignore
++  out_shape = core.physical_aval(aval_out).shape  # pyrefly: ignore[missing-attribute]
+   if core.is_constant_shape(out_shape):
+     result_shapes = None
+   else:
+@@ -3090,7 +3092,7 @@ def wrap_with_layout_op(ctx: LoweringRuleContext,
+                    api_version=1,
+                    result_shapes=result_shapes,
+                    # Set operand layouts to anything. XLA will ignore it.
+-                   operand_layouts=[list(range(aval_in.ndim))],  # type: ignore
++                   operand_layouts=[list(range(aval_in.ndim))],  # pyrefly: ignore[missing-attribute]
+                    # TODO(yashkatariya): Figure out how to pass tiling to the
+                    # custom call.
+                    result_layouts=[layout.major_to_minor[::-1]])
+diff --git a/jax/_src/interpreters/partial_eval.py b/jax/_src/interpreters/partial_eval.py
+index e3a5fb449..6c235779a 100644
+--- a/jax/_src/interpreters/partial_eval.py
++++ b/jax/_src/interpreters/partial_eval.py
+@@ -894,7 +894,7 @@ def partial_eval_jaxpr_custom(
+       jaxpr, in_unknowns, in_inst, ensure_out_unknowns, ensure_out_inst, saveable)
+   if num_res_ref:
+     raise ValueError("Cannot use `partial_eval_jaxpr_custom` with stateful jaxprs.")
+-  return *outs,  # type: ignore
++  return *outs,  # pyrefly: ignore[bad-return]
+ 
+ def partial_eval_jaxpr_stateful(
+     jaxpr: Jaxpr,
+@@ -996,7 +996,7 @@ def _partial_eval_jaxpr_custom_cached(
+         known_eqns.append(offload_eqn)
+         # resvars are known and available in the backward jaxpr.
+         foreach(partial(write, False, True), resvars)
+-        assert all(o.aval.memory_space == core.mem_kind_to_space(policy.src)  # type: ignore
++        assert all(o.aval.memory_space == core.mem_kind_to_space(policy.src)  # pyrefly: ignore[missing-attribute]
+                    for o in eqn.outvars)
+         residuals.update(resvars)
+         reload_eqn = core.JaxprEqn(
+@@ -1257,14 +1257,14 @@ def _jaxpr_forwarding(jaxpr: Jaxpr) -> list[int | None]:
+   fwds: dict[Var, Atom] = dict(zip(jaxpr.invars, jaxpr.invars))
+   for eqn in jaxpr.eqns:
+     if eqn.primitive in forwarding_rules:
+-      eqn = eqn.replace(invars=[a if type(a) is Literal else fwds.get(a, a)  # type: ignore
++      eqn = eqn.replace(invars=[a if type(a) is Literal else fwds.get(a, a)
+                                 for a in eqn.invars])
+       fwd_idx, _ = forwarding_rules[eqn.primitive](eqn)
+       for v_orig, idx in zip(eqn.outvars, fwd_idx):
+         if idx is not None:
+           fwds[v_orig] = eqn.invars[idx]
+   idxs: dict[Var, int] = {v: i for i, v in enumerate(jaxpr.invars)}
+-  return [None if type(v) is Literal else idxs.get(fwds.get(v))  # type: ignore
++  return [None if type(v) is Literal else idxs.get(fwds.get(v))  # pyrefly: ignore[bad-argument-type]
+           for v in jaxpr.outvars]
+ 
+ 
+@@ -1609,12 +1609,14 @@ core.pytype_aval_mappings[DynamicJaxprTracer] = lambda x: x.aval
+ def make_jaxpr_effects(constvars, invars, outvars, eqns) -> effects.Effects:
+   sentinel = object()
+   jaxpr_effects = set()
+-  all_vars = {v: i for i, v in enumerate(it.chain(constvars, invars))}
++  all_vars: dict[Var, int | None] = {
++      v: i for i, v in enumerate(it.chain(constvars, invars))
++  }
+   mut_arrays = set()
+   for eqn in eqns:
+     if eqn.primitive in core._ref_allocating_primitives:
+       outvar, = eqn.outvars
+-      all_vars[outvar] = None  # type: ignore
++      all_vars[outvar] = None
+       mut_arrays.add(outvar)
+     for eff in eqn.effects:
+       if isinstance(eff, effects.JaxprInputEffect):
+@@ -1902,7 +1904,7 @@ class DynamicJaxprTrace(core.Trace):
+         aval = typeof(c)
+       if aval.has_qdd:
+         with core.set_current_trace(self.parent_trace or core.eval_trace):
+-          aval = core.AvalQDD(aval, core.cur_qdd(c))  # type: ignore
++          aval = core.AvalQDD(aval, core.cur_qdd(c))  # pyrefly: ignore[bad-assignment]
+       tracer = self._new_const(aval, c, source_info)
+     return tracer
+ 
+diff --git a/jax/_src/interpreters/pxla.py b/jax/_src/interpreters/pxla.py
+index da1039cd3..1452731ae 100644
+--- a/jax/_src/interpreters/pxla.py
++++ b/jax/_src/interpreters/pxla.py
+@@ -565,13 +565,14 @@ def _get_and_check_device_assignment(
+               stages.DeviceAssignmentMismatch(
+                   arr_device_assignment, s_type, source_info)])
+ 
++  device_assignment: tuple[xc.Device, ...]
+   if (first_sharding_info is None and not ctx_mesh.empty and
+       isinstance(ctx_mesh, Mesh)):
+-    device_assignment = ctx_mesh._flat_devices_tuple  # type: ignore
++    device_assignment = ctx_mesh._flat_devices_tuple
+   elif first_sharding_info is None:
+     device_assignment = (get_default_device(),)
+   else:
+-    device_assignment = first_sharding_info[0]
++    device_assignment = first_sharding_info[0]  # pyrefly: ignore[bad-assignment]
+ 
+   backend = xb.get_device_backend(device_assignment[0])
+ 
+@@ -582,7 +583,7 @@ def _get_and_check_device_assignment(
+         f" device assignment size: {len(device_assignment)}")
+ 
+   if any_concrete_sharding or abstract_mesh is None:
+-    return backend, device_assignment, len(device_assignment)  # type: ignore
++    return backend, device_assignment, len(device_assignment)
+   else:
+     return backend, None, abstract_mesh.size
+ 
+@@ -892,7 +893,7 @@ def hoist_constants_as_args(
+     else:
+       arg_names = (("",) * num_const_args + all_args_info.debug_info.arg_names)
+     all_args_info = AllArgsInfo(
+-        list(const_arg_avals) + all_args_info.in_avals,  # type: ignore
++        [*const_arg_avals, *all_args_info.in_avals],
+         all_args_info.debug_info._replace(arg_names=arg_names))
+ 
+   return (const_args, global_in_avals, in_shardings, in_layouts, donated_invars,
+@@ -1023,7 +1024,7 @@ def lower_sharding_computation(
+            for js, source_info in unique_intermediate_shardings)),
+       context_mesh)
+   unique_intermediate_shardings = [js for js, _ in unique_intermediate_shardings]
+-  unique_in_shardings = unique_in_shardings | unique_const_shardings  # type: ignore
++  unique_in_shardings = unique_in_shardings | unique_const_shardings  # pyrefly: ignore[unsupported-operation]
+   del unique_const_shardings
+ 
+   prim_requires_devices = dispatch.jaxpr_has_prim_requiring_devices(jaxpr)
+@@ -1329,7 +1330,7 @@ def get_out_shardings_from_executable(
+   # put the sharding on ROOT instead of the tuple.
+   # TODO(b/245667823): Remove this when XLA fixes this.
+   if len(out_op_shardings) == 1 and len(out_op_shardings) < num_out_avals:
+-    out_op_shardings = out_op_shardings * num_out_avals  # type: ignore
++    out_op_shardings = list(out_op_shardings) * num_out_avals
+ 
+   assert len(out_op_shardings) == num_out_avals == len(omk), (
+       len(out_op_shardings), num_out_avals, len(omk))
+@@ -1372,7 +1373,7 @@ def _get_mesh_pspec_shardings_from_executable(
+           [NamedSharding(mesh, o) for o in out_pspec])
+ 
+ 
+-_orig_out_sharding_handlers = {}
++_orig_out_sharding_handlers: dict[Any, Any] = {}
+ 
+ def _gspmd_to_named_sharding(
+     out_s: GSPMDSharding, out_aval, orig_in_s: NamedSharding) -> NamedSharding:
+@@ -1395,7 +1396,7 @@ def _gspmd_to_single_device_sharding(
+   assert isinstance(orig_in_s, SingleDeviceSharding)
+   return SingleDeviceSharding(
+       out_s._device_assignment[0], memory_kind=out_s.memory_kind)
+-_orig_out_sharding_handlers[SingleDeviceSharding] = _gspmd_to_single_device_sharding  # type: ignore
++_orig_out_sharding_handlers[SingleDeviceSharding] = _gspmd_to_single_device_sharding
+ 
+ 
+ def _get_out_sharding_from_orig_sharding(
+diff --git a/jax/_src/interpreters/remat.py b/jax/_src/interpreters/remat.py
+index bce7aec25..751ea074b 100644
+--- a/jax/_src/interpreters/remat.py
++++ b/jax/_src/interpreters/remat.py
+@@ -41,7 +41,8 @@ def remat_transform(policy, f, *args):
+     trace = RematTrace(parent_trace, jaxpr_trace, core.TraceTag(), policy)
+     args_ft = FlatTree.flatten_static_argnums_argnames(args, {}, (), ())
+     in_tracers = args_ft.map(
+-        lambda x: RematTracer(trace, x, jaxpr_trace.new_arg(typeof(x), None)))  # noqa F821  # type: ignore
++        # pyrefly: ignore[bad-argument-type]
++        lambda x: RematTracer(trace, x, jaxpr_trace.new_arg(typeof(x), None)))  # noqa F821
+     with core.set_current_trace(trace):
+       args, kwargs = in_tracers.unflatten()
+       ans_pytree = f(*args, **kwargs)
+diff --git a/jax/_src/lax/control_flow/conditionals.py b/jax/_src/lax/control_flow/conditionals.py
+index 13dbaabc7..6e2b47a83 100644
+--- a/jax/_src/lax/control_flow/conditionals.py
++++ b/jax/_src/lax/control_flow/conditionals.py
+@@ -136,8 +136,8 @@ def _switch_internal(
+     branches: Sequence[Callable],
+     operands: Sequence[Any], *,
+     branches_platforms: BranchesPlatforms | None):
+-  if (config.disable_jit.value and core.is_concrete(index)):
+-    return branches[int(index)](*operands)  # type: ignore
++  if config.disable_jit.value and core.is_concrete(index):
++    return branches[int(index)](*operands)  # pyrefly: ignore[bad-argument-type]
+ 
+   dbgs = [api_util.debug_info("switch", branch, operands, {})
+           for branch in branches]
+@@ -864,12 +864,12 @@ def _transpose_jaxpr_fancy(jaxpr, in_tree, in_avals, specs, inst_out):
+     ad.backward_pass3(jaxpr.jaxpr, False, jaxpr.consts, args, cts_in)
+     cts_out = [maybe_inst(x.freeze(), inst) if isinstance(x, ad.ValAccum)
+                else None for x, inst in zip(args, inst_out)]
+-    cts_out, cell.out_tree = tree_flatten(cts_out)  # type: ignore
++    cts_out, cell.out_tree = tree_flatten(cts_out)  # pyrefly: ignore[missing-attribute]
+     return cts_out
+   dbg = jaxpr.jaxpr.debug_info.with_unknown_names()
+   trans_jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(
+       lu.wrap_init(transposed, debug_info=dbg), in_avals)
+-  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # type: ignore
++  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # pyrefly: ignore[missing-attribute]
+ 
+ 
+ def _cond_typecheck(bind_time, *in_atoms, branches, **params):
+diff --git a/jax/_src/lax/control_flow/loops.py b/jax/_src/lax/control_flow/loops.py
+index a8ce52e08..b5360dd45 100644
+--- a/jax/_src/lax/control_flow/loops.py
++++ b/jax/_src/lax/control_flow/loops.py
+@@ -122,7 +122,7 @@ class Scan3(hijax.VJPHiPrimitive):
+         unroll=unroll)    # TODO: don't ignore
+     super().__init__()
+ 
+-  def expand(self, args):  # type: ignore
++  def expand(self, args):  # pyrefly: ignore[bad-override]
+     # TODO(dougalm): use empty_ref instead of new_ref
+     # (requires empty_ref to have an impl rule)
+     outs = [core.new_ref(ad_util.zeros_like_aval(aval)) for aval in self.out_aval]
+diff --git a/jax/_src/lax/convolution.py b/jax/_src/lax/convolution.py
+index fc9a1a41c..a8eb17e03 100644
+--- a/jax/_src/lax/convolution.py
++++ b/jax/_src/lax/convolution.py
+@@ -542,6 +542,8 @@ def _conv_general_dilated_transpose_lhs(
+       window_strides, np.take(g.shape, out_sdims), padding, lhs_dilation,
+       rhs_dilation)
+   revd_weights = lax.rev(rhs, rhs_sdims)
++  if g.dtype != revd_weights.dtype:
++    revd_weights = lax.convert_element_type(revd_weights, g.dtype)
+   out = conv_general_dilated(
+       g, revd_weights, window_strides=lhs_dilation, padding=padding,
+       lhs_dilation=window_strides, rhs_dilation=rhs_dilation,
+@@ -550,6 +552,8 @@ def _conv_general_dilated_transpose_lhs(
+       batch_group_count=1, precision=precision,
+       preferred_element_type=preferred_element_type,
+       out_sharding=lhs.aval.sharding)
++  if out.dtype != lhs.aval.dtype:
++    out = lax.convert_element_type(out, lhs.aval.dtype)
+   if batch_group_count > 1:
+     out = _reshape_axis_out_of(lhs_spec[1], batch_group_count, out)
+     out = _reshape_axis_into(lhs_spec[1], lhs_spec[0], out)
+@@ -579,7 +583,9 @@ def _conv_general_dilated_transpose_rhs(
+       np.take(lhs_shape, lhs_sdims), np.take(rhs_shape, rhs_sdims),
+       window_strides, np.take(g.shape, out_sdims), padding, lhs_dilation,
+       rhs_dilation)
+-  return conv_general_dilated(
++  if g.dtype != lhs.dtype:
++    lhs = lax.convert_element_type(lhs, g.dtype)
++  out = conv_general_dilated(
+       lhs, g, window_strides=rhs_dilation, padding=padding,
+       lhs_dilation=lhs_dilation, rhs_dilation=window_strides,
+       dimension_numbers=trans_dimension_numbers,
+@@ -587,6 +593,9 @@ def _conv_general_dilated_transpose_rhs(
+       batch_group_count=batch_group_count, precision=precision,
+       preferred_element_type=preferred_element_type,
+       out_sharding=rhs.aval.sharding)
++  if out.dtype != rhs.aval.dtype:
++    out = lax.convert_element_type(out, rhs.aval.dtype)
++  return out
+ 
+ def _conv_general_dilated_batch_rule(
+     axis_data,
+diff --git a/jax/_src/lax/lax.py b/jax/_src/lax/lax.py
+index cba25d76a..9c08ee787 100644
+--- a/jax/_src/lax/lax.py
++++ b/jax/_src/lax/lax.py
+@@ -3603,7 +3603,7 @@ def full_like(x: ArrayLike | DuckTypedArray,
+         and (fill_shape == np.shape(x) or x.sharding.is_fully_replicated)  # type: ignore[arg-type]
+     )
+     if use_x_sharding:
+-      sharding = x.sharding  # type: ignore
++      sharding = x.sharding  # pyrefly: ignore[missing-attribute]
+   val = full(fill_shape, _convert_element_type(fill_value, dtype, weak_type),
+              sharding=sharding)
+   val, _ = full_like_insert_pvary(val, x)
+@@ -3611,7 +3611,7 @@ def full_like(x: ArrayLike | DuckTypedArray,
+ 
+ 
+ def full_like_insert_pvary(val, x):
+-  from jax._src.state.types import TransformedRef  # type: ignore
++  from jax._src.state.types import TransformedRef  # pyrefly: ignore[missing-import]
+   if isinstance(x, TransformedRef):
+     all_varying = frozenset.union(*[
+         typeof(x).mat.varying for x in tree_util.FlatTree.flatten(x).vals
+diff --git a/jax/_src/lax/parallel.py b/jax/_src/lax/parallel.py
+index a0f35ca3c..a7eca4581 100644
+--- a/jax/_src/lax/parallel.py
++++ b/jax/_src/lax/parallel.py
+@@ -1798,7 +1798,7 @@ def _all_gather_lowering(ctx, x, *, all_gather_dimension, axis_name,
+         replica_groups=_replica_groups_hlo(replica_groups),
+         **other_args).results
+ 
+-  future_type = hlo.FutureType.get([out_type])  # type: ignore
++  future_type = hlo.FutureType.get([out_type])
+   async_start = hlo.AsyncStartOp(future_type, [x])
+   block = async_start.regions[0].blocks.append(x.type)
+   with ir.InsertionPoint(block):
+@@ -2970,7 +2970,7 @@ def _start_lowering(sync_lower):
+     inner_aval = out_aval.inner_aval  # e.g., f32[4, 2]
+     inner_type = mlir.aval_to_ir_type(inner_aval)  # e.g., <tensor<4x2xf32>
+     # e.g., !stablehlo.future<tensor<4x2xf32>>
+-    future_type = hlo.FutureType.get([inner_type])  # type: ignore
++    future_type = hlo.FutureType.get([inner_type])
+     async_start = hlo.AsyncStartOp(future_type, [x])
+     block = async_start.regions[0].blocks.append(x.type)
+     with ir.InsertionPoint(block):
+diff --git a/jax/_src/lax/slicing.py b/jax/_src/lax/slicing.py
+index 927c5030c..d64b81a42 100644
+--- a/jax/_src/lax/slicing.py
++++ b/jax/_src/lax/slicing.py
+@@ -1554,7 +1554,7 @@ def _dynamic_slice_transpose_fancy(out_ct, operand, *start_indices, slice_sizes)
+     operand_aval, = lax_utils.ensure_shaped(operand.aval)
+     zeros = lax.full(operand_aval.shape, 0, operand_aval.dtype,
+                      sharding=operand_aval.sharding)
+-    zeros = core.pvary(zeros, tuple(operand_aval.mat.varying))  # type: ignore
++    zeros = core.pvary(zeros, tuple(operand_aval.mat.varying))
+     operand.accum(dynamic_update_slice_p.bind(zeros, out_ct, *start_indices))
+ 
+ def _batch_dynamic_slice_indices(indices, bdims):
+@@ -2371,9 +2371,9 @@ def _scatter_dtype_rule(operand, indices, updates, **kwargs):
+ 
+ def _get_updates_batching_dims(indices_batching_dims, update_window_dims,
+                                index_vector_dim, updates_shape):
+-  scatter_dim_in_updates = list(range(index_vector_dim))
++  scatter_dim_in_updates: list[int | None] = list(range(index_vector_dim))
+   for i in update_window_dims:
+-    scatter_dim_in_updates.insert(i, None)  # type: ignore
++    scatter_dim_in_updates.insert(i, None)
+   assert len(scatter_dim_in_updates) == len(updates_shape)
+   return tuple(scatter_dim_in_updates.index(i) for i in indices_batching_dims)
+ 
+@@ -3446,7 +3446,7 @@ def _dynamic_slice_indices(
+       continue
+     if allow_negative_index:
+       d_arr = lax.convert_element_type(d, _dtype(i))
+-      # pyrefly: ignore [unsupported-operation]
++      # pyrefly: ignore[unsupported-operation]
+       result.append(lax.select(i < 0, i + d_arr, i))
+     else:
+       result.append(i)
+diff --git a/jax/_src/lax/utils.py b/jax/_src/lax/utils.py
+index d765e276d..ac0be2472 100644
+--- a/jax/_src/lax/utils.py
++++ b/jax/_src/lax/utils.py
+@@ -166,8 +166,8 @@ def manual_rule(prim, vma_rule, ur_rule, multi_out, *avals, **kwargs):
+         (frozenset(), frozenset()) if num_out is None else
+         ([frozenset()] * num_out, [frozenset()] * num_out))
+   if num_out is None:
+-    return core.ManualAxisType(varying=out_vma, unreduced=out_unreduced,  # type: ignore
+-                               reduced=out_reduced)  # type: ignore
++    return core.ManualAxisType(varying=out_vma, unreduced=out_unreduced,
++                               reduced=out_reduced)
+   else:
+     return [core.ManualAxisType(varying=v, unreduced=u, reduced=r)
+             for v, u, r in zip(out_vma, out_unreduced, out_reduced)]
+diff --git a/jax/_src/lax_reference.py b/jax/_src/lax_reference.py
+index 62d812d22..25d6a1b1b 100644
+--- a/jax/_src/lax_reference.py
++++ b/jax/_src/lax_reference.py
+@@ -71,25 +71,25 @@ acosh = np.arccosh
+ atanh = np.arctanh
+ 
+ def logistic(x): return (1 / (1 + np.exp(-x))).astype(x.dtype)
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def betainc(a, b, x): return scipy.special.betainc(a, b, x).astype(x.dtype)
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def lgamma(x): return scipy.special.gammaln(x).astype(x.dtype)
+ def digamma(x): return scipy.special.digamma(x).astype(x.dtype)
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ igamma = scipy.special.gammainc
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ igammac = scipy.special.gammaincc
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def erf(x): return scipy.special.erf(x).astype(x.dtype)
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def erfc(x): return scipy.special.erfc(x).astype(x.dtype)
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def erf_inv(x): return scipy.special.erfinv(x).astype(x.dtype)
+ 
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def bessel_i0e(x): return scipy.special.i0e(x).astype(x.dtype)
+-# pyrefly: ignore [missing-attribute]
++# pyrefly: ignore[missing-attribute]
+ def bessel_i1e(x): return scipy.special.i1e(x).astype(x.dtype)
+ 
+ real = np.real
+diff --git a/jax/_src/linear_util.py b/jax/_src/linear_util.py
+index 119549afe..f97cf9d45 100644
+--- a/jax/_src/linear_util.py
++++ b/jax/_src/linear_util.py
+@@ -371,22 +371,24 @@ class DebugInfo(NamedTuple):
+ 
+   def safe_result_paths(self, expected_count: int) -> tuple[str, ...]:
+     """Get the result paths with a safety check. Empty paths mean unknown."""
+-    assert self.result_paths is not initial_result_paths and not callable(self.result_paths), self
++    assert not isinstance(self.result_paths, InitialResultPaths) and not callable(self.result_paths), self
+     self.assert_result_paths(expected_count)
+     if self.result_paths is not None:
+-      return self.result_paths  # type: ignore
++      return self.result_paths
+ 
+     return ("",) * expected_count
+ 
+   def assert_result_paths(self, expected_count: int):
+-    assert self.result_paths is None or len(self.result_paths) == expected_count, (  # type: ignore
+-        expected_count, self)
++    if self.result_paths is None:
++      return
++    assert isinstance(self.result_paths, tuple), self
++    assert len(self.result_paths) == expected_count, (expected_count, self)
+ 
+   def filter_result_paths(self, keep: Sequence[bool]) -> tuple[str, ...] | None:
+     """Keep only the result_paths for which `keep` is True."""
+-    assert self.result_paths is not initial_result_paths and not callable(self.result_paths), self
++    assert not isinstance(self.result_paths, InitialResultPaths) and not callable(self.result_paths), self
+     if self.result_paths is None: return None
+-    return tuple(v for v, b in zip(self.result_paths, keep) if b)  # type: ignore
++    return tuple(v for v, b in zip(self.result_paths, keep) if b)
+ 
+   def with_unknown_names(self) -> DebugInfo:
+     return self._replace(arg_names=None, result_paths=None)
+@@ -457,11 +459,13 @@ def cache(call: Callable, *,
+       ans, stores = result
+       fun.populate_stores(stores)
+     else:
++      start = 0.0
+       if do_explain := explain and config.explain_cache_misses.value:
+         start = time.time()
+       ans = call(fun, *args)
+       if do_explain:
+-        explain(fun, cache is new_cache, cache, key, time.time() - start)  # type: ignore
++        assert explain
++        explain(fun, cache is new_cache, cache, key, time.time() - start)
+       cache[key] = (ans, fun.stores)
+ 
+     return ans
+@@ -469,8 +473,8 @@ def cache(call: Callable, *,
+   def _evict_function(f):
+     fun_caches.pop(f, None)
+ 
+-  memoized_fun.evict_function = _evict_function  # type: ignore
+-  memoized_fun.cache_clear = fun_caches.clear  # type: ignore
++  memoized_fun.evict_function = _evict_function  # pyrefly: ignore[missing-attribute]
++  memoized_fun.cache_clear = fun_caches.clear  # pyrefly: ignore[missing-attribute]
+   register_cache(memoized_fun, str(call))
+   return memoized_fun
+ 
+diff --git a/jax/_src/pallas/core.py b/jax/_src/pallas/core.py
+index 503562e47..952913f39 100644
+--- a/jax/_src/pallas/core.py
++++ b/jax/_src/pallas/core.py
+@@ -917,7 +917,7 @@ class GridMapping:
+   def static_grid(self) -> StaticGrid:
+     if self.num_dynamic_grid_bounds:
+       raise ValueError("Expected a grid with fully static bounds")
+-    return self.grid  # type: ignore
++    return self.grid  # pyrefly: ignore[bad-return]
+ 
+   @contextlib.contextmanager
+   def trace_env(self):
+@@ -1131,14 +1131,14 @@ class GridSpec:
+     if isinstance(grid, int):
+       grid = (grid,)
+     elif grid and isinstance(grid[0], tuple):  # Check if we have a named grid
+-      grid_names, grid = util.unzip2(grid)  # type: ignore
++      grid_names, grid = util.unzip2(grid)  # pyrefly: ignore[bad-argument-type]
+ 
+     # TODO(b/353730556): allow NumPy scalars in grids
+-    if not all(_is_valid_grid_dim(g) for g in grid):  # type: ignore
++    if not all(_is_valid_grid_dim(g) for g in grid):  # pyrefly: ignore[bad-argument-type]
+       raise ValueError(
+           f"Grid must be a tuple of integers or jax.Array, got {grid}"
+       )
+-    self.grid = grid  # type: ignore
++    self.grid = grid  # pyrefly: ignore[bad-assignment]
+     self.grid_names = grid_names
+ 
+   def _make_scalar_ref_aval(self, aval):
+diff --git a/jax/_src/pallas/einshape.py b/jax/_src/pallas/einshape.py
+index 4faeb3754..4d8698049 100644
+--- a/jax/_src/pallas/einshape.py
++++ b/jax/_src/pallas/einshape.py
+@@ -553,7 +553,7 @@ def _tile_preserving_einshape_kernel(
+   assert isinstance(t1, int)
+   assert isinstance(t2, int)
+   dims = _init_dims(x.shape, t1, t2)
+-  tiles = _array_to_2d_tile_array(x, tiling)  # type: ignore
++  tiles = _array_to_2d_tile_array(x, tiling)  # pyrefly: ignore[bad-argument-type]
+   transforms = get_einshape_transforms(equation, x.shape, **size_vars)
+ 
+   def get_outer_shape(dims_list: list[list[Factor]]) -> tuple[int, ...]:
+@@ -632,9 +632,7 @@ def _einshape_kernel(
+   if len(transforms) <= 1:
+     return _default_einshape_kernel(equation, x, **size_vars)
+   tiling = tpu_info.infer_tiling(jax_core.ShapedArray(x.shape, x.dtype))
+-  if tiling is not None and _is_tile_preserving(
+-      x.shape, transforms, tiling[-2:]  # type: ignore
+-  ):
++  if _is_tile_preserving(x.shape, transforms, tiling[-2:]):  # pyrefly: ignore[bad-argument-type]
+     return _tile_preserving_einshape_kernel(equation, x, **size_vars)
+   elif assert_is_tile_preserving:
+     raise ValueError(
+diff --git a/jax/_src/pallas/mosaic/lowering.py b/jax/_src/pallas/mosaic/lowering.py
+index b88ea84ea..12b67e562 100644
+--- a/jax/_src/pallas/mosaic/lowering.py
++++ b/jax/_src/pallas/mosaic/lowering.py
+@@ -3657,7 +3657,7 @@ def _roll_lowering_rule(
+   if jaxlib_extension_version < 425:
+     # When removing this, also remove "type: ignore" below
+     (out_aval,) = ctx.avals_out
+-    return tpu.dynamic_rotate(  # type: ignore
++    return tpu.dynamic_rotate(
+         ctx.aval_to_ir_type(out_aval),
+         x,
+         shift,
+@@ -3665,7 +3665,7 @@ def _roll_lowering_rule(
+         stride=stride,
+         stride_dimension=stride_axis,
+     )
+-  return tpu.dynamic_rotate(  # type: ignore
++  return tpu.dynamic_rotate(
+       x,
+       shift,
+       axis,
+diff --git a/jax/_src/pallas/mosaic/pallas_call_registration.py b/jax/_src/pallas/mosaic/pallas_call_registration.py
+index c6154b517..882885252 100644
+--- a/jax/_src/pallas/mosaic/pallas_call_registration.py
++++ b/jax/_src/pallas/mosaic/pallas_call_registration.py
+@@ -289,7 +289,7 @@ def _lower_to_custom_call(
+         raise ValueError("Metadata already contains mesh axes.")
+       mesh_axes_list = list(mesh_axes)
+       if all(isinstance(a, str) for a in mesh_axes):
+-        mesh_axes_list = sorted(mesh_axes)  # type: ignore
++        mesh_axes_list = sorted(mesh_axes)  # pyrefly: ignore[bad-specialization]
+       dict_metadata["mesh_axes"] = json.dumps(mesh_axes_list)
+   out_nodes = mosaic.lower_module_to_custom_call(
+       kernel_ctx,
+diff --git a/jax/_src/pallas/mosaic/sc_lowering.py b/jax/_src/pallas/mosaic/sc_lowering.py
+index 5ecfe35c9..94cc856a5 100644
+--- a/jax/_src/pallas/mosaic/sc_lowering.py
++++ b/jax/_src/pallas/mosaic/sc_lowering.py
+@@ -494,7 +494,7 @@ def lower_jaxpr_to_func(
+         if i not in mosaic_grid_mapping.vmapped_dims
+     )
+     lowering_context = LoweringContext(
+-        mosaic_grid_mapping.grid,  # type: ignore
++        mosaic_grid_mapping.grid,  # pyrefly: ignore[bad-argument-type]
+         mosaic_grid_mapping.grid_names,
+         mosaic_grid_mapping.vmapped_dims,
+         jaxpr_indices,
+diff --git a/jax/_src/pallas/mosaic/sc_primitives.py b/jax/_src/pallas/mosaic/sc_primitives.py
+index 3b6b863cf..0963c5b37 100644
+--- a/jax/_src/pallas/mosaic/sc_primitives.py
++++ b/jax/_src/pallas/mosaic/sc_primitives.py
+@@ -106,7 +106,7 @@ def load_expanded(ref: Ref, *, mask: jax.Array) -> jax.Array:
+   if not isinstance(ref, Ref):
+     raise TypeError(f"ref must be an AbstractRef or TransformedRef, got {ref}")
+   if not isinstance(ref, TransformedRef):
+-    ref = ref.at[...]  # type: ignore
++    ref = ref.at[...]  # pyrefly: ignore[bad-index]
+   assert isinstance(ref, TransformedRef)
+   flat_transforms, tree = jax.tree.flatten(ref.transforms)
+   return load_p.bind(ref.ref, *flat_transforms, mask, has_mask=True, tree=tree)
+@@ -171,7 +171,7 @@ def store_compressed(ref: Ref, x: jax.Array, *, mask: jax.Array) -> None:
+   if not isinstance(ref, Ref):
+     raise TypeError(f"ref must be an AbstractRef or TransformedRef, got {ref}")
+   if not isinstance(ref, TransformedRef):
+-    ref = ref.at[...]  # type: ignore
++    ref = ref.at[...]  # pyrefly: ignore[bad-index]
+   assert isinstance(ref, TransformedRef)
+   flat_transforms, tree = jax.tree.flatten(ref.transforms)
+   _ = swap_p.bind(
+@@ -196,7 +196,7 @@ def addupdate(ref: Ref, x: jax.Array) -> None:
+   if not isinstance(ref, Ref):
+     raise TypeError(f"ref must be an AbstractRef or TransformedRef, got {ref}")
+   if not isinstance(ref, TransformedRef):
+-    ref = ref.at[...]  # type: ignore
++    ref = ref.at[...]  # pyrefly: ignore[bad-index]
+   assert isinstance(ref, TransformedRef)
+   flat_transforms, tree = jax.tree.flatten(ref.transforms)
+   _ = swap_p.bind(
+@@ -213,7 +213,7 @@ def addupdate_compressed(ref: Ref, x: jax.Array, *, mask: jax.Array) -> None:
+   if not isinstance(ref, Ref):
+     raise TypeError(f"ref must be an AbstractRef or TransformedRef, got {ref}")
+   if not isinstance(ref, TransformedRef):
+-    ref = ref.at[...]  # type: ignore
++    ref = ref.at[...]  # pyrefly: ignore[bad-index]
+   assert isinstance(ref, TransformedRef)
+   flat_transforms, tree = jax.tree.flatten(ref.transforms)
+   _ = swap_p.bind(
+diff --git a/jax/_src/pallas/mosaic_gpu/core.py b/jax/_src/pallas/mosaic_gpu/core.py
+index 98c9bdfe8..0081f9f56 100644
+--- a/jax/_src/pallas/mosaic_gpu/core.py
++++ b/jax/_src/pallas/mosaic_gpu/core.py
+@@ -430,7 +430,7 @@ def infer_tmem_layout(
+     packing = 32 // dtypes.itemsize_bits(dtype)
+   else:
+     packing = 1
+-  return tcgen05._infer_tmem_layout(shape, collective=collective, packing=packing)  # type: ignore
++  return tcgen05._infer_tmem_layout(shape, collective=collective, packing=packing)
+ 
+ 
+ def flatten_ref_union(ref_union: AbstractRefUnion) -> tuple[_Ref, ...]:
+diff --git a/jax/_src/pallas/mosaic_gpu/pipeline.py b/jax/_src/pallas/mosaic_gpu/pipeline.py
+index 92d6e8ebc..de70257eb 100644
+--- a/jax/_src/pallas/mosaic_gpu/pipeline.py
++++ b/jax/_src/pallas/mosaic_gpu/pipeline.py
+@@ -1049,7 +1049,7 @@ def emit_pipeline_warp_specialized(
+         memory_block
+     )
+   # Type checkers do not understand the get_allocations assignment above.
+-  return pipeline  # type: ignore
++  return pipeline  # pyrefly: ignore[bad-return]
+ 
+ def _compute_registers(memory_registers: int, num_compute_wgs: int) -> int:
+   """Returns the max number of registers to use in compute threads.
+diff --git a/jax/_src/pallas/mosaic_gpu/primitives.py b/jax/_src/pallas/mosaic_gpu/primitives.py
+index 6768229e3..59a23677d 100644
+--- a/jax/_src/pallas/mosaic_gpu/primitives.py
++++ b/jax/_src/pallas/mosaic_gpu/primitives.py
+@@ -979,7 +979,7 @@ def _barrier_arrive_lowering(
+   base_index = _extract_barrier_slice_base(transforms)
+   if base_index is not None:
+     barrier = barrier[base_index]
+-  sem_dtype = barrier_aval.inner_aval.dtype  # type: ignore
++  sem_dtype = barrier_aval.inner_aval.dtype  # pyrefly: ignore[missing-attribute]
+   orders_tensor_core = getattr(sem_dtype, "orders_tensor_core", False)
+ 
+   if ctx.module_ctx.primitive_semantics == gpu_core.PrimitiveSemantics.Warp:
+@@ -1068,7 +1068,7 @@ def _barrier_wait_lowering(
+   assert isinstance(barrier_aval, state_types.AbstractRef)
+   transforms = transforms_treedef.unflatten(flat_transforms)
+   orders_tensor_core = getattr(
+-      barrier_aval.inner_aval.dtype, "orders_tensor_core", False  # type: ignore
++      barrier_aval.inner_aval.dtype, "orders_tensor_core", False  # pyrefly: ignore[missing-attribute]
+   )
+   base_index = _extract_barrier_slice_base(transforms)
+   if base_index is not None:
+@@ -1967,7 +1967,8 @@ def _tcgen05_mma_lowering(
+             f"Unsupported transforms for LHS: {a_transforms}."
+         )
+     if not isinstance(a_ref, tcgen05.TMEMRef):
+-      swizzle_elems = 8 * lhs_swizzle // dtypes.itemsize_bits(a_dtype)  # type: ignore
++      assert lhs_swizzle is not None
++      swizzle_elems = 8 * lhs_swizzle // dtypes.itemsize_bits(a_dtype)
+       if lhs_tiling != (8, swizzle_elems):
+         raise ValueError("MMA lhs tiling does not fit swizzle. "
+                         f"{lhs_tiling=} expected={(8, swizzle_elems)}")
+@@ -4274,10 +4275,10 @@ def _atomic_store_lowering_rule(
+         )
+       value.store_tiled(
+           ref, swizzle=swizzle, tiling_rank=len(tiling),
+-          atomic=atomic_type.value,  # type: ignore
++          atomic=atomic_type.value,  # pyrefly: ignore[bad-argument-type]
+       )
+     case ():
+-      value.store_untiled(ref, optimized=False, atomic=atomic_type.value)  # type: ignore
++      value.store_untiled(ref, optimized=False, atomic=atomic_type.value)  # pyrefly: ignore[bad-argument-type]
+     case _:
+       raise NotImplementedError(
+           f"Unsupported transforms for atomic_store: {remaining_transforms}"
+diff --git a/jax/_src/pallas/triton/pallas_call_registration.py b/jax/_src/pallas/triton/pallas_call_registration.py
+index 3e548ab87..faba1e65a 100644
+--- a/jax/_src/pallas/triton/pallas_call_registration.py
++++ b/jax/_src/pallas/triton/pallas_call_registration.py
+@@ -37,7 +37,7 @@ def normalize_grid(grid: pallas_core.StaticGrid) -> tuple[int, int, int]:
+     grid = (grid,)
+   elif len(grid) > 3:
+     raise ValueError("`grid` should have three or fewer dimensions.")
+-  return tuple(grid) + (1,) * (3 - len(grid))  # type: ignore
++  return tuple(grid) + (1,) * (3 - len(grid))  # pyrefly: ignore[bad-return]
+ 
+ 
+ def avals_to_layouts(avals):
+diff --git a/jax/_src/path.py b/jax/_src/path.py
+index 5ce464bd3..4148c629b 100644
+--- a/jax/_src/path.py
++++ b/jax/_src/path.py
+@@ -35,7 +35,7 @@ Path: PathProtocol
+ # can read and write to, e.g., GCS buckets. Otherwise we use the builtin
+ # pathlib and can only read/write to the local filesystem.
+ try:
+-  from etils import epath  # type: ignore
++  from etils import epath  # pyrefly: ignore[missing-import]
+ except ImportError:
+   logger.debug("etils.epath was not found. Using pathlib for file I/O.")
+   Path = pathlib.Path
+diff --git a/jax/_src/pjit.py b/jax/_src/pjit.py
+index 2fb0791da..cccaa478f 100644
+--- a/jax/_src/pjit.py
++++ b/jax/_src/pjit.py
+@@ -1169,7 +1169,7 @@ def _pjit_call_impl_python(
+   # This check is expensive so only do it if enable_checks is on.
+   if compiled._auto_spmd_lowering and config.enable_checks.value:
+     pxla.check_array_xla_sharding_layout_match(
+-        args, compiled._in_shardings, compiled._in_layouts,  # type: ignore
++        args, compiled._in_shardings, compiled._in_layouts,  # pyrefly: ignore[missing-attribute]
+         jaxpr.jaxpr.debug_info.safe_arg_names(len(args)))
+   if config.distributed_debug.value:
+     # Defensively only perform fingerprint logic if debug logging is enabled
+@@ -1898,12 +1898,12 @@ def _transpose_jaxpr_fancy(jaxpr, in_tree, in_avals, specs):
+     args = ad.unproject_accums(specs, primals_ctrefs)
+     ad.backward_pass3(jaxpr.jaxpr, False, jaxpr.consts, args, cts_in)
+     cts_out = [x.freeze() if isinstance(x, ad.ValAccum) else None for x in args]
+-    cts_out, cell.out_tree = tree_flatten(cts_out)  # type: ignore
++    cts_out, cell.out_tree = tree_flatten(cts_out)  # pyrefly: ignore[missing-attribute]
+     return cts_out
+   dbg = jaxpr.jaxpr.debug_info.with_unknown_names()
+   trans_jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(
+       lu.wrap_init(transposed, debug_info=dbg), in_avals)
+-  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # type: ignore
++  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # pyrefly: ignore[missing-attribute]
+ ad.fancy_transposes[jit_p] = _pjit_transpose_fancy
+ 
+ @weakref_lru_cache
+diff --git a/jax/_src/pretty_printer.py b/jax/_src/pretty_printer.py
+index 130ba57a2..c10af317f 100644
+--- a/jax/_src/pretty_printer.py
++++ b/jax/_src/pretty_printer.py
+@@ -34,8 +34,7 @@ from typing import Any
+ 
+ from jax._src import config
+ from jax._src.lib import _pretty_printer as _pretty_printer
+-# pyrefly: ignore [missing-import]
+-from jax._src.util import use_cpp_class, use_cpp_method
++from jax._src.util import use_cpp_class, use_cpp_method  # pyrefly: ignore[missing-import]
+ 
+ 
+ _PPRINT_USE_COLOR = config.bool_state(
+@@ -119,17 +118,17 @@ class Doc:
+ 
+ def nil() -> Doc:
+   """An empty document."""
+-  return _pretty_printer.nil()  # type: ignore
++  return _pretty_printer.nil()  # pyrefly: ignore[bad-return]
+ 
+ 
+ def text(text: str, annotation: str | None = None) -> Doc:
+   """Literal text."""
+-  return _pretty_printer.text(text, annotation)  # type: ignore
++  return _pretty_printer.text(text, annotation)  # pyrefly: ignore[bad-return]
+ 
+ 
+ def concat(children: Sequence[Doc]) -> Doc:
+   """Concatenation of documents."""
+-  return _pretty_printer.concat(children)  # type: ignore
++  return _pretty_printer.concat(children)  # pyrefly: ignore[bad-argument-type, bad-return]
+ 
+ 
+ def brk(text: str = " ") -> Doc:
+@@ -137,7 +136,7 @@ def brk(text: str = " ") -> Doc:
+ 
+   Prints either as a newline or as `text`, depending on the enclosing group.
+   """
+-  return _pretty_printer.brk(text)  # type: ignore
++  return _pretty_printer.brk(text)  # pyrefly: ignore[bad-return]
+ 
+ 
+ def group(doc: Doc) -> Doc:
+@@ -147,12 +146,12 @@ def group(doc: Doc) -> Doc:
+   entire group would fit on the line when printed that way. Otherwise, breaks
+   inside the group as printed as newlines.
+   """
+-  return _pretty_printer.group(doc)  # type: ignore
++  return _pretty_printer.group(doc)  # pyrefly: ignore[bad-argument-type, bad-return]
+ 
+ 
+ def nest(n: int, doc: Doc) -> Doc:
+   """Increases the indentation level by `n`."""
+-  return _pretty_printer.nest(n, doc)  # type: ignore
++  return _pretty_printer.nest(n, doc)  # pyrefly: ignore[bad-argument-type, bad-return]
+ 
+ 
+ def color(
+@@ -166,7 +165,7 @@ def color(
+   Overrides the foreground/background/intensity of the text for the child doc.
+   Requires use_colors=True to be set when printing; otherwise does nothing.
+   """
+-  return _pretty_printer.color(child, foreground, background, intensity)  # type: ignore
++  return _pretty_printer.color(child, foreground, background, intensity)  # pyrefly: ignore[bad-argument-type, bad-return]
+ 
+ 
+ def source_map(doc: Doc, source: Any) -> Doc:
+@@ -178,7 +177,7 @@ def source_map(doc: Doc, source: Any) -> Doc:
+   equality. A text region to source object mapping can be populated as a side
+   output of the ``format`` method.
+   """
+-  return _pretty_printer.source_map(doc, source)  # type: ignore
++  return _pretty_printer.source_map(doc, source)  # pyrefly: ignore[bad-argument-type, bad-return]
+ 
+ 
+ type_annotation = partial(color, intensity=Intensity.NORMAL,
+diff --git a/jax/_src/random.py b/jax/_src/random.py
+index 91da1e0c3..d89ffba1e 100644
+--- a/jax/_src/random.py
++++ b/jax/_src/random.py
+@@ -340,7 +340,7 @@ def wrap_key_data(key_bits_array: Array, *,
+ 
+ def _check_shape(name: str, shape: Shape, *param_shapes) -> None:
+   if param_shapes:
+-    shape_ = lax.broadcast_shapes(shape, *param_shapes)  # type: ignore
++    shape_ = lax.broadcast_shapes(shape, *param_shapes)  # pyrefly: ignore[no-matching-overload]
+     if shape != shape_:
+       msg = ("{} parameter shapes must be broadcast-compatible with shape "
+              "argument, and the result of broadcasting the shapes must equal "
+diff --git a/jax/_src/scipy/ndimage.py b/jax/_src/scipy/ndimage.py
+index ce63d6ba8..eb9a00960 100644
+--- a/jax/_src/scipy/ndimage.py
++++ b/jax/_src/scipy/ndimage.py
+@@ -118,7 +118,7 @@ def _map_coordinates(input: ArrayLike, coordinates: Sequence[ArrayLike],
+     else:
+       all_valid = functools.reduce(operator.and_, validities)
+       contribution = jnp.where(all_valid, input_arr[indices], cval)
+-    outputs.append(_nonempty_prod(weights) * contribution)  # type: ignore
++    outputs.append(_nonempty_prod(weights) * contribution)  # pyrefly: ignore[bad-argument-type]
+   result = _nonempty_sum(outputs)
+   if dtypes.issubdtype(input_arr.dtype, np.integer):
+     result = _round_half_away_from_zero(result)
+diff --git a/jax/_src/shard_map.py b/jax/_src/shard_map.py
+index f1f6336bb..5f3dd2ecf 100644
+--- a/jax/_src/shard_map.py
++++ b/jax/_src/shard_map.py
+@@ -1417,7 +1417,7 @@ class ShardMapTracer(core.Tracer[ShardMapTrace]):
+     size = prod(trace.mesh.shape[n] for n in mat.varying)
+     out = core.mapped_aval(size, 0, aval)
+     manual_mesh = _as_manual_mesh(trace.amesh, trace.manual_axes)
+-    spec = core.modify_spec_for_auto_manual(out.sharding.spec, manual_mesh)  # type: ignore
++    spec = core.modify_spec_for_auto_manual(out.sharding.spec, manual_mesh)  # pyrefly: ignore[missing-attribute]
+     new_sharding = NamedSharding(manual_mesh, spec)
+     mat_out = mat if trace.check else core.empty_mat
+     computed_aval = out.update(sharding=new_sharding, manual_axis_type=mat_out)
+@@ -1577,7 +1577,7 @@ def _shard_map_jvp(trace, shard_map_p, f, tracers, mesh, in_specs,
+     tangents_out = [None if not nz else t for t, nz in zip(tangents_out, which_nz_out)]
+     tangents_out_ft = FlatTree.flatten(list(tangents_out))
+     out_primals_tangents = FlatTree.pack((primals_out_ft, tangents_out_ft))
+-    return out_primals_tangents.with_aux(which_nz_out).with_aux(new_out_specs)  # type: ignore
++    return out_primals_tangents.with_aux(which_nz_out).with_aux(new_out_specs)
+ 
+   params = dict(mesh=mesh, in_specs=(*in_specs, *tangent_in_specs),
+                 check_vma=check_vma, manual_axes=manual_axes,
+@@ -1654,7 +1654,7 @@ def _shard_map_partial_eval(trace: pe.JaxprTrace, shard_map_p,
+       raval = next(res_avals_iter)
+       res_specs.append(raval.nospec(mesh, check_vma, all_names))
+   env_specs = [_repspec(typeof(e)) for e in env]
+-  unk_in_specs = (*res_specs, *env_specs, *unk_in_specs)  # type: ignore
++  unk_in_specs = (*res_specs, *env_specs, *unk_in_specs)
+   const_tracers = map(trace.new_instantiated_const, res)
+   env_tracers = map(trace.to_jaxpr_tracer, env)
+   unk_arg_tracers = [t for t in tracers if not t.is_known()]
+@@ -1698,7 +1698,7 @@ def _shard_map_linearize(trace, shard_map_p, f: Callable,
+     res = [lax.broadcast(x, (1,)) if not getattr(x, 'shape', ()) else x
+            for x in res]
+     res_and_primal = FlatTree.pack((FlatTree.flatten(res), primals_out))
+-    return res_and_primal.with_aux((lin_data, out_specs)).with_aux(new_out_specs)  # type: ignore
++    return res_and_primal.with_aux((lin_data, out_specs)).with_aux(new_out_specs)
+ 
+   fwd_params = dict(
+       mesh=mesh, in_specs=in_specs,
+@@ -1848,7 +1848,7 @@ def _partial_eval_jaxpr_custom_rule(
+   residuals, staged_in_res_specs = unzip2(
+       [(nv(unshard_aval(mesh, check_vma, (rn := lns(var.aval)), var.aval)), rn)
+        for var, w in zip(jaxpr_staged.invars[:num_res], which) if w])
+-  out_res_specs_known = [var.aval.nospec(mesh, check_vma, all_names)  # type: ignore
++  out_res_specs_known = [var.aval.nospec(mesh, check_vma, all_names)  # pyrefly: ignore[missing-attribute]
+                          for var, w in zip(res_vars, which) if w]
+   params_known, params_staged = _pe_custom_params(
+       unks_in, inst_in, map(op.not_, unks_out), inst_out, in_fwd, out_fwd,
+@@ -1993,7 +1993,7 @@ def _shard_map_discharge(
+                if isinstance(invar.aval, AbstractRef)]
+   params = dict(jaxpr=discharged_jaxpr, out_specs=(*out_specs, *ref_specs))
+   params_ = shard_map_p.get_bind_params(params)
+-  f, = params_.pop('subfuns')  # type: ignore
++  f, = params_.pop('subfuns')
+   debug_info = params_['debug_info']
+   out_and_ref_vals = shard_map_p.bind(
+       *args, subfuns=(f,), mesh=mesh, in_specs=in_specs, manual_axes=manual_axes,
+diff --git a/jax/_src/stages.py b/jax/_src/stages.py
+index 9cd414c0b..d7f3b7168 100644
+--- a/jax/_src/stages.py
++++ b/jax/_src/stages.py
+@@ -893,7 +893,7 @@ def _apply_himut(final_qdds, hi_args, out_mut):
+   for i, a in enumerate(final_qdds):
+     if isinstance(a, core.AvalQDD):
+       lo_vals = it.islice(out_mut_, len(a.aval.lo_ty_qdd(a.qdd)))
+-      a.aval.update_from_loval(a.qdd, hi_args[i], *lo_vals)  # type: ignore
++      a.aval.update_from_loval(a.qdd, hi_args[i], *lo_vals)  # pyrefly: ignore[missing-attribute]
+   assert next(out_mut_, None) is None
+ 
+ # TODO(mattjj): de-dup with partial_eval.py
+@@ -976,11 +976,11 @@ class DeviceAssignmentMismatch:
+ 
+   @property
+   def device_ids(self) -> Sequence[int]:
+-    return [d.id for d in self.da]  # type: ignore
++    return [d.id for d in self.da]  # pyrefly: ignore[not-iterable]
+ 
+   @property
+   def platform(self) -> str:
+-    return self.da[0].platform.upper()  # type: ignore
++    return self.da[0].platform.upper()  # pyrefly: ignore[bad-index]
+ 
+   def _maybe_api_name(self, api_name) -> str:
+     return f" {api_name}'s" if self.m_type == MismatchType.CONTEXT_DEVICES else ""
+diff --git a/jax/_src/state/indexing.py b/jax/_src/state/indexing.py
+index de877ff46..5b64018ac 100644
+--- a/jax/_src/state/indexing.py
++++ b/jax/_src/state/indexing.py
+@@ -67,7 +67,7 @@ def unpack_ndindexer(indexer: NDIndexer) -> tuple[tuple[bool, ...],
+   is_int_indexing = [not isinstance(i, Slice) for i in indexer.indices]
+   slice_indexers, int_indexers = partition_list(
+       is_int_indexing, indexer.indices)
+-  return tuple(is_int_indexing), tuple(slice_indexers), tuple(int_indexers)  # type: ignore
++  return tuple(is_int_indexing), tuple(slice_indexers), tuple(int_indexers)  # pyrefly: ignore[bad-argument-type]
+ 
+ def _maybe_concretize(x: Any):
+   # This is roughly the same logic as core.concrete_or_error, but we avoid
+@@ -199,6 +199,7 @@ class NDIndexer(state_types.Transform):
+     if ref_indexers := [
+         i
+         for i in other_indexers
++        if not isinstance(i, Slice)
+         if isinstance(i, state_types.TransformedRef)
+         or isinstance(core.typeof(i), state_types.AbstractRef)
+     ]:
+@@ -210,7 +211,7 @@ class NDIndexer(state_types.Transform):
+             "Ref cannot be mixed with other non-slice indexers"
+         )
+       [ref_indexer] = ref_indexers
+-      indexer_shape = ref_indexer.shape  # type: ignore
++      indexer_shape = ref_indexer.shape
+       try:
+         core.canonicalize_shape(indexer_shape)
+       except TypeError:
+@@ -329,7 +330,7 @@ class NDIndexer(state_types.Transform):
+       if isinstance(idx, Slice):
+         indices.append(_pp_slice(context, dim, idx))
+       else:
+-        indices.append(core.pp_var(idx, context, print_literal_dtype=False))  # type: ignore
++        indices.append(core.pp_var(idx, context, print_literal_dtype=False))  # pyrefly: ignore[bad-argument-type]
+     return pp.concat([pp.text("["), pp.text(",".join(indices)), pp.text("]")])
+ 
+ 
+diff --git a/jax/_src/state/primitives.py b/jax/_src/state/primitives.py
+index 04602a63e..7936c06f6 100644
+--- a/jax/_src/state/primitives.py
++++ b/jax/_src/state/primitives.py
+@@ -1159,7 +1159,7 @@ def _lower_pin(ctx, x_op, *, to):
+             ])
+         })
+     }
+-    config = dict(backend_config=backend_config)
++    config: dict[str, Any] = dict(backend_config=backend_config)
+   else:
+     config = {}
+   out_aval, = ctx.avals_out
+@@ -1167,7 +1167,7 @@ def _lower_pin(ctx, x_op, *, to):
+       "Pin",
+       operands=mlir.flatten_ir_values([x_op]),
+       result_types=mlir.flatten_ir_types(mlir.aval_to_ir_types(out_aval)),
+-      **config,  # type: ignore
++      **config,
+   ).results
+ mlir.register_lowering(pin_p, _lower_pin)
+ 
+diff --git a/jax/_src/state/types.py b/jax/_src/state/types.py
+index 19c56fcec..0e30cd955 100644
+--- a/jax/_src/state/types.py
++++ b/jax/_src/state/types.py
+@@ -376,13 +376,13 @@ class AbstractRef(core.AbstractValue):
+   def lower_val(self, ref):
+     if not self.is_high:
+       return [ref]
+-    return self.inner_aval.lower_val(ref._refs)  # type: ignore
++    return self.inner_aval.lower_val(ref._refs)  # pyrefly: ignore[missing-attribute]
+ 
+   def raise_val(self, *vals):
+     if not self.is_high:
+       ref, = vals
+       return ref
+-    return core.Ref(self, self.inner_aval.raise_val(*vals))  # type: ignore
++    return core.Ref(self, self.inner_aval.raise_val(*vals))  # pyrefly: ignore[missing-attribute]
+ 
+   @property
+   def weak_type(self) -> bool:
+@@ -597,7 +597,7 @@ def zeros_like_abstract_ref(aval: AbstractRef) -> core.Ref:
+ # TODO(dougalm): this is nonsense but it's here because in places like
+ # custom_vjp we assume that all arguments have tangent spaces. We could have
+ # a distinct NotATangentType value instead.
+-ad_util.aval_zeros_likers[AbstractRef] = zeros_like_abstract_ref  # type: ignore
++ad_util.aval_zeros_likers[AbstractRef] = zeros_like_abstract_ref  # pyrefly: ignore[unsupported-operation]
+ 
+ # === pinned, chained LinearVals ===
+ 
+diff --git a/jax/_src/test_loader.py b/jax/_src/test_loader.py
+index 1538fa172..d239971a8 100644
+--- a/jax/_src/test_loader.py
++++ b/jax/_src/test_loader.py
+@@ -71,13 +71,13 @@ def _run_one_test(test: unittest.TestCase, result: ThreadSafeTestResult):
+   if getattr(test.__class__, "thread_hostile", False):
+     _test_rwlock.writer_lock()
+     try:
+-      test(result)  # type: ignore
++      test(result)  # pyrefly: ignore[bad-argument-type]
+     finally:
+       _test_rwlock.writer_unlock()
+   else:
+     _test_rwlock.reader_lock()
+     try:
+-      test(result)  # type: ignore
++      test(result)  # pyrefly: ignore[bad-argument-type]
+     finally:
+       _test_rwlock.reader_unlock()
+ 
+diff --git a/jax/_src/test_util.py b/jax/_src/test_util.py
+index d34d0ef63..bcc102d57 100644
+--- a/jax/_src/test_util.py
++++ b/jax/_src/test_util.py
+@@ -1709,11 +1709,10 @@ def parameterized_filterable(*,
+       for kw in kwargs]
+   else:
+     for kw in kwargs:
+-      testcase_name = kw.get("testcase_name")
+-      if testcase_name is None:
+-        testcase_name = "_".join(f"{k}={kw[k]}"  # type: ignore
+-                                 for k in sorted(kw.keys()))
+-      kw["testcase_name"] = sanitize_test_name(testcase_name)  # type: ignore
++      kw_testcase_name = kw.get("testcase_name")
++      if kw_testcase_name is None:
++        kw_testcase_name = "_".join(f"{k}={kw[k]}" for k in sorted(kw))
++      kw["testcase_name"] = sanitize_test_name(kw_testcase_name)
+ 
+     kwargs_with_testcase_name = kwargs
+   if one_containing is not None:
+diff --git a/jax/_src/traceback_util.py b/jax/_src/traceback_util.py
+index 59574b743..8f5862aec 100644
+--- a/jax/_src/traceback_util.py
++++ b/jax/_src/traceback_util.py
+@@ -141,7 +141,7 @@ SimplifiedTraceback.__module__ = "jax.errors"
+ def _running_under_ipython() -> bool:
+   """Returns true if we appear to be in an IPython session."""
+   try:
+-    get_ipython()  # type: ignore
++    get_ipython()  # pyrefly: ignore[unknown-name]
+     return True
+   except NameError:
+     return False
+@@ -234,7 +234,7 @@ def api_boundary(
+ 
+ try:
+   # TODO: import from the final location
+-  from jax._src import repro  # type: ignore
++  from jax._src import repro  # pyrefly: ignore[missing-module-attribute]
+   repro_is_enabled = repro.is_enabled
+ 
+ except ImportError:
+diff --git a/jax/_src/util.py b/jax/_src/util.py
+index b727891ed..94e203610 100644
+--- a/jax/_src/util.py
++++ b/jax/_src/util.py
+@@ -440,7 +440,7 @@ def multi_weakref_lru_cache(
+   other arguments. The cache entry is removed if any of the weakref
+   arguments dies.
+   """
+-  cached_call = lib_weakref_lru_cache.multi_weakref_lru_cache(  # type: ignore
++  cached_call = lib_weakref_lru_cache.multi_weakref_lru_cache(
+       config.trace_context if trace_context_in_key else _ignore,
+       call,
+       maxsize=maxsize,
+diff --git a/jax/experimental/array_serialization/tensorstore_impl.py b/jax/experimental/array_serialization/tensorstore_impl.py
+index 8614677b6..f60d476ae 100644
+--- a/jax/experimental/array_serialization/tensorstore_impl.py
++++ b/jax/experimental/array_serialization/tensorstore_impl.py
+@@ -558,7 +558,7 @@ async def async_deserialize(
+     # TODO(yashkatariya): This is a band-aid fix. Figure out a better way to
+     # make this work.
+     if out.dtype == jnp.int4:
+-      out = jnp.asarray(out)  # type: ignore
++      out = jnp.asarray(out)
+     result = jax.device_put(
+         out, Format(layout, make_single_device_sharding(device)))
+     if byte_limiter is not None:
+diff --git a/jax/experimental/colocated_python/func.py b/jax/experimental/colocated_python/func.py
+index c8728bf8e..7d1ace369 100644
+--- a/jax/experimental/colocated_python/func.py
++++ b/jax/experimental/colocated_python/func.py
+@@ -173,7 +173,7 @@ def _compile_to_executable(
+         program, compile_options
+     )
+     out_handlers = pxla.global_avals_to_results_handler(
+-        out_sdss, out_shardings, committed=True  # type: ignore
++        out_sdss, out_shardings, committed=True
+     ).handlers
+ 
+     def call(*args, **kwargs):
+diff --git a/jax/experimental/colocated_python/serialization.py b/jax/experimental/colocated_python/serialization.py
+index 1eeea957d..ab2a3a102 100644
+--- a/jax/experimental/colocated_python/serialization.py
++++ b/jax/experimental/colocated_python/serialization.py
+@@ -290,7 +290,7 @@ def _make_specs_for_serialized_specs(
+       mesh, jax.sharding.PartitionSpec()
+   )
+   return api.ShapeDtypeStruct(
+-      shape=(), dtype=np.dtypes.StringDType(), sharding=replicated_sharding  # type: ignore
++      shape=(), dtype=np.dtypes.StringDType(), sharding=replicated_sharding
+   )
+ 
+ 
+@@ -313,7 +313,7 @@ def _serialize_specs(
+ 
+   s_bytes = _serialize((specs_treedef, specs_leaves))
+   s_str = base64.b64encode(s_bytes).decode("ascii")
+-  s_np_array = np.array(s_str, dtype=np.dtypes.StringDType())  # type: ignore
++  s_np_array = np.array(s_str, dtype=np.dtypes.StringDType())
+ 
+   # TODO(jmudigonda): Revisit this when JAX supports HLO sharding for making
+   # jax.Array via make_array_from_single_device_arrays. We should then use a
+diff --git a/jax/experimental/fused.py b/jax/experimental/fused.py
+index 3e7a33dd6..b5b78ee60 100644
+--- a/jax/experimental/fused.py
++++ b/jax/experimental/fused.py
+@@ -150,10 +150,10 @@ def _transpose_jaxpr(jaxpr, in_tree, in_avals):
+               if type(ct) is ad.Zero else ct for ct in cts_in]
+     out = ad.backward_pass(jaxpr.jaxpr, False, jaxpr.consts, primals_in, cts_in)
+     out = [ct if not isinstance(ct, ad.Zero) else None for ct in out]
+-    cts_out, cell.out_tree = tree_flatten(out)  # type: ignore
++    cts_out, cell.out_tree = tree_flatten(out)  # pyrefly: ignore[missing-attribute]
+     return cts_out
+   dbg = jaxpr.jaxpr.debug_info.with_unknown_names()
+   trans_jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(
+       lu.wrap_init(transposed, debug_info=dbg), in_avals)
+-  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # type: ignore
++  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # pyrefly: ignore[missing-attribute]
+ ad.primitive_transposes[fused_p] = _fused_transpose
+diff --git a/jax/experimental/jax2tf/examples/keras_reuse_main.py b/jax/experimental/jax2tf/examples/keras_reuse_main.py
+index 1806e8c45..11c1022e6 100644
+--- a/jax/experimental/jax2tf/examples/keras_reuse_main.py
++++ b/jax/experimental/jax2tf/examples/keras_reuse_main.py
+@@ -24,10 +24,10 @@ from absl import flags
+ from jax.experimental.jax2tf.examples import mnist_lib
+ from jax.experimental.jax2tf.examples import saved_model_main
+ import tensorflow as tf
+-import tensorflow_datasets as tfds  # type: ignore
++import tensorflow_datasets as tfds  # pyrefly: ignore[missing-import]
+ with warnings.catch_warnings():
+   warnings.simplefilter("ignore")
+-  import tensorflow_hub as hub  # type: ignore
++  import tensorflow_hub as hub  # pyrefly: ignore[missing-import]
+ 
+ 
+ FLAGS = flags.FLAGS
+diff --git a/jax/experimental/jax2tf/examples/mnist_lib.py b/jax/experimental/jax2tf/examples/mnist_lib.py
+index d96f671ce..6a2ab6402 100644
+--- a/jax/experimental/jax2tf/examples/mnist_lib.py
++++ b/jax/experimental/jax2tf/examples/mnist_lib.py
+@@ -39,7 +39,7 @@ from matplotlib import pyplot as plt
+ import numpy as np
+ import optax
+ import tensorflow as tf
+-import tensorflow_datasets as tfds  # type: ignore
++import tensorflow_datasets as tfds  # pyrefly: ignore[missing-import]
+ 
+ _MOCK_DATA = flags.DEFINE_boolean("mock_data", False,
+                                   "Use fake data, for testing.")
+diff --git a/jax/experimental/jax2tf/examples/saved_model_main.py b/jax/experimental/jax2tf/examples/saved_model_main.py
+index 461b18ea0..051dc3c6a 100644
+--- a/jax/experimental/jax2tf/examples/saved_model_main.py
++++ b/jax/experimental/jax2tf/examples/saved_model_main.py
+@@ -35,7 +35,7 @@ from jax.experimental.jax2tf.examples import saved_model_lib
+ 
+ import numpy as np
+ import tensorflow as tf
+-import tensorflow_datasets as tfds  # type: ignore
++import tensorflow_datasets as tfds  # pyrefly: ignore[missing-import]
+ 
+ _MODEL = flags.DEFINE_enum(
+     "model", "mnist_flax", ["mnist_flax", "mnist_pure_jax"],
+diff --git a/jax/experimental/jax2tf/examples/serving/model_server_request.py b/jax/experimental/jax2tf/examples/serving/model_server_request.py
+index 1ee4cf615..ac980c862 100644
+--- a/jax/experimental/jax2tf/examples/serving/model_server_request.py
++++ b/jax/experimental/jax2tf/examples/serving/model_server_request.py
+@@ -15,7 +15,7 @@
+ 
+ See README.md for instructions.
+ """
+-import grpc  # type: ignore
++import grpc  # pyrefly: ignore[missing-import]
+ import json
+ import logging
+ import requests
+diff --git a/jax/experimental/jax2tf/jax2tf.py b/jax/experimental/jax2tf/jax2tf.py
+index 79f522399..a814b4151 100644
+--- a/jax/experimental/jax2tf/jax2tf.py
++++ b/jax/experimental/jax2tf/jax2tf.py
+@@ -141,8 +141,8 @@ def convert(fun_jax: Callable,
+             polymorphic_shapes: str | PolyShape | None | Sequence[str | PolyShape | None] = None,
+             polymorphic_constraints: Sequence[str] = (),
+             with_gradient: bool = True,
+-            enable_xla: bool = DEFAULT_NATIVE_SERIALIZATION,  # type: ignore
+-            native_serialization: bool | _DefaultNativeSerialization = DEFAULT_NATIVE_SERIALIZATION,  # type: ignore
++            enable_xla: bool | _DefaultNativeSerialization = DEFAULT_NATIVE_SERIALIZATION,
++            native_serialization: bool | _DefaultNativeSerialization = DEFAULT_NATIVE_SERIALIZATION,
+             native_serialization_platforms: Sequence[str] | None = None,
+             native_serialization_disabled_checks: Sequence[DisabledSafetyCheck] = (),
+             ) -> Callable:
+@@ -289,7 +289,7 @@ def convert(fun_jax: Callable,
+     try:
+       impl.before_conversion()
+ 
+-      outs_tree: tree_util.PyTreeDef = None  # type: ignore
++      outs_tree: tree_util.PyTreeDef | None = None
+       if with_gradient:
+         @tf.custom_gradient
+         def converted_fun_flat_with_custom_gradient_tf(*args_flat_tf: TfVal) -> TfVal:
+@@ -318,6 +318,7 @@ def convert(fun_jax: Callable,
+     finally:
+       impl.after_conversion()
+ 
++    assert outs_tree is not None
+     outs_flat_tf = [tf.identity(x, "jax2tf_out") for x in outs_flat_tf]
+     out_tf = tree_util.tree_unflatten(outs_tree, outs_flat_tf)
+     return out_tf
+@@ -842,7 +843,7 @@ def _shard_value(val: TfVal,
+         .flat
+     )
+   else:
+-    tad = sharding_proto.tile_assignment_devices  # type: ignore
++    tad = sharding_proto.tile_assignment_devices
+ 
+   # To use xla_sharding.py, we must have a xla_data_pb2.OpSharding.
+   xla_sharding_v1_proto: xla_data_pb2.OpSharding = xla_data_pb2.OpSharding(
+diff --git a/jax/experimental/jax2tf/tests/cross_compilation_check.py b/jax/experimental/jax2tf/tests/cross_compilation_check.py
+index 32b9a0f2a..bb7cef308 100644
+--- a/jax/experimental/jax2tf/tests/cross_compilation_check.py
++++ b/jax/experimental/jax2tf/tests/cross_compilation_check.py
+@@ -148,7 +148,7 @@ def write_and_check_harness(harness: primitive_harness.Harness,
+         from jax.experimental.jax2tf.jax2tf import cross_platform_lowering
+         lowered = cross_platform_lowering(func_jax, args,
+                                           platforms=[for_platform])
+-      hlo = lowered.compiler_ir(dialect="stablehlo")  # type: ignore
++      hlo = lowered.compiler_ir(dialect="stablehlo")
+       with open(output_file, "w") as f:
+         f.write(str(hlo))
+ 
+diff --git a/jax/experimental/jax2tf/tests/shape_poly_test.py b/jax/experimental/jax2tf/tests/shape_poly_test.py
+index 08c506da9..31d1599d9 100644
+--- a/jax/experimental/jax2tf/tests/shape_poly_test.py
++++ b/jax/experimental/jax2tf/tests/shape_poly_test.py
+@@ -143,7 +143,7 @@ class PolyHarness(Harness):
+             [d if isinstance(d, int) else None for d in a.shape],
+             dtype=a.dtype) for a in args_specs]
+     else:
+-      input_signature = self.input_signature  # type: ignore
++      input_signature = self.input_signature
+ 
+     expect_error_type, expect_error_regex = self.expect_error
+     if self.skip_jax_run and not self.arg_descriptors:
+@@ -203,7 +203,7 @@ class PolyHarness(Harness):
+           logging.info(log_message(
+               f"Running custom_assert with tol={tol} due "
+               f"to {custom_assert_lims[0]}"))
+-          custom_assert_lims[0].custom_assert(tst, res_jax, res_tf, args=args,  # type: ignore
++          custom_assert_lims[0].custom_assert(tst, res_jax, res_tf, args=args,
+                                               tol=tol, err_msg=None)
+         return res_tf
+       else:
+diff --git a/jax/experimental/jax2tf/tests/sharding_test.py b/jax/experimental/jax2tf/tests/sharding_test.py
+index 01000d2b4..618e57cb5 100644
+--- a/jax/experimental/jax2tf/tests/sharding_test.py
++++ b/jax/experimental/jax2tf/tests/sharding_test.py
+@@ -115,7 +115,7 @@ class ShardingTest(tf_test_util.JaxToTfTestCase):
+           use_spmd_partitioning=use_spmd_partitioning,
+       )
+       executable = backend.compile_and_load(
+-          jax_hlo, xc.DeviceList(tuple(self.devices.flat)), compile_options)  # type: ignore
++          jax_hlo, xc.DeviceList(tuple(self.devices.flat)), compile_options)
+       jax_optimized_hlo = executable.hlo_modules()[0].to_string()
+       logging.info("[%s] got JAX optimized HLO for platform %s %s",
+                    self._testMethodName, backend.platform, jax_optimized_hlo)
+diff --git a/jax/experimental/jax2tf/tests/tf_test_util.py b/jax/experimental/jax2tf/tests/tf_test_util.py
+index 9e7c79aaa..966df4885 100644
+--- a/jax/experimental/jax2tf/tests/tf_test_util.py
++++ b/jax/experimental/jax2tf/tests/tf_test_util.py
+@@ -308,7 +308,7 @@ class JaxToTfTestCase(jtu.JaxTestCase):
+         # We log the HLO dialect for easier comparison with TF
+         logging.info("[%s] JAX NON_OPT HLO\n%s",
+                      self._testMethodName,
+-                     jax_lowered.compiler_ir(dialect="hlo").as_hlo_text())  # type: ignore
++                     jax_lowered.compiler_ir(dialect="hlo").as_hlo_text())
+ 
+         tf_args_signature = _make_tf_input_signature(*args)
+         # If we give the signature, we cannot pass scalars
+diff --git a/jax/experimental/mosaic/gpu/core.py b/jax/experimental/mosaic/gpu/core.py
+index 4ae9d5d4e..aa44703a0 100644
+--- a/jax/experimental/mosaic/gpu/core.py
++++ b/jax/experimental/mosaic/gpu/core.py
+@@ -295,7 +295,7 @@ def _mosaic_gpu_lowering_rule(
+       backend_config=backend_config,
+       operand_output_aliases=dict(input_output_aliases),
+       api_version=4,
+-  ).results  # type: ignore
++  ).results
+ 
+ mlir.register_lowering(mosaic_gpu_p, _mosaic_gpu_lowering_rule, "cuda")
+ 
+@@ -795,7 +795,7 @@ def _infer_arch() -> tuple[int, int]:
+         f"Mosaic GPU does not yet support AMD ROCm devices. "
+         f"Got compute_capability: {arch_name}"
+     )
+-  return tuple(map(int, arch_name.split(".")))  # type: ignore
++  return tuple(map(int, arch_name.split(".")))  # pyrefly: ignore[bad-return]
+ 
+ 
+ def _lower_as_gpu_kernel(
+diff --git a/jax/experimental/mosaic/gpu/fragmented_array.py b/jax/experimental/mosaic/gpu/fragmented_array.py
+index 8b4494a2a..196c774d4 100644
+--- a/jax/experimental/mosaic/gpu/fragmented_array.py
++++ b/jax/experimental/mosaic/gpu/fragmented_array.py
+@@ -2246,7 +2246,7 @@ class FragmentedArray:
+           return Rounding.TO_NEAREST_EVEN.ptx
+         allowed_rounding = (Rounding.TO_NEAREST_EVEN,)
+       check_supported_rounding(allowed_rounding)
+-      return rounding.ptx  # type: ignore
++      return rounding.ptx
+ 
+     # f8 <-> f32
+     if cur_dtype == f32 and new_dtype in f8_types:
+diff --git a/jax/experimental/mosaic/gpu/inference_utils.py b/jax/experimental/mosaic/gpu/inference_utils.py
+index 15a6151ab..c34ff45d3 100644
+--- a/jax/experimental/mosaic/gpu/inference_utils.py
++++ b/jax/experimental/mosaic/gpu/inference_utils.py
+@@ -34,9 +34,7 @@ def in_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+   Raises:
+     ValueError: If the operation does not have an in_layouts attribute.
+   """
+-  if "in_layouts" not in op.attributes:
+-    raise ValueError(f"{op} does not have an in_layouts attribute.")
+-  return op.attributes["in_layouts"]  # type: ignore
++  return _array_attr(op, "in_layouts")
+ 
+ 
+ def out_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+@@ -45,9 +43,7 @@ def out_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+   Raises:
+     ValueError: If the operation does not have an out_layouts attribute.
+   """
+-  if "out_layouts" not in op.attributes:
+-    raise ValueError(f"{op} does not have an out_layouts attribute.")
+-  return op.attributes["out_layouts"]  # type: ignore
++  return _array_attr(op, "out_layouts")
+ 
+ 
+ def in_transforms(op: MlirOperation) -> Sequence[ir.ArrayAttr]:
+@@ -56,9 +52,7 @@ def in_transforms(op: MlirOperation) -> Sequence[ir.ArrayAttr]:
+   Raises:
+     ValueError: If the operation does not have an in_transforms attribute.
+   """
+-  if "in_transforms" not in op.attributes:
+-    raise ValueError(f"{op} does not have an in_transforms attribute.")
+-  return op.attributes["in_transforms"]  # type: ignore
++  return _array_attr(op, "in_transforms")  # pyrefly: ignore[bad-return]
+ 
+ 
+ def out_transforms(op: MlirOperation) -> Sequence[ir.ArrayAttr]:
+@@ -67,9 +61,7 @@ def out_transforms(op: MlirOperation) -> Sequence[ir.ArrayAttr]:
+   Raises:
+     ValueError: If the operation does not have an out_transforms attribute.
+   """
+-  if "out_transforms" not in op.attributes:
+-    raise ValueError(f"{op} does not have an out_transforms attribute.")
+-  return op.attributes["out_transforms"]  # type: ignore
++  return _array_attr(op, "out_transforms")  # pyrefly: ignore[bad-return]
+ 
+ 
+ def in_tmem_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+@@ -78,9 +70,7 @@ def in_tmem_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+   Raises:
+     ValueError: If the operation does not have an in_tmem_layouts attribute.
+   """
+-  if "in_tmem_layouts" not in op.attributes:
+-    raise ValueError(f"{op} does not have an in_tmem_layouts attribute.")
+-  return op.attributes["in_tmem_layouts"]  # type: ignore
++  return _array_attr(op, "in_tmem_layouts")
+ 
+ 
+ def out_tmem_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+@@ -89,9 +79,17 @@ def out_tmem_layouts(op: MlirOperation) -> Sequence[ir.Attribute]:
+   Raises:
+     ValueError: If the operation does not have an out_tmem_layouts attribute.
+   """
+-  if "out_tmem_layouts" not in op.attributes:
+-    raise ValueError(f"{op} does not have an out_tmem_layouts attribute.")
+-  return op.attributes["out_tmem_layouts"]  # type: ignore
++  return _array_attr(op, "out_tmem_layouts")
++
++
++def _array_attr(op: MlirOperation, name: str) -> Sequence[ir.Attribute]:
++  try:
++    result = op.attributes[name]
++  except KeyError:
++    raise ValueError(f"{op} does not have an {name} attribute") from None
++  if not isinstance(result, ir.ArrayAttr):
++    raise TypeError(f"{op} has {name} of an unexpected type: {result}")
++  return result  # pyrefly: ignore[bad-return]
+ 
+ 
+ def should_have_in_tmem_layout(op: MlirOperation) -> bool:
+@@ -159,7 +157,8 @@ def attr_element(
+   attr = op.attributes[attr_name]
+   if not attr:
+     return None
+-  return op.attributes[attr_name][index]  # type: ignore
++  assert isinstance(attr, ir.ArrayAttr)
++  return attr[index]
+ 
+ 
+ def _in_attr_for_operand(
+diff --git a/jax/experimental/mosaic/gpu/launch_context.py b/jax/experimental/mosaic/gpu/launch_context.py
+index 219694afd..ad36fe5cc 100644
+--- a/jax/experimental/mosaic/gpu/launch_context.py
++++ b/jax/experimental/mosaic/gpu/launch_context.py
+@@ -993,7 +993,7 @@ class LaunchContext:
+     # and tiling change that order and if we picked a partition based on the
+     # untransformed slice shape, we might have ended up with a non-contiguous
+     # SMEM window, which would no longer be realizable in a single TMA transfer.
+-    collective_size = math.prod(self.cluster_size[d] for d in collective)  # type: ignore
++    collective_size = math.prod(self.cluster_size[d] for d in collective)
+     if collective_size > 1 and not isinstance(leader_tracked, _Partitioned):
+       assert gather_indices is None  # Checked above.
+       def partition_dim(dim: int, idx: ir.Value, num_chunks: int):
+diff --git a/jax/experimental/mosaic/gpu/tcgen05.py b/jax/experimental/mosaic/gpu/tcgen05.py
+index 735a649b0..a921fcc8b 100644
+--- a/jax/experimental/mosaic/gpu/tcgen05.py
++++ b/jax/experimental/mosaic/gpu/tcgen05.py
+@@ -344,7 +344,8 @@ def mma(
+     k_group_elems = 64
+   scale_block: int | None = None
+   if is_scaled:
+-    scale_block = 32 if a_scale.dtype == ir.Float8E8M0FNUType.get() else 16  # type: ignore
++    assert a_scale is not None
++    scale_block = 32 if a_scale.dtype == ir.Float8E8M0FNUType.get() else 16
+     if is_sparse:
+       scale_block *= 2
+     k_group_elems = max(k_group_elems, 4 * scale_block)
+@@ -514,9 +515,9 @@ def mma(
+   n_col_groups = n_groups // n_lane_groups
+   assert d.layout.base_tile_shape[0] % 4 == 0
+   lanes_per_n_group = d.layout.base_tile_shape[0] // 4
+-  a_sparse_addr_base = a_sparse_metadata.address if is_sparse else None  # type: ignore
+-  a_scale_addr_base = a_scale.address if is_scaled else None  # type: ignore
+-  b_scale_addr_base = b_scale.address if is_scaled else None  # type: ignore
++  a_sparse_addr_base = a_sparse_metadata.address if is_sparse else None
++  a_scale_addr_base = a_scale.address if is_scaled else None  # pyrefly: ignore[missing-attribute]
++  b_scale_addr_base = b_scale.address if is_scaled else None  # pyrefly: ignore[missing-attribute]
+   # B scales are padded when N is short, so it can't be derived from n_collective_group_elems.
+   # Same for A scales when M is short.
+   if is_scaled:
+@@ -688,7 +689,7 @@ def _do_mma(
+       )
+     extra_constraints = extra_ptx = ""
+ 
+-    def create_scaled_instr_descriptor(*args):  # type: ignore
++    def create_scaled_instr_descriptor(*args):
+       raise NotImplementedError
+ 
+   num_cta = 2 if collective else 1
+@@ -1161,7 +1162,7 @@ class TMEMRef:
+     if math.prod(addr_ref_ty.shape) != 1:
+       raise ValueError(f"tmem_addr_ref must contain a single element, got: {addr_ref_ty}")
+     i0 = arith.ConstantOp.create_index(0)
+-    tmem_addr = memref.load(tmem_addr_ref, [i0] * addr_ref_ty.rank)
++    tmem_addr = memref.load(tmem_addr_ref, [i0] * addr_ref_ty.rank)  # pyrefly: ignore[bad-argument-type]
+     if shape[0] < 32:
+       raise ValueError(f"TMEM refs must have at least 32 rows, got: {shape[0]}")
+     if layout is None:
+diff --git a/jax/experimental/mosaic/gpu/utils.py b/jax/experimental/mosaic/gpu/utils.py
+index cccb9df04..013165344 100644
+--- a/jax/experimental/mosaic/gpu/utils.py
++++ b/jax/experimental/mosaic/gpu/utils.py
+@@ -1843,7 +1843,7 @@ def shfl_bfly(x: ir.Value, distance: int | ir.Value):
+ ReductionKind = nvvm.ReductionKind
+ 
+ 
+-def redux(x: ir.Value, mask: ir.Value, kind: ReductionKind):  # type: ignore
++def redux(x: ir.Value, mask: ir.Value, kind: ReductionKind):
+   i32 = ir.IntegerType.get_signless(32)
+   if isinstance(vec_ty := x.type, ir.VectorType):
+     if bitwidth(vec_ty.element_type) != 32:
+@@ -2202,7 +2202,7 @@ def get_cluster_ref(
+     raise ValueError(f"Expected SMEM but got: {ref_ty.memory_space}")
+   idxs: list[ir.Value] = [gpu.cluster_block_id(d) for d in gpu.Dimension]
+   idxs[dim] = idx
+-  flat_block = arith.index_cast(i32, cluster_idx(gpu.Dimension, idxs))  # type: ignore
++  flat_block = arith.index_cast(i32, cluster_idx(dim_idx=idxs))
+   return ptr_as_memref(
+       get_cluster_ptr(memref_ptr(ref, memory_space=3), flat_block, generic),
+       result_type,
+diff --git a/jax/experimental/pallas/ops/gpu/attention_mgpu.py b/jax/experimental/pallas/ops/gpu/attention_mgpu.py
+index 9c8246387..c9cde6989 100644
+--- a/jax/experimental/pallas/ops/gpu/attention_mgpu.py
++++ b/jax/experimental/pallas/ops/gpu/attention_mgpu.py
+@@ -607,8 +607,8 @@ def _attention_bwd(config: TuningConfig, save_residuals: bool, res, do):
+       partial(kernel_dq, block_q=config.block_q_dq, block_kv=config.block_kv_dq),
+       out_shape=q,
+       scratch_shapes=[
+-          (q_scratch, do_scratch, lse_scratch, delta_scratch),  # type: ignore
+-          (plgpu.Barrier(num_barriers=compute_wgs),) * 4  # type: ignore
++          (q_scratch, do_scratch, lse_scratch, delta_scratch),
++          (plgpu.Barrier(num_barriers=compute_wgs),) * 4
+       ],
+       compiler_params=plgpu.CompilerParams(approx_math=True),
+       grid=(num_q_heads, num_q_tiles, batch_size),
+@@ -628,8 +628,8 @@ def _attention_bwd(config: TuningConfig, save_residuals: bool, res, do):
+     partial(kernel_dkv, block_q=config.block_q_dkv, block_kv=config.block_kv_dkv),
+     out_shape=[out_shape_kv, out_shape_kv],
+     scratch_shapes=[
+-        (k_scratch, v_scratch),  # type: ignore
+-        (plgpu.Barrier(num_barriers=compute_wgs),) * 2  # type: ignore
++        (k_scratch, v_scratch),
++        (plgpu.Barrier(num_barriers=compute_wgs),) * 2
+   ],
+     compiler_params=plgpu.CompilerParams(approx_math=True),
+     grid=(num_q_heads, num_kv_tiles, batch_size),
+@@ -796,9 +796,9 @@ def attention_with_pipeline_emitter(q, k, v, config: TuningConfig, save_residual
+       thread_name="wg",
+             out_shape=out_shape,
+       scratch_shapes=(
+-          tuple(smem_scratch),  # type: ignore
+-          plgpu.Barrier(num_barriers=compute_wgs),  # type: ignore
+-          plgpu.Barrier(num_arrivals=compute_wgs),),  # type: ignore
++          tuple(smem_scratch),
++          plgpu.Barrier(num_barriers=compute_wgs),
++          plgpu.Barrier(num_arrivals=compute_wgs),),
+       compiler_params=plgpu.CompilerParams(
+           approx_math=True, lowering_semantics=plgpu.LoweringSemantics.Warpgroup,
+       ),
+diff --git a/jax/experimental/pallas/ops/gpu/blackwell_matmul_mgpu.py b/jax/experimental/pallas/ops/gpu/blackwell_matmul_mgpu.py
+index 701ad9e2d..ab812cf08 100644
+--- a/jax/experimental/pallas/ops/gpu/blackwell_matmul_mgpu.py
++++ b/jax/experimental/pallas/ops/gpu/blackwell_matmul_mgpu.py
+@@ -209,7 +209,7 @@ def matmul_kernel(a, b, config: TuningConfig):
+         orders_tensor_core=True,
+     )
+   else:
+-    store_done_barrier = plgpu.Barrier(  # type: ignore
++    store_done_barrier = plgpu.Barrier(
+         num_arrivals=1, num_barriers=2, orders_tensor_core=True
+     )
+   f = plgpu.kernel(
+@@ -307,7 +307,7 @@ def main(_) -> None:
+           # Accumulator layout mismatch triggers for tile_n=256 on some configs.
+           continue
+         raise
+-      runtime_us = runtime_ms * 1e3   # type: ignore
++      runtime_us = runtime_ms * 1e3
+       optimal_time = matmul_flops / peak_flops * 1e6  # us
+       achieved_tc_util = optimal_time / runtime_us * 100
+       if achieved_tc_util > best_util:
+@@ -330,7 +330,7 @@ def main(_) -> None:
+     )(a, b)
+     assert runtimes_ms is not None
+     runtime_ms = statistics.median(runtimes_ms)
+-    runtime_us = runtime_ms * 1e3   # type: ignore
++    runtime_us = runtime_ms * 1e3
+     optimal_time = matmul_flops / peak_flops * 1e6  # us
+     achieved_tc_util = optimal_time / runtime_us * 100
+     print(f"\tReference: {achieved_tc_util:4.1f}%")
+diff --git a/jax/experimental/pallas/ops/gpu/blackwell_ragged_dot_mgpu.py b/jax/experimental/pallas/ops/gpu/blackwell_ragged_dot_mgpu.py
+index f337420ee..ae7ef13a9 100644
+--- a/jax/experimental/pallas/ops/gpu/blackwell_ragged_dot_mgpu.py
++++ b/jax/experimental/pallas/ops/gpu/blackwell_ragged_dot_mgpu.py
+@@ -51,7 +51,7 @@ def do_matmul(a_gmem,
+               grid_indices: Sequence[jax.Array],
+               wg_axis: str,
+               collective_axes: tuple[str, ...],
+-              local_index: jax.Array,
++              local_index: jax.Array | int,
+               config: TuningConfig,
+               group_info: ragged_dot_mgpu.GroupInfo,
+               a_smem, b_smem, acc_tmem, acc_smem,
+@@ -77,9 +77,9 @@ def do_matmul(a_gmem,
+     is_lead_block = cluster_idx == 0
+   else:
+     m_index, n_index = grid_indices
+-    cluster_idx = 0  # type: ignore
++    cluster_idx = 0
+     block_m_index = m_index
+-    is_lead_block = True  # type: ignore
++    is_lead_block = True
+   wg_idx = lax.axis_index(wg_axis)
+   collective_axis = collective_axes[0] if collective else None
+ 
+@@ -304,7 +304,7 @@ def ragged_dot_kernel(a, b, group_sizes, config: TuningConfig):
+                      collective_axes="sm")
+       def mn_loop(loop_info: plgpu.NDLoopInfo):
+         linear_idx, = loop_info.index
+-        local_index = loop_info.local_index  # type: ignore
++        local_index = loop_info.local_index
+         m_index, n_index = plgpu.planar_snake(
+           linear_idx,
+           (m_iters + num_groups - 1, n_iters),
+@@ -322,7 +322,7 @@ def ragged_dot_kernel(a, b, group_sizes, config: TuningConfig):
+             grid_indices=(group_info.block, n_index, cluster_idx),
+             wg_axis="wg",
+             collective_axes=("x",) if collective else (),
+-            local_index=local_index,  # type: ignore
++            local_index=local_index,
+             config=config,
+             group_info=group_info,
+             **ref_kwargs
+@@ -411,7 +411,7 @@ def main(_) -> None:
+           functools.partial(ragged_dot_kernel, config=config),
+           iterations=10
+       )(a, b, group_sizes)
+-      runtime_ms = np.median(runtime_ms if runtime_ms else [])  # type: ignore
++      runtime_ms = np.median(runtime_ms if runtime_ms else [])
+     except ValueError as e:
+       if ("exceeds available shared memory" in e.args[0] or
+           "Accumulator layout mismatch:" in e.args[0]):
+@@ -421,7 +421,7 @@ def main(_) -> None:
+     expected = ragged_dot_reference(a, b, group_sizes)
+     np.testing.assert_allclose(out, expected)
+ 
+-    runtime_us = runtime_ms * 1e3   # type: ignore
++    runtime_us = runtime_ms * 1e3
+     optimal_time = matmul_flops / peak_flops * 1e6  # us
+     achieved_tc_util = optimal_time / runtime_us * 100
+     if achieved_tc_util > best_util:
+diff --git a/jax/experimental/pallas/ops/gpu/hopper_matmul_mgpu.py b/jax/experimental/pallas/ops/gpu/hopper_matmul_mgpu.py
+index bc59350fe..cf58058a2 100644
+--- a/jax/experimental/pallas/ops/gpu/hopper_matmul_mgpu.py
++++ b/jax/experimental/pallas/ops/gpu/hopper_matmul_mgpu.py
+@@ -309,7 +309,7 @@ def main(_) -> None:
+           continue
+         raise
+       np.testing.assert_allclose(out, ref)
+-      runtime_us = runtime_ms * 1e3   # type: ignore
++      runtime_us = runtime_ms * 1e3
+       optimal_time = matmul_flops / peak_flops * 1e6  # us
+       achieved_tc_util = optimal_time / runtime_us * 100
+       if achieved_tc_util > best_util:
+diff --git a/jax/experimental/pallas/ops/gpu/hopper_mixed_type_matmul_mgpu.py b/jax/experimental/pallas/ops/gpu/hopper_mixed_type_matmul_mgpu.py
+index a032a9b49..2c9ca97f4 100644
+--- a/jax/experimental/pallas/ops/gpu/hopper_mixed_type_matmul_mgpu.py
++++ b/jax/experimental/pallas/ops/gpu/hopper_mixed_type_matmul_mgpu.py
+@@ -194,7 +194,7 @@ def mixed_matmul_kernel(
+           wg_n_slice = slice(None)
+         else:
+           wg_m_slice = slice(None)
+-          wg_n_slice = pl.ds(wg_idx * tile_n, tile_n)  # type: ignore
++          wg_n_slice = pl.ds(wg_idx * tile_n, tile_n)
+ 
+         def compute_context(eval_pipeline):
+           @functools.partial(
+@@ -323,7 +323,7 @@ def main(_) -> None:
+           continue
+         raise
+       np.testing.assert_allclose(out, ref)
+-      runtime_us = runtime_ms * 1e3   # type: ignore
++      runtime_us = runtime_ms * 1e3
+       optimal_time = matmul_flops / peak_flops * 1e6  # us
+       achieved_tc_util = optimal_time / runtime_us * 100
+       if achieved_tc_util > best_util:
+diff --git a/jax/experimental/pallas/ops/tpu/flash_attention.py b/jax/experimental/pallas/ops/tpu/flash_attention.py
+index 731405fdb..616e21271 100644
+--- a/jax/experimental/pallas/ops/tpu/flash_attention.py
++++ b/jax/experimental/pallas/ops/tpu/flash_attention.py
+@@ -284,10 +284,10 @@ def _flash_attention_bwd(
+       m,
+       do,
+       di,
+-      block_q_major=block_sizes.block_q_major_dkv,
+-      block_k_major=block_sizes.block_k_major_dkv,
+-      block_k=block_sizes.block_k_dkv,
+-      block_q=block_sizes.block_q_dkv,
++      block_q_major=block_sizes.block_q_major_dkv,  # pyrefly: ignore[bad-argument-type]
++      block_k_major=block_sizes.block_k_major_dkv,  # pyrefly: ignore[bad-argument-type]
++      block_k=block_sizes.block_k_dkv,  # pyrefly: ignore[bad-argument-type]
++      block_q=block_sizes.block_q_dkv,  # pyrefly: ignore[bad-argument-type]
+       sm_scale=sm_scale,
+       causal=causal,
+       mask_value=DEFAULT_MASK_VALUE,
+@@ -304,9 +304,9 @@ def _flash_attention_bwd(
+       m,
+       do,
+       di,
+-      block_q_major=block_sizes.block_q_dq,
+-      block_k_major=block_sizes.block_k_major_dq,
+-      block_k=block_sizes.block_k_dq,
++      block_q_major=block_sizes.block_q_dq,  # pyrefly: ignore[bad-argument-type]
++      block_k_major=block_sizes.block_k_major_dq,  # pyrefly: ignore[bad-argument-type]
++      block_k=block_sizes.block_k_dq,  # pyrefly: ignore[bad-argument-type]
+       sm_scale=sm_scale,
+       causal=causal,
+       mask_value=DEFAULT_MASK_VALUE,
+@@ -949,10 +949,10 @@ def _flash_attention_bwd_dkv(
+     do,
+     di,
+     *,
+-    block_q_major: int | None,
+-    block_q: int | None,
+-    block_k_major: int | None,
+-    block_k: int | None,
++    block_q_major: int,
++    block_q: int,
++    block_k_major: int,
++    block_k: int,
+     sm_scale: float,
+     causal: bool = False,
+     mask_value: float = DEFAULT_MASK_VALUE,
+@@ -1103,14 +1103,14 @@ def _flash_attention_bwd_dkv(
+   dkv_spec = pl.BlockSpec((1, 1, block_k_major, head_dim), dkv_index_map)
+   out_specs = [dkv_spec, dkv_spec]
+   scratch_shapes = [
+-      pltpu.VMEM((block_k_major, head_dim), jnp.float32),  # type: ignore
+-      pltpu.VMEM((block_k_major, head_dim), jnp.float32),  # type: ignore
++      pltpu.VMEM((block_k_major, head_dim), jnp.float32),
++      pltpu.VMEM((block_k_major, head_dim), jnp.float32),
+   ]
+ 
+   kernel = functools.partial(
+       _flash_attention_dkv_kernel,
+-      block_q=block_q,  # type: ignore
+-      block_k=block_k,  # type: ignore
++      block_q=block_q,
++      block_k=block_k,
+       sm_scale=sm_scale,
+       causal=causal,
+       mask_value=mask_value,
+@@ -1267,7 +1267,7 @@ def _flash_attention_dq_kernel(
+     should_not_run = lax.select(should_run, False, True)
+   else:
+     should_run = True
+-    should_not_run = False  # type: ignore
++    should_not_run = False
+ 
+   @pl.when(should_run)
+   def run():
+@@ -1295,9 +1295,9 @@ def _flash_attention_bwd_dq(
+     do,
+     di,
+     *,
+-    block_q_major: int | None,
+-    block_k_major: int | None,
+-    block_k: int | None,
++    block_q_major: int,
++    block_k_major: int,
++    block_k: int,
+     sm_scale: float,
+     causal: bool,
+     mask_value: float,
+@@ -1441,14 +1441,14 @@ def _flash_attention_bwd_dq(
+       dq_spec,
+       dab_spec,
+   ]
+-  scratch_shapes = [pltpu.VMEM((block_q_major, head_dim), jnp.float32)]  # type: ignore
++  scratch_shapes = [pltpu.VMEM((block_q_major, head_dim), jnp.float32)]
+ 
+   kernel = functools.partial(
+       _flash_attention_dq_kernel,
+       sm_scale=sm_scale,
+       causal=causal,
+       mask_value=mask_value,
+-      block_k=block_k,  # type: ignore
++      block_k=block_k,
+       kv_seq_len=kv_seq_len,
+   )
+   name_scope = f"flash_mha_bwd_dq_{block_q_major=}_{block_k_major=}_{block_k=}"
+diff --git a/jax/experimental/pallas/ops/tpu/paged_attention/paged_attention_kernel.py b/jax/experimental/pallas/ops/tpu/paged_attention/paged_attention_kernel.py
+index 547a68f05..52ecaf884 100644
+--- a/jax/experimental/pallas/ops/tpu/paged_attention/paged_attention_kernel.py
++++ b/jax/experimental/pallas/ops/tpu/paged_attention/paged_attention_kernel.py
+@@ -541,7 +541,7 @@ def paged_attention(
+         if megacore_mode == "kv_head"
+         else num_kv_heads,
+         pages_per_sequence // pages_per_compute_block,
+-    )  # type: ignore
++    )
+     dimension_semantics = ("parallel", "arbitrary", "arbitrary", "arbitrary")
+ 
+   if k_scales_pages is not None and v_scales_pages is not None:
+diff --git a/jax/experimental/pallas/ops/tpu/splash_attention/splash_attention_mask_info.py b/jax/experimental/pallas/ops/tpu/splash_attention/splash_attention_mask_info.py
+index be0bcebb8..e19c87ae1 100644
+--- a/jax/experimental/pallas/ops/tpu/splash_attention/splash_attention_mask_info.py
++++ b/jax/experimental/pallas/ops/tpu/splash_attention/splash_attention_mask_info.py
+@@ -287,8 +287,9 @@ def _get_mask_info_for_shard(
+       assert coord_m is not None
+       is_next_mask = idx > coord_m
+       if is_next_mask:
++        assert mask_coords_iter is not None
+         try:
+-          coord_m = next(mask_coords_iter)  # type: ignore
++          coord_m = next(mask_coords_iter)
+         except StopIteration:
+           coord_m = first_m
+ 
+diff --git a/jax/experimental/roofline/roofline.py b/jax/experimental/roofline/roofline.py
+index b8e6b37e8..56f47923d 100644
+--- a/jax/experimental/roofline/roofline.py
++++ b/jax/experimental/roofline/roofline.py
+@@ -283,8 +283,9 @@ def roofline(
+     def make_sharded_shape_dtype_struct(
+       shape: api.ShapeDtypeStruct, out_spec: Specs
+     ) -> api.ShapeDtypeStruct:
++      assert mesh is not None
+       return api.ShapeDtypeStruct(
+-        shape.shape, shape.dtype, sharding=NamedSharding(mesh, out_spec)  # type: ignore
++        shape.shape, shape.dtype, sharding=NamedSharding(mesh, out_spec)
+       )
+ 
+     if out_specs is not None and mesh is not None:
+diff --git a/jax/experimental/scheduling_groups.py b/jax/experimental/scheduling_groups.py
+index 9b49d0f76..db7b527fa 100644
+--- a/jax/experimental/scheduling_groups.py
++++ b/jax/experimental/scheduling_groups.py
+@@ -150,12 +150,12 @@ def _transpose_jaxpr(jaxpr, in_avals, in_tree):
+     primals_in, cts_in = tree_unflatten(in_tree, in_flat)
+     out = ad.backward_pass(jaxpr.jaxpr, False, jaxpr.consts, primals_in, cts_in)
+     out = [ct if not isinstance(ct, ad.Zero) else None for ct in out]
+-    cts_out, cell.out_tree = tree_flatten(out)  # type: ignore
++    cts_out, cell.out_tree = tree_flatten(out)  # pyrefly: ignore[missing-attribute]
+     return cts_out
+   dbg = jaxpr.jaxpr.debug_info.with_unknown_names()
+   trans_jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(
+       lu.wrap_init(transposed, debug_info=dbg), in_avals)
+-  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # type: ignore
++  return core.ClosedJaxpr(trans_jaxpr, consts), cell.out_tree  # pyrefly: ignore[missing-attribute]
+ 
+ def _xla_metadata_call_transpose(cts_in, *primals_in, jaxpr, **meta):
+   in_flat, in_tree = tree_flatten((primals_in, cts_in))
+diff --git a/jax/extend/backend.py b/jax/extend/backend.py
+index a3a9eb641..fd841b0aa 100644
+--- a/jax/extend/backend.py
++++ b/jax/extend/backend.py
+@@ -34,7 +34,7 @@ from jax._src.interpreters.pxla import (
+ from jax._src import (
+     util as _util
+ )
+-register_backend_cache = _util.register_cache  # type: ignore
++register_backend_cache = _util.register_cache
+ 
+ from jax._src.lib import (
+     ifrt_proxy as ifrt_proxy
+diff --git a/jaxlib/triton/dialect.py b/jaxlib/triton/dialect.py
+index c1d11f475..d6e7e55b6 100644
+--- a/jaxlib/triton/dialect.py
++++ b/jaxlib/triton/dialect.py
+@@ -31,7 +31,7 @@ from ._triton_enum_gen import *
+ from ._triton_ops_gen import *
+ 
+ 
+-class ReduceOp(ReduceOp):  # type: ignore
++class ReduceOp(ReduceOp):
+ 
+   def __init__(
+       self,
+@@ -49,7 +49,7 @@ class ReduceOp(ReduceOp):  # type: ignore
+ del reduce
+ 
+ 
+-class ScanOp(ScanOp):  # type: ignore
++class ScanOp(ScanOp):
+ 
+   def __init__(
+       self,
+diff --git a/jaxlib/xla_client.py b/jaxlib/xla_client.py
+index 9173b4e44..005fa1cd0 100644
+--- a/jaxlib/xla_client.py
++++ b/jaxlib/xla_client.py
+@@ -35,8 +35,6 @@ from jaxlib import _jax as _xla
+ # Most functions are snake_case for consistency with other modules, some
+ # method names are CamelCase for consistency with XLA.
+ 
+-# Pylint has false positives for type annotations.
+-
+ ifrt_programs = _xla.ifrt_programs
+ 
+ # Just an internal arbitrary increasing number to help with backward-compatible

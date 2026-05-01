@@ -1,0 +1,104 @@
+diff --git a/lib/matplotlib/axes/_base.py b/lib/matplotlib/axes/_base.py
+index 979d0568a..dec8e4cb8 100644
+--- a/lib/matplotlib/axes/_base.py
++++ b/lib/matplotlib/axes/_base.py
+@@ -2971,7 +2971,7 @@ class _AxesBase(martist.Artist):
+                     else:
+                         ax.apply_aspect()
+                     axs = axs + [ax]
+-            top = -np.Inf
++            top = -np.inf
+             for ax in axs:
+                 if (ax.xaxis.get_ticks_position() in ['top', 'unknown']
+                         or ax.xaxis.get_label_position() == 'top'):
+diff --git a/lib/matplotlib/backend_bases.py b/lib/matplotlib/backend_bases.py
+index 8a5ba25a7..bf369ba3c 100644
+--- a/lib/matplotlib/backend_bases.py
++++ b/lib/matplotlib/backend_bases.py
+@@ -2294,13 +2294,7 @@ class FigureCanvasBase:
+                 # _get_renderer may change the figure dpi (as vector formats
+                 # force the figure dpi to 72), so we need to set it again here.
+                 with cbook._setattr_cm(self.figure, dpi=dpi):
+-                    result = print_method(
+-                        filename,
+-                        facecolor=facecolor,
+-                        edgecolor=edgecolor,
+-                        orientation=orientation,
+-                        bbox_inches_restore=_bbox_inches_restore,
+-                        **kwargs)
++                    result = print_method(filename, **kwargs)
+             finally:
+                 if bbox_inches and restore_bbox:
+                     restore_bbox()
+diff --git a/lib/matplotlib/figure.py b/lib/matplotlib/figure.py
+index dee6024f5..2b4feb671 100644
+--- a/lib/matplotlib/figure.py
++++ b/lib/matplotlib/figure.py
+@@ -2843,7 +2843,7 @@ class Figure(FigureBase):
+         # weakref-collected.
+         self._axobservers.connect("_axes_change_event", lambda arg: func(arg))
+ 
+-    def savefig(self, fname, *, transparent=None, **kwargs):
++    def savefig(self, fname, *, dpi=None, format=None, metadata=None, bbox_inches=None, pad_inches=None, facecolor=None, edgecolor=None, backend=None, orientation=None, papertype=None, transparent=None, bbox_extra_artists=None, pil_kwargs=None, **kwargs):
+         """
+         Save the current figure.
+ 
+@@ -2953,20 +2953,50 @@ class Figure(FigureBase):
+             `PIL.Image.Image.save` when saving the figure.
+ 
+         """
+-
+-        kwargs.setdefault('dpi', mpl.rcParams['savefig.dpi'])
++        # Handle dpi parameter
++        if dpi is None:
++            dpi = mpl.rcParams["savefig.dpi"]
++        
++        # Handle transparent parameter
+         if transparent is None:
+-            transparent = mpl.rcParams['savefig.transparent']
+-
++            transparent = mpl.rcParams["savefig.transparent"]
++        
++        # Build kwargs for print_figure
++        print_kwargs = {}
++        if dpi is not None:
++            print_kwargs["dpi"] = dpi
++        if format is not None:
++            print_kwargs["format"] = format
++        if metadata is not None:
++            print_kwargs["metadata"] = metadata
++        if bbox_inches is not None:
++            print_kwargs["bbox_inches"] = bbox_inches
++        if pad_inches is not None:
++            print_kwargs["pad_inches"] = pad_inches
++        if facecolor is not None:
++            print_kwargs["facecolor"] = facecolor
++        if edgecolor is not None:
++            print_kwargs["edgecolor"] = edgecolor
++        if backend is not None:
++            print_kwargs["backend"] = backend
++        if orientation is not None:
++            print_kwargs["orientation"] = orientation
++        if papertype is not None:
++            print_kwargs["papertype"] = papertype
++        if bbox_extra_artists is not None:
++            print_kwargs["bbox_extra_artists"] = bbox_extra_artists
++        if pil_kwargs is not None:
++            print_kwargs["pil_kwargs"] = pil_kwargs
++        
+         with ExitStack() as stack:
+             if transparent:
+-                kwargs.setdefault('facecolor', 'none')
+-                kwargs.setdefault('edgecolor', 'none')
++                print_kwargs.setdefault("facecolor", "none")
++                print_kwargs.setdefault("edgecolor", "none")
+                 for ax in self.axes:
+                     stack.enter_context(
+-                        ax.patch._cm_set(facecolor='none', edgecolor='none'))
++                        ax.patch._cm_set(facecolor="none", edgecolor="none"))
+ 
+-            self.canvas.print_figure(fname, **kwargs)
++            self.canvas.print_figure(fname, **print_kwargs)
+ 
+     def ginput(self, n=1, timeout=30, show_clicks=True,
+                mouse_add=MouseButton.LEFT,

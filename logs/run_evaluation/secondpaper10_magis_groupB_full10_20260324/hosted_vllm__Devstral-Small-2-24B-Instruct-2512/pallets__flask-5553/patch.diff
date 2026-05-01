@@ -1,0 +1,81 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..aa89e95a 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -184,6 +184,7 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL": None,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -451,7 +452,49 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        canonical_url = self.config.get("CANONICAL_URL")
++        if canonical_url is not None:
++            # Parse CANONICAL_URL to extract server_name for url_adapter
++            if canonical_url.startswith("http://"):
++                url_scheme = "http"
++                server_name = canonical_url[7:]  # Remove "http://"
++            elif canonical_url.startswith("https://"):
++                url_scheme = "https"
++                server_name = canonical_url[8:]  # Remove "https://"
++            else:
++                # Fallback to PREFERRED_URL_SCHEME if CANONICAL_URL doesn't include scheme
++                url_scheme = self.config["PREFERRED_URL_SCHEME"]
++                server_name = canonical_url
++
++            # Remove path and query parameters from server_name
++            server_name = server_name.split("/")[0]
++
++            # Handle default ports - don't include them in the server_name
++            if ":" in server_name:
++                host, port = server_name.split(":", 1)
++                # Check if this is a default port
++                if (url_scheme == "http" and port == "80") or (url_scheme == "https" and port == "443"):
++                    server_name = host
++                # Otherwise keep the custom port
++            else:
++                # Add default port if not specified (required by Werkzeug)
++                server_name = f"{server_name}:80" if url_scheme == "http" else f"{server_name}:443"
++
++            return self.url_map.bind(
++                server_name,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=url_scheme,
++            )
++        elif self.config["SERVER_NAME"] is not None:
++            import warnings
++            warnings.warn(
++                "The 'SERVER_NAME' configuration is deprecated for URL generation "
++                "and will be removed in Flask 3.1. Use 'CANONICAL_URL' instead "
++                "for controlling URL generation. 'SERVER_NAME' will continue to "
++                "be used for routing.",
++                DeprecationWarning,
++                stacklevel=2,
++            )
+             return self.url_map.bind(
+                 self.config["SERVER_NAME"],
+                 script_name=self.config["APPLICATION_ROOT"],
+@@ -1010,7 +1053,7 @@ class Flask(App):
+         In some cases, such as email messages, you want URLs to include
+         the scheme and domain, like ``https://example.com/hello``. When
+         not in an active request, URLs will be external by default, but
+-        this requires setting :data:`SERVER_NAME` so Flask knows what
++        this requires setting :data:`CANONICAL_URL` so Flask knows what
+         domain to use. :data:`APPLICATION_ROOT` and
+         :data:`PREFERRED_URL_SCHEME` should also be configured as
+         needed. This config is only used when not in an active request.
+@@ -1074,7 +1117,7 @@ class Flask(App):
+             if url_adapter is None:
+                 raise RuntimeError(
+                     "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
++                    " without 'CANONICAL_URL' or 'SERVER_NAME' configured. Also configure"
+                     " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+                     " needed."
+                 )

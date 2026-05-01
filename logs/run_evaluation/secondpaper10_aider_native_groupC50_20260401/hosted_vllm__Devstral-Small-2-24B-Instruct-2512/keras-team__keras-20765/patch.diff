@@ -1,0 +1,218 @@
+diff --git a/api_gen.py b/api_gen.py
+index 69e68267e..891af15d6 100644
+--- a/api_gen.py
++++ b/api_gen.py
+@@ -16,11 +16,9 @@ import namex
+ PACKAGE = "keras"
+ BUILD_DIR_NAME = "tmp_build_dir"
+ 
+-
+ def ignore_files(_, filenames):
+     return [f for f in filenames if f.endswith("_test.py")]
+ 
+-
+ def copy_source_to_build_directory(root_path):
+     # Copy sources (`keras/` directory and setup files) to build dir
+     build_dir = os.path.join(root_path, BUILD_DIR_NAME)
+@@ -32,7 +30,6 @@ def copy_source_to_build_directory(root_path):
+     )
+     return build_dir
+ 
+-
+ def create_legacy_directory(package_dir):
+     src_dir = os.path.join(package_dir, "src")
+     api_dir = os.path.join(package_dir, "api")
+@@ -133,7 +130,6 @@ def create_legacy_directory(package_dir):
+     # Delete keras/api/_legacy/
+     shutil.rmtree(os.path.join(api_dir, "_legacy"))
+ 
+-
+ def export_version_string(api_init_fname):
+     with open(api_init_fname) as f:
+         contents = f.read()
+@@ -141,7 +137,6 @@ def export_version_string(api_init_fname):
+         contents += "from keras.src.version import __version__\n"
+         f.write(contents)
+ 
+-
+ def update_package_init(template_fname, dest_fname, api_module):
+     with open(template_fname) as template_file:
+         with open(dest_fname, "w") as dest_file:
+@@ -159,7 +154,6 @@ def update_package_init(template_fname, dest_fname, api_module):
+                             break
+                 dest_file.write(line)
+ 
+-
+ def build():
+     # Backup the `keras/__init__.py` and restore it on error in api gen.
+     root_path = os.path.dirname(os.path.abspath(__file__))
+@@ -197,6 +191,5 @@ def build():
+         # Clean up: remove the build directory (no longer needed)
+         shutil.rmtree(build_dir)
+ 
+-
+ if __name__ == "__main__":
+     build()
+diff --git a/conftest.py b/conftest.py
+index a710f7378..c580f9d57 100644
+--- a/conftest.py
++++ b/conftest.py
+@@ -25,6 +25,18 @@ def pytest_configure(config):
+ 
+ 
+ def pytest_collection_modifyitems(config, items):
++    openvino_skipped_tests = []
++    if backend() == "openvino":
++        with open(
++            "keras/src/backend/openvino/excluded_concrete_tests.txt", "r"
++        ) as file:
++            openvino_skipped_tests = file.readlines()
++            # it is necessary to check if stripped line is not empty
++            # and exclude such lines
++            openvino_skipped_tests = [
++                line.strip() for line in openvino_skipped_tests if line.strip()
++            ]
++
+     requires_trainable_backend = pytest.mark.skipif(
+         backend() == "numpy" or backend() == "openvino",
+         reason="Trainer not implemented for NumPy and OpenVINO backend.",
+@@ -32,6 +44,17 @@ def pytest_collection_modifyitems(config, items):
+     for item in items:
+         if "requires_trainable_backend" in item.keywords:
+             item.add_marker(requires_trainable_backend)
++        # also, skip concrete tests for openvino, listed in the special file
++        # this is more granular mechanism to exclude tests rather
++        # than using --ignore option
++        for skipped_test in openvino_skipped_tests:
++            if skipped_test in item.nodeid:
++                item.add_marker(
++                    skip_if_backend(
++                        "openvino",
++                        "Not supported operation by openvino backend",
++                    )
++                )
+ 
+ 
+ def skip_if_backend(given_backend, reason):
+diff --git a/guides/training_with_built_in_methods.py b/guides/training_with_built_in_methods.py
+index a4ddd6a42..b539d0058 100644
+--- a/guides/training_with_built_in_methods.py
++++ b/guides/training_with_built_in_methods.py
+@@ -620,8 +620,8 @@ val_py_dataset = ExamplePyDataset(x_val, y_val, batch_size=32)
+ """
+ To fit the model, pass the dataset instead as the `x` argument (no need for a `y`
+ argument since the dataset includes the targets), and pass the validation dataset
+-as the `validation_data` argument. And no need for the `batch_size` argument, since
+-the dataset is already batched!
++as the `validation_data` argument. And no need for the `validation_batch_size`
++argument, since the dataset is already batched!
+ """
+ 
+ model = get_compiled_model()
+diff --git a/integration_tests/import_test.py b/integration_tests/import_test.py
+index fbb97b9d8..e7af37f23 100644
+--- a/integration_tests/import_test.py
++++ b/integration_tests/import_test.py
+@@ -8,7 +8,7 @@ from keras.src import backend
+ BACKEND_REQ = {
+     "tensorflow": ("tensorflow-cpu", ""),
+     "torch": (
+-        "torch torchvision",
++        "torch",
+         "--extra-index-url https://download.pytorch.org/whl/cpu ",
+     ),
+     "jax": ("jax[cpu]", ""),
+@@ -28,11 +28,12 @@ def setup_package():
+     whl_path = re.findall(
+         r"[^\s]*\.whl",
+         build_process.stdout,
+-    )[-1]
++    )
+     if not whl_path:
++        print(build_process.stdout)
+         print(build_process.stderr)
+         raise ValueError("Installing Keras package unsuccessful. ")
+-    return whl_path
++    return whl_path[-1]
+ 
+ 
+ def create_virtualenv():
+diff --git a/keras/__init__.py b/keras/__init__.py
+index 4df10c6c8..f1b2fd66e 100644
+--- a/keras/__init__.py
++++ b/keras/__init__.py
+@@ -1,24 +1,4 @@
+ # DO NOT EDIT. Generated by api_gen.sh
+-from keras.api import DTypePolicy
+-from keras.api import FloatDTypePolicy
+-from keras.api import Function
+-from keras.api import Initializer
+-from keras.api import Input
+-from keras.api import InputSpec
+-from keras.api import KerasTensor
+-from keras.api import Layer
+-from keras.api import Loss
+-from keras.api import Metric
+-from keras.api import Model
+-from keras.api import Operation
+-from keras.api import Optimizer
+-from keras.api import Quantizer
+-from keras.api import Regularizer
+-from keras.api import Sequential
+-from keras.api import StatelessScope
+-from keras.api import SymbolicScope
+-from keras.api import Variable
+-from keras.api import __version__
+ from keras.api import activations
+ from keras.api import applications
+ from keras.api import backend
+@@ -26,7 +6,6 @@ from keras.api import callbacks
+ from keras.api import config
+ from keras.api import constraints
+ from keras.api import datasets
+-from keras.api import device
+ from keras.api import distribution
+ from keras.api import dtype_policies
+ from keras.api import export
+@@ -37,7 +16,6 @@ from keras.api import losses
+ from keras.api import metrics
+ from keras.api import mixed_precision
+ from keras.api import models
+-from keras.api import name_scope
+ from keras.api import ops
+ from keras.api import optimizers
+ from keras.api import preprocessing
+@@ -47,10 +25,31 @@ from keras.api import regularizers
+ from keras.api import saving
+ from keras.api import tree
+ from keras.api import utils
+-from keras.api import version
+ from keras.api import visualization
+ from keras.api import wrappers
+-
++from keras.api import Variable
++from keras.api import device
++from keras.api import name_scope
++from keras.api import KerasTensor
++from keras.api import StatelessScope
++from keras.api import SymbolicScope
++from keras.api import DTypePolicy
++from keras.api import FloatDTypePolicy
++from keras.api import Initializer
++from keras.api import Input
++from keras.api import InputSpec
++from keras.api import Layer
++from keras.api import Loss
++from keras.api import Metric
++from keras.api import Model
++from keras.api import Sequential
++from keras.api import Function
++from keras.api import Operation
++from keras.api import Optimizer
++from keras.api import Quantizer
++from keras.api import Regularizer
++from keras.api import version
++from keras.api import __version__
+ # END DO NOT EDIT.
+ 
+ import os  # isort: skip

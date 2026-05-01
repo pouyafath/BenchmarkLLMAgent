@@ -1,0 +1,294 @@
+diff --git a/torchvision/transforms/v2/_geometry.py b/torchvision/transforms/v2/_geometry.py
+index 1418a6b4..cfab0a33 100644
+--- a/torchvision/transforms/v2/_geometry.py
++++ b/torchvision/transforms/v2/_geometry.py
+@@ -470,6 +470,7 @@ class Pad(Transform):
+         padding: Union[int, Sequence[int]],
+         fill: Union[_FillType, dict[Union[type, str], _FillType]] = 0,
+         padding_mode: Literal["constant", "edge", "reflect", "symmetric"] = "constant",
++        clamp: bool = True,
+     ) -> None:
+         super().__init__()
+ 
+@@ -483,10 +484,11 @@ class Pad(Transform):
+         self.fill = fill
+         self._fill = _setup_fill_arg(fill)
+         self.padding_mode = padding_mode
++        self.clamp = clamp
+ 
+     def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
+         fill = _get_fill(self._fill, type(inpt))
+-        return self._call_kernel(F.pad, inpt, padding=self.padding, fill=fill, padding_mode=self.padding_mode)  # type: ignore[arg-type]
++        return self._call_kernel(F.pad, inpt, padding=self.padding, fill=fill, padding_mode=self.padding_mode, clamp=self.clamp)  # type: ignore[arg-type]
+ 
+ 
+ class RandomZoomOut(_RandomApplyTransform):
+@@ -687,6 +689,7 @@ class RandomAffine(Transform):
+         interpolation: Union[InterpolationMode, int] = InterpolationMode.NEAREST,
+         fill: Union[_FillType, dict[Union[type, str], _FillType]] = 0,
+         center: Optional[list[float]] = None,
++        clamp: bool = True,
+     ) -> None:
+         super().__init__()
+         self.degrees = _setup_angle(degrees, name="degrees", req_sizes=(2,))
+@@ -716,6 +719,7 @@ class RandomAffine(Transform):
+             _check_sequence_input(center, "center", req_sizes=(2,))
+ 
+         self.center = center
++        self.clamp = clamp
+ 
+     def make_params(self, flat_inputs: list[Any]) -> dict[str, Any]:
+         height, width = query_size(flat_inputs)
+@@ -753,6 +757,7 @@ class RandomAffine(Transform):
+             interpolation=self.interpolation,
+             fill=fill,
+             center=self.center,
++            clamp=self.clamp,
+         )
+ 
+ 
+diff --git a/torchvision/transforms/v2/functional/_geometry.py b/torchvision/transforms/v2/functional/_geometry.py
+index 7e9766bd..862a5fe8 100644
+--- a/torchvision/transforms/v2/functional/_geometry.py
++++ b/torchvision/transforms/v2/functional/_geometry.py
+@@ -597,6 +597,7 @@ def affine(
+     interpolation: Union[InterpolationMode, int] = InterpolationMode.NEAREST,
+     fill: _FillTypeJIT = None,
+     center: Optional[list[float]] = None,
++    clamp: bool = True,
+ ) -> torch.Tensor:
+     """See :class:`~torchvision.transforms.v2.RandomAffine` for details."""
+     if torch.jit.is_scripting():
+@@ -623,6 +624,7 @@ def affine(
+         interpolation=interpolation,
+         fill=fill,
+         center=center,
++        clamp=clamp,
+     )
+ 
+ 
+@@ -1098,6 +1100,7 @@ def _affine_bounding_boxes_with_expand(
+     shear: list[float],
+     center: Optional[list[float]] = None,
+     expand: bool = False,
++    clamp: bool = True,
+ ) -> tuple[torch.Tensor, tuple[int, int]]:
+     if bounding_boxes.numel() == 0:
+         return bounding_boxes, canvas_size
+@@ -1176,7 +1179,7 @@ def _affine_bounding_boxes_with_expand(
+         new_width, new_height = _compute_affine_output_size(affine_vector, width, height)
+         canvas_size = (new_height, new_width)
+ 
+-    out_bboxes = clamp_bounding_boxes(out_bboxes, format=intermediate_format, canvas_size=canvas_size)
++    out_bboxes = clamp_bounding_boxes(out_bboxes, format=intermediate_format, canvas_size=canvas_size, clamp=clamp)
+     out_bboxes = convert_bounding_box_format(
+         out_bboxes, old_format=intermediate_format, new_format=format, inplace=True
+     ).reshape(original_shape)
+@@ -1197,6 +1200,7 @@ def affine_bounding_boxes(
+     scale: float,
+     shear: list[float],
+     center: Optional[list[float]] = None,
++    clamp: bool = True,
+ ) -> torch.Tensor:
+     out_box, _ = _affine_bounding_boxes_with_expand(
+         bounding_boxes,
+@@ -1208,6 +1212,7 @@ def affine_bounding_boxes(
+         shear=shear,
+         center=center,
+         expand=False,
++        clamp=clamp,
+     )
+     return out_box
+ 
+@@ -1220,6 +1225,7 @@ def _affine_bounding_boxes_dispatch(
+     scale: float,
+     shear: list[float],
+     center: Optional[list[float]] = None,
++    clamp: bool = True,
+     **kwargs,
+ ) -> tv_tensors.BoundingBoxes:
+     output = affine_bounding_boxes(
+@@ -1231,6 +1237,7 @@ def _affine_bounding_boxes_dispatch(
+         scale=scale,
+         shear=shear,
+         center=center,
++        clamp=clamp,
+     )
+     return tv_tensors.wrap(output, like=inpt)
+ 
+@@ -1519,6 +1526,7 @@ def pad(
+     padding: list[int],
+     fill: Optional[Union[int, float, list[float]]] = None,
+     padding_mode: str = "constant",
++    clamp: bool = True,
+ ) -> torch.Tensor:
+     """See :class:`~torchvision.transforms.v2.Pad` for details."""
+     if torch.jit.is_scripting():
+@@ -1527,7 +1535,7 @@ def pad(
+     _log_api_usage_once(pad)
+ 
+     kernel = _get_kernel(pad, type(inpt))
+-    return kernel(inpt, padding=padding, fill=fill, padding_mode=padding_mode)
++    return kernel(inpt, padding=padding, fill=fill, padding_mode=padding_mode, clamp=clamp)
+ 
+ 
+ def _parse_pad_padding(padding: Union[int, list[int]]) -> list[int]:
+@@ -1723,6 +1731,7 @@ def pad_bounding_boxes(
+     canvas_size: tuple[int, int],
+     padding: list[int],
+     padding_mode: str = "constant",
++    clamp: bool = True,
+ ) -> tuple[torch.Tensor, tuple[int, int]]:
+     if padding_mode not in ["constant"]:
+         # TODO: add support of other padding modes
+@@ -1745,12 +1754,12 @@ def pad_bounding_boxes(
+     width += left + right
+     canvas_size = (height, width)
+ 
+-    return clamp_bounding_boxes(bounding_boxes, format=format, canvas_size=canvas_size), canvas_size
++    return clamp_bounding_boxes(bounding_boxes, format=format, canvas_size=canvas_size, clamp=clamp), canvas_size
+ 
+ 
+ @_register_kernel_internal(pad, tv_tensors.BoundingBoxes, tv_tensor_wrapper=False)
+ def _pad_bounding_boxes_dispatch(
+-    inpt: tv_tensors.BoundingBoxes, padding: list[int], padding_mode: str = "constant", **kwargs
++    inpt: tv_tensors.BoundingBoxes, padding: list[int], padding_mode: str = "constant", clamp: bool = True, **kwargs
+ ) -> tv_tensors.BoundingBoxes:
+     output, canvas_size = pad_bounding_boxes(
+         inpt.as_subclass(torch.Tensor),
+@@ -1758,6 +1767,7 @@ def _pad_bounding_boxes_dispatch(
+         canvas_size=inpt.canvas_size,
+         padding=padding,
+         padding_mode=padding_mode,
++        clamp=clamp,
+     )
+     return tv_tensors.wrap(output, like=inpt, canvas_size=canvas_size)
+ 
+@@ -1772,7 +1782,7 @@ def pad_video(
+     return pad_image(video, padding, fill=fill, padding_mode=padding_mode)
+ 
+ 
+-def crop(inpt: torch.Tensor, top: int, left: int, height: int, width: int) -> torch.Tensor:
++def crop(inpt: torch.Tensor, top: int, left: int, height: int, width: int, clamp: bool = True) -> torch.Tensor:
+     """See :class:`~torchvision.transforms.v2.RandomCrop` for details."""
+     if torch.jit.is_scripting():
+         return crop_image(inpt, top=top, left=left, height=height, width=width)
+@@ -1780,7 +1790,7 @@ def crop(inpt: torch.Tensor, top: int, left: int, height: int, width: int) -> to
+     _log_api_usage_once(crop)
+ 
+     kernel = _get_kernel(crop, type(inpt))
+-    return kernel(inpt, top=top, left=left, height=height, width=width)
++    return kernel(inpt, top=top, left=left, height=height, width=width, clamp=clamp)
+ 
+ 
+ @_register_kernel_internal(crop, torch.Tensor)
+@@ -1836,6 +1846,7 @@ def crop_bounding_boxes(
+     left: int,
+     height: int,
+     width: int,
++    clamp: bool = True,
+ ) -> tuple[torch.Tensor, tuple[int, int]]:
+ 
+     # Crop or implicit pad if left and/or top have negative values:
+@@ -1854,15 +1865,15 @@ def crop_bounding_boxes(
+     if format == tv_tensors.BoundingBoxFormat.XYXYXYXY:
+         bounding_boxes = _parallelogram_to_bounding_boxes(bounding_boxes)
+ 
+-    return clamp_bounding_boxes(bounding_boxes, format=format, canvas_size=canvas_size), canvas_size
++    return clamp_bounding_boxes(bounding_boxes, format=format, canvas_size=canvas_size, clamp=clamp), canvas_size
+ 
+ 
+ @_register_kernel_internal(crop, tv_tensors.BoundingBoxes, tv_tensor_wrapper=False)
+ def _crop_bounding_boxes_dispatch(
+-    inpt: tv_tensors.BoundingBoxes, top: int, left: int, height: int, width: int
++    inpt: tv_tensors.BoundingBoxes, top: int, left: int, height: int, width: int, clamp: bool = True
+ ) -> tv_tensors.BoundingBoxes:
+     output, canvas_size = crop_bounding_boxes(
+-        inpt.as_subclass(torch.Tensor), format=inpt.format, top=top, left=left, height=height, width=width
++        inpt.as_subclass(torch.Tensor), format=inpt.format, top=top, left=left, height=height, width=width, clamp=clamp
+     )
+     return tv_tensors.wrap(output, like=inpt, canvas_size=canvas_size)
+ 
+@@ -2130,7 +2141,7 @@ def perspective_bounding_boxes(
+         out_bbox_mins, out_bbox_maxs = torch.aminmax(transformed_points, dim=1)
+         out_bboxes = torch.cat([out_bbox_mins, out_bbox_maxs], dim=1)
+ 
+-    out_bboxes = clamp_bounding_boxes(out_bboxes, format=intermediate_format, canvas_size=canvas_size)
++    out_bboxes = clamp_bounding_boxes(out_bboxes, format=intermediate_format, canvas_size=canvas_size, clamp=clamp)
+ 
+     out_bboxes = convert_bounding_box_format(
+         out_bboxes, old_format=intermediate_format, new_format=format, inplace=True
+@@ -2176,6 +2187,7 @@ def _perspective_bounding_boxes_dispatch(
+     startpoints: Optional[list[list[int]]],
+     endpoints: Optional[list[list[int]]],
+     coefficients: Optional[list[float]] = None,
++    clamp: bool = True,
+     **kwargs,
+ ) -> tv_tensors.BoundingBoxes:
+     output = perspective_bounding_boxes(
+@@ -2185,6 +2197,7 @@ def _perspective_bounding_boxes_dispatch(
+         startpoints=startpoints,
+         endpoints=endpoints,
+         coefficients=coefficients,
++        clamp=clamp,
+     )
+     return tv_tensors.wrap(output, like=inpt)
+ 
+@@ -2377,6 +2390,7 @@ def elastic_bounding_boxes(
+     format: tv_tensors.BoundingBoxFormat,
+     canvas_size: tuple[int, int],
+     displacement: torch.Tensor,
++    clamp: bool = True,
+ ) -> torch.Tensor:
+     expected_shape = (1, canvas_size[0], canvas_size[1], 2)
+     if not isinstance(displacement, torch.Tensor):
+@@ -2432,6 +2446,7 @@ def elastic_bounding_boxes(
+         out_bboxes,
+         format=intermediate_format,
+         canvas_size=canvas_size,
++        clamp=clamp,
+     )
+ 
+     return convert_bounding_box_format(
+@@ -2441,10 +2456,10 @@ def elastic_bounding_boxes(
+ 
+ @_register_kernel_internal(elastic, tv_tensors.BoundingBoxes, tv_tensor_wrapper=False)
+ def _elastic_bounding_boxes_dispatch(
+-    inpt: tv_tensors.BoundingBoxes, displacement: torch.Tensor, **kwargs
++    inpt: tv_tensors.BoundingBoxes, displacement: torch.Tensor, clamp: bool = True, **kwargs
+ ) -> tv_tensors.BoundingBoxes:
+     output = elastic_bounding_boxes(
+-        inpt.as_subclass(torch.Tensor), format=inpt.format, canvas_size=inpt.canvas_size, displacement=displacement
++        inpt.as_subclass(torch.Tensor), format=inpt.format, canvas_size=inpt.canvas_size, displacement=displacement, clamp=clamp
+     )
+     return tv_tensors.wrap(output, like=inpt)
+ 
+diff --git a/torchvision/transforms/v2/functional/_meta.py b/torchvision/transforms/v2/functional/_meta.py
+index 1729aa4b..4552f9be 100644
+--- a/torchvision/transforms/v2/functional/_meta.py
++++ b/torchvision/transforms/v2/functional/_meta.py
+@@ -536,11 +536,15 @@ def clamp_bounding_boxes(
+     inpt: torch.Tensor,
+     format: Optional[BoundingBoxFormat] = None,
+     canvas_size: Optional[tuple[int, int]] = None,
++    clamp: bool = True,
+ ) -> torch.Tensor:
+     """See :func:`~torchvision.transforms.v2.ClampBoundingBoxes` for details."""
+     if not torch.jit.is_scripting():
+         _log_api_usage_once(clamp_bounding_boxes)
+ 
++    if not clamp:
++        return inpt
++
+     if torch.jit.is_scripting() or is_pure_tensor(inpt):
+ 
+         if format is None or canvas_size is None:
+@@ -552,6 +556,8 @@ def clamp_bounding_boxes(
+     elif isinstance(inpt, tv_tensors.BoundingBoxes):
+         if format is not None or canvas_size is not None:
+             raise ValueError("For bounding box tv_tensor inputs, `format` and `canvas_size` must not be passed.")
++        if not clamp:
++            return inpt
+         if tv_tensors.is_rotated_bounding_format(inpt.format):
+             output = _clamp_rotated_bounding_boxes(
+                 inpt.as_subclass(torch.Tensor), format=inpt.format, canvas_size=inpt.canvas_size

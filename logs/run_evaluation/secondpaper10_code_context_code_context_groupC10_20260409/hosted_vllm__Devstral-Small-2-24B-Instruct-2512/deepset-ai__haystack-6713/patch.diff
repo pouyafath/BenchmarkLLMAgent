@@ -1,0 +1,284 @@
+diff --git a/haystack/components/generators/hugging_face_local.py b/haystack/components/generators/hugging_face_local.py
+index b72ad0c5..27f539ea 100644
+--- a/haystack/components/generators/hugging_face_local.py
++++ b/haystack/components/generators/hugging_face_local.py
+@@ -4,6 +4,7 @@ from copy import deepcopy
+ 
+ from haystack import component, default_to_dict
+ from haystack.lazy_imports import LazyImport
++from haystack.utils.type_serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -56,7 +57,6 @@ with LazyImport(message="Run 'pip install transformers[torch]'") as torch_and_tr
+             result = all(generated_text_ids[len_generated_text_ids - len_stop_id :].eq(stop_id))
+             return result
+ 
+-
+ @component
+ class HuggingFaceLocalGenerator:
+     """
+@@ -201,6 +201,10 @@ class HuggingFaceLocalGenerator:
+         if isinstance(pipeline_kwargs_to_serialize["token"], str):
+             pipeline_kwargs_to_serialize["token"] = None
+ 
++        # Serialize model_kwargs if present
++        if "model_kwargs" in pipeline_kwargs_to_serialize:
++            pipeline_kwargs_to_serialize["model_kwargs"] = serialize_model_kwargs(pipeline_kwargs_to_serialize["model_kwargs"])
++
+         return default_to_dict(
+             self,
+             huggingface_pipeline_kwargs=pipeline_kwargs_to_serialize,
+@@ -208,6 +212,32 @@ class HuggingFaceLocalGenerator:
+             stop_words=self.stop_words,
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> 'HuggingFaceLocalGenerator':
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of HuggingFaceLocalGenerator.
++        """
++        # The data structure from pipeline serialization has 'init_parameters' key
++        if 'init_parameters' in data:
++            init_params = data['init_parameters']
++        else:
++            # Fallback for direct component serialization
++            init_params = data
++
++        # Deserialize model_kwargs if present in huggingface_pipeline_kwargs
++        huggingface_pipeline_kwargs = init_params.get('huggingface_pipeline_kwargs', {})
++        if 'model_kwargs' in huggingface_pipeline_kwargs:
++            huggingface_pipeline_kwargs['model_kwargs'] = deserialize_model_kwargs(huggingface_pipeline_kwargs['model_kwargs'])
++
++        return cls(
++            huggingface_pipeline_kwargs=huggingface_pipeline_kwargs,
++            generation_kwargs=init_params.get('generation_kwargs'),
++            stop_words=init_params.get('stop_words'),
++        )
++
+     @component.output_types(replies=List[str])
+     def run(self, prompt: str, generation_kwargs: Optional[Dict[str, Any]] = None):
+         """
+diff --git a/haystack/components/rankers/transformers_similarity.py b/haystack/components/rankers/transformers_similarity.py
+index 6dc163f5..d697f8b9 100644
+--- a/haystack/components/rankers/transformers_similarity.py
++++ b/haystack/components/rankers/transformers_similarity.py
+@@ -5,15 +5,14 @@ from typing import List, Union, Dict, Any, Optional
+ from haystack import ComponentError, Document, component, default_to_dict
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.type_serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ with LazyImport(message="Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     import torch
+     from transformers import AutoModelForSequenceClassification, AutoTokenizer
+ 
+-
+ @component
+ class TransformersSimilarityRanker:
+     """
+@@ -124,7 +123,39 @@ class TransformersSimilarityRanker:
+             scale_score=self.scale_score,
+             calibration_factor=self.calibration_factor,
+             score_threshold=self.score_threshold,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
++        )
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> 'TransformersSimilarityRanker':
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of TransformersSimilarityRanker.
++        """
++        # The data structure from pipeline serialization has 'init_parameters' key
++        if 'init_parameters' in data:
++            init_params = data['init_parameters']
++        else:
++            # Fallback for direct component serialization
++            init_params = data
++
++        # Deserialize model_kwargs to convert string representations back to torch types
++        if 'model_kwargs' in init_params:
++            init_params['model_kwargs'] = deserialize_model_kwargs(init_params['model_kwargs'])
++
++        return cls(
++            model_name_or_path=init_params['model_name_or_path'],
++            device=init_params.get('device'),
++            token=init_params.get('token'),
++            top_k=init_params.get('top_k', 10),
++            meta_fields_to_embed=init_params.get('meta_fields_to_embed'),
++            embedding_separator=init_params.get('embedding_separator', "\n"),
++            scale_score=init_params.get('scale_score', True),
++            calibration_factor=init_params.get('calibration_factor', 1.0),
++            score_threshold=init_params.get('score_threshold'),
++            model_kwargs=init_params.get('model_kwargs'),
+         )
+ 
+     @component.output_types(documents=List[Document])
+diff --git a/haystack/components/readers/extractive.py b/haystack/components/readers/extractive.py
+index dea016f7..d2120a0e 100644
+--- a/haystack/components/readers/extractive.py
++++ b/haystack/components/readers/extractive.py
+@@ -11,9 +11,9 @@ from haystack.utils import get_device
+ with LazyImport("Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+     from tokenizers import Encoding
++    from haystack.utils.type_serialization import serialize_model_kwargs, deserialize_model_kwargs
+     import torch
+ 
+-
+ logger = logging.getLogger(__name__)
+ 
+ 
+@@ -125,7 +125,42 @@ class ExtractiveReader:
+             answers_per_seq=self.answers_per_seq,
+             no_answer=self.no_answer,
+             calibration_factor=self.calibration_factor,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
++        )
++
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> 'ExtractiveReader':
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of ExtractiveReader.
++        """
++        # The data structure from pipeline serialization has 'init_parameters' key
++        if 'init_parameters' in data:
++            init_params = data['init_parameters']
++        else:
++            # Fallback for direct component serialization
++            init_params = data
++
++        # Deserialize model_kwargs to convert string representations back to torch types
++        if 'model_kwargs' in init_params:
++            init_params['model_kwargs'] = deserialize_model_kwargs(init_params['model_kwargs'])
++
++        return cls(
++            model_name_or_path=init_params['model_name_or_path'],
++            device=init_params.get('device'),
++            token=init_params.get('token'),
++            top_k=init_params.get('top_k', 20),
++            score_threshold=init_params.get('score_threshold'),
++            max_seq_length=init_params.get('max_seq_length', 384),
++            stride=init_params.get('stride', 128),
++            max_batch_size=init_params.get('max_batch_size'),
++            answers_per_seq=init_params.get('answers_per_seq'),
++            no_answer=init_params.get('no_answer', True),
++            calibration_factor=init_params.get('calibration_factor', 0.1),
++            model_kwargs=init_params.get('model_kwargs'),
+         )
+ 
+     def warm_up(self):
+diff --git a/haystack/utils/type_serialization.py b/haystack/utils/type_serialization.py
+index 5d16554b..100eb396 100644
+--- a/haystack/utils/type_serialization.py
++++ b/haystack/utils/type_serialization.py
+@@ -5,7 +5,6 @@ from typing import Any, get_origin
+ 
+ from haystack import DeserializationError
+ 
+-
+ def serialize_type(target: Any) -> str:
+     """
+     Serializes a type or an instance to its string representation, including the module name.
+@@ -51,7 +50,6 @@ def serialize_type(target: Any) -> str:
+ 
+     return full_path
+ 
+-
+ def deserialize_type(type_str: str) -> Any:
+     """
+     Deserializes a type given its full import path as a string, including nested generic types.
+@@ -115,3 +113,78 @@ def deserialize_type(type_str: str) -> Any:
+             raise DeserializationError(f"Could not locate the type: {type_name} in the module: {module_name}")
+ 
+         return deserialized_type
++
++def serialize_torch_dtype(dtype):
++    """
++    Serialize a torch.dtype to a string representation.
++
++    :param dtype: A torch.dtype object to serialize.
++    :return: String representation of the dtype.
++    """
++    if hasattr(dtype, '__name__'):
++        return dtype.__name__
++    return str(dtype)
++
++def deserialize_torch_dtype(dtype_str):
++    """
++    Deserialize a string representation back to a torch.dtype.
++
++    :param dtype_str: String representation of a torch.dtype.
++    :return: The corresponding torch.dtype object.
++    :raises DeserializationError: If the dtype cannot be deserialized.
++    """
++    try:
++        import torch
++        # Handle both "float16" and "torch.float16" formats
++        if dtype_str.startswith('torch.'):
++            dtype_str = dtype_str.split('.', 1)[1]
++
++        return getattr(torch, dtype_str)
++    except AttributeError as e:
++        raise DeserializationError(f"Could not deserialize torch dtype: {dtype_str}") from e
++
++def serialize_model_kwargs(model_kwargs):
++    """
++    Serialize model_kwargs by converting torch.dtype objects to strings.
++
++    :param model_kwargs: Dictionary of model kwargs that may contain non-serializable types.
++    :return: Serialized dictionary with torch.dtype objects converted to strings.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    serialized = {}
++    for key, value in model_kwargs.items():
++        if hasattr(value, '__class__') and value.__class__.__module__ == 'torch' and value.__class__.__name__ == 'dtype':
++            # This is a torch.dtype, serialize it as a string
++            serialized[key] = serialize_torch_dtype(value)
++        else:
++            serialized[key] = value
++    return serialized
++
++def deserialize_model_kwargs(model_kwargs):
++    """
++    Deserialize model_kwargs by converting string representations of torch.dtype back to actual types.
++
++    :param model_kwargs: Dictionary of model kwargs that may contain string representations of torch.dtype.
++    :return: Deserialized dictionary with string representations converted back to torch.dtype objects.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    deserialized = {}
++    for key, value in model_kwargs.items():
++        if isinstance(value, str):
++            # Check if this looks like a torch dtype string
++            # Common torch dtypes: float16, float32, float64, int8, int16, int32, int64, bool, etc.
++            if (value.startswith('float') or value.startswith('int') or value.startswith('bool') or
++                value.startswith('torch.float') or value.startswith('torch.int') or value.startswith('torch.bool')):
++                try:
++                    deserialized[key] = deserialize_torch_dtype(value)
++                    continue
++                except DeserializationError:
++                    # If it's not a torch.dtype, keep it as a string
++                    pass
++
++        deserialized[key] = value
++    return deserialized

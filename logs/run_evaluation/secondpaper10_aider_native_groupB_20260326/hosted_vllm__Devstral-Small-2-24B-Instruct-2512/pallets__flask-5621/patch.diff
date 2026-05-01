@@ -1,0 +1,46 @@
+diff --git a/src/flask/ctx.py b/src/flask/ctx.py
+index 9b164d39..a9c9bfb8 100644
+--- a/src/flask/ctx.py
++++ b/src/flask/ctx.py
+@@ -10,6 +10,8 @@ from werkzeug.exceptions import HTTPException
+ 
+ from . import typing as ft
+ from .globals import _cv_app
++
++import encodings.idna
+ from .globals import _cv_request
+ from .signals import appcontext_popped
+ from .signals import appcontext_pushed
+@@ -313,6 +315,32 @@ class RequestContext:
+         request: Request | None = None,
+         session: SessionMixin | None = None,
+     ) -> None:
++        # Ensure HTTP_HOST is properly IDNA-encoded if it contains Unicode characters
++        http_host = environ.get("HTTP_HOST")
++        if http_host:
++            # Split hostname from port if present
++            if ':' in http_host:
++                hostname, port = http_host.rsplit(':', 1)
++                # Check if hostname contains non-ASCII characters
++                if any(ord(char) > 127 for char in hostname):
++                    try:
++                        # Use Python's built-in IDNA encoding to convert Unicode to punycode
++                        encoded_hostname = encodings.idna.ToASCII(hostname).decode('ascii')
++                        encoded_host = f"{encoded_hostname}:{port}"
++                        environ = dict(environ)
++                        environ["HTTP_HOST"] = encoded_host
++                    except:
++                        # If encoding fails, leave the original host
++                        pass
++            elif any(ord(char) > 127 for char in http_host):
++                try:
++                    # Use Python's built-in IDNA encoding to convert Unicode to punycode
++                    encoded_host = encodings.idna.ToASCII(http_host).decode('ascii')
++                    environ = dict(environ)
++                    environ["HTTP_HOST"] = encoded_host
++                except:
++                    # If encoding fails, leave the original host
++                    pass
+         self.app = app
+         if request is None:
+             request = app.request_class(environ)

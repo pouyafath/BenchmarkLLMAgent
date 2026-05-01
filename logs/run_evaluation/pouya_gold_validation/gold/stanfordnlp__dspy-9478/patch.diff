@@ -1,0 +1,367 @@
+diff --git a/.github/workflows/build_and_release.yml b/.github/workflows/build_and_release.yml
+index 2bcc18e8..356d51a1 100644
+--- a/.github/workflows/build_and_release.yml
++++ b/.github/workflows/build_and_release.yml
+@@ -10,7 +10,7 @@ jobs:
+     outputs:
+       version: ${{ steps.extract_tag.outputs.tag }}
+     steps:
+-      - uses: actions/checkout@v4
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+       - id: extract_tag
+         name: Extract tag name
+         run: echo "tag=$(echo $GITHUB_REF | cut -d / -f 3)" >> "$GITHUB_OUTPUT"
+@@ -24,19 +24,17 @@ jobs:
+       id-token: write # IMPORTANT: mandatory for trusted publishing
+       contents: write
+     steps:
+-      - uses: actions/checkout@v4
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+       - name: Set up Python 3.11
+-        uses: actions/setup-python@v3
++        uses: actions/setup-python@3542bca2639a428e1796aaa6a2ffef0c0f575566 # v3
+         with:
+           python-version: "3.11"
+       - name: Install dependencies
+         run: python3 -m pip install --upgrade setuptools wheel twine build semver packaging
+       - name: Install Deno
+-        run: |
+-          curl -fsSL https://deno.land/install.sh | sh
+-          echo "${HOME}/.deno/bin" >> $GITHUB_PATH
+-      - name: Verify Deno installation
+-        run: deno --version
++        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
++        with:
++          deno-version: v2.7.7
+       - name: Get correct version for TestPyPI release
+         id: check_version
+         run: |
+@@ -64,7 +62,7 @@ jobs:
+           deactivate
+       # Publish to test-PyPI
+       - name: Publish distribution 📦 to test-PyPI
+-        uses: pypa/gh-action-pypi-publish@release/v1 # This requires a trusted publisher to be setup in pypi/testpypi
++        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1 # This requires a trusted publisher to be setup in pypi/testpypi
+         with:
+           repository-url: https://test.pypi.org/legacy/
+ 
+@@ -81,19 +79,17 @@ jobs:
+       id-token: write # IMPORTANT: mandatory for trusted publishing
+       contents: write
+     steps:
+-      - uses: actions/checkout@v4
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+       - name: Set up Python 3.11
+-        uses: actions/setup-python@v3
++        uses: actions/setup-python@3542bca2639a428e1796aaa6a2ffef0c0f575566 # v3
+         with:
+           python-version: "3.11"
+       - name: Install dependencies
+         run: python3 -m pip install --upgrade setuptools wheel twine build
+       - name: Install Deno
+-        run: |
+-          curl -fsSL https://deno.land/install.sh | sh
+-          echo "${HOME}/.deno/bin" >> $GITHUB_PATH
+-      - name: Verify Deno installation
+-        run: deno --version
++        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
++        with:
++          deno-version: v2.7.7
+       - name: Update version in pyproject.toml
+         run: sed -i '/#replace_package_version_marker/{n;s/version *= *"[^"]*"/version="${{ needs.extract-tag.outputs.version }}"/;}' pyproject.toml
+       - name: Update version in __metadata__.py
+@@ -117,7 +113,7 @@ jobs:
+           deactivate
+           rm -r test_before_pypi
+       - name: Publish distribution 📦 to PyPI (dspy)
+-        uses: pypa/gh-action-pypi-publish@release/v1
++        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+         with:
+           attestations: false
+       # Publish to dspy-ai
+@@ -131,11 +127,11 @@ jobs:
+       - name: Build a binary wheel (dspy-ai)
+         run: python3 -m build .github/.internal_dspyai/
+       - name: Publish distribution 📦 to PyPI (dspy-ai)
+-        uses: pypa/gh-action-pypi-publish@release/v1
++        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+         with:
+           attestations: false
+           packages-dir: .github/.internal_dspyai/dist/
+-      - uses: stefanzweifel/git-auto-commit-action@v5 # auto commit changes to main
++      - uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5 # auto commit changes to main
+         with:
+           commit_message: Update versions
+           create_branch: true
+diff --git a/.github/workflows/docs-push.yml b/.github/workflows/docs-push.yml
+index 85eb4c4b..de66f0f8 100644
+--- a/.github/workflows/docs-push.yml
++++ b/.github/workflows/docs-push.yml
+@@ -16,9 +16,9 @@ jobs:
+     runs-on: ubuntu-latest
+     steps:
+       - name: Checkout code
+-        uses: actions/checkout@v3
++        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+       - name: Set up Node.js
+-        uses: actions/setup-node@v3
++        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e210 # v3
+         with:
+           node-version: "18"
+       - name: Install dependencies and build
+@@ -31,11 +31,11 @@ jobs:
+     if: github.event_name == 'push' && github.repository == 'stanfordnlp/dspy'
+     runs-on: ubuntu-latest
+     steps:
+-      - uses: actions/checkout@v3
++      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+         with:
+           fetch-depth: 0
+       - name: Push docs to separate repo
+-        uses: cpina/github-action-push-to-another-repository@main
++        uses: cpina/github-action-push-to-another-repository@55306faa4ed53b815ae49e564af8cfb359d32ae2 # main
+         env:
+           API_TOKEN_GITHUB: ${{ secrets.GH_PAT }}
+         with:
+diff --git a/.github/workflows/precommits_check.yml b/.github/workflows/precommits_check.yml
+index 4bc38081..c38bdd72 100644
+--- a/.github/workflows/precommits_check.yml
++++ b/.github/workflows/precommits_check.yml
+@@ -6,19 +6,19 @@ jobs:
+   pre-commit-checks:
+     runs-on: ubuntu-latest
+     steps:
+-      - uses: actions/checkout@v3
++      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+       - name: Set up Python
+-        uses: actions/setup-python@v4
++        uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+         with:
+           python-version: "3.10"
+           cache: "pip"
+       - name: Check Pull Request Title
+-        uses: Slashgear/action-check-pr-title@main
++        uses: Slashgear/action-check-pr-title@76166c63ec0b25cdbe693e5e972e83ca186313fb # main
+         with:
+           regexp: '(break|build|ci|docs|feat|fix|perf|refactor|style|test|ops|hotfix|release|maint|init|enh|revert)\([a-z,A-Z,0-9,\-,\_,\/,:]+\)(:)\s{1}([\w\s]+)' # Regex the title should match.
+       - name: Getting changed files list
+         id: files
+-        uses: jitterbit/get-changed-files@master
++        uses: jitterbit/get-changed-files@b17fbb00bdc0c0f63fcf166580804b4d2cdc2a42 # v1
+       - name: Checking changed files
+         shell: bash
+         run: |
+diff --git a/.github/workflows/run_tests.yml b/.github/workflows/run_tests.yml
+index 43764fdf..12618bf3 100644
+--- a/.github/workflows/run_tests.yml
++++ b/.github/workflows/run_tests.yml
+@@ -12,15 +12,14 @@ jobs:
+     name: Check Ruff Fix
+     runs-on: ubuntu-latest
+     permissions:
+-      contents: write
+-      pull-requests: write
++      contents: read
+     steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-python@v5
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
++      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+         with:
+           python-version: "3.11"
+       - name: Install uv with caching
+-        uses: astral-sh/setup-uv@v5
++        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+         with:
+           enable-cache: true
+           cache-dependency-glob: |
+@@ -52,18 +51,18 @@ jobs:
+       matrix:
+         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+     steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-python@v5
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
++      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+         with:
+           python-version: ${{ matrix.python-version }}
+       - name: Install Deno
+-        run: |
+-          curl -fsSL https://deno.land/install.sh | sh
+-          echo "${HOME}/.deno/bin" >> $GITHUB_PATH
++        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
++        with:
++          deno-version: v2.7.7
+       - name: Verify Deno installation
+         run: deno --version
+       - name: Install uv with caching
+-        uses: astral-sh/setup-uv@v5
++        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+         with:
+           enable-cache: true
+           cache-dependency-glob: |
+@@ -78,7 +77,7 @@ jobs:
+           uv sync --dev -p .venv --extra dev
+           uv pip list
+       - name: Run lint with tests
+-        uses: chartboost/ruff-action@v1
++        uses: chartboost/ruff-action@e18ae971ccee1b2d7bbef113930f00c670b78da4 # v1
+         with:
+           args: check --fix-only
+       - name: Run tests with pytest
+@@ -92,12 +91,12 @@ jobs:
+     name: Run Tests with Real LM
+     runs-on: ubuntu-latest
+     steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-python@v5
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
++      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+         with:
+           python-version: 3.11
+       - name: Install uv with caching
+-        uses: astral-sh/setup-uv@v5
++        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+         with:
+           enable-cache: true
+           cache-dependency-glob: |
+@@ -113,7 +112,7 @@ jobs:
+           uv pip list
+       - name: Cache Ollama models
+         id: cache-ollama
+-        uses: actions/cache@v4
++        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+         with:
+           path: ollama-data
+           key: ollama-llama3.2-3b-${{ runner.os }}-v1
+@@ -146,12 +145,12 @@ jobs:
+       matrix:
+         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+     steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-python@v5
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
++      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+         with:
+           python-version: ${{ matrix.python-version }}
+       - name: Install uv with caching
+-        uses: astral-sh/setup-uv@v5
++        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+         with:
+           enable-cache: true
+           cache-dependency-glob: |
+diff --git a/dspy/adapters/json_adapter.py b/dspy/adapters/json_adapter.py
+index 0dcc8ff7..897e73fc 100644
+--- a/dspy/adapters/json_adapter.py
++++ b/dspy/adapters/json_adapter.py
+@@ -207,7 +207,7 @@ class JSONAdapter(ChatAdapter):
+         else:
+             d = fields_with_values.items()
+             d = {k.name: v for k, v in d}
+-            return json.dumps(serialize_for_json(d), indent=2)
++            return json.dumps(serialize_for_json(d), indent=2, ensure_ascii=False)
+ 
+     def format_finetune_data(
+         self, signature: type[Signature], demos: list[dict[str, Any]], inputs: dict[str, Any], outputs: dict[str, Any]
+diff --git a/dspy/retrievers/__init__.py b/dspy/retrievers/__init__.py
+index ffaf603b..89339ca0 100644
+--- a/dspy/retrievers/__init__.py
++++ b/dspy/retrievers/__init__.py
+@@ -1,4 +1,4 @@
+-from dspy.retrievers.embeddings import Embeddings
++from dspy.retrievers.embeddings import Embeddings, EmbeddingsWithScores
+ from dspy.retrievers.retrieve import Retrieve
+ 
+-__all__ = ["Embeddings", "Retrieve"]
++__all__ = ["Embeddings", "EmbeddingsWithScores", "Retrieve"]
+diff --git a/dspy/retrievers/embeddings.py b/dspy/retrievers/embeddings.py
+index 94bbc589..82ba02e8 100644
+--- a/dspy/retrievers/embeddings.py
++++ b/dspy/retrievers/embeddings.py
+@@ -8,6 +8,13 @@ from dspy.utils.unbatchify import Unbatchify
+ 
+ 
+ class Embeddings:
++    """DSPy Embeddings retriever.
++
++    This class retrieves the top-k most similar passages from a corpus using embedding-based similarity search.
++    For large corpora, a FAISS index is built for fast approximate candidate retrieval, followed by exact
++    re-ranking. For small corpora, brute-force search is used.
++    """
++
+     def __init__(
+         self,
+         corpus: list[str],
+@@ -35,9 +42,17 @@ class Embeddings:
+         return self.forward(query)
+ 
+     def forward(self, query: str):
++        """Search for the top-k passages most similar to the query.
++
++        Args:
++            query (str): The search query string
++
++        Returns:
++            dspy.Prediction: A prediction containing passages and their corpus indices.
++        """
+         import dspy
+ 
+-        passages, indices = self.search_fn(query)
++        passages, indices, _scores = self.search_fn(query)
+         return dspy.Prediction(passages=passages, indices=indices)
+ 
+     def _batch_forward(self, queries: list[str]):
+@@ -81,8 +96,13 @@ class Embeddings:
+ 
+         top_k_indices = np.argsort(-scores, axis=1)[:, : self.k]
+         top_indices = candidate_indices[np.arange(len(q_embeds))[:, None], top_k_indices]
++        top_scores = scores[np.arange(len(q_embeds))[:, None], top_k_indices]
+ 
+-        return [([self.corpus[idx] for idx in indices], [idx for idx in indices]) for indices in top_indices]  # noqa: C416
++        results = []
++        for indices, query_scores in zip(top_indices, top_scores, strict=True):
++            passages = [self.corpus[idx] for idx in indices]
++            results.append((passages, indices.tolist(), query_scores.tolist()))
++        return results
+ 
+     def _normalize(self, embeddings: np.ndarray):
+         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+@@ -214,3 +234,25 @@ class Embeddings:
+         instance.search_fn = Unbatchify(instance._batch_forward)
+         instance.load(path, embedder)
+         return instance
++
++
++class EmbeddingsWithScores(Embeddings):
++    """DSPy EmbeddingsWithScores retriever.
++
++    This class extends the Embeddings retriever to also return similarity scores alongside passages and indices.
++    Similarity scores enable downstream such as thresholding and re-ranking.
++    """
++
++    def forward(self, query: str):
++        """Search for the top-k passages most similar to the query.
++
++        Args:
++            query (str): The search query string.
++
++        Returns:
++            dspy.Prediction: A prediction containing passages, indices, and similarity scores.
++        """
++        import dspy
++
++        passages, indices, scores = self.search_fn(query)
++        return dspy.Prediction(passages=passages, indices=indices, scores=scores)
+diff --git a/pyproject.toml b/pyproject.toml
+index b4aaf576..f1cfd1ce 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,7 @@ dependencies = [
+     "tqdm>=4.66.1",
+     "requests>=2.31.0",
+     "pydantic>=2.0",
+-    "litellm>=1.64.0",
++    "litellm>=1.64.0,<=1.82.6",
+     "diskcache>=5.6.0",
+     "json-repair>=0.54.2",
+     "tenacity>=8.2.3",

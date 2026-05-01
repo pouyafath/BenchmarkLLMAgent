@@ -1,0 +1,189 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 513 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   pylint/checkers/refactoring/refactoring_checker.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 659a32fd5b54c45152714385740f520b5e9d68a0
+Author: Jacob Walls <jacobtylerwalls@gmail.com>
+Date:   Sat Feb 10 09:36:04 2024 -0500
+
+    [primer] Allow primer comment job to recreate venv
+
+diff --git a/.github/workflows/primer_comment.yaml b/.github/workflows/primer_comment.yaml
+index 96ba9e712..00b1ee70f 100644
+--- a/.github/workflows/primer_comment.yaml
++++ b/.github/workflows/primer_comment.yaml
+@@ -44,7 +44,6 @@ jobs:
+         uses: actions/cache@v4.0.0
+         with:
+           path: venv
+-          fail-on-cache-miss: true
+           key:
+             ${{ runner.os }}-${{ steps.python.outputs.python-version }}-${{
+             env.KEY_PREFIX }}-${{ env.CACHE_VERSION }}-${{ hashFiles('pyproject.toml',
++ git -c core.fileMode=false diff 659a32fd5b54c45152714385740f520b5e9d68a0
+diff --git a/pylint/checkers/refactoring/refactoring_checker.py b/pylint/checkers/refactoring/refactoring_checker.py
+index 97e509025..e9c95abab 100644
+--- a/pylint/checkers/refactoring/refactoring_checker.py
++++ b/pylint/checkers/refactoring/refactoring_checker.py
+@@ -483,6 +483,12 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+             "value by index lookup. "
+             "The value can be accessed directly instead.",
+         ),
++        "R1737": (
++            "Consider using yield from",
++            "consider-using-yield-from",
++            "Used when a for loop that yields each item individually can be "
++            "simplified to use yield from. This is cleaner and potentially faster.",
++        ),
+     }
+     options = (
+         (
+@@ -1752,6 +1758,42 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+         self._check_unnecessary_dict_index_lookup(node)
+         self._check_unnecessary_list_index_lookup(node)
+ 
++
++
++
++    @utils.only_required_for_messages("consider-using-yield-from")
++    def visit_yield(self, node: nodes.Yield) -> None:
++        """Check if yield can be replaced with yield from."""
++        # Check if this yield is inside a for loop by checking parent chain
++        parent = node.parent
++        if not isinstance(parent, nodes.Expr):
++            return
++
++        for_loop = parent.parent
++        if not isinstance(for_loop, nodes.For):
++            return
++
++        # Check if the for loop has only one statement (the yield)
++        if len(for_loop.body) != 1:
++            return
++
++        # Check if the yielded value is the same as the loop variable
++        if not isinstance(node.value, nodes.Name):
++            return
++
++        loop_target = for_loop.target
++        if isinstance(loop_target, nodes.AssignName):
++            if node.value.name == loop_target.name:
++                self.add_message("consider-using-yield-from", node=node)
++        elif isinstance(loop_target, nodes.Name):
++            if node.value.name == loop_target.name:
++                self.add_message("consider-using-yield-from", node=node)
++        elif isinstance(loop_target, nodes.Tuple):
++            # Handle tuple unpacking: for a, b in generator: yield a
++            # This is more complex, so we only handle simple cases
++            pass
++
++    @utils.only_required_for_messages("consider-using-yield-from")
+     def _check_unnecessary_comprehension(self, node: nodes.Comprehension) -> None:
+         if (
+             isinstance(node.parent, nodes.GeneratorExp)
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info
+  writing /tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info/dependency_links.txt
+  writing top-level names to /tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  writing manifest file '/tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-hc5q6on6/UNKNOWN.dist-info'
+  adding license file "LICENSE" (matched pattern "LICENSE")
+  adding license file "CONTRIBUTORS.txt" (matched pattern "CONTRIBUTORS.txt")
+  Preparing metadata (pyproject.toml): finished with status 'done'
+WARNING: unknown 0.0.0 does not provide the extra 'test'
+Installing collected packages: UNKNOWN
+  DEPRECATION: Legacy editable install of UNKNOWN[test]==0.0.0 from file:///testbed (setup.py develop) is deprecated. pip 25.1 will enforce this behaviour change. A possible replacement is to add a pyproject.toml or enable --use-pep517, and use setuptools >= 64. If the resulting installation is not behaving as expected, try using --config-settings editable_mode=compat. Please consult the setuptools documentation for more information. Discussion can be found at https://github.com/pypa/pip/issues/11457
+  Running setup.py develop for UNKNOWN
+    Running command python setup.py develop
+    running develop
+    running egg_info
+    creating UNKNOWN.egg-info
+    writing UNKNOWN.egg-info/PKG-INFO
+    writing dependency_links to UNKNOWN.egg-info/dependency_links.txt
+    writing top-level names to UNKNOWN.egg-info/top_level.txt
+    writing manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    reading manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    writing manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.8/site-packages/UNKNOWN.egg-link (link to .)
+    Adding UNKNOWN 0.0.0 to easy-install.pth file
+
+    Installed /testbed
+Successfully installed UNKNOWN
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 659a32fd5b54c45152714385740f520b5e9d68a0 tests/functional/b/bad_reversed_sequence.py tests/functional/c/consider/consider_using_enumerate.py tests/functional/ext/docparams/return/missing_return_doc_Sphinx.py tests/functional/i/iterable_context_py36.py tests/functional/n/non/non_iterator_returned.py tests/functional/s/stop_iteration_inside_generator.py tests/functional/u/undefined/undefined_variable.py tests/functional/u/unpacking/unpacking_non_sequence.py tests/functional/u/use/use_implicit_booleaness_not_len.py tests/functional/y/yield_assign.py
+Updated 0 paths from 808c90e9d
++ git apply -v -
+Checking patch tests/functional/b/bad_reversed_sequence.py...
+Checking patch tests/functional/c/consider/consider_using_enumerate.py...
+Checking patch tests/functional/ext/docparams/return/missing_return_doc_Sphinx.py...
+Checking patch tests/functional/i/iterable_context_py36.py...
+Checking patch tests/functional/n/non/non_iterator_returned.py...
+Checking patch tests/functional/s/stop_iteration_inside_generator.py...
+Checking patch tests/functional/u/undefined/undefined_variable.py...
+Checking patch tests/functional/u/unpacking/unpacking_non_sequence.py...
+Checking patch tests/functional/u/use/use_implicit_booleaness_not_len.py...
+Checking patch tests/functional/u/use/use_yield_from.py...
+Checking patch tests/functional/u/use/use_yield_from.txt...
+Checking patch tests/functional/y/yield_assign.py...
+Applied patch tests/functional/b/bad_reversed_sequence.py cleanly.
+Applied patch tests/functional/c/consider/consider_using_enumerate.py cleanly.
+Applied patch tests/functional/ext/docparams/return/missing_return_doc_Sphinx.py cleanly.
+Applied patch tests/functional/i/iterable_context_py36.py cleanly.
+Applied patch tests/functional/n/non/non_iterator_returned.py cleanly.
+Applied patch tests/functional/s/stop_iteration_inside_generator.py cleanly.
+Applied patch tests/functional/u/undefined/undefined_variable.py cleanly.
+Applied patch tests/functional/u/unpacking/unpacking_non_sequence.py cleanly.
+Applied patch tests/functional/u/use/use_implicit_booleaness_not_len.py cleanly.
+Applied patch tests/functional/u/use/use_yield_from.py cleanly.
+Applied patch tests/functional/u/use/use_yield_from.txt cleanly.
+Applied patch tests/functional/y/yield_assign.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA tests/functional/b/bad_reversed_sequence.py tests/functional/c/consider/consider_using_enumerate.py tests/functional/ext/docparams/return/missing_return_doc_Sphinx.py tests/functional/i/iterable_context_py36.py tests/functional/n/non/non_iterator_returned.py tests/functional/s/stop_iteration_inside_generator.py tests/functional/u/undefined/undefined_variable.py tests/functional/u/unpacking/unpacking_non_sequence.py tests/functional/u/use/use_implicit_booleaness_not_len.py tests/functional/u/use/use_yield_from.py tests/functional/y/yield_assign.py
+
+
+Timeout error: 1800 seconds exceeded.

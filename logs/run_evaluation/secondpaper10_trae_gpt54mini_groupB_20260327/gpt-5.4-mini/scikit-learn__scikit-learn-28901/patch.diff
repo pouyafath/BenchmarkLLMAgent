@@ -1,0 +1,33 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..fe460af37 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -158,12 +158,14 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list, Hidden(tuple)],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -380,6 +382,12 @@ class Pipeline(_BaseComposition):
+         # shallow copy of steps - this should really be steps_
+         self.steps = list(self.steps)
+         self._validate_steps()
++        if self.transform_input is not None and not _routing_enabled():
++            raise ValueError(
++                "The 'transform_input' parameter can only be set if metadata "
++                "routing is enabled. You can enable it using "
++                "sklearn.set_config(enable_metadata_routing=True)."
++            )
+         # Setup the memory
+         memory = check_memory(self.memory)
+ 

@@ -1,0 +1,62 @@
+diff --git a/astropy/cosmology/io/model.py b/astropy/cosmology/io/model.py
+index 8f921b9fd..5c48fa8a9 100644
+--- a/astropy/cosmology/io/model.py
++++ b/astropy/cosmology/io/model.py
+@@ -127,18 +127,27 @@ class _CosmologyModel(FittableModel):
+ ##############################################################################
+ 
+ 
+-def from_model(model):
++def from_model(model, *, cosmology=None):
+     """Load |Cosmology| from `~astropy.modeling.Model` object.
+ 
+     Parameters
+     ----------
+     model : `_CosmologyModel` subclass instance
+         See ``Cosmology.to_format.help("astropy.model") for details.
++    cosmology : str, `~astropy.cosmology.Cosmology` class, or None (optional, keyword-only)
++        The expected cosmology class (or string name thereof). This argument is
++        only checked for correctness if not `None`.
+ 
+     Returns
+     -------
+     `~astropy.cosmology.Cosmology` subclass instance
+ 
++    Raises
++    ------
++    TypeError
++        If the |Cosmology| object loaded from ``model`` is not an instance of
++        the ``cosmology`` (and ``cosmology`` is not `None`).
++
+     Examples
+     --------
+     >>> from astropy.cosmology import Cosmology, Planck18
+@@ -147,7 +156,7 @@ def from_model(model):
+     FlatLambdaCDM(name="Planck18", H0=67.66 km / (Mpc s), Om0=0.30966,
+                   Tcmb0=2.7255 K, Neff=3.046, m_nu=[0. 0. 0.06] eV, Ob0=0.04897)
+     """
+-    cosmology = model.cosmology_class
++    cosmology_class = model.cosmology_class
+     meta = copy.deepcopy(model.meta)
+ 
+     # assemble the Parameters
+@@ -159,8 +168,17 @@ def from_model(model):
+         meta[p.name] = {n: getattr(p, n) for n in dir(p)
+                         if not (n.startswith("_") or callable(getattr(p, n)))}
+ 
+-    ba = cosmology._init_signature.bind(name=model.name, **params, meta=meta)
+-    return cosmology(*ba.args, **ba.kwargs)
++    ba = cosmology_class._init_signature.bind(name=model.name, **params, meta=meta)
++    cosmo = cosmology_class(*ba.args, **ba.kwargs)
++
++    # Check argument `cosmology`, if not None
++    # This kwarg is required for compatibility with |Cosmology.from_format|
++    if isinstance(cosmology, str):
++        cosmology = _COSMOLOGY_CLASSES[cosmology]
++    if cosmology is not None and not isinstance(cosmo, cosmology):
++        raise TypeError(f"cosmology {cosmo} is not an {cosmology} instance.")
++
++    return cosmo
+ 
+ 
+ def to_model(cosmology, *_, method):

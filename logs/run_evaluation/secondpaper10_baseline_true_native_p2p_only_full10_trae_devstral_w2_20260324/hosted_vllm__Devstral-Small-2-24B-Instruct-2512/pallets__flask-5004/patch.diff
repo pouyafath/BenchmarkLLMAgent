@@ -1,0 +1,66 @@
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index 37a15ff2..b45133a8 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -1018,20 +1018,33 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         for rule in rules
+     ]
+ 
+-    headers = ("Endpoint", "Methods", "Rule")
++    # Calculate domain information for each rule
++    rule_domains = []
++    server_name = current_app.config.get('SERVER_NAME')
++    main_domain = server_name.split(':')[0] if server_name else ""
++    for rule in rules:
++        subdomain = getattr(rule, 'subdomain', None)
++        if subdomain:
++            domain = f"{subdomain}.{main_domain}"
++        else:
++            domain = main_domain
++        rule_domains.append(domain)
++
++    headers = ("Domain", "Endpoint", "Methods", "Rule")
+     widths = (
++        max(len(domain) for domain in rule_domains),
+         max(len(rule.endpoint) for rule in rules),
+         max(len(methods) for methods in rule_methods),
+         max(len(rule.rule) for rule in rules),
+     )
+     widths = [max(len(h), w) for h, w in zip(headers, widths)]
+-    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}".format(*widths)
++    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}  {{3:<{3}}}".format(*widths)
+ 
+     click.echo(row.format(*headers).strip())
+     click.echo(row.format(*("-" * width for width in widths)))
+ 
+-    for rule, methods in zip(rules, rule_methods):
+-        click.echo(row.format(rule.endpoint, methods, rule.rule).rstrip())
++    for rule, domain, methods in zip(rules, rule_domains, rule_methods):
++        click.echo(row.format(domain or "", rule.endpoint, methods, rule.rule).rstrip())
+ 
+ 
+ cli = FlaskGroup(
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 0d9625b1..c82f1702 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -463,9 +463,17 @@ class TestRoutes:
+ 
+     def expect_order(self, order, output):
+         # skip the header and match the start of each row
++        # Skip the domain column (first whitespace-separated field)
+         for expect, line in zip(order, output.splitlines()[2:]):
+-            # do this instead of startswith for nicer pytest output
+-            assert line[: len(expect)] == expect
++            # Find the first whitespace to skip the domain column
++            first_space = line.find(' ')
++            if first_space == -1:
++                # No space found, check the whole line
++                assert line[: len(expect)] == expect
++            else:
++                # Check from after the first space, skipping any leading whitespace
++                after_domain = line[first_space+1:].lstrip()
++                assert after_domain[:len(expect)] == expect
+ 
+     def test_simple(self, invoke):
+         result = invoke(["routes"])

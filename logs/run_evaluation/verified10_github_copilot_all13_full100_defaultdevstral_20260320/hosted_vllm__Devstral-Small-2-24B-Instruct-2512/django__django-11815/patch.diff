@@ -1,0 +1,28 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 27b5cbd379..7028e2ea1f 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -120,11 +120,18 @@ class EnumSerializer(BaseSerializer):
+     def serialize(self):
+         enum_class = self.value.__class__
+         module = enum_class.__module__
+-        v_string, v_imports = serializer_factory(self.value.value).serialize()
+-        imports = {'import %s' % module, *v_imports}
+-        return "%s.%s(%s)" % (module, enum_class.__name__, v_string), imports
+-
+-
++        # Use name-based reference to avoid translation issues,
++        # but only for standard Enum classes (not IntFlag, IntEnum, etc.)
++        if enum_class.__mro__[1] is enum.Enum:
++            # Standard Enum - use name-based reference
++            name_string = self.value.name
++            imports = {"import %s" % module}
++            return "%s.%s[%r]" % (module, enum_class.__name__, name_string), imports
++        else:
++            # IntFlag, IntEnum, or other special enum types - use value-based reference
++            v_string, v_imports = serializer_factory(self.value.value).serialize()
++            imports = {"import %s" % module, *v_imports}
++            return "%s.%s(%s)" % (module, enum_class.__name__, v_string), imports
+ class FloatSerializer(BaseSimpleSerializer):
+     def serialize(self):
+         if math.isnan(self.value) or math.isinf(self.value):

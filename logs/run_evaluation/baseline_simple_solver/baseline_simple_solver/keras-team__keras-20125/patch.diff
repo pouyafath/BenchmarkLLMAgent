@@ -1,0 +1,34 @@
+diff --git a/keras/src/ops/core.py b/keras/src/ops/core.py
+--- a/keras/src/ops/core.py
++++ b/keras/src/ops/core.py
+@@ -1,10 +1,20 @@
+-def stop_gradient(variable):
+-    """Stops gradient computation.
+-
+-    Args:
+-        variable: Input tensor.
+-
+-    Returns:
+-        Tensor with the same shape as `variable` but with no gradient.
+-    """
+-    return backend.core.stop_gradient(variable)
++def stop_gradient(variable):
++    """Stops gradient computation.
++
++    This function works with both eager tensors and symbolic ``KerasTensor``\n+    objects. When a ``KerasTensor`` is passed (i.e., during functional model\n+    construction), the original implementation attempted to call the\n+    TensorFlow ``tf.stop_gradient`` directly, which raises a ``ValueError``\n+    because ``KerasTensor`` objects cannot be used as inputs to raw TF\n+    functions. To support symbolic tensors we wrap the operation in a\n+    ``Lambda`` layer, which correctly integrates with the Keras symbolic\n+    graph.\n+
++    Args:
++        variable: Input tensor or ``KerasTensor``.
++
++    Returns:
++        Tensor with the same shape as ``variable`` but with no gradient.\n+    """
++    # Import locally to avoid circular imports at module load time.
++    from keras.src.backend.common.keras_tensor import KerasTensor
++    from keras import layers
++    import tensorflow as tf
++
++    # If the input is a symbolic KerasTensor, use a Lambda layer to apply\n+    # ``tf.stop_gradient`` within the Keras graph context.
++    if isinstance(variable, KerasTensor):
++        return layers.Lambda(lambda x: tf.stop_gradient(x))(variable)
++
++    # For eager tensors (or other backend tensors), delegate to the backend\n+    # implementation.
++    return backend.core.stop_gradient(variable)

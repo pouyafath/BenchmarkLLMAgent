@@ -1,0 +1,42 @@
+diff --git a/sphinx/util/inspect.py b/sphinx/util/inspect.py
+index 15f0d66e2..d50758e45 100644
+--- a/sphinx/util/inspect.py
++++ b/sphinx/util/inspect.py
+@@ -521,20 +521,31 @@ def signature_from_str(signature: str) -> inspect.Signature:
+     params = []
+ 
+     if hasattr(args, "posonlyargs"):
++        # Create positional-only parameters without defaults first
+         for arg in args.posonlyargs:  # type: ignore
+             annotation = ast_unparse(arg.annotation) or Parameter.empty
+             params.append(Parameter(arg.arg, Parameter.POSITIONAL_ONLY,
+                                     annotation=annotation))
+ 
+-    for i, arg in enumerate(args.args):
+-        if len(args.args) - i <= len(args.defaults):
+-            default = ast_unparse(args.defaults[-len(args.args) + i])
++    # Create positional-or-keyword parameters without defaults
++    for arg in args.args:
++        annotation = ast_unparse(arg.annotation) or Parameter.empty
++        params.append(Parameter(arg.arg, Parameter.POSITIONAL_OR_KEYWORD,
++                                annotation=annotation))
++
++    # Now assign defaults from right to left
++    # Defaults apply to the rightmost parameters first
++    total_params = len(params)
++    for i in range(total_params):
++        param_idx = total_params - 1 - i  # Count from right
++        if i < len(args.defaults):
++            # Assign defaults in reverse order (last default to rightmost parameter)
++            default = ast_unparse(args.defaults[len(args.defaults) - 1 - i])
+         else:
+             default = Parameter.empty
+ 
+-        annotation = ast_unparse(arg.annotation) or Parameter.empty
+-        params.append(Parameter(arg.arg, Parameter.POSITIONAL_OR_KEYWORD,
+-                                default=default, annotation=annotation))
++        # Update the parameter with its default
++        params[param_idx] = params[param_idx].replace(default=default)
+ 
+     if args.vararg:
+         annotation = ast_unparse(args.vararg.annotation) or Parameter.empty

@@ -1,0 +1,65 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..a290ba6625 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -209,6 +209,42 @@ validate_floatlist = _listify_validator(
+     validate_float, doc='return a list of floats')
+ 
+ 
++def validate_marker(s):
++    """
++    Validate a marker specification.
++
++    Accepts strings (e.g., '+', 'o'), integers (e.g., 5 for CARETRIGHT),
++    Path objects, or MarkerStyle objects.
++    """
++    # If it's already a valid marker type, return it as-is
++    if isinstance(s, (int, str)):
++        return s
++    # For other types (Path, MarkerStyle, etc.), we'll let them pass through
++    # and let the actual marker handling code validate them
++    return s
++
++def validate_markerlist(s):
++    """
++    Validate a list of marker specifications.
++
++    Accepts strings, integers, Path objects, or MarkerStyle objects.
++    """
++    if isinstance(s, str):
++        # Handle string lists (comma-separated)
++        if ',' in s:
++            val = [validate_marker(v.strip()) for v in s.split(',') if v.strip()]
++        else:
++            # Single string marker
++            val = [validate_marker(s)]
++    # Allow any ordered sequence type
++    elif np.iterable(s) and not isinstance(s, (set, frozenset)):
++        val = [validate_marker(v) for v in s if not isinstance(v, str) or v]
++    else:
++        raise ValueError(
++            f"Expected str or other non-set iterable, but got {s}")
++    return val
++
++
+ def _validate_pathlike(s):
+     if isinstance(s, (str, os.PathLike)):
+         # Store value as str because savefig.directory needs to distinguish
+@@ -645,7 +681,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }
+@@ -908,7 +944,7 @@ _validators = {
+     "lines.linewidth":       validate_float,  # line width in points
+     "lines.linestyle":       _validate_linestyle,  # solid line
+     "lines.color":           validate_color,  # first color in color cycle
+-    "lines.marker":          validate_string,  # marker name
++    "lines.marker":          validate_marker,  # marker name
+     "lines.markerfacecolor": validate_color_or_auto,  # default color
+     "lines.markeredgecolor": validate_color_or_auto,  # default color
+     "lines.markeredgewidth": validate_float,

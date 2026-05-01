@@ -1,0 +1,93 @@
+diff --git a/django/db/backends/base/operations.py b/django/db/backends/base/operations.py
+index 2e283a3193..f8ee4c0d16 100644
+--- a/django/db/backends/base/operations.py
++++ b/django/db/backends/base/operations.py
+@@ -579,9 +579,87 @@ class BaseDatabaseOperations:
+         return []
+ 
+     def convert_durationfield_value(self, value, expression, connection):
+-        if value is not None:
++        """
++        Convert a duration field value to a timedelta object.
++
++        The value can be:
++        - None: return None
++        - int: microseconds
++        - str: string representation of a timedelta (e.g., "1 day, 2:30:45.123456")
++              or MySQL INTERVAL format (e.g., "INTERVAL 86400000000 MICROSECOND")
++        - timedelta: return as-is
++        """
++        if value is None:
++            return value
++
++        if isinstance(value, datetime.timedelta):
++            return value
++
++        if isinstance(value, int):
+             return datetime.timedelta(0, 0, value)
+ 
++        if isinstance(value, str):
++            # Handle MySQL INTERVAL format
++            if value.upper().startswith('INTERVAL '):
++                try:
++                    # Extract the number from "INTERVAL <number> MICROSECOND"
++                    parts = value.split()
++                    if len(parts) >= 3:
++                        microseconds = int(parts[1])
++                        return datetime.timedelta(0, 0, microseconds)
++                except (ValueError, IndexError):
++                    pass
++
++            # Parse string representation of timedelta
++            # Format: "X day(s), HH:MM:SS.ffffff" or "HH:MM:SS.ffffff"
++            try:
++                parts = value.split(', ')
++                days = 0
++                time_part = None
++
++                for part in parts:
++                    if 'day' in part:
++                        days = int(part.split()[0])
++                    else:
++                        time_part = part
++
++                if time_part is None:
++                    time_part = parts[0] if parts else value
++
++                # Parse time part (HH:MM:SS.ffffff)
++                hh_mm_ss = time_part.split(':')
++                if len(hh_mm_ss) == 3:
++                    hours = int(hh_mm_ss[0])
++                    minutes = int(hh_mm_ss[1])
++
++                    # Handle seconds with optional microseconds
++                    seconds_part = hh_mm_ss[2]
++                    if '.' in seconds_part:
++                        seconds, microseconds = seconds_part.split('.')
++                        seconds = int(seconds)
++                        microseconds = int(microseconds.ljust(6, '0')[:6])  # Pad to 6 digits
++                    else:
++                        seconds = int(seconds_part)
++                        microseconds = 0
++
++                    return datetime.timedelta(
++                        days=days,
++                        hours=hours,
++                        minutes=minutes,
++                        seconds=seconds,
++                        microseconds=microseconds
++                    )
++            except (ValueError, IndexError, AttributeError):
++                pass
++
++        # Fallback: try to convert to int (for other numeric types)
++        try:
++            return datetime.timedelta(0, 0, int(value))
++        except (ValueError, TypeError):
++            return None
++
++
++
+     def check_expression_support(self, expression):
+         """
+         Check that the backend supports the provided expression.

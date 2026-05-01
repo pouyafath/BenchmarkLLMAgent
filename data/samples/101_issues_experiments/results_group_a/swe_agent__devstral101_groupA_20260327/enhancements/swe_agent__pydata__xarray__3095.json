@@ -1,0 +1,45 @@
+{
+  "issue_id": "pydata/xarray#3095",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "REGRESSION: copy(deep=True) casts unicode indices to object",
+  "original_body": "REGRESSION: copy(deep=True) casts unicode indices to object\nDataset.copy(deep=True) and DataArray.copy (deep=True/False) accidentally cast IndexVariable's with dtype='<U*' to object. Same applies to copy.copy() and copy.deepcopy().\r\n\r\nThis is a regression in xarray >= 0.12.2. xarray 0.12.1 and earlier are unaffected.\r\n\r\n```\r\n\r\nIn [1]: ds = xarray.Dataset(\r\n   ...:     coords={'x': ['foo'], 'y': ('x', ['bar'])},\r\n   ...:     data_vars={'z': ('x', ['baz'])})                                                              \r\n\r\nIn [2]: ds                                                                                                                                                                                                                     \r\nOut[2]: \r\n<xarray.Dataset>\r\nDimensions:  (x: 1)\r\nCoordinates:\r\n  * x        (x) <U3 'foo'\r\n    y        (x) <U3 'bar'\r\nData variables:\r\n    z        (x) <U3 'baz'\r\n\r\nIn [3]: ds.copy()                                                                                                                                                                                                              \r\nOut[3]: \r\n<xarray.Dataset>\r\nDimensions:  (x: 1)\r\nCoordinates:\r\n  * x        (x) <U3 'foo'\r\n    y        (x) <U3 'bar'\r\nData variables:\r\n    z        (x) <U3 'baz'\r\n\r\nIn [4]: ds.copy(deep=True)                                                                                                                                                                                                     \r\nOut[4]: \r\n<xarray.Dataset>\r\nDimensions:  (x: 1)\r\nCoordinates:\r\n  * x        (x) object 'foo'\r\n    y        (x) <U3 'bar'\r\nData variables:\r\n    z        (x) <U3 'baz'\r\n\r\nIn [5]: ds.z                                                                                                                                                                                                                   \r\nOut[5]: \r\n<xarray.DataArray 'z' (x: 1)>\r\narray(['baz'], dtype='<U3')\r\nCoordinates:\r\n  * x        (x) <U3 'foo'\r\n    y        (x) <U3 'bar'\r\n\r\nIn [6]: ds.z.copy()                                                                                                                                                                                                            \r\nOut[6]: \r\n<xarray.DataArray 'z' (x: 1)>\r\narray(['baz'], dtype='<U3')\r\nCoordinates:\r\n  * x        (x) object 'foo'\r\n    y        (x) <U3 'bar'\r\n\r\nIn [7]: ds.z.copy(deep=True)                                                                                                                                                                                                   \r\nOut[7]: \r\n<xarray.DataArray 'z' (x: 1)>\r\narray(['baz'], dtype='<U3')\r\nCoordinates:\r\n  * x        (x) object 'foo'\r\n    y        (x) <U3 'bar'\r\n```\n",
+  "enhanced_title": "REGRESSION: copy(deep=True) incorrectly casts unicode indices to object dtype",
+  "enhanced_body": "## Summary\nWhen calling `copy(deep=True)` on xarray Datasets or DataArrays, IndexVariables with dtype='<U*' (unicode strings) are incorrectly cast to object dtype. This affects both Dataset.copy() and DataArray.copy() methods, as well as copy.copy() and copy.deepcopy() operations.\n\n## Environment\n- xarray version: >= 0.12.2 (regression introduced)\n- xarray version unaffected: 0.12.1 and earlier\n- Python version: Inferred to be Python 2.x or 3.x with numpy support (based on '<U*' dtype notation)\n\n## Reproduction Steps\n1. Create a Dataset with unicode string coordinates:\n   ```python\n   ds = xarray.Dataset(\n       coords={'x': ['foo'], 'y': ('x', ['bar'])},\n       data_vars={'z': ('x', ['baz'])}\n   )\n   ```\n2. Observe the original dtypes (all should be '<U3'):\n   ```python\n   print(ds)\n   ```\n3. Copy the Dataset with deep=True:\n   ```python\n   ds_deep = ds.copy(deep=True)\n   print(ds_deep)\n   ```\n4. Observe that the 'x' coordinate is now object dtype instead of '<U3'\n\n## Expected Behavior\n- All unicode string dtypes ('<U*') should be preserved exactly as in the original object\n- copy(deep=True) should maintain the same dtype for all variables\n- Both Dataset and DataArray copies should behave consistently\n\n## Actual Behavior\n- Dataset.copy(deep=True) casts the 'x' coordinate from '<U3' to 'object'\n- DataArray.copy(deep=True) and DataArray.copy() both cast coordinates to 'object'\n- The 'y' coordinate (which is also '<U3') is preserved correctly, suggesting the issue is specific to certain IndexVariables\n\n## Code Example\n```python\nimport xarray as xr\n\n# Create test dataset\nds = xr.Dataset(\n    coords={'x': ['foo'], 'y': ('x', ['bar'])},\n    data_vars={'z': ('x', ['baz'])}\n)\n\n# Original dtypes (correct)\nprint(\\\"Original Dataset:\\\")\nprint(ds)\nprint(\\\"\\\\nOriginal DataArray:\\\")\nprint(ds.z)\n\n# Shallow copy (correct)\nprint(\\\"\\\\nShallow copy:\\\")\nprint(ds.copy())\n\n# Deep copy (incorrect - x coordinate becomes object)\nprint(\\\"\\\\nDeep copy (REGRESSION):\\\")\nprint(ds.copy(deep=True))\n\n# DataArray copies (both incorrect)\nprint(\\\"\\\\nDataArray shallow copy:\\\")\nprint(ds.z.copy())\nprint(\\\"\\\\nDataArray deep copy:\\\")\nprint(ds.z.copy(deep=True))\n```\n\n## Affected Components\nBased on the hints, this regression likely affects:\n- `xarray/core/dataset.py` (Dataset.copy method)\n- `xarray/core/dataarray.py` (DataArray.copy method)\n- Potentially `xarray/core/variable.py` (IndexVariable handling)\n- Any copy-related functionality in the core module\n\n## Impact\nThis is a significant regression that affects:\n- Data type consistency in copied objects\n- Potential performance implications (object dtype is less efficient)\n- Compatibility with code expecting specific dtypes\n- Data integrity when unicode strings are involved\n\n## Additional Notes\n- The issue appears to be specific to IndexVariables with unicode dtypes\n- Regular DataArray values maintain their '<U3' dtype correctly\n- The problem occurs with both deep and shallow copies of DataArrays\n- Only affects xarray >= 0.12.2, suggesting a specific change introduced in that version\n\"\n```",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp1vwezhtc/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

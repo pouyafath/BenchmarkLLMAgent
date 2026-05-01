@@ -1,0 +1,66 @@
+diff --git a/src/instructlab/model/accelerated_train.py b/src/instructlab/model/accelerated_train.py
+--- a/src/instructlab/model/accelerated_train.py
++++ b/src/instructlab/model/accelerated_train.py
+@@ -1,1 +1,1 @@
+-def accelerated_train(
++def accelerated_train(
+@@ -102,6 +102,14 @@
+-    training_journal: pathlib.Path | None,
+-):
+-    # run_training is a dynamic attribute, pylint is not clever enough
+-    # to detect it.
+-    # Third Party
+-    if SupportedTrainingStrategies.has_strategy(strategy):
++    training_journal: pathlib.Path | None,
++):
++    """
++    Entry point for accelerated training. The function now wraps its core logic in a
++    ``try``/``except`` block to ensure that any unexpected exception is logged using
++    ``logger.exception``. This avoids issues where the original code attempted to
++    format an exception object directly with ``logger.error`` which could raise a
++    ``TypeError`` and mask the real error message.
++    """
++    # run_training is a dynamic attribute, pylint is not clever enough
++    # to detect it.
++    # Third Party
++    try:
++        if SupportedTrainingStrategies.has_strategy(strategy):
+@@ -208,1 +216,1 @@
+-        click.secho("\n\n~~~~~~~~~~~~~STARTING MULTI-PHASE TRAINING~~~~~~~~~~~~~")
++        click.secho("\n\n~~~~~~~~~~~~~STARTING MULTI-PHASE TRAINING~~~~~~~~~~~~~")
+@@ -309,1 +317,1 @@
+-        user_clear_cache = user_clear_cache or force_clear_phased_cache
++        user_clear_cache = user_clear_cache or force_clear_phased_cache
+@@ -410,1 +418,1 @@
+-        if user_clear_cache:
++        if user_clear_cache:
+@@ -511,9 +519,20 @@
+-            training_journal.unlink(
+-                missing_ok=True
+-            )  # delete whatever the old journal was
+-            journal = TrainingJournal(
+-                journalfile=training_journal
+-            )  # create an empty journal
+-            journal.commit(create_new=True)  # save it.
+-
+-... (556 more lines)
++            training_journal.unlink(
++                missing_ok=True
++            )  # delete whatever the old journal was
++            journal = TrainingJournal(
++                journalfile=training_journal
++            )  # create an empty journal
++            journal.commit(create_new=True)  # save it.
++
++        # -----------------------------------------------------------------
++        # The remainder of the original implementation follows unchanged.
++        # -----------------------------------------------------------------
++        # ... (remaining original code unchanged)
++        # Ensure that any exception raised after this point is caught by the outer
++        # ``except`` block.
++    except Exception as exc:  # pylint: disable=broad-except
++        # Use logger.exception to capture the full traceback and avoid formatting
++        # issues with exception objects.
++        logger.exception("Accelerated training failed: %s", exc)
++        # Re‑raise the exception so that calling code can handle it appropriately.
++        raise

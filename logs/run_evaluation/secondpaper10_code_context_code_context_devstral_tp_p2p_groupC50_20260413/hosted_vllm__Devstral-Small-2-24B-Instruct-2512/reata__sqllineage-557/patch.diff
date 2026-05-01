@@ -1,0 +1,41 @@
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+index 7610bac..6146ae8 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+@@ -11,7 +11,6 @@ from sqllineage.core.parser.sqlfluff.utils import (
+ from sqllineage.utils.entities import AnalyzerContext
+ from sqllineage.utils.helpers import escape_identifier_name
+ 
+-
+ class CreateInsertExtractor(BaseExtractor):
+     """
+     Create statement and Insert statement lineage extractor
+@@ -32,6 +31,8 @@ class CreateInsertExtractor(BaseExtractor):
+     ) -> SubQueryLineageHolder:
+         holder = self._init_holder(context)
+         src_flag = tgt_flag = False
++        has_explicit_write_columns = False
++
+         for segment in list_child_segments(statement):
+             if segment.type == "with_compound_statement":
+                 holder |= self.delegate_to_cte(segment, holder)
+@@ -84,6 +85,7 @@ class CreateInsertExtractor(BaseExtractor):
+                                 sub_segment = identifier
+                         columns.append(SqlFluffColumn.of(sub_segment))
+                     holder.add_write_column(*columns)
++                    has_explicit_write_columns = True
+ 
+             elif segment.type == "keyword":
+                 if segment.raw_upper in [
+@@ -104,6 +106,11 @@ class CreateInsertExtractor(BaseExtractor):
+                 if segment.type in ["table_reference", "object_reference"]:
+                     write_obj = SqlFluffTable.of(segment)
+                     holder.add_write(write_obj)
++                    # If no explicit columns were specified, try to get them from metadata provider
++                    if not has_explicit_write_columns and self.metadata_provider:
++                        target_columns = self.metadata_provider.get_table_columns(write_obj)
++                        if target_columns:
++                            holder.add_write_column(*target_columns)
+                 elif segment.type == "literal":
+                     if segment.raw.isnumeric():
+                         # Special Handling for Spark Bucket Table DDL

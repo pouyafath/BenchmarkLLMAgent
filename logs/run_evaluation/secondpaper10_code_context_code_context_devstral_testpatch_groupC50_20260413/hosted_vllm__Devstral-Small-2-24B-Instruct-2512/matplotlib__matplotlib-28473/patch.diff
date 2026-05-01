@@ -1,0 +1,74 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..92321452a4 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,16 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
+-
+-        # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
+-
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        # For module:// backends, preserve case as the module name should match
++        # Python's import system behavior.
++        if backend.startswith("module://"):
++            backend = backend[9:]  # Remove "module://" prefix
++            return backend
++        else:
++            backend = backend.lower()
++            # Check if have specific name to module mapping.
++            backend = self._name_to_module.get(backend, backend)
++            return f"matplotlib.backends.backend_{backend}"
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.
+@@ -224,7 +227,14 @@ class BackendRegistry:
+         bool
+             True if backend is valid, False otherwise.
+         """
+-        backend = backend.lower()
++        # For module:// backends, preserve case as the module name should match
++        # Python's import system behavior.
++        backend_original = backend
++        if backend.startswith("module://"):
++            # Don't lowercase module:// backends
++            pass
++        else:
++            backend = backend.lower()
+ 
+         # For backward compatibility, convert ipympl and matplotlib-inline long
+         # module:// names to their shortened forms.
+@@ -342,7 +352,13 @@ class BackendRegistry:
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+         if isinstance(backend, str):
+-            backend = backend.lower()
++            # For module:// backends, preserve case as the module name should match
++            # Python's import system behavior.
++            if backend.startswith("module://"):
++                # Don't lowercase module:// backends
++                pass
++            else:
++                backend = backend.lower()
+         else:  # Might be _auto_backend_sentinel or None
+             # Use whatever is already running...
+             from matplotlib import get_backend
+@@ -395,7 +411,13 @@ class BackendRegistry:
+         framework : str or None
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+-        gui_or_backend = gui_or_backend.lower()
++        # For module:// backends, preserve case as the module name should match
++        # Python's import system behavior.
++        if gui_or_backend.startswith("module://"):
++            # Don't lowercase module:// backends
++            pass
++        else:
++            gui_or_backend = gui_or_backend.lower()
+ 
+         # First check if it is a gui loop name.
+         backend = self.backend_for_gui_framework(gui_or_backend)

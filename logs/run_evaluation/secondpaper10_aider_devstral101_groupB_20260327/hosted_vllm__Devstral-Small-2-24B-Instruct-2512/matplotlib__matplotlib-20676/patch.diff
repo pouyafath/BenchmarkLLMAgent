@@ -1,0 +1,115 @@
+diff --git a/lib/matplotlib/cbook/__init__.py b/lib/matplotlib/cbook/__init__.py
+index 49f542892..bdd4cb631 100644
+--- a/lib/matplotlib/cbook/__init__.py
++++ b/lib/matplotlib/cbook/__init__.py
+@@ -26,20 +26,41 @@ import weakref
+ 
+ import numpy as np
+ 
++
++def _get_api():
++    """Lazy import of matplotlib._api to avoid circular dependency."""
++    import matplotlib._api
++    return matplotlib._api
++
++def _get_c_internal_utils():
++    """Lazy import of matplotlib._c_internal_utils to avoid circular dependency."""
++    import matplotlib._c_internal_utils
++    return matplotlib._c_internal_utils
++
++def _get_deprecation_classes():
++    """Lazy import of deprecation classes to avoid circular dependency."""
++    from matplotlib._api.deprecation import MatplotlibDeprecationWarning, mplDeprecation
++    return MatplotlibDeprecationWarning, mplDeprecation
++
++# Module-level variables for backward compatibility
++MatplotlibDeprecationWarning = None
++mplDeprecation = None
++
++# Initialize these when the module is imported
++try:
++    MatplotlibDeprecationWarning, mplDeprecation = _get_deprecation_classes()
++except:
++    pass
++
+ import matplotlib
+ from matplotlib import _api, _c_internal_utils
+ from matplotlib._api.deprecation import (
+     MatplotlibDeprecationWarning, mplDeprecation)
+ 
+ 
+-@_api.deprecated("3.4")
+-def deprecated(*args, **kwargs):
+-    return _api.deprecated(*args, **kwargs)
+-
+-
+-@_api.deprecated("3.4")
++@_get_api().deprecated("3.4")
+ def warn_deprecated(*args, **kwargs):
+-    _api.warn_deprecated(*args, **kwargs)
++    _get_api().warn_deprecated(*args, **kwargs)
+ 
+ 
+ def _get_running_interactive_framework():
+@@ -76,7 +97,7 @@ def _get_running_interactive_framework():
+     macosx = sys.modules.get("matplotlib.backends._macosx")
+     if macosx and macosx.event_loop_is_running():
+         return "macosx"
+-    if not _c_internal_utils.display_is_valid():
++    if not _get_c_internal_utils().display_is_valid():
+         return "headless"
+     return None
+ 
+@@ -194,11 +215,11 @@ class CallbackRegistry:
+             s: {proxy: cid for cid, proxy in d.items()}
+             for s, d in self.callbacks.items()}
+ 
+-    @_api.rename_parameter("3.4", "s", "signal")
++    @_get_api().rename_parameter("3.4", "s", "signal")
+     def connect(self, signal, func):
+         """Register *func* to be called when signal *signal* is generated."""
+         if signal == "units finalize":
+-            _api.warn_deprecated(
++            _get_api().warn_deprecated(
+                 "3.5", name=signal, obj_type="signal", alternative="units")
+         self._func_cid_map.setdefault(signal, {})
+         proxy = _weak_or_strong_ref(func, self._remove_proxy)
+@@ -320,7 +341,7 @@ def _local_over_kwdict(
+             if out is None:
+                 out = kwarg_val
+             else:
+-                _api.warn_external(f'"{key}" keyword argument will be ignored',
++                _get_api().warn_external(f'"{key}" keyword argument will be ignored',
+                                    warning_cls)
+     return out
+ 
+@@ -452,7 +473,7 @@ def get_sample_data(fname, asfileobj=True, *, np_load=False):
+             if np_load:
+                 return np.load(path)
+             else:
+-                _api.warn_deprecated(
++                _get_api().warn_deprecated(
+                     "3.3", message="In a future release, get_sample_data "
+                     "will automatically load numpy arrays.  Set np_load to "
+                     "True to get the array and suppress this warning.  Set "
+@@ -624,7 +645,7 @@ class Stack:
+                 self.push(elem)
+ 
+ 
+-@_api.deprecated("3.5", alternative="psutil.virtual_memory")
++@_get_api().deprecated("3.5", alternative="psutil.virtual_memory")
+ def report_memory(i=0):  # argument may go away
+     """Return the memory consumed by the process."""
+     def call(command, os_name):
+@@ -2151,9 +2172,9 @@ def _setup_new_guiapp():
+     # already embedded), then set it to "matplotlib", so that taskbar icons are
+     # correct.
+     try:
+-        _c_internal_utils.Win32_GetCurrentProcessExplicitAppUserModelID()
++        _get_c_internal_utils().Win32_GetCurrentProcessExplicitAppUserModelID()
+     except OSError:
+-        _c_internal_utils.Win32_SetCurrentProcessExplicitAppUserModelID(
++        _get_c_internal_utils().Win32_SetCurrentProcessExplicitAppUserModelID(
+             "matplotlib")
+ 
+ 

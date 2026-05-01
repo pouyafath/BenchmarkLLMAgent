@@ -1,0 +1,48 @@
+diff --git a/lib/matplotlib/stackplot.py b/lib/matplotlib/stackplot.py
+index c580043eeb..cbc5e6f36f 100644
+--- a/lib/matplotlib/stackplot.py
++++ b/lib/matplotlib/stackplot.py
+@@ -12,7 +12,6 @@ from matplotlib import _api
+ 
+ __all__ = ['stackplot']
+ 
+-
+ def stackplot(axes, x, *args,
+               labels=(), colors=None, baseline='zero',
+               **kwargs):
+@@ -69,8 +68,6 @@ def stackplot(axes, x, *args,
+     y = np.row_stack(args)
+ 
+     labels = iter(labels)
+-    if colors is not None:
+-        axes.set_prop_cycle(color=colors)
+ 
+     # Assume data passed has not been 'stacked', so stack it here.
+     # We'll need a float buffer for the upcoming calculations.
+@@ -107,8 +104,16 @@ def stackplot(axes, x, *args,
+         first_line = center - 0.5 * total
+         stack += first_line
+ 
++    # Use colors from the provided list if available, otherwise use the Axes cycle
++    if colors is not None:
++        # Cycle through the provided colors
++        color_cycle = (colors[i % len(colors)] for i in range(len(y)))
++    else:
++        # Use the Axes property cycle
++        color_cycle = (axes._get_lines.get_next_color() for _ in range(len(y)))
++
+     # Color between x = 0 and the first array.
+-    color = axes._get_lines.get_next_color()
++    color = next(color_cycle)
+     coll = axes.fill_between(x, first_line, stack[0, :],
+                              facecolor=color, label=next(labels, None),
+                              **kwargs)
+@@ -117,7 +122,7 @@ def stackplot(axes, x, *args,
+ 
+     # Color between array i-1 and array i
+     for i in range(len(y) - 1):
+-        color = axes._get_lines.get_next_color()
++        color = next(color_cycle)
+         r.append(axes.fill_between(x, stack[i, :], stack[i + 1, :],
+                                    facecolor=color, label=next(labels, None),
+                                    **kwargs))

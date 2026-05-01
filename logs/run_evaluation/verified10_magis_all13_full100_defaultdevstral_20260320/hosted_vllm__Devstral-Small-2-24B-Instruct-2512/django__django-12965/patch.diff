@@ -1,0 +1,25 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index 29e33c075f..d60c9cba22 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -1407,6 +1407,10 @@ class SQLInsertCompiler(SQLCompiler):
+ class SQLDeleteCompiler(SQLCompiler):
+     @cached_property
+     def single_alias(self):
++        # If there are no aliases yet, we'll have exactly one (the base table)
++        if not self.query.alias_map:
++            return True
++        # If there's exactly one alias with refcount > 0, use simple DELETE
+         return sum(self.query.alias_refcount[t] > 0 for t in self.query.alias_map) == 1
+ 
+     def _as_sql(self, query):
+@@ -1424,6 +1428,9 @@ class SQLDeleteCompiler(SQLCompiler):
+         parameters.
+         """
+         if self.single_alias:
++            # Ensure the query has a proper base table
++            if not self.query.alias_map:
++                self.query.get_initial_alias()
+             return self._as_sql(self.query)
+         innerq = self.query.clone()
+         innerq.__class__ = Query

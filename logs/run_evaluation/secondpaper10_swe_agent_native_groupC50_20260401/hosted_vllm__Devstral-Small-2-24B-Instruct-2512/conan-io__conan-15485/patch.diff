@@ -1,0 +1,40 @@
+diff --git a/conan/cli/commands/test.py b/conan/cli/commands/test.py
+index d8f2093fb..2582624e9 100644
+--- a/conan/cli/commands/test.py
++++ b/conan/cli/commands/test.py
+@@ -10,6 +10,7 @@ from conan.cli.printers.graph import print_graph_basic, print_graph_packages
+ from conans.model.recipe_ref import RecipeReference
+ 
+ 
++from conan.internal.conan_app import ConanApp
+ @conan_command(group="Creator", formatters={"json": format_graph_json})
+ def test(conan_api, parser, *args):
+     """
+@@ -36,9 +37,25 @@ def test(conan_api, parser, *args):
+     profile_host, profile_build = conan_api.profiles.get_profiles_from_args(args)
+ 
+     print_profiles(profile_host, profile_build)
+-
++    # Check if the reference being tested is a python_requires
++    tested_python_requires = None
++    try:
++        app = ConanApp(conan_api)
++        recipe_layout = app.cache.recipe_layout(ref)
++        conanfile_path = recipe_layout.conanfile()
++        from conans.client.loader import ConanFileLoader
++        loader = ConanFileLoader()
++        conanfile = loader.load_export(conanfile_path, ref.name, ref.version, ref.user, ref.channel)
++        if conanfile.package_type == "python-require":
++            tested_python_requires = ref.repr_notime()
++    except Exception:
++        # If we can't determine the package type, assume it's not a python_requires
++        pass
++    
+     deps_graph = run_test(conan_api, path, ref, profile_host, profile_build, remotes, lockfile,
+-                          args.update, build_modes=args.build)
++                          args.update, build_modes=args.build,
++                          tested_python_requires=tested_python_requires)
++
+     lockfile = conan_api.lockfile.update_lockfile(lockfile, deps_graph, args.lockfile_packages,
+                                                   clean=args.lockfile_clean)
+     conan_api.lockfile.save_lockfile(lockfile, args.lockfile_out, cwd)

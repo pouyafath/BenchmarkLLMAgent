@@ -1,0 +1,107 @@
+diff --git a/src/datamodel_code_generator/__main__.py b/src/datamodel_code_generator/__main__.py
+index e04b3e82..0fdff531 100644
+--- a/src/datamodel_code_generator/__main__.py
++++ b/src/datamodel_code_generator/__main__.py
+@@ -318,6 +318,10 @@ class Config(BaseModel):
+ 
+     def merge_args(self, args: Namespace) -> None:
+         set_args = {f: getattr(args, f) for f in self.get_fields() if getattr(args, f) is not None}
++        # Always include enable_faux_immutability even if it's None
++        if "enable_faux_immutability" not in set_args:
++            enable_faux_immutability = getattr(args, "enable_faux_immutability", False)
++            set_args["enable_faux_immutability"] = enable_faux_immutability if enable_faux_immutability is not None else False
+ 
+         if set_args.get("output_model_type") == DataModelType.MsgspecStruct.value:
+             set_args["use_annotated"] = True
+diff --git a/src/datamodel_code_generator/model/dataclass.py b/src/datamodel_code_generator/model/dataclass.py
+index 190c6f63..29ea697c 100644
+--- a/src/datamodel_code_generator/model/dataclass.py
++++ b/src/datamodel_code_generator/model/dataclass.py
+@@ -54,7 +54,9 @@ class DataClass(DataModel):
+         nullable: bool = False,
+         keyword_only: bool = False,
+         treat_dot_as_module: bool = False,
++        frozen: bool = False,
+     ) -> None:
++        self.frozen = frozen
+         super().__init__(
+             reference=reference,
+             fields=sorted(fields, key=_has_field_assignment),
+@@ -73,6 +75,19 @@ class DataClass(DataModel):
+         )
+ 
+ 
++
++    def render(self, *, class_name: str | None = None) -> str:
++        return self._render(
++            class_name=class_name or self.class_name,
++            fields=self.fields,
++            decorators=self.decorators,
++            base_class=self.base_class,
++            methods=self.methods,
++            description=self.description,
++            keyword_only=self.keyword_only,
++            frozen=self.frozen,
++            **self.extra_template_data,
++        )
+ class DataModelField(DataModelFieldBase):
+     _FIELD_KEYS: ClassVar[set[str]] = {
+         "default_factory",
+diff --git a/src/datamodel_code_generator/model/template/dataclass.jinja2 b/src/datamodel_code_generator/model/template/dataclass.jinja2
+index 632026b5..34bc5ba9 100644
+--- a/src/datamodel_code_generator/model/template/dataclass.jinja2
++++ b/src/datamodel_code_generator/model/template/dataclass.jinja2
+@@ -1,7 +1,7 @@
+ {% for decorator in decorators -%}
+ {{ decorator }}
+ {% endfor -%}
+-@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}
++@dataclass{%- if frozen -%}(frozen=True){%- endif %}{%- if keyword_only -%}(kw_only=True){%- endif %}
+ {%- if base_class %}
+ class {{ class_name }}({{ base_class }}):
+ {%- else %}
+diff --git a/src/datamodel_code_generator/parser/graphql.py b/src/datamodel_code_generator/parser/graphql.py
+index 107a5164..01ad05d1 100644
+--- a/src/datamodel_code_generator/parser/graphql.py
++++ b/src/datamodel_code_generator/parser/graphql.py
+@@ -455,6 +455,7 @@ class GraphQLParser(Parser):
+             path=self.current_source_path,
+             description=obj.description,
+             keyword_only=self.keyword_only,
++            frozen=self.enable_faux_immutability,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
+         self.results.append(data_model_type)
+diff --git a/src/datamodel_code_generator/parser/jsonschema.py b/src/datamodel_code_generator/parser/jsonschema.py
+index 09cfc0af..85de561e 100644
+--- a/src/datamodel_code_generator/parser/jsonschema.py
++++ b/src/datamodel_code_generator/parser/jsonschema.py
+@@ -753,6 +753,7 @@ class JsonSchemaParser(Parser):
+             path=self.current_source_path,
+             description=obj.description if self.use_schema_description else None,
+             keyword_only=self.keyword_only,
++            frozen=self.enable_faux_immutability,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
+         self.results.append(data_model_type)
+@@ -992,7 +993,7 @@ class JsonSchemaParser(Parser):
+             description=obj.description if self.use_schema_description else None,
+             nullable=obj.type_has_null,
+             keyword_only=self.keyword_only,
+-            treat_dot_as_module=self.treat_dot_as_module,
++            frozen=self.enable_faux_immutability,
+         )
+         self.results.append(data_model_type)
+         return self.data_type(reference=reference)
+diff --git a/src/datamodel_code_generator/parser/openapi.py b/src/datamodel_code_generator/parser/openapi.py
+index ec8bec14..285ef30c 100644
+--- a/src/datamodel_code_generator/parser/openapi.py
++++ b/src/datamodel_code_generator/parser/openapi.py
+@@ -490,6 +490,7 @@ class OpenAPIParser(JsonSchemaParser):
+                     custom_base_class=self.base_class,
+                     custom_template_dir=self.custom_template_dir,
+                     keyword_only=self.keyword_only,
++                    frozen=self.enable_faux_immutability,
+                     treat_dot_as_module=self.treat_dot_as_module,
+                 )
+             )

@@ -1,0 +1,89 @@
+diff --git a/xarray/backends/api.py b/xarray/backends/api.py
+index 8d7c2230..a8d218ba 100644
+--- a/xarray/backends/api.py
++++ b/xarray/backends/api.py
+@@ -1246,7 +1246,7 @@ def _validate_datatypes_for_zarr_append(dataset):
+         if (
+             not np.issubdtype(var.dtype, np.number)
+             and not np.issubdtype(var.dtype, np.datetime64)
+-            and not np.issubdtype(var.dtype, np.bool_)
++            and not np.issubdtype(var.dtype, np.bool)
+             and not coding.strings.is_unicode_dtype(var.dtype)
+             and not var.dtype == object
+         ):
+diff --git a/xarray/core/dataset.py b/xarray/core/dataset.py
+index a024324b..79a87c1e 100644
+--- a/xarray/core/dataset.py
++++ b/xarray/core/dataset.py
+@@ -4293,7 +4293,7 @@ class Dataset(Mapping, ImplementsDatasetReduce, DataWithCoords):
+                 if (
+                     not numeric_only
+                     or np.issubdtype(var.dtype, np.number)
+-                    or (var.dtype == np.bool_)
++                    or (var.dtype == np.bool)
+                 ):
+                     if len(reduce_dims) == 1:
+                         # unpack dimensions for the benefit of functions
+@@ -5328,7 +5328,7 @@ class Dataset(Mapping, ImplementsDatasetReduce, DataWithCoords):
+                     if (
+                         not numeric_only
+                         or np.issubdtype(var.dtype, np.number)
+-                        or var.dtype == np.bool_
++                        or var.dtype == np.bool
+                     ):
+                         if len(reduce_dims) == var.ndim:
+                             # prefer to aggregate over axis=None rather than
+diff --git a/xarray/core/dtypes.py b/xarray/core/dtypes.py
+index 4db2990a..03f79287 100644
+--- a/xarray/core/dtypes.py
++++ b/xarray/core/dtypes.py
+@@ -37,8 +37,8 @@ NINF = AlwaysLessThan()
+ # https://docs.scipy.org/doc/numpy-1.13.0/reference/arrays.scalars.html
+ PROMOTE_TO_OBJECT = [
+     {np.number, np.character},  # numpy promotes to character
+-    {np.bool_, np.character},  # numpy promotes to character
+-    {np.bytes_, np.unicode_},  # numpy promotes to unicode
++    {np.bool, np.character},  # numpy promotes to character
++    {np.bytes_, np.str_},  # numpy promotes to unicode
+ ]
+ 
+ 
+diff --git a/xarray/core/duck_array_ops.py b/xarray/core/duck_array_ops.py
+index 76719699..5194d6ff 100644
+--- a/xarray/core/duck_array_ops.py
++++ b/xarray/core/duck_array_ops.py
+@@ -99,7 +99,7 @@ def isnull(data):
+     elif issubclass(scalar_type, np.inexact):
+         # float types use NaN for null
+         return isnan(data)
+-    elif issubclass(scalar_type, (np.bool_, np.integer, np.character, np.void)):
++    elif issubclass(scalar_type, (np.bool, np.integer, np.character, np.void)):
+         # these types cannot represent missing values
+         return zeros_like(data, dtype=bool)
+     else:
+diff --git a/xarray/core/formatting.py b/xarray/core/formatting.py
+index 28eaae5f..29ffd9b4 100644
+--- a/xarray/core/formatting.py
++++ b/xarray/core/formatting.py
+@@ -140,7 +140,7 @@ def format_item(x, timedelta_format=None, quote_strings=True):
+         return format_timedelta(x, timedelta_format=timedelta_format)
+     elif isinstance(x, (str, bytes)):
+         return repr(x) if quote_strings else x
+-    elif isinstance(x, (float, np.float_)):
++    elif isinstance(x, (float, np.floating)):
+         return f"{x:.4}"
+     else:
+         return str(x)
+diff --git a/xarray/plot/utils.py b/xarray/plot/utils.py
+index e5c1fa89..2ef21b2d 100644
+--- a/xarray/plot/utils.py
++++ b/xarray/plot/utils.py
+@@ -568,7 +568,7 @@ def _ensure_plottable(*args):
+     Raise exception if there is anything in args that can't be plotted on an
+     axis by matplotlib.
+     """
+-    numpy_types = [np.floating, np.integer, np.timedelta64, np.datetime64, np.bool_]
++    numpy_types = [np.floating, np.integer, np.timedelta64, np.datetime64, np.bool]
+     other_types = [datetime]
+     try:
+         import cftime

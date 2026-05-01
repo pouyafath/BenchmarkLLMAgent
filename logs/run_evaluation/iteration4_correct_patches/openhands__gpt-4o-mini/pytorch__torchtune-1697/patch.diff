@@ -1,0 +1,49 @@
+diff --git a/torchtune/datasets/_packed.py b/torchtune/datasets/_packed.py
+--- a/torchtune/datasets/_packed.py
++++ b/torchtune/datasets/_packed.py
+@@ -1,6 +1,6 @@
+ # Copyright (c) Meta Platforms, Inc. and affiliates.
+ # All rights reserved.
+ #
+-# This source code is licensed under the BSD-style license found in the
++# This source code is licensed under the BSD-style license found in the
+ # LICENSE file in the root directory of this source tree.
+
+ from typing import Dict, List, Optional
+@@ -103,6 +103,6 @@
+             seq_len_padding = [leftover_seq_len] if leftover_seq_len > 0 else []
+         else:
+             boundary = self.previous_sample_boundary
+-# If we aren't splitting across packs, we leave out the last sample b/c
++# If we aren't splitting across packs, we leave out the last sample because
+             # it will go into the next pack
+             seq_len_padding = []
+
+@@ -113,6 +113,6 @@
+         pack = {
+             "tokens": current_pack["tokens"][:boundary],
+             "labels": current_pack["labels"][:boundary],
+-"input_pos": current_pack["input_pos"][:boundary],
++"input_pos": current_pack["input_pos"][:boundary] if boundary <= len(current_pack["input_pos"]) else current_pack["input_pos"],
+             "seq_lens": current_pack["seq_lens"][:-1] + seq_len_padding,
+         }
+
+@@ -120,15 +120,15 @@
+         # Process and add the pack
+         self._add_pack(pack)
+
+-# Return the length of the first sample in next pack if we are splitting across packs,
++# Return the length of the first sample in the next pack if we are splitting across packs,
+         # otherwise return the length of the last sample in the current pack
+         next_seq_len = (
+             len(current_pack["tokens"][boundary:])
+             if self.split_across_pack
+             else current_pack["seq_lens"][-1]
+         )
+
+         return {
+             "tokens": current_pack["tokens"][boundary:],
+             "labels": current_pack["labels"][boundary:],
+             "input_pos": current_pack["input_pos"][boundary:],
+             "seq_lens": current_pack["seq_lens"][boundary:],
+         }

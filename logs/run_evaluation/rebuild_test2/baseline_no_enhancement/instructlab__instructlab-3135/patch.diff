@@ -1,0 +1,68 @@
+diff --git a/src/instructlab/model/accelerated_train.py b/src/instructlab/model/accelerated_train.py
+--- a/src/instructlab/model/accelerated_train.py
++++ b/src/instructlab/model/accelerated_train.py
+@@ -104,7 +104,7 @@
+         if (
+             SupportedTrainingStrategies(strategy)
+             == SupportedTrainingStrategies.LAB_MULTIPHASE
+         ):
+-            if phased_phase1_num_epochs != 7:
++            if phased_phase1_num_epochs is None:
+                 click.secho(
+                     f"Running phased training with '{phased_phase1_num_epochs}' epochs.\nNote: 7 epochs is the recommended amount for optimal performance.",
+                     fg="yellow",
+@@ -112,7 +112,7 @@
+         if journal.was_loaded:
+             click.secho(
+                 f"There was an existing training journal at: '{str(training_journal)}'"
+             )
+             journal.print_model_rich()
+             click.secho(
+                 f"WARNING: Existing training journal state must correspond to state in '{str(phased_base_dir)}'",
+                 bg="yellow",
+                 fg="black",
+             )
+             click.secho("Alternative behavior is undefined.", bg="yellow", fg="black")
+         else:
+             click.secho(
+                 f"No training journal found. Will initialize at: '{str(journal.journalfile)}'",
+                 bg="yellow",
+                 fg="black",
+             )
+             # Start at phase 2 for skills only training
+             if (
+                 SupportedTrainingStrategies(strategy)
+                 == SupportedTrainingStrategies.LAB_SKILLS_ONLY
+             ):
+                 journal.journal.current_phase = TrainingPhases.TRAIN2
+             journal.commit(create_new=True)
+ 
+         user_clear_cache: bool = False
+         if not skip_user_confirm:
+             click.secho(
+                 "Metadata (checkpoints, the training journal) may have been saved from a previous training run."
+             )
+             click.secho(
+                 "By default, training will resume from this metadata if it exists."
+             )
+             click.secho(
+                 "Alternatively, the metadata can be cleared, and training can start from scratch."
+             )
+             click.secho("\nWould you like to START TRAINING FROM THE BEGINNING?")
+ 
+             user_clear_cache = click.confirm(
+                 "'y' clears metadata to start new training, 'N' tries to resume: "
+             )
+ 
+         user_clear_cache = user_clear_cache or force_clear_phased_cache
+ 
+         if user_clear_cache:
+             training_journal.unlink(
+                 missing_ok=True
+             )  # delete whatever the old journal was
+             journal = TrainingJournal(
+                 journalfile=training_journal
+             )  # create an empty journal
+             journal.commit(create_new=True)  # save it.
+ 
+ ... (556 more lines)

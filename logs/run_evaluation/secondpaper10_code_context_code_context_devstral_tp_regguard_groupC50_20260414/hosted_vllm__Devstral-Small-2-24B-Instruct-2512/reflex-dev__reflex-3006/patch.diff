@@ -1,0 +1,54 @@
+diff --git a/reflex/config.py b/reflex/config.py
+index f10b38e9..452db96f 100644
+--- a/reflex/config.py
++++ b/reflex/config.py
+@@ -195,6 +195,8 @@ class Config(Base):
+ 
+     # Additional frontend packages to install.
+     frontend_packages: List[str] = []
++    # List of packages to transpile in Next.js.
++    transpile_packages: List[str] = []
+ 
+     # The hosting service backend URL.
+     cp_backend_url: str = Hosting.CP_BACKEND_URL
+diff --git a/reflex/config.pyi b/reflex/config.pyi
+index 57ce1123..b0baf377 100644
+--- a/reflex/config.pyi
++++ b/reflex/config.pyi
+@@ -65,7 +65,7 @@ class Config(Base):
+     next_compression: bool
+     event_namespace: Optional[str]
+     frontend_packages: List[str]
+-    rxdeploy_url: Optional[str]
++    transpile_packages: List[str]
+     cp_backend_url: str
+     cp_web_url: str
+     username: Optional[str]
+@@ -92,6 +92,7 @@ class Config(Base):
+         next_compression: Optional[bool] = None,
+         event_namespace: Optional[str] = None,
+         frontend_packages: Optional[List[str]] = None,
++        transpile_packages: Optional[List[str]] = None,
+         rxdeploy_url: Optional[str] = None,
+         cp_backend_url: Optional[str] = None,
+         cp_web_url: Optional[str] = None,
+diff --git a/reflex/utils/prerequisites.py b/reflex/utils/prerequisites.py
+index 0502be60..568a0dfb 100644
+--- a/reflex/utils/prerequisites.py
++++ b/reflex/utils/prerequisites.py
+@@ -551,12 +551,14 @@ def _update_next_config(config, export=False):
+     if export:
+         next_config["output"] = "export"
+         next_config["distDir"] = constants.Dirs.STATIC
++    if config.transpile_packages:
++        next_config["transpilePackages"] = config.transpile_packages
+ 
+     next_config_json = re.sub(r'"([^"]+)"(?=:)', r"\1", json.dumps(next_config))
+     return f"module.exports = {next_config_json};"
+ 
+-
+ def remove_existing_bun_installation():
++
+     """Remove existing bun installation."""
+     console.debug("Removing existing bun installation.")
+     if os.path.exists(get_config().bun_path):

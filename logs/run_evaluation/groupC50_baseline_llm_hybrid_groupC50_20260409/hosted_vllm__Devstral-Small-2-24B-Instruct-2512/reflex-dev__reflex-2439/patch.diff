@@ -1,0 +1,28 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..ce623c49 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -259,3 +259,23 @@ class Match(MemoizationLeaf):
+                 self.default.get_imports(),
+             )
+         return merged_imports
++    def get_hooks(self) -> set[str]:
++        """Get the React hooks for this component and its children.
++    
++        Returns:
++            The code that should appear just before returning the rendered component.
++        """
++        # Get hooks from the base implementation (includes self.children)
++        hooks = super().get_hooks()
++    
++        # Collect hooks from all components in match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseComponent):
++                    hooks |= element.get_hooks()
++    
++        # Collect hooks from the default case
++        if isinstance(self.default, BaseComponent):
++            hooks |= self.default.get_hooks()
++    
++        return hooks

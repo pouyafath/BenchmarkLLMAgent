@@ -1,0 +1,31 @@
+diff --git a/keras/src/layers/rnn/time_distributed.py b/keras/src/layers/rnn/time_distributed.py
+index e61274d96..59fdd3d84 100644
+--- a/keras/src/layers/rnn/time_distributed.py
++++ b/keras/src/layers/rnn/time_distributed.py
+@@ -77,12 +77,20 @@ class TimeDistributed(Wrapper):
+         batch_size = input_shape[0]
+         timesteps = input_shape[1]
+ 
+-        if mask_shape is not None and mask_shape[:2] != (batch_size, timesteps):
+-            raise ValueError(
+-                "`TimeDistributed` Layer should be passed a `mask` of shape "
+-                f"({batch_size}, {timesteps}, ...), "
+-                f"received: mask.shape={mask_shape}"
+-            )
++        # Check mask shape compatibility - handle symbolic tensors properly
++        if mask_shape is not None:
++            # Only check shape if all dimensions are known (not symbolic)
++            if (isinstance(batch_size, int) and isinstance(timesteps, int) and
++                len(mask_shape) >= 2 and
++                isinstance(mask_shape[0], int) and isinstance(mask_shape[1], int)):
++                if mask_shape[:2] != (batch_size, timesteps):
++                    raise ValueError(
++                        "`TimeDistributed` Layer should be passed a `mask` of shape "
++                        f"({batch_size}, {timesteps}, ...), "
++                        f"received: mask.shape={mask_shape}"
++                    )
++            # If any dimension is symbolic, we can't check the shape at this point
++            # and will rely on the layer to handle it
+ 
+         def time_distributed_transpose(data):
+             """Swaps the timestep and batch dimensions of a tensor."""

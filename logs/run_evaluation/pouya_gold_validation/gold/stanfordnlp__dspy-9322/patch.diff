@@ -1,0 +1,1290 @@
+diff --git a/dspy/adapters/json_adapter.py b/dspy/adapters/json_adapter.py
+index 29716793..0dcc8ff7 100644
+--- a/dspy/adapters/json_adapter.py
++++ b/dspy/adapters/json_adapter.py
+@@ -98,7 +98,9 @@ class JSONAdapter(ChatAdapter):
+             return await result
+ 
+         try:
+-            structured_output_model = _get_structured_outputs_response_format(signature)
++            structured_output_model = _get_structured_outputs_response_format(
++                signature, self.use_native_function_calling
++            )
+             lm_kwargs["response_format"] = structured_output_model
+             return await super().acall(lm, lm_kwargs, signature, demos, inputs)
+         except Exception:
+diff --git a/dspy/predict/predict.py b/dspy/predict/predict.py
+index 8b64df2c..3fb1da53 100644
+--- a/dspy/predict/predict.py
++++ b/dspy/predict/predict.py
+@@ -16,6 +16,26 @@ from dspy.utils.callback import BaseCallback
+ 
+ logger = logging.getLogger(__name__)
+ 
++UNSAFE_LM_STATE_KEYS = {"api_base", "base_url", "model_list"}
++
++
++def _sanitize_lm_state(lm_state: dict, allow_unsafe_lm_state: bool) -> dict:
++    if allow_unsafe_lm_state:
++        return lm_state
++
++    unsafe_keys = sorted(UNSAFE_LM_STATE_KEYS.intersection(lm_state))
++
++    if not unsafe_keys:
++        return lm_state
++
++    sanitized_lm_state = {k: v for k, v in lm_state.items() if k not in UNSAFE_LM_STATE_KEYS}
++    logger.warning(
++        "Ignoring unsafe LM config key(s) during state load: %s. "
++        "Pass allow_unsafe_lm_state=True to preserve these keys for trusted files.",
++        unsafe_keys,
++    )
++    return sanitized_lm_state
++
+ 
+ class Predict(Module, Parameter):
+     """Basic DSPy module that maps inputs to outputs using a language model.
+@@ -66,11 +86,13 @@ class Predict(Module, Parameter):
+         state["lm"] = self.lm.dump_state() if self.lm else None
+         return state
+ 
+-    def load_state(self, state: dict) -> "Predict":
++    def load_state(self, state: dict, *, allow_unsafe_lm_state: bool = False) -> "Predict":
+         """Load the saved state of a `Predict` object.
+ 
+         Args:
+             state: The saved state of a `Predict` object.
++            allow_unsafe_lm_state: If True, preserves `api_base`, `base_url`, and `model_list` from
++                serialized LM state. Enable only when loading trusted files.
+ 
+         Returns:
+             Self to allow method chaining.
+@@ -82,7 +104,8 @@ class Predict(Module, Parameter):
+                 setattr(self, name, value)
+ 
+         self.signature = self.signature.load_state(state["signature"])
+-        self.lm = LM(**state["lm"]) if state["lm"] else None
++        sanitized_lm_state = _sanitize_lm_state(state["lm"], allow_unsafe_lm_state) if state["lm"] else None
++        self.lm = LM(**sanitized_lm_state) if sanitized_lm_state else None
+ 
+         if "extended_signature" in state:  # legacy, up to and including 2.5, for CoT.
+             raise NotImplementedError("Loading extended_signature is no longer supported in DSPy 2.6+")
+diff --git a/dspy/predict/program_of_thought.py b/dspy/predict/program_of_thought.py
+index 37480601..15d3e388 100644
+--- a/dspy/predict/program_of_thought.py
++++ b/dspy/predict/program_of_thought.py
+@@ -136,7 +136,7 @@ class ProgramOfThought(Module):
+     def _parse_code(self, code_data):
+         code = code_data.get("generated_code", "").split("---", 1)[0].split("\n\n\n", 1)[0]
+         code_match = re.search(r"```python[ \n](.*?)[ \n]```?", code, re.DOTALL)
+-        code_block = (code_match.group(1) if code_match else code).replace("\\n", "\n")
++        code_block = code_match.group(1) if code_match else code
+         if not code_block:
+             return code, "Error: Empty code after parsing."
+         if "\n" not in code_block and code_block.count("=") > 1:
+@@ -145,17 +145,6 @@ class ProgramOfThought(Module):
+         last_line_match = re.match(r"^(\w+)\s*=", lines[-1].strip())
+         if last_line_match and len(lines) > 1:
+             code_block += "\n" + last_line_match.group(1)
+-        else:
+-            code_block = re.sub(
+-                r"([a-zA-Z_]\w* *=.*?)(?=[a-zA-Z_]\w* *=)",
+-                r"\1\n",
+-                code_block,
+-            )
+-            code_block = re.sub(
+-                r"([a-zA-Z_]\w* *=.*?)([a-zA-Z_]\w*)$",
+-                r"\1\n\2",
+-                code_block,
+-            )
+         return code_block, None
+ 
+     def _execute_code(self, code):
+diff --git a/dspy/primitives/base_module.py b/dspy/primitives/base_module.py
+index ce803733..2a44e141 100644
+--- a/dspy/primitives/base_module.py
++++ b/dspy/primitives/base_module.py
+@@ -156,9 +156,14 @@ class BaseModule:
+     def dump_state(self, json_mode=True):
+         return {name: param.dump_state(json_mode=json_mode) for name, param in self.named_parameters()}
+ 
+-    def load_state(self, state):
++    def load_state(self, state, *, allow_unsafe_lm_state=False):
++        from dspy.predict.predict import Predict
++
+         for name, param in self.named_parameters():
+-            param.load_state(state[name])
++            if isinstance(param, Predict):
++                param.load_state(state[name], allow_unsafe_lm_state=allow_unsafe_lm_state)
++            else:
++                param.load_state(state[name])
+ 
+     def save(self, path, save_program=False, modules_to_serialize=None):
+         """Save the module.
+@@ -243,7 +248,7 @@ class BaseModule:
+         else:
+             raise ValueError(f"`path` must end with `.json` or `.pkl` when `save_program=False`, but received: {path}")
+ 
+-    def load(self, path, allow_pickle=False):
++    def load(self, path, allow_pickle=False, allow_unsafe_lm_state=False):
+         """Load the saved module. You may also want to check out dspy.load, if you want to
+         load an entire program, not just the state for an existing program.
+ 
+@@ -251,6 +256,8 @@ class BaseModule:
+             path (str): Path to the saved state file, which should be a .json or a .pkl file
+             allow_pickle (bool): If True, allow loading .pkl files, which can run arbitrary code.
+                 This is dangerous and should only be used if you are sure about the source of the file and in a trusted environment.
++            allow_unsafe_lm_state (bool): If True, preserves unsafe LM endpoint keys (e.g.,
++                `api_base`, `base_url`, and `model_list`) from loaded state. Enable only for trusted files.
+         """
+         path = Path(path)
+ 
+@@ -278,4 +285,4 @@ class BaseModule:
+                     "on the loaded model, please consider loading the model in the same environment as the "
+                     "saving environment."
+                 )
+-        self.load_state(state)
++        self.load_state(state, allow_unsafe_lm_state=allow_unsafe_lm_state)
+diff --git a/dspy/primitives/python_interpreter.py b/dspy/primitives/python_interpreter.py
+index 76b685ad..b97d50c2 100644
+--- a/dspy/primitives/python_interpreter.py
++++ b/dspy/primitives/python_interpreter.py
+@@ -31,13 +31,6 @@ LARGE_VAR_THRESHOLD = 100 * 1024 * 1024
+ # JSON-RPC 2.0 Helpers
+ # =============================================================================
+ 
+-# JSON-RPC 2.0 protocol errors (reserved range: -32700 to -32600)
+-JSONRPC_PROTOCOL_ERRORS = {
+-    "ParseError": -32700,
+-    "InvalidRequest": -32600,
+-    "MethodNotFound": -32601,
+-}
+-
+ # Application errors (range: -32000 to -32099)
+ JSONRPC_APP_ERRORS = {
+     "SyntaxError": -32000,
+@@ -301,16 +294,15 @@ class PythonInterpreter:
+         request_id = request["id"]
+         params = request.get("params", {})
+         tool_name = params.get("name")
+-        args = params.get("args", [])
+         kwargs = params.get("kwargs", {})
+ 
+         try:
+             if tool_name not in self.tools:
+                 raise CodeInterpreterError(f"Unknown tool: {tool_name}")
+-            result = self.tools[tool_name](*args, **kwargs)
++            result = self.tools[tool_name](**kwargs)
+             is_json = isinstance(result, (list, dict))
+             response = _jsonrpc_result(
+-                {"value": json.dumps(result) if is_json else str(result or ""), "type": "json" if is_json else "string"},
++                {"value": json.dumps(result) if is_json else (str(result) if result is not None else ""), "type": "json" if is_json else "string"},
+                 request_id
+             )
+         except Exception as e:
+@@ -323,6 +315,9 @@ class PythonInterpreter:
+ 
+     def _ensure_deno_process(self) -> None:
+         if self.deno_process is None or self.deno_process.poll() is not None:
++            # Process identity changed (or process missing), so replay setup.
++            self._tools_registered = False
++            self._mounted_files = False
+             try:
+                 self.deno_process = subprocess.Popen(
+                     self.deno_command,
+@@ -345,28 +340,59 @@ class PythonInterpreter:
+                 raise CodeInterpreterError(install_instructions) from e
+             self._health_check()
+ 
++    _MAX_SKIP_LINES = 100
++
++    def _read_response_line(self, context: str) -> str:
++        """Read one stdout line from Deno or raise a process-level error."""
++        response_line = self.deno_process.stdout.readline().strip()
++        if response_line:
++            return response_line
++
++        exit_code = self.deno_process.poll()
++        if exit_code is not None:
++            stderr = self.deno_process.stderr.read() if self.deno_process.stderr else ""
++            raise CodeInterpreterError(f"Deno exited (code {exit_code}) {context}: {stderr}")
++        raise CodeInterpreterError(f"No response {context}")
++
++    def _parse_response_line(self, response_line: str, context: str) -> dict | None:
++        """Parse a JSON-RPC line, returning None for non-JSON or malformed lines."""
++        if not response_line.startswith("{"):
++            logger.debug("Skipping non-JSON output during %s: %s", context, response_line)
++            return None
++
++        try:
++            return json.loads(response_line)
++        except json.JSONDecodeError:
++            logger.debug("Skipping malformed JSON during %s: %s", context, response_line[:100])
++            return None
++
+     def _send_request(self, method: str, params: dict, context: str) -> dict:
+-        """Send a JSON-RPC request and return the parsed response."""
++        """Send a JSON-RPC request and return the parsed response.
++
++        Non-JSON lines (e.g. Pyodide package loading messages) are skipped,
++        up to ``_MAX_SKIP_LINES`` to prevent unbounded blocking.
++        """
+         self._request_id += 1
+         request_id = self._request_id
+         msg = _jsonrpc_request(method, params, request_id)
+         self.deno_process.stdin.write(msg + "\n")
+         self.deno_process.stdin.flush()
+ 
+-        response_line = self.deno_process.stdout.readline().strip()
+-        if not response_line:
+-            exit_code = self.deno_process.poll()
+-            if exit_code is not None:
+-                stderr = self.deno_process.stderr.read() if self.deno_process.stderr else ""
+-                raise CodeInterpreterError(f"Deno exited (code {exit_code}) {context}: {stderr}")
+-            raise CodeInterpreterError(f"No response {context}")
+-
+-        response = json.loads(response_line)
+-        if response.get("id") != request_id:
+-            raise CodeInterpreterError(f"Response ID mismatch {context}: expected {request_id}, got {response.get('id')}")
+-        if "error" in response:
+-            raise CodeInterpreterError(f"Error {context}: {response['error'].get('message', 'Unknown error')}")
+-        return response
++        skipped = 0
++        while skipped <= self._MAX_SKIP_LINES:
++            response_line = self._read_response_line(context)
++            response = self._parse_response_line(response_line, context)
++            if response is None:
++                skipped += 1
++                continue
++
++            if response.get("id") != request_id:
++                raise CodeInterpreterError(f"Response ID mismatch {context}: expected {request_id}, got {response.get('id')}")
++            if "error" in response:
++                raise CodeInterpreterError(f"Error {context}: {response['error'].get('message', 'Unknown error')}")
++            return response
++
++        raise CodeInterpreterError(f"Too many non-JSON lines ({skipped}) {context}")
+ 
+     def _health_check(self) -> None:
+         """Verify the subprocess is alive by executing a simple expression."""
+@@ -479,8 +505,6 @@ class PythonInterpreter:
+             self.deno_process.stdin.flush()
+         except BrokenPipeError:
+             # If the process died, restart and try again once
+-            self._tools_registered = False
+-            self._mounted_files = False
+             self._ensure_deno_process()
+             self._mount_files()
+             self._register_tools()
+@@ -491,24 +515,12 @@ class PythonInterpreter:
+ 
+         # Read and handle messages until we get the final output.
+         # Loop is needed because tool calls require back-and-forth communication.
+-        while True:
+-            output_line = self.deno_process.stdout.readline().strip()
+-            if not output_line:
+-                # Possibly the subprocess died or gave no output
+-                err_output = self.deno_process.stderr.read()
+-                raise CodeInterpreterError(f"No output from Deno subprocess. Stderr: {err_output}")
+-
+-            # Skip non-JSON lines (e.g., Pyodide package loading messages)
+-            if not output_line.startswith("{"):
+-                logger.debug(f"Skipping non-JSON output: {output_line}")
+-                continue
+-
+-            # Parse that line as JSON
+-            try:
+-                msg = json.loads(output_line)
+-            except json.JSONDecodeError:
+-                # Malformed JSON starting with '{' - log and continue
+-                logger.info(f"Skipping malformed JSON: {output_line[:100]}")
++        skipped = 0
++        while skipped <= self._MAX_SKIP_LINES:
++            output_line = self._read_response_line("during execution")
++            msg = self._parse_response_line(output_line, "during execution")
++            if msg is None:
++                skipped += 1
+                 continue
+ 
+             # Handle incoming requests (tool calls from sandbox)
+@@ -548,6 +560,8 @@ class PythonInterpreter:
+             # Unexpected message format - neither a recognized method nor a response
+             raise CodeInterpreterError(f"Unexpected message format from sandbox: {msg}")
+ 
++        raise CodeInterpreterError(f"Too many non-JSON lines ({skipped}) during execution")
++
+     def start(self) -> None:
+         """Initialize the Deno/Pyodide sandbox.
+ 
+diff --git a/dspy/primitives/runner.js b/dspy/primitives/runner.js
+index 5e11c2c8..170c0f95 100644
+--- a/dspy/primitives/runner.js
++++ b/dspy/primitives/runner.js
+@@ -50,25 +50,17 @@ const makeToolWrapper = (toolName, parameters = []) => {
+   });
+   const signature = sigParts.join(', ');
+   const argNames = parameters.map(p => p.name);
+-
+-  // If no parameters, fall back to *args, **kwargs for flexibility
+-  if (parameters.length === 0) {
+-    return `
+-import json
+-from pyodide.ffi import run_sync, JsProxy
+-def ${toolName}(*args, **kwargs):
+-    result = run_sync(_js_tool_call("${toolName}", json.dumps({"args": args, "kwargs": kwargs})))
+-    return result.to_py() if isinstance(result, JsProxy) else result
+-`;
+-  }
++  const kwargParts = argNames.map(n => `"${n}": ${n}`).join(', ');
+ 
+   return `
+ import json
+ from pyodide.ffi import run_sync, JsProxy
+ def ${toolName}(${signature}):
+-    _args = [${argNames.join(', ')}]
+-    result = run_sync(_js_tool_call("${toolName}", json.dumps({"args": _args, "kwargs": {}})))
+-    return result.to_py() if isinstance(result, JsProxy) else result
++    result = run_sync(_js_tool_call("${toolName}", json.dumps({"kwargs": {${kwargParts}}})))
++    parsed = result.to_py() if isinstance(result, JsProxy) else result
++    if isinstance(parsed, dict) and parsed.get("${TOOL_BRIDGE_ERROR_KEY}"):
++        raise RuntimeError(parsed.get("message", "Tool bridge error"))
++    return parsed
+ `;
+ };
+ 
+@@ -153,18 +145,18 @@ const pyodide = await pyodideModule.loadPyodide();
+ const stdinReader = readLines(Deno.stdin);
+ let requestIdCounter = 0;
+ 
++const TOOL_BRIDGE_ERROR_KEY = "__dspy_tool_bridge_error__";
++
+ // This function is called from Python to invoke a host-side tool
+ async function toolCallBridge(name, argsJson) {
+   const requestId = `tc_${Date.now()}_${++requestIdCounter}`;
+ 
+   try {
+-    // Parse args to extract positional and keyword args
+     const parsedArgs = JSON.parse(argsJson);
+ 
+     // Send tool call request to host using JSON-RPC
+     console.log(jsonrpcRequest("tool_call", {
+       name: name,
+-      args: parsedArgs.args || [],
+       kwargs: parsedArgs.kwargs || {}
+     }, requestId));
+ 
+@@ -178,11 +170,19 @@ async function toolCallBridge(name, argsJson) {
+ 
+     // Expect JSON-RPC result or error with matching id
+     if (response.id !== requestId) {
+-      throw new Error(`Unexpected response: expected id ${requestId}, got ${response.id}`);
++      return {
++        [TOOL_BRIDGE_ERROR_KEY]: true,
++        message: `Tool bridge error for '${name}': Unexpected response: expected id ${requestId}, got ${response.id}`
++      };
+     }
+ 
+     if (response.error) {
+-      throw new Error(response.error.message || "Tool call failed");
++      const errorType = response.error.data?.type || "ToolError";
++      const errorMessage = response.error.message || "Tool call failed";
++      return {
++        [TOOL_BRIDGE_ERROR_KEY]: true,
++        message: `${errorType}: ${errorMessage}`
++      };
+     }
+ 
+     // Deserialize result based on type
+@@ -192,8 +192,12 @@ async function toolCallBridge(name, argsJson) {
+     }
+     return result.value;
+   } catch (error) {
+-    // Re-throw with context so Python can catch it properly
+-    throw new Error(`Tool bridge error for '${name}': ${error.message}`);
++    // Return a structured error payload so Python can raise with full context
++    // without triggering a top-level unhandled rejection in Deno.
++    return {
++      [TOOL_BRIDGE_ERROR_KEY]: true,
++      message: `Tool bridge error for '${name}': ${error.message}`
++    };
+   }
+ }
+ 
+diff --git a/dspy/teleprompt/bettertogether.py b/dspy/teleprompt/bettertogether.py
+index d1154f9a..c842df6f 100644
+--- a/dspy/teleprompt/bettertogether.py
++++ b/dspy/teleprompt/bettertogether.py
+@@ -1,8 +1,10 @@
++import inspect
+ import logging
+ import random
+-from typing import Callable
++from typing import Any, Callable
+ 
+ import dspy
++from dspy.evaluate import Evaluate
+ from dspy.primitives.example import Example
+ from dspy.primitives.module import Module
+ from dspy.teleprompt.bootstrap_finetune import (
+@@ -11,160 +13,619 @@ from dspy.teleprompt.bootstrap_finetune import (
+     kill_lms,
+     launch_lms,
+     prepare_student,
++    prepare_teacher,
+ )
+ from dspy.teleprompt.random_search import BootstrapFewShotWithRandomSearch
+ from dspy.teleprompt.teleprompt import Teleprompter
++from dspy.teleprompt.utils import eval_candidate_program
+ 
+ logger = logging.getLogger(__name__)
+ 
++# ANSI color codes for terminal output
++YELLOW = "\033[93m"
++GREEN = "\033[92m"
++BLUE = "\033[94m"
++BOLD = "\033[1m"
++ENDC = "\033[0m"
++
+ 
+ class BetterTogether(Teleprompter):
++    """A meta-optimizer that combines prompt and weight optimization in configurable sequences.
++
++    BetterTogether is a meta-optimizer proposed in the paper
++    [Fine-Tuning and Prompt Optimization: Two Great Steps that Work Better Together](https://arxiv.org/abs/2407.10930).
++    It combines prompt optimization and weight optimization (fine-tuning) by applying them in a
++    configurable sequence, allowing a student program to iteratively improve both its prompts and
++    model parameters.
++
++    The core insight is that prompt and weight optimization can complement each other: prompt
++    optimization can potentially discover effective task decompositions and reasoning strategies,
++    while weight optimization can specialize the model to execute these patterns more efficiently.
++    Using these approaches together in sequences (e.g., prompt optimization then weight optimization)
++    may allow each to build on the improvements made by the other. Empirically, this approach often
++    outperforms either strategy alone, even with state-of-the-art optimizers. For example, a
++    [Databricks case study](https://www.databricks.com/blog/building-state-art-enterprise-agents-90x-cheaper-automated-prompt-optimization)
++    shows that combining BetterTogether with GEPA and fine-tuning outperforms either approach
++    alone.
++
++    The optimizer is initialized with a metric and custom optimizers. For example, you can combine
++    GEPA for prompt optimization with BootstrapFinetune for weight optimization:
++    ``BetterTogether(metric=metric, p=GEPA(...), w=BootstrapFinetune(...))``. The ``compile()``
++    method takes a student program, trainset, and strategy string where strategy keys correspond
++    to the optimizer names from initialization. It executes each optimizer in the specified sequence.
++    When a validation set is provided, the best performing program is returned; otherwise, the
++    latest program is returned. Note: Weight optimizers like BootstrapFinetune require student
++    programs to have LMs explicitly set (not relying on global dspy.settings.lm), and BetterTogether
++    mirrors this requirement for simplicity. Therefore we call ``set_lm`` before compiling.
++
++        >>> from dspy.teleprompt import GEPA, BootstrapFinetune
++        >>>
++        >>> # Combine GEPA for prompt optimization with BootstrapFinetune for weight optimization
++        >>> optimizer = BetterTogether(
++        ...     metric=metric,
++        ...     p=GEPA(metric=metric, auto="medium"),
++        ...     w=BootstrapFinetune(metric=metric)
++        ... )
++        >>>
++        >>> student.set_lm(lm)
++        >>> compiled = optimizer.compile(
++        ...     student,
++        ...     trainset=trainset,
++        ...     valset=valset,
++        ...     strategy="p -> w"
++        ... )
++
++    You can pass optimizer-specific arguments to each optimizer's ``compile()`` method using
++    ``optimizer_compile_args``. This allows you to customize each optimizer's behavior:
++
++        >>> from dspy.teleprompt import MIPROv2
++        >>>
++        >>> # Use MIPROv2 for prompt optimization with custom parameters
++        >>> optimizer = BetterTogether(
++        ...     metric=metric,
++        ...     p=MIPROv2(metric=metric),
++        ...     w=BootstrapFinetune(metric=metric)
++        ... )
++        >>>
++        >>> student.set_lm(lm)
++        >>> compiled = optimizer.compile(
++        ...     student,
++        ...     trainset=trainset,
++        ...     valset=valset,
++        ...     strategy="p -> w",
++        ...     optimizer_compile_args={
++        ...         "p": {"num_trials": 10, "max_bootstrapped_demos": 8},  # Configure MIPROv2's compile arguments
++        ...     }
++        ... )
++
++    Since BetterTogether is a meta-optimizer that can run arbitrary optimizers in sequence, any
++    sequence of optimizers can be combined together. The optimizer names used in the strategy string
++    correspond to the keyword arguments specified in the constructor. For example, different prompt
++    optimizers can be alternated multiple times (though note this is just an illustration of
++    BetterTogether's flexibility, not a recommended configuration):
++
++        >>> from dspy.teleprompt import MIPROv2, GEPA
++        >>>
++        >>> # Chain two optimizers three times: MIPROv2 -> GEPA -> MIPROv2
++        >>> optimizer = BetterTogether(
++        ...     metric=metric,
++        ...     mipro=MIPROv2(metric=metric, auto="light"),
++        ...     gepa=GEPA(metric=metric, auto="light")
++        ... )
++        >>>
++        >>> student.set_lm(lm)
++        >>> compiled = optimizer.compile(
++        ...     student,
++        ...     trainset=trainset,
++        ...     valset=valset,
++        ...     strategy="mipro -> gepa -> mipro"
++        ... )
++
++    Note:
++        Output Attributes: The returned program includes two additional attributes:
++        ``candidate_programs`` and ``flag_compilation_error_occurred``. The ``candidate_programs``
++        attribute is a list of dicts, each containing 'program', 'score', and 'strategy' (e.g.,
++        '', 'p', 'p -> w', 'p -> w -> p'), sorted by descending score (similar to
++        ``dspy.MIPROv2.candidate_programs``). If any optimizer step fails,
++        ``flag_compilation_error_occurred`` is set to True and the best program found so far is
++        returned.
++
++        Model Lifecycle Management: BetterTogether automatically manages language model lifecycle
++        (launching, killing, and relaunching after fine-tuning), which are no-ops for most
++        API-based LMs. This is particularly important when using weight optimizers like
++        BootstrapFinetune with local providers (e.g., dspy.LocalProvider), as it handles model
++        initialization and cleanup between optimization steps.
++    """
+ 
+     STRAT_SEP = " -> "
+ 
+-    def __init__(self,
++    def __init__(
++        self,
+         metric: Callable,
+-        prompt_optimizer: Teleprompter | None = None,
+-        weight_optimizer: Teleprompter | None = None,
+-        seed: int | None = None,
+-      ):
+-        if not dspy.settings.experimental:
+-            raise ValueError("This is an experimental optimizer. Set `dspy.settings.experimental` to `True` to use it.")
+-
+-        # TODO: Note that the BetterTogether optimizer is meaningful when
+-        # BootstrapFinetune uses a metric to filter the training data before
+-        # fine-tuning. However, one can also choose to run this optimizer with
+-        # a BootstrapFinetune without a metric, say, if there aren't labels
+-        # available for the training data. Should this be noted somewhere?
+-        # TODO: We should re-consider if the metric should be required.
+-        self.prompt_optimizer = prompt_optimizer if prompt_optimizer else BootstrapFewShotWithRandomSearch(metric=metric)
+-        self.weight_optimizer = weight_optimizer if weight_optimizer else BootstrapFinetune(metric=metric)
+-
+-        is_supported_prompt = isinstance(self.prompt_optimizer, BootstrapFewShotWithRandomSearch)
+-        is_supported_weight = isinstance(self.weight_optimizer, BootstrapFinetune)
+-        if not is_supported_prompt or not is_supported_weight:
+-            raise ValueError(
+-                "The BetterTogether optimizer only supports the following optimizers for now: BootstrapFinetune, "
+-                "BootstrapFewShotWithRandomSearch."
+-            )
++        **optimizers: Teleprompter,
++    ):
++        """Initialize BetterTogether with a metric and custom optimizers.
+ 
+-        self.rng = random.Random(seed)
++        Args:
++            metric: Evaluation metric function for scoring programs. Should accept
++                ``(example, prediction, trace=None)`` and return a numeric score (higher is better).
++                This metric is used to evaluate candidate programs during optimization and is passed
++                to the default optimizers if no custom optimizers are provided.
++            **optimizers: Custom optimizers as keyword arguments, where keys become the optimizer
++                names used in the strategy string. For example, ``p=GEPA(...), w=BootstrapFinetune(...)``
++                makes 'p' and 'w' available for use in strategies like ``"p -> w"``. If not provided,
++                defaults to ``p=BootstrapFewShotWithRandomSearch(metric=metric)`` and
++                ``w=BootstrapFinetune(metric=metric)``. Any DSPy Teleprompter can be used.
++
++        Example:
++            >>> # Use custom optimizers
++            >>> from dspy.teleprompt import GEPA, BootstrapFinetune
++            >>> optimizer = BetterTogether(
++            ...     metric=metric,
++            ...     p=GEPA(metric=metric, auto="medium"),
++            ...     w=BootstrapFinetune(metric=metric)
++            ... )
++            >>>
++            >>> # Use default optimizers
++            >>> optimizer = BetterTogether(metric=metric)
++        """
++        self.metric = metric
++
++        if not optimizers:
++            logger.info(
++                "No optimizers provided. Using defaults: "
++                "BootstrapFewShotWithRandomSearch (p) and BootstrapFinetune (w). "
++                "You can use the letters p and w to specify the compile strategy. "
++                "For example, to run weight optimization after prompt optimization, use strategy='p -> w'."
++            )
++            optimizers = {
++                "p": BootstrapFewShotWithRandomSearch(metric=metric),
++                "w": BootstrapFinetune(metric=metric),
++            }
++        for key, optimizer in optimizers.items():
++            if not isinstance(optimizer, Teleprompter):
++                raise TypeError(
++                    f"Optimizer '{key}' must be a Teleprompter, "
++                    f"got {type(optimizer).__name__}"
++                )
++        self.optimizers: dict[str, Teleprompter] = optimizers
+ 
+     def compile(
+         self,
+         student: Module,
++        *,
+         trainset: list[Example],
++        teacher: Module | list[Module] | None = None,
++        valset: list[Example] | None = None,
++        # often specified in init in other optimizers
++        num_threads: int | None = None,
++        max_errors: int | None = None,
++        provide_traceback: bool | None = None,
++        seed: int | None = None,
++        # specific to BetterTogether
++        valset_ratio: float = 0.1,
++        shuffle_trainset_between_steps: bool = True,
+         strategy: str = "p -> w -> p",
+-        valset_ratio = 0.1,
++        optimizer_compile_args: dict[str, dict[str, Any]] | None = None,
+     ) -> Module:
+-        # TODO: We could record acc on a different valset to pick the best
+-        # strategy within the provided strategy
+-        logger.info("Validating the strategy")
+-        parsed_strategy = strategy.lower().split(self.STRAT_SEP)
++        """Compile and optimize a student program using a sequence of optimization strategies.
+ 
+-        if not all(s in ["p", "w"] for s in parsed_strategy):
+-            raise ValueError(
+-                f"The strategy should be a sequence of 'p' and 'w' separated by '{self.STRAT_SEP}', but "
+-                f"found: {strategy}"
+-            )
++        Executes the optimizers specified in the strategy string sequentially, evaluating each
++        intermediate result and returning the best performing program.
++
++        Args:
++            student: DSPy program to optimize. All predictors must have language models assigned.
++                program.set_lm(lm) can be used to assign a language model to all modules of a 
++                program.
++            trainset: Training examples for optimization. Each optimizer receives the full trainset
++                (or a shuffled version if ``shuffle_trainset_between_steps=True``).
++            teacher: Optional teacher module(s) for bootstrapping. Can be a single module or list.
++                Passed to optimizers.
++            valset: Validation set for evaluating optimization steps. If not provided, a portion of
++                trainset is held out (controlled by ``valset_ratio``). If both ``valset`` and
++                ``valset_ratio`` are None/0, no validation occurs and the latest program is returned.
++            num_threads: Number of parallel evaluation threads. Default is None, which means sequential evaluation.
++            max_errors: Maximum errors to tolerate during evaluation. Defaults to
++                ``dspy.settings.max_errors``.
++            provide_traceback: Whether to show detailed tracebacks for evaluation errors.
++            seed: Random seed for reproducibility. Controls trainset shuffling and evaluation sampling.
++            valset_ratio: Fraction of trainset to hold out as validation (range [0, 1)). For example,
++                0.1 holds out 10%. Set to 0 to skip validation. Default is 0.1.
++            shuffle_trainset_between_steps: Whether to shuffle trainset before each optimization step.
++                Helps prevent overfitting to example ordering. Default is True.
++            strategy: Sequence of optimizers to apply, separated by ``" -> "``. Each element must be
++                a key from the optimizers provided in ``__init__``. For example, ``"p -> w -> p"``
++                applies prompt optimization, then weight optimization, then prompt optimization again.
++                Default is ``"p -> w -> p"``.
++            optimizer_compile_args: Optional dict mapping optimizer keys to their ``compile()``
++                arguments. If trainset, valset, or teacher are provided in the dict for a specific
++                optimizer, they override the defaults from BetterTogether's compile method. For example:
++                ``{"p": {"num_trials": 10}, "w": {"trainset": custom_trainset}}``. This is useful to
++                override the default compile arguments for specific optimizers. The ``student`` argument
++                cannot be included in optimizer_compile_args; BetterTogether's compile method manages
++                the student reference for all optimizers.
++
++        Returns:
++            Optimized student program with two additional attributes:
+ 
+-        logger.info("Preparing the student program...")
+-        # TODO: Prepare student returns student.reset_copy(), which is what gets
+-        # optimized. We should make this clear in the doc comments.
++            - ``candidate_programs``: List of dicts with 'program', 'score', and 'strategy' keys,
++              sorted by score (best first). Contains all evaluated programs including the baseline.
++            - ``flag_compilation_error_occurred``: Boolean indicating if any optimization step failed.
++
++        Raises:
++            ValueError: If trainset is empty, valset_ratio not in [0, 1), strategy is empty or
++                contains invalid optimizer keys, or optimizer_compile_args contains invalid arguments.
++            TypeError: If optimizer_compile_args contains a 'student' key (not allowed).
++
++        Example:
++            >>> optimizer = BetterTogether(
++            ...     metric=metric,
++            ...     p=GEPA(metric=metric),
++            ...     w=BootstrapFinetune(metric=metric)
++            ... )
++            >>> student.set_lm(lm)
++            >>> compiled = optimizer.compile(
++            ...     student,
++            ...     trainset=trainset,
++            ...     valset=valset,
++            ...     strategy="p -> w"
++            ... )
++            >>> print(f"Best score: {compiled.candidate_programs[0]['score']}")
++        """
++        logger.info(f"\n{BOLD}==> BETTERTOGETHER COMPILATION STARTED <=={ENDC}")
++        logger.info(f"{BLUE}Strategy:{ENDC} {strategy}")
++        logger.info(f"{BLUE}Trainset size:{ENDC} {len(trainset)}")
++        logger.info(f"{BLUE}Validation ratio:{ENDC} {valset_ratio if valset is None else 'using provided valset'}")
++
++        student, teacher = self._prepare_student_and_teacher(student, teacher)
++        trainset, valset = self._prepare_trainset_and_valset(trainset, valset, valset_ratio)
++        effective_max_errors = max_errors if max_errors is not None else dspy.settings.max_errors
++        parsed_strategy = self._prepare_strategy(strategy)
++        optimizer_compile_args = self._prepare_optimizer_compile_args(optimizer_compile_args, teacher)
++
++        student = self._run_strategies(
++            student,
++            trainset,
++            teacher,
++            valset,
++            num_threads,
++            effective_max_errors,
++            provide_traceback,
++            seed,
++            parsed_strategy,
++            shuffle_trainset_between_steps,
++            optimizer_compile_args,
++        )
++
++        logger.info(f"\n{BOLD}{GREEN}==> BETTERTOGETHER COMPILATION COMPLETE <=={ENDC}")
++        logger.info(f"{GREEN}Best score achieved:{ENDC} {student.candidate_programs[0]['score']}")
++        logger.info(f"{GREEN}Best strategy:{ENDC} {student.candidate_programs[0]['strategy'] or 'original (no optimization)'}")
++
++        student._compiled = True
++        return student
++
++    def _prepare_student_and_teacher(
++        self, student: Module, teacher: Module | list[Module] | None
++    ) -> tuple[Module, list[Module] | None]:
+         student = prepare_student(student)
+         all_predictors_have_lms(student)
+ 
+-        # Make a shallow copy of the trainset, so that we don't change the order
+-        # of the examples in the original trainset
+-        trainset = trainset[:]
+-        logger.info("Compiling the student program...")
+-        student = self._run_strategies(parsed_strategy, student, trainset, valset_ratio)
++        if not teacher:
++            return student, None
++        teacher = [teacher] if not isinstance(teacher, list) else teacher
++        teacher = [prepare_teacher(student, t) for t in teacher]
+ 
+-        logger.info("BetterTogether has finished compiling the student program")
+-        return student
++        return student, teacher
++
++    def _prepare_trainset_and_valset(
++        self, trainset: list[Example], valset: list[Example] | None, valset_ratio: float
++    ) -> tuple[list[Example], list[Example] | None]:
++        if not trainset:
++            raise ValueError("trainset cannot be empty")
++
++        if valset_ratio < 0 or valset_ratio >= 1:
++            raise ValueError(f"valset_ratio must be in range [0, 1), got {valset_ratio}")
++
++        trainset = trainset[:]  # shallow copy to avoid modifying the original
++
++        if valset:
++            logger.info(f"{BLUE}Using provided validation set ({len(valset)} examples). Ignoring valset_ratio.{ENDC}")
++            return trainset, valset
++
++        if valset_ratio == 0:
++            logger.info(f"{YELLOW}No validation set provided and valset_ratio=0. No validation set created.{ENDC}")
++            return trainset, None
++
++        logger.info(f"{BLUE}Sampling {valset_ratio:.1%} of trainset as validation set.{ENDC}")
++        num_val_examples = int(valset_ratio * len(trainset))
++        valset = trainset[:num_val_examples]
++        trainset = trainset[num_val_examples:]
++        logger.info(f"{BLUE}Created validation set: {len(valset)} examples. Training set: {len(trainset)} examples.{ENDC}")
++
++        return trainset, valset
++
++    def _prepare_strategy(self, strategy: str) -> list[str]:
++        if not strategy or not strategy.strip():
++            raise ValueError("strategy cannot be empty")
++
++        parsed_strategy = strategy.split(self.STRAT_SEP)
++
++        invalid_steps = [s for s in parsed_strategy if s not in self.optimizers]
++        if invalid_steps:
++            raise ValueError(
++                f"Strategy contains invalid optimizer keys: {invalid_steps}. "
++                f"Valid keys are: {list(self.optimizers.keys())}"
++            )
++
++        return parsed_strategy
++
++    def _prepare_optimizer_compile_args(
++        self,
++        optimizer_compile_args: dict[str, dict[str, Any]] | None,
++        teacher: list[Module] | None,
++    ) -> dict[str, dict[str, Any]]:
++        logger.info(f"{BLUE}Validating optimizer compile arguments...{ENDC}")
++
++        # Validate user-provided compile args
++        if not optimizer_compile_args:
++            return {}
++
++        for optimizer_key, compile_args in optimizer_compile_args.items():
++            if optimizer_key not in self.optimizers:
++                raise ValueError(
++                    f"Invalid optimizer key '{optimizer_key}'. "
++                    f"Valid keys are: {list(self.optimizers.keys())}"
++                )
++            optimizer = self.optimizers[optimizer_key]
++            self._validate_compile_args(optimizer, optimizer_key, compile_args)
++
++            # Special checks
++            if optimizer.__class__.__name__ == "GEPA":
++                # GEPA accepts a teacher argument, but raises an error if it's set.
++                if teacher is not None:
++                    raise ValueError(
++                        "GEPA does not accept a teacher argument. Please remove the teacher argument."
++                    )
++
++        return optimizer_compile_args
++
++    def _validate_compile_args(
++        self, optimizer: Teleprompter, optimizer_key: str, compile_args: dict[str, Any]
++    ) -> None:
++        if "student" in compile_args:
++            raise ValueError(
++                f"'student' is not allowed in optimizer_compile_args for optimizer '{optimizer_key}'. "
++                "The same student is used throughout compilation."
++            )
++
++        valid_params = inspect.signature(optimizer.compile).parameters
++        invalid_args = set(compile_args.keys()) - set(valid_params.keys())
++        if invalid_args:
++            raise ValueError(
++                f"Invalid compile arguments for optimizer '{optimizer_key}': {sorted(invalid_args)}. "
++                f"{optimizer.__class__.__name__}.compile() accepts: {list(valid_params.keys())}"
++            )
+ 
+-    def _run_strategies(self, parsed_strategy, student, trainset, valset_ratio) -> Module:
+-        # Keep track of all the partial strategies/programs in parsed_strategy
+-        # "" corresponds to the initial student program
++    def _run_strategies(
++        self,
++        student: Module,
++        trainset: list[Example],
++        teacher: list[Module] | None,
++        valset: list[Example] | None,
++        num_threads: int | None,
++        effective_max_errors: int | None,
++        provide_traceback: bool | None,
++        seed: int | None,
++        parsed_strategy: list[str],
++        shuffle_trainset_between_steps: bool,
++        optimizer_args: dict[str, dict[str, Any]],
++    ) -> Module:
++        rng = random.Random(seed)
+         candidate_programs = []
+-        candidate_programs.append(("", student))
+-        launched_flag = False
++        flag_lms_launched = False
++        flag_compilation_error_occurred = False
++
++        # Evaluate original program
++        logger.info(f"\n{BOLD}==> BASELINE EVALUATION <=={ENDC}")
++        logger.info("Evaluating original program (no optimization applied)")
++
++        launch_lms(student)
++        flag_lms_launched = True
++
++        score = self._evaluate_on_valset(student, valset, rng, num_threads, effective_max_errors, provide_traceback)
++        self._add_candidate(candidate_programs, student, strategy="", score=score)
++        logger.info(f"{YELLOW}Baseline score:{ENDC} {score}")
+ 
++        # Apply each optimization step
+         for ind, step_code in enumerate(parsed_strategy):
+             current_strategy = self.STRAT_SEP.join(parsed_strategy[:ind + 1])
+-            logger.info(
+-                f"\n########## Step {ind + 1} of {len(parsed_strategy)} - Strategy "
+-                f"'{current_strategy}' ##########"
+-            )
++            optimizer = self.optimizers[step_code]
++
++            logger.info(f"\n{BOLD}==> STEP {ind + 1}/{len(parsed_strategy)}: {optimizer.__class__.__name__.upper()} <=={ENDC}")
++            logger.info(f"{BLUE}Current strategy:{ENDC} '{current_strategy}'")
++            logger.info(f"{BLUE}Optimizer:{ENDC} {optimizer.__class__.__name__}")
++
++            try:
++                if shuffle_trainset_between_steps:
++                    logger.info(f"{BLUE}Shuffling trainset...{ENDC}")
++                    rng.shuffle(trainset)
++
++                # Run optimizer, evaluate, and record results
++                compile_args = optimizer_args.get(step_code, {})
++                student, score, is_new_best, lms_relaunched = self._run_and_evaluate_step(
++                    optimizer, student, teacher, trainset, valset, compile_args,
++                    candidate_programs, current_strategy, rng,
++                    num_threads, effective_max_errors, provide_traceback
++                )
++
++                if lms_relaunched:
++                    flag_lms_launched = True
+ 
+-            logger.info("Shuffling the trainset...")
+-            self.rng.shuffle(trainset)
+-            if not launched_flag:
+-                launch_lms(student)
+-                launched_flag = True
+-
+-            # TODO: Should we reset or just deepcopy? How does resetting affect
+-            # the predictor LMs?
+-            student = student.deepcopy()
+-            student._compiled = False
+-            if step_code == "p":
+-                student = self._compile_prompt_optimizer(student, trainset, valset_ratio)
+-            elif step_code == "w":
+-                student = self._compile_weight_optimizer(student, trainset)
+-                launched_flag = False
+-
+-            # Record the program corresponding to the current strategy
+-            candidate_programs.append((current_strategy, student))
+-
+-        if launched_flag:
++                # Log score
++                if is_new_best:
++                    logger.info(f"{GREEN}New best score!{ENDC} {score} (strategy: '{current_strategy}')")
++                else:
++                    logger.info(f"{YELLOW}Score after optimization:{ENDC} {score}")
++
++            except Exception as e:
++                flag_compilation_error_occurred = True
++                logger.error(
++                    f"{YELLOW}Step {ind + 1}/{len(parsed_strategy)} failed with error: {type(e).__name__}: {e}{ENDC}"
++                )
++                logger.error(
++                    f"{YELLOW}Stopping optimization early. Returning best program found so far from {len(candidate_programs)} candidate(s).{ENDC}"
++                )
++                logger.error(f"{YELLOW}Traceback:{ENDC}", exc_info=True)
++                break
++
++        # Cleanup and finalize
++        if flag_lms_launched:
+             kill_lms(student)
+ 
+-        student.candidate_programs = candidate_programs
+-        return student
++        # Sort candidates by score (best first), with earlier programs winning ties
++        candidate_programs_with_idx = [(i, cp) for i, cp in enumerate(candidate_programs)]
++        candidate_programs_with_idx.sort(
++            key=lambda x: (x[1]["score"] if x[1]["score"] is not None else float("-inf"), -x[0]),
++            reverse=True
++        )
++        candidate_programs = [cp for _, cp in candidate_programs_with_idx]
+ 
+-    def _compile_prompt_optimizer(self, student, trainset, valset_ratio) -> Module:
+-        logger.info("Preparing for prompt optimization...")
+-
+-        # Sampling a validation set from the trainset for the prompt optimizer
+-        # We drop the hints for prompt optimization
+-        trainset = [x.with_inputs(*list(set(x.inputs().keys()) - {"hint"})) for x in trainset]
+-        num_val = int(valset_ratio * len(trainset))
+-        prompt_valset = trainset[:num_val]
+-        prompt_trainset = trainset[num_val:]
+-
+-        # TODO: To make this optimizer general, we need to ensure that all the
+-        # prompt optimizers are accepting a valset or encode a way to check if
+-        # a valset should be passed to an optimizer's compile method.
+-        # TODO: We should ensure that the prompt optimizers in DSPy respect the
+-        # predictor.lm attributes. In particular,
+-        # BootstrapFewShotWithRandomSearch seems to be resetting these. We are
+-        # manually re-setting the LMs here to circumvent this issue, but we
+-        # should consider addressing it in BFRS.
+-        logger.info("Compiling the prompt optimizer...")
+-        pred_lms = [pred.lm for pred in student.predictors()]
+-        student = self.prompt_optimizer.compile(student, trainset=prompt_trainset, valset=prompt_valset)
+-        for pred, lm in zip(student.predictors(), pred_lms, strict=False):
+-            pred.lm = lm
++        # Select best program based on valset availability
++        if valset is None or len(valset) == 0:
++            # No valset: return the latest program (last in original order)
++            best_program = candidate_programs_with_idx[-1][1]
++        else:
++            # Valset provided: return highest score (first after sorting)
++            best_program = candidate_programs[0]
+ 
+-        return student
++        # Attach sorted candidate programs and error flag to the best program
++        best_student = best_program["program"]
++        best_student.candidate_programs = candidate_programs
++        best_student.flag_compilation_error_occurred = flag_compilation_error_occurred
++
++        logger.info(f"\n{BOLD}==> OPTIMIZATION SUMMARY <=={ENDC}")
++        logger.info(f"{GREEN}Best score:{ENDC} {best_program['score']}")
++        strategy_display = best_program["strategy"] if best_program["strategy"] else "original (no optimization)"
++        logger.info(f"{GREEN}Best strategy:{ENDC} {strategy_display}")
++        logger.info(f"{BLUE}Total candidates evaluated:{ENDC} {len(candidate_programs)}")
++
++        return best_student
+ 
+-    def _compile_weight_optimizer(self, student, trainset) -> Module:
+-        logger.info("Preparing for weight optimization...")
++    def _run_and_evaluate_step(
++        self,
++        optimizer: Teleprompter,
++        student: Module,
++        teacher: list[Module] | None,
++        trainset: list[Example],
++        valset: list[Example] | None,
++        compile_args: dict[str, Any],
++        candidate_programs: list,
++        current_strategy: str,
++        rng: random.Random,
++        num_threads: int | None,
++        effective_max_errors: int | None,
++        provide_traceback: bool | None,
++    ) -> tuple[Module, float | None, bool, bool]:
++        """Run optimizer, evaluate result, and record candidate program.
+ 
+-        # Saving the LMs before compiling the weight optimizer
+-        original_lms = [pred.lm for pred in student.predictors()]
++        Returns:
++            student: Optimized student program
++            score: Validation score (None if no valset)
++            is_new_best: Whether this score is the best so far
++            lms_relaunched: Whether LMs were relaunched (for flag tracking)
++        """
++        # Save LMs before optimization
++        pred_lms_before = [pred.lm for pred in student.predictors()]
+ 
+-        # TODO: To make this optimizer general, we need to ensure that all the
+-        # prompt optimizers are accepting a valset or encode a way to check if
+-        # a valset should be passed to an optimizer's compile.
+-        logger.info("Compiling the weight optimizer...")
+-        student = self.weight_optimizer.compile(student, trainset=trainset)
++        # Run optimizer
++        student._compiled = False
++        logger.info(f"{BLUE}Running {optimizer.__class__.__name__} with {len(trainset)} training examples...{ENDC}")
+ 
+-        # Updating the train kwargs for the new LMs. This is needed because the
+-        # train_kwargs of the optimizer is configured for the original LMs.
+-        new_lms = [pred.lm for pred in student.predictors()]
+-        for original_lm, new_lm in zip(original_lms, new_lms, strict=False):
+-            original_params = self.weight_optimizer.train_kwargs[original_lm]
+-            self.weight_optimizer.train_kwargs[new_lm] = original_params
++        # Build compile args with standard parameters, filtering to only what the optimizer accepts
++        potential_args = {"trainset": trainset, "teacher": teacher, "valset": valset, **compile_args}
++        sig = inspect.signature(optimizer.compile)
++        accepted_params = set(sig.parameters.keys())
++        filtered_compile_args = {k: v for k, v in potential_args.items() if k in accepted_params}
+ 
+-        return student
++        student = optimizer.compile(student, **filtered_compile_args)
++
++        # Restore LMs if optimizer incorrectly reset them
++        # TODO: Some optimizers like BootstrapFewShotWithRandomSearch reset predictor LMs during compilation,
++        # which breaks weight optimizers as they require each predictor to have an LM. We should ensure that
++        # all optimizers respect the assigned LMs of programs and do not override them. Until then, we restore
++        # the original LMs here.
++        if not all_predictors_have_lms(student):
++            logger.warning(
++                f"{YELLOW}Warning: {optimizer.__class__.__name__} incorrectly reset predictor LMs. "
++                f"Restoring to original LMs.{ENDC}"
++            )
++            for pred, lm in zip(student.predictors(), pred_lms_before, strict=False):
++                pred.lm = lm
++
++        # Relaunch LMs if models changed (e.g., after fine-tuning)
++        # Weight optimizers create new model instances and kill the old ones before returning.
++        # We detect this via model name changes and relaunch the new models.
++        # Note: launch() and kill() are no-ops for most API-based LMs; these mainly affect local
++        # LMs that need launch or clean up routines.
++        lms_relaunched = False
++        if self._models_changed(student, pred_lms_before):
++            launch_lms(student)
++            lms_relaunched = True
++
++        # Evaluate optimized program
++        score = self._evaluate_on_valset(student, valset, rng, num_threads, effective_max_errors, provide_traceback)
++        self._add_candidate(candidate_programs, student, current_strategy, score)
++
++        # Check if this is the best score so far
++        valid_scores = [cp["score"] for cp in candidate_programs if cp["score"] is not None]
++        best_score_so_far = max(valid_scores) if valid_scores else float("-inf")
++        is_new_best = score is not None and score >= best_score_so_far
++
++        return student, score, is_new_best, lms_relaunched
++
++    def _models_changed(self, student: Module, pred_lms_before: list) -> bool:
++        """Check if model names changed after optimization (e.g., fine-tuning)."""
++        pred_lms_after = [pred.lm for pred in student.predictors()]
++        model_names_before = [lm.model if lm else None for lm in pred_lms_before]
++        model_names_after = [lm.model if lm else None for lm in pred_lms_after]
++        return model_names_before != model_names_after
++
++    def _add_candidate(
++        self,
++        candidate_programs: list,
++        student: Module,
++        strategy: str,
++        score: float,
++    ) -> None:
++        """Add a candidate program to the list."""
++        candidate_programs.append({
++            "score": score,
++            "program": student.deepcopy(),
++            "strategy": strategy,
++        })
++
++    def _evaluate_on_valset(
++        self,
++        program: Module,
++        valset: list[Example] | None,
++        rng: random.Random,
++        num_threads: int | None,
++        effective_max_errors: int | None,
++        provide_traceback: bool | None,
++    ) -> float | None:
++        if valset is None or len(valset) == 0:
++            logger.info(f"{YELLOW}No validation set provided. Skipping evaluation.{ENDC}")
++            return None
++
++        logger.info(f"{BLUE}Evaluating on {len(valset)} validation examples...{ENDC}")
++        evaluate = Evaluate(
++            devset=valset,
++            metric=self.metric,
++            num_threads=num_threads,
++            max_errors=effective_max_errors,
++            display_table=False,
++            display_progress=True,
++            provide_traceback=provide_traceback,
++        )
++        eval_result = eval_candidate_program(len(valset), valset, program, evaluate, rng)
++        return eval_result.score
+diff --git a/dspy/teleprompt/bootstrap.py b/dspy/teleprompt/bootstrap.py
+index e7e6b8f4..9905d5c8 100644
+--- a/dspy/teleprompt/bootstrap.py
++++ b/dspy/teleprompt/bootstrap.py
+@@ -62,8 +62,11 @@ class BootstrapFewShot(Teleprompter):
+                 Defaults to 4.
+             max_labeled_demos (int): Maximum number of labeled demonstrations to include.
+                 Defaults to 16.
+-            max_rounds (int): Number of iterations to attempt generating the required bootstrap
+-                examples. If unsuccessful after `max_rounds`, the program ends. Defaults to 1.
++            max_rounds (int): Maximum number of bootstrap attempts per training example.
++                Each round after the first uses a fresh rollout with ``temperature=1.0``
++                to bypass caches and gather diverse traces. If a successful bootstrap is
++                found on any round, the example is accepted and the optimizer moves to the
++                next one. Defaults to 1.
+             max_errors (Optional[int]): Maximum number of errors until program ends.
+                 If ``None``, inherits from ``dspy.settings.max_errors``.
+         """
+diff --git a/dspy/utils/dummies.py b/dspy/utils/dummies.py
+index 019f0fc0..e0ff12d3 100644
+--- a/dspy/utils/dummies.py
++++ b/dspy/utils/dummies.py
+@@ -8,7 +8,6 @@ from dspy.adapters.chat_adapter import FieldInfoWithName, field_header_pattern
+ from dspy.clients.lm import LM
+ from dspy.dsp.utils.utils import dotdict
+ from dspy.signatures.field import OutputField
+-from dspy.utils.callback import with_callbacks
+ 
+ 
+ class DummyLM(LM):
+@@ -104,60 +103,51 @@ class DummyLM(LM):
+             if any(field in output["content"] for field in output_fields) and final_input in input["content"]:
+                 return output["content"]
+ 
+-    @with_callbacks
+-    def __call__(self, prompt=None, messages=None, **kwargs):
+-        def format_answer_fields(field_names_and_values: dict[str, Any]):
+-            fields_with_values = {
+-                FieldInfoWithName(name=field_name, info=OutputField()): value
+-                for field_name, value in field_names_and_values.items()
+-            }
+-            # The reason why DummyLM needs an adapter is because it needs to know which output format to mimic.
+-            # Normally LMs should not have any knowledge of an adapter, because the output format is defined in the prompt.
+-            adapter = self.adapter
+-
+-            # Try to use role="assistant" if the adapter supports it (like JSONAdapter)
+-            try:
+-                return adapter.format_field_with_value(fields_with_values, role="assistant")
+-            except TypeError:
+-                # Fallback for adapters that don't support role parameter (like ChatAdapter)
+-                return adapter.format_field_with_value(fields_with_values)
+-
+-        # Build the request.
+-        outputs = []
++    def _format_answer_fields(self, field_names_and_values: dict[str, Any]):
++        fields_with_values = {
++            FieldInfoWithName(name=field_name, info=OutputField()): value
++            for field_name, value in field_names_and_values.items()
++        }
++        # The reason why DummyLM needs an adapter is because it needs to know which output format to mimic.
++        # Normally LMs should not have any knowledge of an adapter, because the output format is defined in the prompt.
++        adapter = self.adapter
++
++        # Try to use role="assistant" if the adapter supports it (like JSONAdapter)
++        try:
++            return adapter.format_field_with_value(fields_with_values, role="assistant")
++        except TypeError:
++            # Fallback for adapters that don't support role parameter (like ChatAdapter)
++            return adapter.format_field_with_value(fields_with_values)
++
++    def forward(self, prompt=None, messages=None, **kwargs):
++        messages = messages or [{"role": "user", "content": prompt}]
++        kwargs = {**self.kwargs, **kwargs}
++
++        choices = []
+         for _ in range(kwargs.get("n", 1)):
+-            messages = messages or [{"role": "user", "content": prompt}]
+-            kwargs = {**self.kwargs, **kwargs}
+-
+             if self.follow_examples:
+                 current_output = self._use_example(messages)
+             elif isinstance(self.answers, dict):
+                 current_output = next(
+-                    (format_answer_fields(v) for k, v in self.answers.items() if k in messages[-1]["content"]),
++                    (self._format_answer_fields(v) for k, v in self.answers.items() if k in messages[-1]["content"]),
+                     "No more responses",
+                 )
+             else:
+-                current_output = format_answer_fields(next(self.answers, {"answer": "No more responses"}))
++                current_output = self._format_answer_fields(next(self.answers, {"answer": "No more responses"}))
+ 
+-            # Mock reasoning
++            message = dotdict(content=current_output, tool_calls=None)
+             if self.reasoning:
+-                current_output = {
+-                    "text": current_output,
+-                    "reasoning_content": "Some reasoning",
+-                }
+-            # Store the output
+-            outputs.append(current_output)
+-
+-            # Logging, with removed api key & where `cost` is None on cache hit.
+-            kwargs = {k: v for k, v in kwargs.items() if not k.startswith("api_")}
+-            entry = {"prompt": prompt, "messages": messages, "kwargs": kwargs}
+-            entry = {**entry, "outputs": outputs, "usage": 0}
+-            entry = {**entry, "cost": 0}
+-            self.update_history(entry)
+-
+-        return outputs
+-
+-    async def acall(self, prompt=None, messages=None, **kwargs):
+-        return self.__call__(prompt=prompt, messages=messages, **kwargs)
++                message.reasoning_content = "Some reasoning"
++            choices.append(dotdict(message=message, finish_reason="stop"))
++
++        return dotdict(
++            choices=choices,
++            usage=dotdict(prompt_tokens=0, completion_tokens=0, total_tokens=0),
++            model="dummy",
++        )
++
++    async def aforward(self, prompt=None, messages=None, **kwargs):
++        return self.forward(prompt=prompt, messages=messages, **kwargs)
+ 
+     def get_convo(self, index):
+         """Get the prompt + answer from the ith message."""

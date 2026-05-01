@@ -1,0 +1,29 @@
+diff --git a/django/contrib/admin/utils.py b/django/contrib/admin/utils.py
+index e4ddc8f017..c0fad6d6fb 100644
+--- a/django/contrib/admin/utils.py
++++ b/django/contrib/admin/utils.py
+@@ -398,17 +398,23 @@ def display_for_field(value, field, empty_value_display):
+         return formats.number_format(value)
+     elif isinstance(field, models.FileField) and value:
+         return format_html('<a href="{}">{}</a>', value.url, value)
++    elif isinstance(field, models.JSONField):
++        return display_for_value(value, empty_value_display, is_json=True)
+     else:
+         return display_for_value(value, empty_value_display)
+ 
+ 
+-def display_for_value(value, empty_value_display, boolean=False):
++def display_for_value(value, empty_value_display, boolean=False, is_json=False):
+     from django.contrib.admin.templatetags.admin_list import _boolean_icon
+ 
+     if boolean:
+         return _boolean_icon(value)
+     elif value is None:
+         return empty_value_display
++    elif is_json and value is not None:
++        from django.forms import JSONField as FormJSONField
++        form_field = FormJSONField()
++        return form_field.prepare_value(value)
+     elif isinstance(value, bool):
+         return str(value)
+     elif isinstance(value, datetime.datetime):

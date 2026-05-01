@@ -1,0 +1,29 @@
+diff --git a/src/pdm/_types.py b/src/pdm/_types.py
+index dd753efb..17aca866 100644
+--- a/src/pdm/_types.py
++++ b/src/pdm/_types.py
+@@ -22,6 +22,7 @@ class RepositoryConfig:
+     url: str | None = None
+     username: str | None = None
+     password: str | None = dc.field(default=None, repr=False)
++    _auth_populated: bool = dc.field(default=False, repr=False)
+     verify_ssl: bool | None = None
+     type: str | None = None
+     ca_certs: str | None = None
+@@ -35,6 +36,8 @@ class RepositoryConfig:
+         self.exclude_packages = [_normalize_pattern(p) for p in self.exclude_packages]
+ 
+     def populate_auth(self) -> None:
++        if self._auth_populated:
++            return
+         if self.username is None or self.password is None:
+             from pdm.models.auth import keyring
+ 
+@@ -42,6 +45,7 @@ class RepositoryConfig:
+             auth = keyring.get_auth_info(service, self.username)
+             if auth is not None:
+                 self.username, self.password = auth
++        self._auth_populated = True
+ 
+     def passive_update(self, other: RepositoryConfig | None = None, **kwargs: Any) -> None:
+         """An update method that prefers the existing value over the new one."""

@@ -1,0 +1,57 @@
+diff --git a/src/cfnlint/rules/resources/iam/StatementResources.py b/src/cfnlint/rules/resources/iam/StatementResources.py
+index c64216d71..c9ae4de57 100644
+--- a/src/cfnlint/rules/resources/iam/StatementResources.py
++++ b/src/cfnlint/rules/resources/iam/StatementResources.py
+@@ -152,21 +152,41 @@ class StatementResources(CfnLintKeyword):
+                     if using_fn_arns:
+                         continue
+                     resources = ensure_list(resources)
++
++                    # Check if at least one specified resource matches at least one required resource type
++                    # Instead of requiring all resource types to be present
++                    has_coverage = False
+                     for resource in resources:
+                         arn_formats = self.service_map[service]["Resources"][
+                             resource
+-                        ].get("ARNFormats")
++                        ].get("ARNFormats", [])
+                         for arn_format in arn_formats:
+-                            arn = _Arn(arn_format)
+-                            if arn not in all_resource_arns:
+-                                yield ValidationError(
+-                                    (
+-                                        f"action {action!r} requires "
+-                                        f"a resource of {arn_formats!r}"
+-                                    ),
+-                                    path=deque(["Resource"]),
+-                                    rule=self,
+-                                )
++                            required_arn = _Arn(arn_format)
++                            for specified_arn in all_resource_arns:
++                                if specified_arn == required_arn:
++                                    has_coverage = True
++                                    break
++                            if has_coverage:
++                                break
++                        if has_coverage:
++                            break
++
++                    if not has_coverage:
++                        # Get the ARN formats for the error message to maintain consistency
++                        error_arn_formats = []
++                        for resource in resources:
++                            arn_formats = self.service_map[service]["Resources"][
++                                resource
++                            ].get("ARNFormats", [])
++                            error_arn_formats.extend(arn_formats)
++                        yield ValidationError(
++                            (
++                                f"action {action!r} requires "
++                                f"a resource of {error_arn_formats!r}"
++                            ),
++                            path=deque(["Resource"]),
++                            rule=self,
++                        )
+                 else:
+                     LOGGER.debug(f"action {action!r} requires a resource of '*'")
+                     # yield ValidationError(

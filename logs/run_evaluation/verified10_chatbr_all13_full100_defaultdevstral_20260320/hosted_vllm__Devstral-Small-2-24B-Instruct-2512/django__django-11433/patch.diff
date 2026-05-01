@@ -1,0 +1,37 @@
+diff --git a/django/forms/models.py b/django/forms/models.py
+index 5edbbd376f..572389bd76 100644
+--- a/django/forms/models.py
++++ b/django/forms/models.py
+@@ -39,18 +39,30 @@ def construct_instance(form, instance, fields=None, exclude=None):
+     cleaned_data = form.cleaned_data
+     file_field_list = []
+     for f in opts.fields:
+-        if not f.editable or isinstance(f, models.AutoField) \
+-                or f.name not in cleaned_data:
++        if not f.editable or isinstance(f, models.AutoField):
+             continue
+         if fields is not None and f.name not in fields:
+             continue
+         if exclude and f.name in exclude:
+             continue
++        # If the field is in cleaned_data, use it regardless of whether it was omitted from form data
++        if f.name in cleaned_data:
++            # Defer saving file-type fields until after the other fields, so a
++            # callable upload_to can use the values from other fields.
++            if isinstance(f, models.FileField):
++                file_field_list.append(f)
++            else:
++                f.save_form_data(instance, cleaned_data[f.name])
++            continue
+         # Leave defaults for fields that aren't in POST data, except for
+         # checkbox inputs because they don't appear in POST data if not checked.
+         if (f.has_default() and
+                 form[f.name].field.widget.value_omitted_from_data(form.data, form.files, form.add_prefix(f.name))):
+             continue
++        # Field not in cleaned_data and not omitted, but we still need to check if it should be set
++        # This case shouldn't normally happen, but let's be safe
++        if f.name not in cleaned_data:
++            continue
+         # Defer saving file-type fields until after the other fields, so a
+         # callable upload_to can use the values from other fields.
+         if isinstance(f, models.FileField):

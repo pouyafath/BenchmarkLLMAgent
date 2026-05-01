@@ -1,0 +1,37 @@
+diff --git a/sklearn/metrics/tests/test_ranking.py b/sklearn/metrics/tests/test_ranking.py
+index d7915eab6..011658d0b 100644
+--- a/sklearn/metrics/tests/test_ranking.py
++++ b/sklearn/metrics/tests/test_ranking.py
+@@ -692,6 +692,32 @@ def test_average_precision_score_pos_label_multilabel_indicator():
+     assert_raise_message(ValueError, erorr_message, average_precision_score,
+                          y_true, y_pred, pos_label=0)
+ 
++def test_average_precision_score_sample_weight_with_zeros():
++    """Test that average_precision_score doesn't return NaN when sample_weight contains zeros.
++
++    This is a regression test for the bug where average_precision_score would
++    return NaN when sample_weight contains zeros.
++    """
++    # Test case from the original bug report
++    y_true = np.array([0, 0, 0, 1, 1, 1])
++    y_score = np.array([0.1, 0.4, 0.85, 0.35, 0.8, 0.9])
++    sample_weight = [1, 1, 0, 1, 1, 0]
++
++    # This should not return NaN
++    result = average_precision_score(y_true, y_score, sample_weight=sample_weight)
++    assert not np.isnan(result), "average_precision_score returned NaN with sample_weight containing zeros"
++
++    # Also test precision_recall_curve directly
++    precision, recall, thresholds = precision_recall_curve(
++        y_true, y_score, sample_weight=sample_weight
++    )
++    assert not np.any(np.isnan(precision)), "precision_recall_curve returned NaN in precision with sample_weight containing zeros"
++    assert not np.any(np.isnan(recall)), "precision_recall_curve returned NaN in recall with sample_weight containing zeros"
++
++    # Test with all zeros sample_weight (edge case)
++    sample_weight_all_zeros = [0, 0, 0, 0, 0, 0]
++    result_all_zeros = average_precision_score(y_true, y_score, sample_weight=sample_weight_all_zeros)
++    assert np.isnan(result_all_zeros), "average_precision_score should return NaN when all sample_weights are zero"
+ 
+ def test_score_scale_invariance():
+     # Test that average_precision_score and roc_auc_score are invariant by

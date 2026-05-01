@@ -1,0 +1,58 @@
+diff --git a/dspy/utils/parallelizer.py b/dspy/utils/parallelizer.py
+index 5b5544d3..b822d6ec 100644
+--- a/dspy/utils/parallelizer.py
++++ b/dspy/utils/parallelizer.py
+@@ -68,7 +68,53 @@ class ParallelExecutor:
+ 
+         return safe_func
+ 
++    def _execute_sequential(self, function, data):
++        """Execute functions sequentially in the main thread.
++
++        This method is used when num_threads=1 to ensure that all execution
++        happens in the main thread, which is required by some libraries like
++        AppWorld that use signals and other main-thread-only functionality.
++        """
++        results = []
++        pbar = tqdm.tqdm(
++            total=len(data),
++            dynamic_ncols=True,
++            disable=self.disable_progress_bar,
++            file=sys.stdout,
++        )
++
++        for item in data:
++            if self.cancel_jobs.is_set():
++                break
++            try:
++                result = function(item)
++                results.append(result)
++                pbar.update()
++            except Exception as e:
++                with self.error_lock:
++                    self.error_count += 1
++                    if self.error_count >= self.max_errors:
++                        self.cancel_jobs.set()
++                if self.provide_traceback:
++                    logger.error(f"Error for {item}: {e}\n{traceback.format_exc()}")
++                else:
++                    logger.error(f"Error for {item}: {e}. Set `provide_traceback=True` for traceback.")
++                results.append(e)
++                pbar.update()
++
++        pbar.close()
++
++        if self.cancel_jobs.is_set():
++            logger.warning("Execution cancelled due to errors or interruption.")
++            raise Exception("Execution cancelled due to errors or interruption.")
++
++        return results
++
+     def _execute_parallel(self, function, data):
++        # Special case: when num_threads=1, run sequentially in main thread
++        if self.num_threads == 1:
++            return self._execute_sequential(function, data)
++
+         results = [None] * len(data)
+         job_cancelled = "cancelled"
+ 

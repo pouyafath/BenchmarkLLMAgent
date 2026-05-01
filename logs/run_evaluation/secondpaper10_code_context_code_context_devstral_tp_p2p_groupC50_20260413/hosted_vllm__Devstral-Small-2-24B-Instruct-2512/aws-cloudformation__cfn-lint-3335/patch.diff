@@ -1,0 +1,22 @@
+diff --git a/src/cfnlint/jsonschema/_filter.py b/src/cfnlint/jsonschema/_filter.py
+index 8762323fc..6752298ed 100644
+--- a/src/cfnlint/jsonschema/_filter.py
++++ b/src/cfnlint/jsonschema/_filter.py
+@@ -105,8 +105,16 @@ class FunctionFilter:
+     def filter(self, validator: Any, instance: Any, schema: Any):
+         # Lets validate dynamic references when appropriate
+         if validator.is_type(instance, "string"):
++            # Check if we're inside a CloudFormation function
++            # If so, don't validate dynamic references as they're part of the function's template
++            inside_function = any(
++                isinstance(func, str) and
++                (func.startswith("Fn::") or func == "Ref" or func == "Condition")
++                for func in validator.context.path.path
++            )
+             if REGEX_DYN_REF.findall(instance):
+-                yield (instance, {"dynamicReference": schema})
++                if not inside_function:
++                    yield (instance, {"dynamicReference": schema})
+                 return
+ 
+         # dependencies, required, minProperties, maxProperties

@@ -1,0 +1,27 @@
+diff --git a/lib/matplotlib/pyplot.py b/lib/matplotlib/pyplot.py
+index 58ce4c03fa..29c7e7ef92 100644
+--- a/lib/matplotlib/pyplot.py
++++ b/lib/matplotlib/pyplot.py
+@@ -2280,7 +2280,21 @@ def set_cmap(cmap: Colormap | str) -> None:
+     """
+     cmap = get_cmap(cmap)
+ 
+-    rc('image', cmap=cmap.name)
++    # Track the original name that was used
++    original_name = None
++    if isinstance(cmap, str):
++        original_name = cmap
++    else:
++        # For Colormap objects, try to find if they're registered
++        # and use the registered name
++        for name, registered_cmap in matplotlib.colormaps._cmaps.items():
++            if registered_cmap.name == cmap.name:
++                original_name = name
++                break
++
++    # Use the original name if we found one, otherwise fall back to cmap.name
++    name_to_store = original_name or cmap.name
++    rc('image', cmap=name_to_store)
+     im = gci()
+ 
+     if im is not None:

@@ -1,0 +1,38 @@
+diff --git a/src/cfnlint/rules/resources/PrimaryIdentifiers.py b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+index bf3305c44..11fc7d427 100644
+--- a/src/cfnlint/rules/resources/PrimaryIdentifiers.py
++++ b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+@@ -13,6 +13,11 @@ from cfnlint.rules import CloudFormationLintRule, RuleMatch
+ from cfnlint.schema import PROVIDER_SCHEMA_MANAGER, ResourceNotFoundError
+ from cfnlint.template import Template
+ 
++# Mapping of resource types to properties that must be unique
++# even if they are not primary identifiers
++UNIQUE_PROPERTIES = {
++    'AWS::CodeBuild::Project': ['Name'],
++}
+ 
+ @dataclass
+ class _Seen:
+@@ -20,7 +25,6 @@ class _Seen:
+     resources: Set[str] = field(init=True, default_factory=set)
+     instance: Dict[str, Any] = field(init=True, default_factory=dict)
+ 
+-
+ class PrimaryIdentifiers(CloudFormationLintRule):
+     id = "E3019"
+     shortdesc = "Validate that all resources have unique primary identifiers"
+@@ -163,4 +167,13 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+                 )
+             except ResourceNotFoundError:
+                 continue
++
++        # Additional validation for resources with unique non-primary-identifier properties
++        for t in tS:
++            if t in UNIQUE_PROPERTIES:
++                unique_props = UNIQUE_PROPERTIES[t]
++                matches.extend(
++                    self._validate_resource_type_uniqueness(cfn, t, unique_props)
++                )
++
+         return matches

@@ -1,0 +1,49 @@
+diff --git a/src/cfnlint/jsonschema/_keywords_cfn.py b/src/cfnlint/jsonschema/_keywords_cfn.py
+index 95851220e..102f93aaa 100644
+--- a/src/cfnlint/jsonschema/_keywords_cfn.py
++++ b/src/cfnlint/jsonschema/_keywords_cfn.py
+@@ -23,7 +23,7 @@ from typing import Any
+ import regex as re
+ 
+ import cfnlint.jsonschema._keywords as validators_standard
+-from cfnlint.helpers import BOOLEAN_STRINGS, ensure_list
++from cfnlint.helpers import BOOLEAN_STRINGS, ensure_list, is_function
+ from cfnlint.jsonschema import ValidationError, Validator
+ from cfnlint.jsonschema._typing import V, ValidationResult
+ 
+@@ -85,6 +85,27 @@ class FnItems:
+ # Type checks
+ #####
+ def _raw_type(validator: Validator, tS: Any, instance: Any) -> bool:
++    # Check if the instance is an intrinsic function
++    func_name, _ = is_function(instance)
++    if func_name is not None:
++        # Intrinsic functions can resolve to strings, so we need to check
++        # if the type is string and the instance is an intrinsic function
++        # However, we should only allow this when the schema is for validating
++        # CloudFormation resources, not when it's for validating function parameters.
++        # One way to distinguish is to check if the schema has a pattern.
++        # If the schema has a pattern, it's likely for validating CloudFormation resources.
++        if tS == "string":
++            # Check if the validator has a schema with a pattern
++            # If so, allow intrinsic functions to be treated as strings
++            # This is for CloudFormation resource validation
++            if hasattr(validator, 'schema') and validator.schema and 'pattern' in validator.schema:
++                return True
++            # Otherwise, don't allow intrinsic functions to be treated as strings
++            # This is for function parameter validation
++            return False
++        # For other types, fall through to the normal type checking
++        # This ensures that intrinsic functions are not treated as arbitrary types
++
+     if tS in ["object", "array"]:
+         return validator.is_type(instance, tS)
+     if "string" == tS:
+@@ -116,7 +137,6 @@ def _raw_type(validator: Validator, tS: Any, instance: Any) -> bool:
+             return True
+     return False
+ 
+-
+ def _raw_type_strict(validator: Validator, tS: Any, instance: Any) -> bool:
+     return validator.is_type(instance, tS)
+ 

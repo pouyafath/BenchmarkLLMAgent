@@ -1,0 +1,291 @@
+diff --git a/.gitattributes b/.gitattributes
+index e69de29b..c139e44b 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -0,0 +1,3 @@
++*.png filter=lfs diff=lfs merge=lfs -text
++*.jpg filter=lfs diff=lfs merge=lfs -text
++*.jpeg filter=lfs diff=lfs merge=lfs -text
+diff --git a/.github/workflows/contrib-tests.yml b/.github/workflows/contrib-tests.yml
+index 942c36ef..800085f9 100644
+--- a/.github/workflows/contrib-tests.yml
++++ b/.github/workflows/contrib-tests.yml
+@@ -43,9 +43,11 @@ jobs:
+         if: matrix.python-version == '3.10'
+         run: |
+           pip install qdrant_client[fastembed]
+-      - name: Install unstructured when python-version is 3.9 and not windows
+-        if: matrix.python-version == '3.9' && matrix.os != 'windows-2019'
++      - name: Install unstructured when python-version is 3.9 and on linux
++        if: matrix.python-version == '3.9' && matrix.os == 'ubuntu-latest'
+         run: |
++          sudo apt-get update
++          sudo apt-get install -y tesseract-ocr poppler-utils
+           pip install unstructured[all-docs]
+       - name: Install packages and dependencies for RetrieveChat
+         run: |
+diff --git a/autogen/coding/local_commandline_code_executor.py b/autogen/coding/local_commandline_code_executor.py
+index 16e37851..e012b322 100644
+--- a/autogen/coding/local_commandline_code_executor.py
++++ b/autogen/coding/local_commandline_code_executor.py
+@@ -30,8 +30,6 @@ A = ParamSpec("A")
+ 
+ class LocalCommandLineCodeExecutor(CodeExecutor):
+     SUPPORTED_LANGUAGES: ClassVar[List[str]] = ["bash", "shell", "sh", "pwsh", "powershell", "ps1", "python"]
+-    FUNCTIONS_MODULE: ClassVar[str] = "functions"
+-    FUNCTIONS_FILENAME: ClassVar[str] = "functions.py"
+     FUNCTION_PROMPT_TEMPLATE: ClassVar[
+         str
+     ] = """You have access to the following user defined functions. They can be accessed from the module called `$module_name` by their function names.
+@@ -45,6 +43,7 @@ $functions"""
+         timeout: int = 60,
+         work_dir: Union[Path, str] = Path("."),
+         functions: List[Union[FunctionWithRequirements[Any, A], Callable[..., Any], FunctionWithRequirementsStr]] = [],
++        functions_module: str = "functions",
+     ):
+         """(Experimental) A code executor class that executes code through a local command line
+         environment.
+@@ -76,6 +75,11 @@ $functions"""
+         if isinstance(work_dir, str):
+             work_dir = Path(work_dir)
+ 
++        if not functions_module.isidentifier():
++            raise ValueError("Module name must be a valid Python identifier")
++
++        self._functions_module = functions_module
++
+         work_dir.mkdir(exist_ok=True)
+ 
+         self._timeout = timeout
+@@ -104,10 +108,15 @@ $functions"""
+ 
+         template = Template(prompt_template)
+         return template.substitute(
+-            module_name=self.FUNCTIONS_MODULE,
++            module_name=self._functions_module,
+             functions="\n\n".join([to_stub(func) for func in self._functions]),
+         )
+ 
++    @property
++    def functions_module(self) -> str:
++        """(Experimental) The module name for the functions."""
++        return self._functions_module
++
+     @property
+     def functions(
+         self,
+@@ -154,7 +163,7 @@ $functions"""
+ 
+     def _setup_functions(self) -> None:
+         func_file_content = _build_python_functions_file(self._functions)
+-        func_file = self._work_dir / self.FUNCTIONS_FILENAME
++        func_file = self._work_dir / f"{self._functions_module}.py"
+         func_file.write_text(func_file_content)
+ 
+         # Collect requirements
+diff --git a/notebook/nested-chats-chess.png b/notebook/nested-chats-chess.png
+index d7891bd4..00a3646b 100644
+Binary files a/notebook/nested-chats-chess.png and b/notebook/nested-chats-chess.png differ
+diff --git a/notebook/nested_chat_1.png b/notebook/nested_chat_1.png
+index 548fe751..f6dbaccf 100644
+Binary files a/notebook/nested_chat_1.png and b/notebook/nested_chat_1.png differ
+diff --git a/notebook/nested_chat_2.png b/notebook/nested_chat_2.png
+index 917c8ba6..e111d678 100644
+Binary files a/notebook/nested_chat_2.png and b/notebook/nested_chat_2.png differ
+diff --git a/notebook/optiGuide_new_design.png b/notebook/optiGuide_new_design.png
+index f05257cb..21259516 100644
+Binary files a/notebook/optiGuide_new_design.png and b/notebook/optiGuide_new_design.png differ
+diff --git a/notebook/viz_gc.png b/notebook/viz_gc.png
+index f45b7ff3..32c135cb 100644
+Binary files a/notebook/viz_gc.png and b/notebook/viz_gc.png differ
+diff --git a/samples/apps/auto-anny/images/icon.png b/samples/apps/auto-anny/images/icon.png
+index 00822f98..21dd1bd6 100644
+Binary files a/samples/apps/auto-anny/images/icon.png and b/samples/apps/auto-anny/images/icon.png differ
+diff --git a/samples/apps/autogen-studio/docs/ara_stockprices.png b/samples/apps/autogen-studio/docs/ara_stockprices.png
+index fafb830e..f5adf625 100644
+Binary files a/samples/apps/autogen-studio/docs/ara_stockprices.png and b/samples/apps/autogen-studio/docs/ara_stockprices.png differ
+diff --git a/samples/apps/autogen-studio/frontend/src/images/icon.png b/samples/apps/autogen-studio/frontend/src/images/icon.png
+index deacc4ce..13af1c8f 100644
+Binary files a/samples/apps/autogen-studio/frontend/src/images/icon.png and b/samples/apps/autogen-studio/frontend/src/images/icon.png differ
+diff --git a/website/blog/2023-04-21-LLM-tuning-math/img/level2algebra.png b/website/blog/2023-04-21-LLM-tuning-math/img/level2algebra.png
+index 9bd8d0f3..4b98fcc6 100644
+Binary files a/website/blog/2023-04-21-LLM-tuning-math/img/level2algebra.png and b/website/blog/2023-04-21-LLM-tuning-math/img/level2algebra.png differ
+diff --git a/website/blog/2023-04-21-LLM-tuning-math/img/level3algebra.png b/website/blog/2023-04-21-LLM-tuning-math/img/level3algebra.png
+index a02700cf..b6590389 100644
+Binary files a/website/blog/2023-04-21-LLM-tuning-math/img/level3algebra.png and b/website/blog/2023-04-21-LLM-tuning-math/img/level3algebra.png differ
+diff --git a/website/blog/2023-04-21-LLM-tuning-math/img/level4algebra.png b/website/blog/2023-04-21-LLM-tuning-math/img/level4algebra.png
+index 5ce5af9f..22231e1c 100644
+Binary files a/website/blog/2023-04-21-LLM-tuning-math/img/level4algebra.png and b/website/blog/2023-04-21-LLM-tuning-math/img/level4algebra.png differ
+diff --git a/website/blog/2023-04-21-LLM-tuning-math/img/level5algebra.png b/website/blog/2023-04-21-LLM-tuning-math/img/level5algebra.png
+index af416af5..4b1b2dbd 100644
+Binary files a/website/blog/2023-04-21-LLM-tuning-math/img/level5algebra.png and b/website/blog/2023-04-21-LLM-tuning-math/img/level5algebra.png differ
+diff --git a/website/blog/2023-05-18-GPT-adaptive-humaneval/img/design.png b/website/blog/2023-05-18-GPT-adaptive-humaneval/img/design.png
+index 8be474c9..98d5031a 100644
+Binary files a/website/blog/2023-05-18-GPT-adaptive-humaneval/img/design.png and b/website/blog/2023-05-18-GPT-adaptive-humaneval/img/design.png differ
+diff --git a/website/blog/2023-05-18-GPT-adaptive-humaneval/img/humaneval.png b/website/blog/2023-05-18-GPT-adaptive-humaneval/img/humaneval.png
+index 36077c3f..2ec3f1bb 100644
+Binary files a/website/blog/2023-05-18-GPT-adaptive-humaneval/img/humaneval.png and b/website/blog/2023-05-18-GPT-adaptive-humaneval/img/humaneval.png differ
+diff --git a/website/blog/2023-06-28-MathChat/img/mathchatflow.png b/website/blog/2023-06-28-MathChat/img/mathchatflow.png
+index 19b41ead..0b9f63d1 100644
+Binary files a/website/blog/2023-06-28-MathChat/img/mathchatflow.png and b/website/blog/2023-06-28-MathChat/img/mathchatflow.png differ
+diff --git a/website/blog/2023-06-28-MathChat/img/result.png b/website/blog/2023-06-28-MathChat/img/result.png
+index 88a269e3..a9bb3653 100644
+Binary files a/website/blog/2023-06-28-MathChat/img/result.png and b/website/blog/2023-06-28-MathChat/img/result.png differ
+diff --git a/website/blog/2023-10-18-RetrieveChat/img/retrievechat-arch.png b/website/blog/2023-10-18-RetrieveChat/img/retrievechat-arch.png
+index a05186a0..23a4255e 100644
+Binary files a/website/blog/2023-10-18-RetrieveChat/img/retrievechat-arch.png and b/website/blog/2023-10-18-RetrieveChat/img/retrievechat-arch.png differ
+diff --git a/website/blog/2023-10-26-TeachableAgent/img/teachable-arch.png b/website/blog/2023-10-26-TeachableAgent/img/teachable-arch.png
+index 9c43745c..094081b0 100644
+Binary files a/website/blog/2023-10-26-TeachableAgent/img/teachable-arch.png and b/website/blog/2023-10-26-TeachableAgent/img/teachable-arch.png differ
+diff --git a/website/blog/2023-11-06-LMM-Agent/img/teaser.png b/website/blog/2023-11-06-LMM-Agent/img/teaser.png
+index 60f7fa6d..5e5d96c7 100644
+Binary files a/website/blog/2023-11-06-LMM-Agent/img/teaser.png and b/website/blog/2023-11-06-LMM-Agent/img/teaser.png differ
+diff --git a/website/blog/2023-11-09-EcoAssistant/img/chat.png b/website/blog/2023-11-09-EcoAssistant/img/chat.png
+index 7b08b22f..38fe4574 100644
+Binary files a/website/blog/2023-11-09-EcoAssistant/img/chat.png and b/website/blog/2023-11-09-EcoAssistant/img/chat.png differ
+diff --git a/website/blog/2023-11-09-EcoAssistant/img/results.png b/website/blog/2023-11-09-EcoAssistant/img/results.png
+index 650410ea..ba5da67a 100644
+Binary files a/website/blog/2023-11-09-EcoAssistant/img/results.png and b/website/blog/2023-11-09-EcoAssistant/img/results.png differ
+diff --git a/website/blog/2023-11-09-EcoAssistant/img/system.png b/website/blog/2023-11-09-EcoAssistant/img/system.png
+index 997422fc..fa2c8cd7 100644
+Binary files a/website/blog/2023-11-09-EcoAssistant/img/system.png and b/website/blog/2023-11-09-EcoAssistant/img/system.png differ
+diff --git a/website/blog/2023-11-09-EcoAssistant/img/template-demo.png b/website/blog/2023-11-09-EcoAssistant/img/template-demo.png
+index 6a8f8c69..2592b6e6 100644
+Binary files a/website/blog/2023-11-09-EcoAssistant/img/template-demo.png and b/website/blog/2023-11-09-EcoAssistant/img/template-demo.png differ
+diff --git a/website/blog/2023-11-09-EcoAssistant/img/template.png b/website/blog/2023-11-09-EcoAssistant/img/template.png
+index 5621e15b..f37a8d75 100644
+Binary files a/website/blog/2023-11-09-EcoAssistant/img/template.png and b/website/blog/2023-11-09-EcoAssistant/img/template.png differ
+diff --git a/website/blog/2023-11-13-OAI-assistants/img/teaser.jpg b/website/blog/2023-11-13-OAI-assistants/img/teaser.jpg
+index ac22cd3c..e9c43ea8 100644
+Binary files a/website/blog/2023-11-13-OAI-assistants/img/teaser.jpg and b/website/blog/2023-11-13-OAI-assistants/img/teaser.jpg differ
+diff --git a/website/blog/2023-11-20-AgentEval/img/agenteval-CQ.png b/website/blog/2023-11-20-AgentEval/img/agenteval-CQ.png
+index efa6a21c..5e37657c 100644
+Binary files a/website/blog/2023-11-20-AgentEval/img/agenteval-CQ.png and b/website/blog/2023-11-20-AgentEval/img/agenteval-CQ.png differ
+diff --git a/website/blog/2023-11-20-AgentEval/img/math-problems-plot.png b/website/blog/2023-11-20-AgentEval/img/math-problems-plot.png
+index 88ce6b69..94fa36dc 100644
+Binary files a/website/blog/2023-11-20-AgentEval/img/math-problems-plot.png and b/website/blog/2023-11-20-AgentEval/img/math-problems-plot.png differ
+diff --git a/website/blog/2023-11-20-AgentEval/img/tasks-taxonomy.png b/website/blog/2023-11-20-AgentEval/img/tasks-taxonomy.png
+index 743c690e..4d2e7c10 100644
+Binary files a/website/blog/2023-11-20-AgentEval/img/tasks-taxonomy.png and b/website/blog/2023-11-20-AgentEval/img/tasks-taxonomy.png differ
+diff --git a/website/blog/2023-11-26-Agent-AutoBuild/img/agent_autobuild.png b/website/blog/2023-11-26-Agent-AutoBuild/img/agent_autobuild.png
+index a6645b10..537a4564 100644
+Binary files a/website/blog/2023-11-26-Agent-AutoBuild/img/agent_autobuild.png and b/website/blog/2023-11-26-Agent-AutoBuild/img/agent_autobuild.png differ
+diff --git a/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_config.png b/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_config.png
+index a9596bf7..f2b6a017 100644
+Binary files a/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_config.png and b/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_config.png differ
+diff --git a/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_home.png b/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_home.png
+index 032c4d9f..c709784b 100644
+Binary files a/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_home.png and b/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_home.png differ
+diff --git a/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_skills.png b/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_skills.png
+index f74740f5..8f48ea42 100644
+Binary files a/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_skills.png and b/website/blog/2023-12-01-AutoGenStudio/img/autogenstudio_skills.png differ
+diff --git a/website/blog/2023-12-23-AgentOptimizer/img/agentoptimizer.png b/website/blog/2023-12-23-AgentOptimizer/img/agentoptimizer.png
+index c023b533..f6b65f8e 100644
+Binary files a/website/blog/2023-12-23-AgentOptimizer/img/agentoptimizer.png and b/website/blog/2023-12-23-AgentOptimizer/img/agentoptimizer.png differ
+diff --git a/website/blog/2024-01-25-AutoGenBench/img/teaser.jpg b/website/blog/2024-01-25-AutoGenBench/img/teaser.jpg
+index 00571529..819cc337 100755
+Binary files a/website/blog/2024-01-25-AutoGenBench/img/teaser.jpg and b/website/blog/2024-01-25-AutoGenBench/img/teaser.jpg differ
+diff --git a/website/blog/2024-02-02-AutoAnny/img/AutoAnnyLogo.jpg b/website/blog/2024-02-02-AutoAnny/img/AutoAnnyLogo.jpg
+index 4ff257bc..7c8000f9 100644
+Binary files a/website/blog/2024-02-02-AutoAnny/img/AutoAnnyLogo.jpg and b/website/blog/2024-02-02-AutoAnny/img/AutoAnnyLogo.jpg differ
+diff --git a/website/blog/2024-02-11-FSM-GroupChat/img/FSM_logic.png b/website/blog/2024-02-11-FSM-GroupChat/img/FSM_logic.png
+index 66abd3c6..be49ab68 100644
+Binary files a/website/blog/2024-02-11-FSM-GroupChat/img/FSM_logic.png and b/website/blog/2024-02-11-FSM-GroupChat/img/FSM_logic.png differ
+diff --git a/website/blog/2024-02-11-FSM-GroupChat/img/FSM_of_multi-agents.png b/website/blog/2024-02-11-FSM-GroupChat/img/FSM_of_multi-agents.png
+index fa8cf696..575a5dee 100644
+Binary files a/website/blog/2024-02-11-FSM-GroupChat/img/FSM_of_multi-agents.png and b/website/blog/2024-02-11-FSM-GroupChat/img/FSM_of_multi-agents.png differ
+diff --git a/website/blog/2024-02-11-FSM-GroupChat/img/teaser.jpg b/website/blog/2024-02-11-FSM-GroupChat/img/teaser.jpg
+index 8d39e3b8..55570e83 100644
+Binary files a/website/blog/2024-02-11-FSM-GroupChat/img/teaser.jpg and b/website/blog/2024-02-11-FSM-GroupChat/img/teaser.jpg differ
+diff --git a/website/blog/2024-02-29-StateFlow/img/bash_result.png b/website/blog/2024-02-29-StateFlow/img/bash_result.png
+index a31f34ba..61465bbc 100644
+Binary files a/website/blog/2024-02-29-StateFlow/img/bash_result.png and b/website/blog/2024-02-29-StateFlow/img/bash_result.png differ
+diff --git a/website/blog/2024-02-29-StateFlow/img/intercode.png b/website/blog/2024-02-29-StateFlow/img/intercode.png
+index 7616d3e6..bd70366e 100644
+Binary files a/website/blog/2024-02-29-StateFlow/img/intercode.png and b/website/blog/2024-02-29-StateFlow/img/intercode.png differ
+diff --git a/website/blog/2024-02-29-StateFlow/img/sf_example_1.png b/website/blog/2024-02-29-StateFlow/img/sf_example_1.png
+index 1dea2b2f..9f9d7923 100644
+Binary files a/website/blog/2024-02-29-StateFlow/img/sf_example_1.png and b/website/blog/2024-02-29-StateFlow/img/sf_example_1.png differ
+diff --git a/website/blog/2024-03-11-AutoDefense/imgs/architecture.png b/website/blog/2024-03-11-AutoDefense/imgs/architecture.png
+index 0d423922..92165435 100644
+Binary files a/website/blog/2024-03-11-AutoDefense/imgs/architecture.png and b/website/blog/2024-03-11-AutoDefense/imgs/architecture.png differ
+diff --git a/website/blog/2024-03-11-AutoDefense/imgs/defense-agency-design.png b/website/blog/2024-03-11-AutoDefense/imgs/defense-agency-design.png
+index fdd0ff20..a86607d1 100644
+Binary files a/website/blog/2024-03-11-AutoDefense/imgs/defense-agency-design.png and b/website/blog/2024-03-11-AutoDefense/imgs/defense-agency-design.png differ
+diff --git a/website/blog/2024-03-11-AutoDefense/imgs/table-4agents.png b/website/blog/2024-03-11-AutoDefense/imgs/table-4agents.png
+index 0e91cab6..c7230822 100644
+Binary files a/website/blog/2024-03-11-AutoDefense/imgs/table-4agents.png and b/website/blog/2024-03-11-AutoDefense/imgs/table-4agents.png differ
+diff --git a/website/blog/2024-03-11-AutoDefense/imgs/table-agents.png b/website/blog/2024-03-11-AutoDefense/imgs/table-agents.png
+index 512221e0..a91273e9 100644
+Binary files a/website/blog/2024-03-11-AutoDefense/imgs/table-agents.png and b/website/blog/2024-03-11-AutoDefense/imgs/table-agents.png differ
+diff --git a/website/blog/2024-03-11-AutoDefense/imgs/table-compared-methods.png b/website/blog/2024-03-11-AutoDefense/imgs/table-compared-methods.png
+index 0ab1f418..ea196b84 100644
+Binary files a/website/blog/2024-03-11-AutoDefense/imgs/table-compared-methods.png and b/website/blog/2024-03-11-AutoDefense/imgs/table-compared-methods.png differ
+diff --git a/website/docs/Use-Cases/images/agent_example.png b/website/docs/Use-Cases/images/agent_example.png
+index 5bce17cb..c15a64ea 100644
+Binary files a/website/docs/Use-Cases/images/agent_example.png and b/website/docs/Use-Cases/images/agent_example.png differ
+diff --git a/website/docs/Use-Cases/images/app.png b/website/docs/Use-Cases/images/app.png
+index 00f66fc2..3f8c07eb 100644
+Binary files a/website/docs/Use-Cases/images/app.png and b/website/docs/Use-Cases/images/app.png differ
+diff --git a/website/docs/Use-Cases/images/autogen_agents.png b/website/docs/Use-Cases/images/autogen_agents.png
+index ae61c87a..619cf9fe 100644
+Binary files a/website/docs/Use-Cases/images/autogen_agents.png and b/website/docs/Use-Cases/images/autogen_agents.png differ
+diff --git a/website/docs/ecosystem/img/ecosystem-fabric.png b/website/docs/ecosystem/img/ecosystem-fabric.png
+index 181302dc..cefd2587 100644
+Binary files a/website/docs/ecosystem/img/ecosystem-fabric.png and b/website/docs/ecosystem/img/ecosystem-fabric.png differ
+diff --git a/website/docs/ecosystem/img/ecosystem-memgpt.png b/website/docs/ecosystem/img/ecosystem-memgpt.png
+index 0813343c..c08ecfc9 100644
+Binary files a/website/docs/ecosystem/img/ecosystem-memgpt.png and b/website/docs/ecosystem/img/ecosystem-memgpt.png differ
+diff --git a/website/docs/ecosystem/img/ecosystem-ollama.png b/website/docs/ecosystem/img/ecosystem-ollama.png
+index 1cd707b7..306189e4 100644
+Binary files a/website/docs/ecosystem/img/ecosystem-ollama.png and b/website/docs/ecosystem/img/ecosystem-ollama.png differ
+diff --git a/website/docs/topics/non-openai-models/images/cloudlocalproxy.png b/website/docs/topics/non-openai-models/images/cloudlocalproxy.png
+index db907e15..c1cc04a7 100755
+Binary files a/website/docs/topics/non-openai-models/images/cloudlocalproxy.png and b/website/docs/topics/non-openai-models/images/cloudlocalproxy.png differ
+diff --git a/website/sidebars.js b/website/sidebars.js
+index cac53061..dc39c208 100644
+--- a/website/sidebars.js
++++ b/website/sidebars.js
+@@ -83,15 +83,9 @@
+       items: [{type: 'autogenerated', dirName: 'topics'}]
+     },
+     {
+-      'type': 'category',
+-      'label': 'API Reference',
+-      'link': {
+-        type: 'generated-index',
+-        title: 'API Reference',
+-        description: 'API Reference of AutoGen modules and classes',
+-        slug: 'reference',
+-      },
+-      'items': [{type: 'autogenerated', dirName: 'reference'}]
++      type: 'link',
++      label: 'API Reference',
++      href: '/docs/reference/agentchat/conversable_agent',
+     },
+     {
+       type: 'doc',
+diff --git a/website/static/img/autogen_agentchat.png b/website/static/img/autogen_agentchat.png
+index 989a850a..54d78c66 100644
+Binary files a/website/static/img/autogen_agentchat.png and b/website/static/img/autogen_agentchat.png differ
+diff --git a/website/static/img/autogen_app.png b/website/static/img/autogen_app.png
+index 39041bd9..2520bb48 100644
+Binary files a/website/static/img/autogen_app.png and b/website/static/img/autogen_app.png differ
+diff --git a/website/static/img/chat_example.png b/website/static/img/chat_example.png
+index 941334cf..5e68f40a 100644
+Binary files a/website/static/img/chat_example.png and b/website/static/img/chat_example.png differ
+diff --git a/website/static/img/gallery/TensionCode.png b/website/static/img/gallery/TensionCode.png
+index da6135a5..72e98d70 100644
+Binary files a/website/static/img/gallery/TensionCode.png and b/website/static/img/gallery/TensionCode.png differ
+diff --git a/website/static/img/gallery/default.png b/website/static/img/gallery/default.png
+index 989a850a..54d78c66 100644
+Binary files a/website/static/img/gallery/default.png and b/website/static/img/gallery/default.png differ
+diff --git a/website/static/img/gallery/robot.jpg b/website/static/img/gallery/robot.jpg
+index 07742a46..55a4705a 100644
+Binary files a/website/static/img/gallery/robot.jpg and b/website/static/img/gallery/robot.jpg differ
+diff --git a/website/static/img/gallery/webagent.jpg b/website/static/img/gallery/webagent.jpg
+index 079a9355..72e56bc1 100644
+Binary files a/website/static/img/gallery/webagent.jpg and b/website/static/img/gallery/webagent.jpg differ
+diff --git a/website/static/img/gallery/x-force-ide-ui.png b/website/static/img/gallery/x-force-ide-ui.png
+index 0ba635d2..a3d01fea 100644
+Binary files a/website/static/img/gallery/x-force-ide-ui.png and b/website/static/img/gallery/x-force-ide-ui.png differ

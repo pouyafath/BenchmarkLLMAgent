@@ -1,0 +1,113 @@
+diff --git a/xarray/core/rolling.py b/xarray/core/rolling.py
+index aef290f6..94aeff2e 100644
+--- a/xarray/core/rolling.py
++++ b/xarray/core/rolling.py
+@@ -268,14 +268,57 @@ class DataArrayRolling(Rolling["DataArray"]):
+         self.window_labels = self.obj[self.dim[0]]
+ 
+     def __iter__(self) -> Iterator[tuple[RollingKey, DataArray]]:
++        from .dataarray import DataArray
++
+         if self.ndim > 1:
+             raise ValueError("__iter__ is only supported for 1d-rolling")
+-        stops = np.arange(1, len(self.window_labels) + 1)
+-        starts = stops - int(self.window[0])
+-        starts[: int(self.window[0])] = 0
+-        for (label, start, stop) in zip(self.window_labels, starts, stops):
+-            window = self.obj.isel({self.dim[0]: slice(start, stop)})
+-
++        window_size = int(self.window[0])
++        half_window = window_size // 2
++
++        for i, label in enumerate(self.window_labels):
++            if self.center[0]:
++                # For center=True, window is centered around the label
++                # Calculate the range of data indices that should be in this window
++                # For even window sizes, the window is slightly biased to the right
++                start_data_idx = max(0, i - half_window)
++                end_data_idx = min(len(self.window_labels), i + half_window + (window_size % 2))
++
++                # Create the window by selecting the appropriate data slice
++                data_slice = self.obj.isel({self.dim[0]: slice(start_data_idx, end_data_idx)})
++
++                # Calculate padding needed
++                left_pad = half_window - (i)
++                right_pad = half_window - (len(self.window_labels) - 1 - i)
++
++                # Create a window of exactly window_size elements with proper padding
++                # Instead of concat, create a new DataArray with the combined values
++                if left_pad > 0 and right_pad > 0:
++                    # Pad on both sides
++                    window_values = np.full(window_size, np.nan)
++                    window_values[left_pad:left_pad + len(data_slice.values)] = data_slice.values
++                    window = DataArray(window_values, dims=self.obj.dims, coords={self.dim[0]: range(window_size)})
++                elif left_pad > 0:
++                    # Pad on left only
++                    window_values = np.full(window_size, np.nan)
++                    window_values[left_pad:left_pad + len(data_slice.values)] = data_slice.values
++                    window = DataArray(window_values, dims=self.obj.dims, coords={self.dim[0]: range(window_size)})
++                elif right_pad > 0:
++                    # Pad on right only
++                    window_values = np.full(window_size, np.nan)
++                    window_values[:len(data_slice.values)] = data_slice.values
++                    window = DataArray(window_values, dims=self.obj.dims, coords={self.dim[0]: range(window_size)})
++                else:
++                    # No padding needed
++                    window = data_slice
++            else:
++                # For center=False, use the original logic
++                stops = np.arange(1, len(self.window_labels) + 1)
++                starts = stops - window_size
++                starts[: window_size] = 0
++                start, stop = starts[i], stops[i]
++                window = self.obj.isel({self.dim[0]: slice(start, stop)})
++
++            # Apply min_periods filtering
+             counts = window.count(dim=self.dim[0])
+             window = window.where(counts >= self.min_periods)
+ 
+@@ -290,7 +333,7 @@ class DataArrayRolling(Rolling["DataArray"]):
+         **window_dim_kwargs: Hashable,
+     ) -> DataArray:
+         """
+-        Convert this rolling object to xr.DataArray,
++        Convert this rolling object to DataArray,
+         where the window dimension is stacked as a new dimension
+ 
+         Parameters
+@@ -315,7 +358,7 @@ class DataArrayRolling(Rolling["DataArray"]):
+ 
+         Examples
+         --------
+-        >>> da = xr.DataArray(np.arange(8).reshape(2, 4), dims=("a", "b"))
++        >>> da = DataArray(np.arange(8).reshape(2, 4), dims=("a", "b"))
+ 
+         >>> rolling = da.rolling(b=3)
+         >>> rolling.construct("window_dim")
+@@ -422,7 +465,7 @@ class DataArrayRolling(Rolling["DataArray"]):
+ 
+         Examples
+         --------
+-        >>> da = xr.DataArray(np.arange(8).reshape(2, 4), dims=("a", "b"))
++        >>> da = DataArray(np.arange(8).reshape(2, 4), dims=("a", "b"))
+         >>> rolling = da.rolling(b=3)
+         >>> rolling.construct("window_dim")
+         <xarray.DataArray (a: 2, b: 4, window_dim: 3)>
+@@ -898,7 +941,7 @@ class Coarsen(CoarsenArithmetic, Generic[T_Xarray]):
+ 
+         Examples
+         --------
+-        >>> da = xr.DataArray(np.arange(24), dims="time")
++        >>> da = DataArray(np.arange(24), dims="time")
+         >>> da.coarsen(time=12).construct(time=("year", "month"))
+         <xarray.DataArray (year: 2, month: 12)>
+         array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11],
+@@ -1048,7 +1091,7 @@ class DataArrayCoarsen(Coarsen["DataArray"]):
+ 
+         Examples
+         --------
+-        >>> da = xr.DataArray(np.arange(8).reshape(2, 4), dims=("a", "b"))
++        >>> da = DataArray(np.arange(8).reshape(2, 4), dims=("a", "b"))
+         >>> coarsen = da.coarsen(b=2)
+         >>> coarsen.reduce(np.sum)
+         <xarray.DataArray (a: 2, b: 2)>

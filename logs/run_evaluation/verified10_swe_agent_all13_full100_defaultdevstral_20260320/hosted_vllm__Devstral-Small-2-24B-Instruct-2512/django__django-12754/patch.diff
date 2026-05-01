@@ -1,0 +1,25 @@
+diff --git a/django/db/migrations/autodetector.py b/django/db/migrations/autodetector.py
+index 30616c0172..1d8c81de05 100644
+--- a/django/db/migrations/autodetector.py
++++ b/django/db/migrations/autodetector.py
+@@ -563,6 +563,20 @@ class MigrationAutodetector:
+                 if isinstance(base, str) and "." in base:
+                     base_app_label, base_name = base.split(".", 1)
+                     dependencies.append((base_app_label, base_name, None, True))
++                    # Check if this base model exists in the old state and if any fields
++                    # are being moved from the base to this new subclass
++                    if (base_app_label, base_name) in self.from_state.models:
++                        old_base_model = self.old_apps.get_model(base_app_label, base_name)
++                        if old_base_model:
++                            # Get the fields that exist in the old base model
++                            old_base_fields = {f.name for f in old_base_model._meta.local_fields}
++                            # Get the fields in the new model (excluding related fields)
++                            new_model_fields = {name for name, field in model_state.fields.items()}
++                            # Find fields that exist in both old base and new model
++                            moved_fields = old_base_fields & new_model_fields
++                            # Add dependencies on the removal of these fields from the base
++                            for field_name in moved_fields:
++                                dependencies.append((base_app_label, base_name, field_name, False))
+             # Depend on the other end of the primary key if it's a relation
+             if primary_key_rel:
+                 dependencies.append((

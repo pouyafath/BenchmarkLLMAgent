@@ -1,0 +1,45 @@
+{
+  "issue_id": "pydata/xarray#3993",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "DataArray.integrate has a 'dim' arg, but Dataset.integrate has a 'coord' arg",
+  "original_body": "DataArray.integrate has a 'dim' arg, but Dataset.integrate has a 'coord' arg\nThis is just a minor gripe but I think it should be fixed.\r\n\r\nThe API syntax is inconsistent:\r\n```python\r\nds.differentiate(coord='x')\r\nda.differentiate(coord='x')\r\nds.integrate(coord='x')\r\nda.integrate(dim='x')   # why dim??\r\n```\r\nIt should definitely be `coord` - IMO it doesn't make sense to integrate or differentiate over a dim because a dim by definition has no information about the distance between grid points. I think because the distinction between dims and coords is one of the things that new users have to learn about, we should be strict to not confuse up the meanings in the documentation/API.\r\n\r\nThe discussion on the original PR [seems to agree](https://github.com/pydata/xarray/pull/2653#discussion_r246164990), so I think this was just an small oversight.\r\n\r\nThe only question is whether it requires a deprecation cycle?\r\n\n",
+  "enhanced_title": "Inconsistent API: DataArray.integrate uses 'dim' while Dataset.integrate uses 'coord'",
+  "enhanced_body": "## Summary\nThe `integrate` method has inconsistent parameter naming between `DataArray` and `Dataset` classes, which creates API confusion and may mislead new users about the distinction between dimensions and coordinates.\n\n## Current Behavior\n- `DataArray.integrate(dim='x')` - uses `dim` parameter\n- `Dataset.integrate(coord='x')` - uses `coord` parameter\n- Both `DataArray.differentiate(coord='x')` and `Dataset.differentiate(coord='x')` consistently use `coord`\n\n## Expected Behavior\nFor consistency with:\n1. The `differentiate` method which uses `coord` for both DataArray and Dataset\n2. The conceptual understanding that integration/differentiation should be performed along coordinate axes (not dimensions)\n3. The original PR discussion that agreed on using `coord`\n\nThe `DataArray.integrate` method should use `coord` parameter instead of `dim`.\n\n## Reproduction Steps\n```python\nimport xarray as xr\nimport numpy as np\n\n# Create test data\nx = np.linspace(0, 10, 10)\nda = xr.DataArray(np.random.rand(10), coords={'x': x}, dims=['x'])\nds = xr.Dataset({'var': da})\n\n# Current inconsistent API\nda.integrate(dim='x')  # Works but uses 'dim'\nds.integrate(coord='x')  # Works and uses 'coord'\n\n# Desired consistent API (currently fails for DataArray)\n# da.integrate(coord='x')  # Should work but currently doesn't\n```\n\n## Technical Details\n- **Affected files** (from hints): Likely in `xarray/core/dataarray.py` and `xarray/core/dataset.py`\n- **Components**: `DataArray.integrate()` method implementation\n- **Environment**: Affects all xarray versions with current implementation\n\n## Proposed Solution\n1. Add `coord` parameter to `DataArray.integrate()`\n2. Deprecate the `dim` parameter with a deprecation warning\n3. Maintain backward compatibility during deprecation cycle\n4. Update documentation to reflect the change\n\n## Additional Context\nThe original PR discussion (https://github.com/pydata/xarray/pull/2653#discussion_r246164990) acknowledged that `coord` is the more appropriate parameter name, as dimensions don't carry information about grid spacing. This inconsistency should be resolved to improve API clarity and user experience.\n\n## Open Questions\n- Should this change include a deprecation cycle for the `dim` parameter?\n- Are there any other methods with similar inconsistencies that should be addressed together?",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpepehwq36/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

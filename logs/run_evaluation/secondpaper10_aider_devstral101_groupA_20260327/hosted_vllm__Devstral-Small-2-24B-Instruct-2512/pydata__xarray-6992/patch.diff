@@ -1,0 +1,70 @@
+diff --git a/xarray/backends/netCDF4_.py b/xarray/backends/netCDF4_.py
+index 19047d17..99936437 100644
+--- a/xarray/backends/netCDF4_.py
++++ b/xarray/backends/netCDF4_.py
+@@ -193,7 +193,7 @@ def _ensure_fill_value_valid(data, attributes):
+     # work around for netCDF4/scipy issue where _FillValue has the wrong type:
+     # https://github.com/Unidata/netcdf4-python/issues/271
+     if data.dtype.kind == "S" and "_FillValue" in attributes:
+-        attributes["_FillValue"] = np.string_(attributes["_FillValue"])
++        attributes["_FillValue"] = np.bytes_(attributes["_FillValue"])
+ 
+ 
+ def _force_native_endianness(var):
+diff --git a/xarray/coding/strings.py b/xarray/coding/strings.py
+index 231dc8a9..202c6676 100644
+--- a/xarray/coding/strings.py
++++ b/xarray/coding/strings.py
+@@ -99,7 +99,7 @@ def ensure_fixed_length_bytes(var):
+     dims, data, attrs, encoding = unpack_for_encoding(var)
+     if check_vlen_dtype(data.dtype) == bytes:
+         # TODO: figure out how to handle this with dask
+-        data = np.asarray(data, dtype=np.string_)
++        data = np.asarray(data, dtype=np.bytes_)
+     return Variable(dims, data, attrs, encoding)
+ 
+ 
+@@ -150,7 +150,7 @@ def bytes_to_char(arr):
+ def _numpy_bytes_to_char(arr):
+     """Like netCDF4.stringtochar, but faster and more flexible."""
+     # ensure the array is contiguous
+-    arr = np.array(arr, copy=False, order="C", dtype=np.string_)
++    arr = np.array(arr, copy=False, order="C", dtype=np.bytes_)
+     return arr.reshape(arr.shape + (1,)).view("S1")
+ 
+ 
+@@ -167,7 +167,7 @@ def char_to_bytes(arr):
+ 
+     if not size:
+         # can't make an S0 dtype
+-        return np.zeros(arr.shape[:-1], dtype=np.string_)
++        return np.zeros(arr.shape[:-1], dtype=np.bytes_)
+ 
+     if is_duck_dask_array(arr):
+         import dask.array as da
+diff --git a/xarray/core/accessor_str.py b/xarray/core/accessor_str.py
+index 3174ed95..edd836c4 100644
+--- a/xarray/core/accessor_str.py
++++ b/xarray/core/accessor_str.py
+@@ -467,7 +467,7 @@ class StringAccessor(Generic[T_DataArray]):
+         ... )
+         >>> values_2 = np.array(3.4)
+         >>> values_3 = ""
+-        >>> values_4 = np.array("test", dtype=np.unicode_)
++        >>> values_4 = np.array("test", dtype=np.str_)
+ 
+         Determine the separator to use
+ 
+diff --git a/xarray/core/dtypes.py b/xarray/core/dtypes.py
+index d5371e96..8cc75a8c 100644
+--- a/xarray/core/dtypes.py
++++ b/xarray/core/dtypes.py
+@@ -40,7 +40,7 @@ NINF = AlwaysLessThan()
+ PROMOTE_TO_OBJECT = [
+     {np.number, np.character},  # numpy promotes to character
+     {np.bool_, np.character},  # numpy promotes to character
+-    {np.bytes_, np.unicode_},  # numpy promotes to unicode
++    {np.bytes_, np.str_},  # numpy promotes to unicode
+ ]
+ 
+ 

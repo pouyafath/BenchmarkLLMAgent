@@ -1,0 +1,29 @@
+diff --git a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py
+index 74d172525..54ef617d4 100644
+--- a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py
++++ b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py
+@@ -13,7 +13,6 @@ from cfnlint.helpers import load_resource
+ from cfnlint.jsonschema import ValidationError, ValidationResult, Validator
+ from cfnlint.rules.jsonschema.CfnLintKeyword import CfnLintKeyword
+ 
+-
+ class DeprecatedRuntimeUpdate(CfnLintKeyword):
+ 
+     id = "E2533"
+@@ -42,10 +41,12 @@ class DeprecatedRuntimeUpdate(CfnLintKeyword):
+         runtime_data = self.deprecated_runtimes.get(runtime)
+         if not runtime_data:
+             return
+-        if (
+-            datetime.strptime(runtime_data["update-block"], "%Y-%m-%d")
+-            <= self.current_date
+-        ):
++
++        deprecated_date = datetime.strptime(runtime_data["deprecated"], "%Y-%m-%d")
++        days_since_deprecated = (self.current_date - deprecated_date).days
++
++        # Only trigger as error if the runtime has been deprecated for more than 1 year
++        if days_since_deprecated > 365:
+             yield ValidationError(
+                 (
+                     f"Runtime {runtime!r} was deprecated on "

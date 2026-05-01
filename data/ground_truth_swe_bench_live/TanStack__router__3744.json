@@ -1,0 +1,22 @@
+{
+  "issue_id": "TanStack__router-5033",
+  "pr_number": 5033,
+  "pr_base_sha": "a98c89c5e29efbf649069ecbf0f5ae2c837a337e",
+  "pr_files": [
+    {
+      "filename": "packages/solid-router/src/Matches.tsx",
+      "status": "modified",
+      "additions": 18,
+      "deletions": 16,
+      "changes": 34
+    },
+    {
+      "filename": "packages/solid-router/src/RouterProvider.tsx",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 10,
+      "changes": 19
+    }
+  ],
+  "patch": "diff --git a/packages/solid-router/src/Matches.tsx b/packages/solid-router/src/Matches.tsx\nindex cf83c6b5060..f9fa1d34f7a 100644\n--- a/packages/solid-router/src/Matches.tsx\n+++ b/packages/solid-router/src/Matches.tsx\n@@ -38,27 +38,27 @@ declare module '@tanstack/router-core' {\n export function Matches() {\n   const router = useRouter()\n \n-  const pendingElement = router.options.defaultPendingComponent ? (\n-    <router.options.defaultPendingComponent />\n-  ) : null\n-\n   // Do not render a root Suspense during SSR or hydrating from SSR\n   const ResolvedSuspense =\n     router.isServer || (typeof document !== 'undefined' && router.ssr)\n       ? SafeFragment\n       : Solid.Suspense\n \n-  const inner = (\n-    <ResolvedSuspense fallback={pendingElement}>\n-      {!router.isServer && <Transitioner />}\n-      <MatchesInner />\n-    </ResolvedSuspense>\n-  )\n+  const OptionalWrapper = router.options.InnerWrap || SafeFragment\n \n-  return router.options.InnerWrap ? (\n-    <router.options.InnerWrap>{inner}</router.options.InnerWrap>\n-  ) : (\n-    inner\n+  return (\n+    <OptionalWrapper>\n+      <ResolvedSuspense\n+        fallback={\n+          router.options.defaultPendingComponent ? (\n+            <router.options.defaultPendingComponent />\n+          ) : null\n+        }\n+      >\n+        {!router.isServer && <Transitioner />}\n+        <MatchesInner />\n+      </ResolvedSuspense>\n+    </OptionalWrapper>\n   )\n }\n \n@@ -74,8 +74,10 @@ function MatchesInner() {\n     select: (s) => s.loadedAt,\n   })\n \n-  const matchComponent = () =>\n-    matchId() ? <Match matchId={matchId()!} /> : null\n+  const matchComponent = () => {\n+    const id = matchId()\n+    return id ? <Match matchId={id} /> : null\n+  }\n \n   return (\n     <matchContext.Provider value={matchId}>\ndiff --git a/packages/solid-router/src/RouterProvider.tsx b/packages/solid-router/src/RouterProvider.tsx\nindex 1f579a0a4f3..7fee86bcf79 100644\n--- a/packages/solid-router/src/RouterProvider.tsx\n+++ b/packages/solid-router/src/RouterProvider.tsx\n@@ -1,5 +1,6 @@\n import { Matches } from './Matches'\n import { getRouterContext } from './routerContext'\n+import { SafeFragment } from './SafeFragment'\n import type * as Solid from 'solid-js'\n import type {\n   AnyRouter,\n@@ -29,17 +30,15 @@ export function RouterContextProvider<\n \n   const routerContext = getRouterContext()\n \n-  const provider = (\n-    <routerContext.Provider value={router as AnyRouter}>\n-      {children()}\n-    </routerContext.Provider>\n-  )\n-\n-  if (router.options.Wrap) {\n-    return <router.options.Wrap>{provider}</router.options.Wrap>\n-  }\n+  const OptionalWrapper = router.options.Wrap || SafeFragment\n \n-  return provider\n+  return (\n+    <OptionalWrapper>\n+      <routerContext.Provider value={router as AnyRouter}>\n+        {children()}\n+      </routerContext.Provider>\n+    </OptionalWrapper>\n+  )\n }\n \n export function RouterProvider<\n"
+}

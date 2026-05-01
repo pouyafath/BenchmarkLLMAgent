@@ -1,0 +1,144 @@
+diff --git a/src/cfnlint/helpers.py b/src/cfnlint/helpers.py
+index f22ea1e12..e69835afd 100644
+--- a/src/cfnlint/helpers.py
++++ b/src/cfnlint/helpers.py
+@@ -539,9 +539,7 @@ def load_resource(package, filename="us-east-1.json"):
+     :return: Json output of the resource laoded
+     """
+     return json.loads(
+-        pkg_resources.files(package)  # pylint: disable=no-member
+-        .joinpath(filename)
+-        .read_text(encoding="utf-8")
++        pkg_resources.read_text(package, filename)  # pylint: disable=no-member
+     )
+ 
+ 
+diff --git a/src/cfnlint/maintenance.py b/src/cfnlint/maintenance.py
+index 4f40e9f00..8a2248e39 100644
+--- a/src/cfnlint/maintenance.py
++++ b/src/cfnlint/maintenance.py
+@@ -2,6 +2,7 @@
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+ """
++from __future__ import annotations
+ 
+ import json
+ import logging
+@@ -20,7 +21,7 @@ REGISTRY_SCHEMA_ZIP = (
+ )
+ 
+ 
+-def update_resource_specs(force: bool = False, regions: list[str] | None = None) -> int:
++def update_resource_specs(force: bool = False, regions: list | None = None) -> int:
+     """Update provider schemas
+ 
+     Args:
+diff --git a/src/cfnlint/match.py b/src/cfnlint/match.py
+index 25058a4a8..227b0a09b 100644
+--- a/src/cfnlint/match.py
++++ b/src/cfnlint/match.py
+@@ -53,9 +53,7 @@ class Match:
+     rulematch_obj: InitVar[RuleMatch | None] = None
+ 
+     def __post_init__(self, rulematch_obj):
+-        hex_string = hashlib.md5(
+-            f"{self}".encode("UTF-8"), usedforsecurity=False
+-        ).hexdigest()
++        hex_string = hashlib.md5(f"{self}".encode("UTF-8")).hexdigest()
+         super().__setattr__("id", str(uuid.UUID(hex=hex_string)))
+ 
+         if rulematch_obj:
+diff --git a/src/cfnlint/rules/parameters/AllowedPattern.py b/src/cfnlint/rules/parameters/AllowedPattern.py
+index 0b7d392dc..750aeab4f 100644
+--- a/src/cfnlint/rules/parameters/AllowedPattern.py
++++ b/src/cfnlint/rules/parameters/AllowedPattern.py
+@@ -2,6 +2,7 @@
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+ """
++from __future__ import annotations
+ 
+ from typing import Any
+ 
+@@ -30,7 +31,7 @@ class AllowedPattern(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py
+index e837f71b5..da8f6164f 100644
+--- a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py
++++ b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py
+@@ -2,6 +2,7 @@
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+ """
++from __future__ import annotations
+ 
+ from typing import Any
+ 
+diff --git a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py
+index d7df5920f..adeaa9125 100644
+--- a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py
++++ b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py
+@@ -2,6 +2,7 @@
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+ """
++from __future__ import annotations
+ 
+ from typing import Any
+ 
+diff --git a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py
+index ef6eb30cf..4afc708fb 100644
+--- a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py
++++ b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py
+@@ -2,6 +2,7 @@
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+ """
++from __future__ import annotations
+ 
+ from typing import Any
+ 
+diff --git a/src/cfnlint/rules/resources/iam/ResourcePolicy.py b/src/cfnlint/rules/resources/iam/ResourcePolicy.py
+index 32d6271de..3724006b2 100644
+--- a/src/cfnlint/rules/resources/iam/ResourcePolicy.py
++++ b/src/cfnlint/rules/resources/iam/ResourcePolicy.py
+@@ -2,6 +2,7 @@
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+ """
++from __future__ import annotations
+ 
+ from typing import Any
+ 
+diff --git a/src/cfnlint/schema/_getatts.py b/src/cfnlint/schema/_getatts.py
+index 2866996ec..998ad6d21 100644
+--- a/src/cfnlint/schema/_getatts.py
++++ b/src/cfnlint/schema/_getatts.py
+@@ -213,8 +213,8 @@ _unnamed_unknown_types = (
+ )
+ 
+ 
+-class AttributeDict(UserDict[str, str]):
+-    def __init__(self, __dict: dict[str, str] | None = None) -> None:
++class AttributeDict(UserDict):
++    def __init__(self, __dict: dict | None = None) -> None:
+         super().__init__(__dict)
+ 
+     def __getitem__(self, key: str) -> str:
+@@ -277,7 +277,7 @@ class GetAtts:
+     def _pointer_to_attr(self, pointer: str) -> str:
+         return ".".join(pointer.split("/")[2:])
+ 
+-    def _process_schema(self, obj: dict[str, Any], schema: "Schema", path: str):
++    def _process_schema(self, obj: dict, schema: "Schema", path: str):
+         types = ensure_list(obj.get("type"))
+         if "object" in types:
+             for prop, value in obj.get("properties", {}).items():

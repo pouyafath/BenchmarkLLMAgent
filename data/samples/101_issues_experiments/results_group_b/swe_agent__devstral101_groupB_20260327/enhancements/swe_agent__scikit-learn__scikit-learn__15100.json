@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#15100",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "strip_accents_unicode fails to strip accents from strings that are already in NFKD form",
+  "original_body": "strip_accents_unicode fails to strip accents from strings that are already in NFKD form\n<!--\r\nIf your issue is a usage question, submit it here instead:\r\n- StackOverflow with the scikit-learn tag: https://stackoverflow.com/questions/tagged/scikit-learn\r\n- Mailing List: https://mail.python.org/mailman/listinfo/scikit-learn\r\nFor more information, see User Questions: http://scikit-learn.org/stable/support.html#user-questions\r\n-->\r\n\r\n<!-- Instructions For Filing a Bug: https://github.com/scikit-learn/scikit-learn/blob/master/CONTRIBUTING.md#filing-bugs -->\r\n\r\n#### Description\r\n<!-- Example: Joblib Error thrown when calling fit on LatentDirichletAllocation with evaluate_every > 0-->\r\n\r\nThe `strip_accents=\"unicode\"` feature of `CountVectorizer` and related does not work as expected when it processes strings that contain accents, if those strings are already in NFKD form.\r\n\r\n#### Steps/Code to Reproduce\r\n\r\n```python\r\nfrom sklearn.feature_extraction.text import strip_accents_unicode\r\n\r\n# This string contains one code point, \"LATIN SMALL LETTER N WITH TILDE\"\r\ns1 = chr(241)\r\n\r\n# This string contains two code points, \"LATIN SMALL LETTER N\" followed by \"COMBINING TILDE\"\r\ns2 = chr(110) + chr(771)\r\n\r\n# They are visually identical, as expected\r\nprint(s1) # => \u00f1\r\nprint(s2) # => n\u0303\r\n\r\n# The tilde is removed from s1, as expected\r\nprint(strip_accents_unicode(s1)) # => n\r\n\r\n# But strip_accents_unicode returns s2 unchanged\r\nprint(strip_accents_unicode(s2) == s2) # => True\r\n```\r\n\r\n#### Expected Results\r\n\r\n`s1` and `s2` should both be normalized to the same string, `\"n\"`.\r\n\r\n#### Actual Results\r\n`s2` is not changed, because `strip_accent_unicode` does nothing if the string is already in NFKD form.\r\n\r\n#### Versions\r\n```\r\nSystem:\r\n    python: 3.7.4 (default, Jul  9 2019, 15:11:16)  [GCC 7.4.0]\r\nexecutable: /home/dgrady/.local/share/virtualenvs/profiling-data-exploration--DO1bU6C/bin/python3.7\r\n   machine: Linux-4.4.0-17763-Microsoft-x86_64-with-Ubuntu-18.04-bionic\r\n\r\nPython deps:\r\n       pip: 19.2.2\r\nsetuptools: 41.2.0\r\n   sklearn: 0.21.3\r\n     numpy: 1.17.2\r\n     scipy: 1.3.1\r\n    Cython: None\r\n    pandas: 0.25.1\r\n```\r\n\n",
+  "enhanced_title": "strip_accents_unicode` fails to strip accents from strings already in NFKD form",
+  "enhanced_body": "## Description\nThe `strip_accents=\"unicode\"` feature in `CountVectorizer` and related text processing utilities fails to strip accents from strings that are already in NFKD (Normalization Form Compatibility Decomposition) form. This leads to inconsistent behavior where visually identical strings with different Unicode representations are processed differently.\n\n## Steps to Reproduce\n1. Create two strings that are visually identical but have different Unicode representations:\n   - `s1`: A single code point (e.g., \"LATIN SMALL LETTER N WITH TILDE\" - `chr(241)`)\n   - `s2`: A decomposed form with combining characters (e.g., \"LATIN SMALL LETTER N\" + \"COMBINING TILDE\" - `chr(110) + chr(771)`)\n2. Apply `strip_accents_unicode` to both strings.\n3. Observe that `s1` is correctly stripped of accents, while `s2` remains unchanged.\n\n## Expected Behavior\nBoth `s1` and `s2` should be normalized to the same string (e.g., \"n\"), regardless of their initial Unicode form.\n\n## Actual Behavior\n- `s1` is correctly stripped of accents (e.g., `\u00f1` \u2192 `n`).\n- `s2` is returned unchanged because `strip_accents_unicode` does not process strings already in NFKD form.\n\n## Code Example\n```python\nfrom sklearn.feature_extraction.text import strip_accents_unicode\n\n# Single code point with accent\ns1 = chr(241)  # \"LATIN SMALL LETTER N WITH TILDE\" (\u00f1)\n\n# Decomposed form with combining character\ns2 = chr(110) + chr(771)  # \"LATIN SMALL LETTER N\" + \"COMBINING TILDE\" (n\u0303)\n\nprint(s1)  # Output: \u00f1\nprint(s2)  # Output: n\u0303\n\nprint(strip_accents_unicode(s1))  # Output: n (correct)\nprint(strip_accents_unicode(s2))  # Output: n\u0303 (incorrect, unchanged)\n```\n\n## Affected Components\n- `sklearn.feature_extraction.text.strip_accents_unicode`\n- `CountVectorizer` and related text vectorizers that use `strip_accents=\"unicode\"\\)\n\n## Environment\n- Python: 3.7.4\n- scikit-learn: 0.21.3\n- numpy: 1.17.2\n- scipy: 1.3.1\n\n## Suggested Fix\nThe issue likely lies in the implementation of `strip_accents_unicode`, which may not handle NFKD-normalized strings properly. The function should normalize the input string to a consistent form (e.g., NFC) before processing to ensure uniform behavior.\n\n## References\n- Related files: `sklearn/feature_extraction/text.py` (contains `strip_accents_unicode`)",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpuve7u25x/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

@@ -1,0 +1,84 @@
+diff --git a/keras/src/layers/rnn/time_distributed.py b/keras/src/layers/rnn/time_distributed.py
+index e61274d96..2eecc8f48 100644
+--- a/keras/src/layers/rnn/time_distributed.py
++++ b/keras/src/layers/rnn/time_distributed.py
+@@ -95,7 +95,7 @@ class TimeDistributed(Wrapper):
+ 
+         def step_function(i):
+             kwargs = {}
+-            if self.layer._call_has_mask_arg and mask is not None:
++            if mask is not None and self.layer._call_has_mask_arg:
+                 kwargs["mask"] = mask[i]
+             if self.layer._call_has_training_arg:
+                 kwargs["training"] = training
+diff --git a/keras/src/layers/rnn/time_distributed_test.py b/keras/src/layers/rnn/time_distributed_test.py
+index f2ad37e9d..1eea0c4ed 100644
+--- a/keras/src/layers/rnn/time_distributed_test.py
++++ b/keras/src/layers/rnn/time_distributed_test.py
+@@ -1,10 +1,12 @@
+ import numpy as np
++import tensorflow as tf
+ import pytest
+ 
+ from keras.src import backend
+ from keras.src import initializers
+ from keras.src import layers
+ from keras.src import ops
++from keras.src import models
+ from keras.src import testing
+ 
+ 
+@@ -77,3 +79,53 @@ class TimeDistributedTest(testing.TestCase):
+             np.array([[[0], [0.22]], [[0.38], [0]], [[0.7], [0.86]]]),
+             output,
+         )
++
++    def test_with_mask_zero(self):
++        """Test TimeDistributed with mask_zero=True in Embedding layer.
++
++        This test verifies that TimeDistributed works correctly when used
++        with an Embedding layer that has mask_zero=True. The issue was that
++        when mask is a symbolic tensor, using it in a boolean context would
++        cause an OperatorNotAllowedInGraphError.
++        """
++        # Create dummy data
++        vocab_len = 100
++        tags_len = 10
++        batch_size = 32
++        seq_len = 20
++        embedding_dim = 50
++
++        # Create embedding matrix
++        embedding_matrix = np.random.randn(vocab_len, embedding_dim).astype("float32")
++
++        # Create model with mask_zero=True
++        model = models.Sequential([
++            layers.Input(shape=(seq_len,)),
++            layers.Embedding(
++                weights=[embedding_matrix],
++                input_dim=vocab_len,
++                output_dim=embedding_dim,
++                mask_zero=True
++            ),
++            layers.Bidirectional(layers.LSTM(units=50, return_sequences=True)),
++            layers.TimeDistributed(layers.Dense(units=tags_len, activation="softmax"))
++        ])
++
++        # Create test data with some zeros (padding)
++        X_test = np.random.randint(0, vocab_len, size=(batch_size, seq_len))
++        X_test[:, 0] = 0  # Set first position to 0 (padding)
++        Y_test = np.random.randint(0, tags_len, size=(batch_size, seq_len))
++
++        # Test with @tf.function to trigger graph mode where the issue occurs
++        @tf.function
++        def test_step(x, y):
++            with tf.GradientTape() as tape:
++                preds = model(x, training=True)
++                loss = tf.keras.losses.sparse_categorical_crossentropy(y, preds)
++                loss = tf.reduce_mean(loss)
++            grads = tape.gradient(loss, model.trainable_variables)
++            return loss
++
++        # This should not raise an OperatorNotAllowedInGraphError
++        loss = test_step(X_test, Y_test)
++        self.assertIsNotNone(loss)

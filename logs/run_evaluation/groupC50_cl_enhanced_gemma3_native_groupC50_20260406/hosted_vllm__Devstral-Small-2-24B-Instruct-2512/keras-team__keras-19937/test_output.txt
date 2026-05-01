@@ -1,0 +1,266 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch master
+Your branch is behind 'origin/master' by 688 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   keras/src/backend/common/variables.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 309f2c9c8959222e59d537b447c087a65c8b8998
+Author: Francois Chollet <francois.chollet@gmail.com>
+Date:   Fri Jun 28 11:15:13 2024 -0700
+
+    Make TF seed int64 to avoid device placement issues
+
+diff --git a/keras/src/backend/tensorflow/core.py b/keras/src/backend/tensorflow/core.py
+index 5e1a39b1e..5502473d7 100644
+--- a/keras/src/backend/tensorflow/core.py
++++ b/keras/src/backend/tensorflow/core.py
+@@ -419,7 +419,7 @@ def unstack(x, num=None, axis=0):
+ 
+ def random_seed_dtype():
+     # tensorflow random operation only works on int32/int64, not uint32.
+-    return "int32"
++    return "int64"
+ 
+ 
+ def custom_gradient(fun):
++ git -c core.fileMode=false diff 309f2c9c8959222e59d537b447c087a65c8b8998
+diff --git a/keras/src/backend/common/variables.py b/keras/src/backend/common/variables.py
+index 156d50eba..d7d910acd 100644
+--- a/keras/src/backend/common/variables.py
++++ b/keras/src/backend/common/variables.py
+@@ -507,6 +507,9 @@ def initialize_all_variables():
+ def standardize_dtype(dtype):
+     if dtype is None:
+         return config.floatx()
++    # Handle DTypePolicy objects by extracting their compute dtype
++    if hasattr(dtype, "compute_dtype") and hasattr(dtype, "variable_dtype"):
++        dtype = dtype.compute_dtype
+     dtype = dtypes.PYTHON_DTYPES_MAP.get(dtype, dtype)
+     if hasattr(dtype, "name"):
+         dtype = dtype.name
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-o0vr2l40/keras.egg-info
+  writing /tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-o0vr2l40/keras.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-o0vr2l40/keras-3.4.1.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: absl-py in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (2.1.0)
+Requirement already satisfied: numpy in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (1.26.4)
+Requirement already satisfied: rich in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (13.7.1)
+Requirement already satisfied: namex in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (0.0.8)
+Requirement already satisfied: h5py in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (3.11.0)
+Requirement already satisfied: optree in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (0.11.0)
+Requirement already satisfied: ml-dtypes in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (0.3.2)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from keras==3.4.1) (24.1)
+WARNING: keras 3.4.1 does not provide the extra 'test'
+Requirement already satisfied: typing-extensions>=4.0.0 in /usr/local/lib/python3.10/site-packages (from optree->keras==3.4.1) (4.12.2)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/site-packages (from rich->keras==3.4.1) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/site-packages (from rich->keras==3.4.1) (2.18.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/site-packages (from markdown-it-py>=2.2.0->rich->keras==3.4.1) (0.1.2)
+Building wheels for collected packages: keras
+  Building editable for keras (pyproject.toml): started
+  Running command Building editable for keras (pyproject.toml)
+  running editable_wheel
+  creating /tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info
+  writing /tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras-3.4.1.dist-info'
+  creating /tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras-3.4.1.dist-info/WHEEL
+  running build_py
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable___keras_3_4_1_finder.py'
+  adding '__editable__.keras-3.4.1.pth'
+  creating '/tmp/pip-wheel-yclnb_cr/tmplksph2qf/keras-3.4.1-0.editable-py3-none-any.whl' and adding '/tmp/tmptk1fxjtgkeras-3.4.1-0.editable-py3-none-any.whl' to it
+  adding 'keras-3.4.1.dist-info/LICENSE'
+  adding 'keras-3.4.1.dist-info/METADATA'
+  adding 'keras-3.4.1.dist-info/WHEEL'
+  adding 'keras-3.4.1.dist-info/top_level.txt'
+  adding 'keras-3.4.1.dist-info/RECORD'
+  /usr/local/lib/python3.10/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for keras (pyproject.toml): finished with status 'done'
+  Created wheel for keras: filename=keras-3.4.1-0.editable-py3-none-any.whl size=8873 sha256=6e8f8a9eee56fe090f7f17b9efb09c4f2988d819d85e2d9cd8a9478b97270a93
+  Stored in directory: /tmp/pip-ephem-wheel-cache-a4gpcs9a/wheels/0d/a6/cb/465a7b303d624cc531250fa27c75d038ddc29430bdb6ba7c9f
+Successfully built keras
+Installing collected packages: keras
+  Attempting uninstall: keras
+    Found existing installation: keras 3.4.1
+    Uninstalling keras-3.4.1:
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable__.keras-3.4.1.pth
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable___keras_3_4_1_finder.py
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__pycache__/__editable___keras_3_4_1_finder.cpython-310.pyc
+      Removing file or directory /usr/local/lib/python3.10/site-packages/keras-3.4.1.dist-info/
+      Successfully uninstalled keras-3.4.1
+Successfully installed keras-3.4.1
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ python -m pip install tensorflow-cpu torch jax jaxlib
+Requirement already satisfied: tensorflow-cpu in /usr/local/lib/python3.10/site-packages (2.16.2)
+Requirement already satisfied: torch in /usr/local/lib/python3.10/site-packages (2.2.2+cpu)
+Requirement already satisfied: jax in /usr/local/lib/python3.10/site-packages (0.4.30)
+Requirement already satisfied: jaxlib in /usr/local/lib/python3.10/site-packages (0.4.30)
+Requirement already satisfied: absl-py>=1.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.1.0)
+Requirement already satisfied: astunparse>=1.6.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.6.3)
+Requirement already satisfied: flatbuffers>=23.5.26 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (24.3.25)
+Requirement already satisfied: gast!=0.5.0,!=0.5.1,!=0.5.2,>=0.2.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.6.0)
+Requirement already satisfied: google-pasta>=0.1.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.2.0)
+Requirement already satisfied: h5py>=3.10.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.11.0)
+Requirement already satisfied: libclang>=13.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (18.1.1)
+Requirement already satisfied: ml-dtypes~=0.3.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.3.2)
+Requirement already satisfied: opt-einsum>=2.3.2 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.3.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (24.1)
+Requirement already satisfied: protobuf!=4.21.0,!=4.21.1,!=4.21.2,!=4.21.3,!=4.21.4,!=4.21.5,<5.0.0dev,>=3.20.3 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (4.25.3)
+Requirement already satisfied: requests<3,>=2.21.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.32.3)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (65.5.1)
+Requirement already satisfied: six>=1.12.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.16.0)
+Requirement already satisfied: termcolor>=1.1.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.4.0)
+Requirement already satisfied: typing-extensions>=3.6.6 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (4.12.2)
+Requirement already satisfied: wrapt>=1.11.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.16.0)
+Requirement already satisfied: grpcio<2.0,>=1.24.3 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.64.1)
+Requirement already satisfied: tensorboard<2.17,>=2.16 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.16.2)
+Requirement already satisfied: keras>=3.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.4.1)
+Requirement already satisfied: tensorflow-io-gcs-filesystem>=0.23.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.37.0)
+Requirement already satisfied: numpy<2.0.0,>=1.23.5 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.26.4)
+Requirement already satisfied: filelock in /usr/local/lib/python3.10/site-packages (from torch) (3.15.4)
+Requirement already satisfied: sympy in /usr/local/lib/python3.10/site-packages (from torch) (1.13.3)
+Requirement already satisfied: networkx in /usr/local/lib/python3.10/site-packages (from torch) (3.3)
+Requirement already satisfied: jinja2 in /usr/local/lib/python3.10/site-packages (from torch) (3.1.4)
+Requirement already satisfied: fsspec in /usr/local/lib/python3.10/site-packages (from torch) (2024.6.1)
+Requirement already satisfied: scipy>=1.9 in /usr/local/lib/python3.10/site-packages (from jax) (1.14.0)
+Requirement already satisfied: wheel<1.0,>=0.23.0 in /usr/local/lib/python3.10/site-packages (from astunparse>=1.6.0->tensorflow-cpu) (0.45.1)
+Requirement already satisfied: rich in /usr/local/lib/python3.10/site-packages (from keras>=3.0.0->tensorflow-cpu) (13.7.1)
+Requirement already satisfied: namex in /usr/local/lib/python3.10/site-packages (from keras>=3.0.0->tensorflow-cpu) (0.0.8)
+Requirement already satisfied: optree in /usr/local/lib/python3.10/site-packages (from keras>=3.0.0->tensorflow-cpu) (0.11.0)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (3.3.2)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (3.7)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (2.2.2)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (2024.6.2)
+Requirement already satisfied: markdown>=2.6.8 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.17,>=2.16->tensorflow-cpu) (3.6)
+Requirement already satisfied: tensorboard-data-server<0.8.0,>=0.7.0 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.17,>=2.16->tensorflow-cpu) (0.7.2)
+Requirement already satisfied: werkzeug>=1.0.1 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.17,>=2.16->tensorflow-cpu) (3.0.3)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.10/site-packages (from jinja2->torch) (2.1.5)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /usr/local/lib/python3.10/site-packages (from sympy->torch) (1.3.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/site-packages (from rich->keras>=3.0.0->tensorflow-cpu) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/site-packages (from rich->keras>=3.0.0->tensorflow-cpu) (2.18.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/site-packages (from markdown-it-py>=2.2.0->rich->keras>=3.0.0->tensorflow-cpu) (0.1.2)
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout 309f2c9c8959222e59d537b447c087a65c8b8998 keras/src/losses/loss_test.py keras/src/metrics/metric_test.py
+Updated 0 paths from c0ea8b136
++ git apply -v -
+Checking patch keras/src/losses/loss_test.py...
+Checking patch keras/src/metrics/metric_test.py...
+Applied patch keras/src/losses/loss_test.py cleanly.
+Applied patch keras/src/metrics/metric_test.py cleanly.
++ : '>>>>> Start Test Output'
++ SKIP_APPLICATIONS_TESTS=True
++ pytest -rA keras keras/src/losses/loss_test.py keras/src/metrics/metric_test.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.2.2, pluggy-1.5.0 -- /usr/local/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-5.0.0
+collecting ... collected 21 items
+
+keras/src/losses/loss_test.py::LossTest::test_dtype_arg PASSED           [  4%]
+keras/src/losses/loss_test.py::LossTest::test_get_method PASSED          [  9%]
+keras/src/losses/loss_test.py::LossTest::test_mask PASSED                [ 14%]
+keras/src/losses/loss_test.py::LossTest::test_mask_and_sample_weight PASSED [ 19%]
+keras/src/losses/loss_test.py::LossTest::test_mask_and_sample_weight_rank2 PASSED [ 23%]
+keras/src/losses/loss_test.py::LossTest::test_mixed_dtypes PASSED        [ 28%]
+keras/src/losses/loss_test.py::LossTest::test_pickle PASSED              [ 33%]
+keras/src/losses/loss_test.py::LossTest::test_rank_adjustment PASSED     [ 38%]
+keras/src/losses/loss_test.py::LossTest::test_reduction PASSED           [ 42%]
+keras/src/losses/loss_test.py::LossTest::test_sample_weight PASSED       [ 47%]
+keras/src/losses/loss_test.py::LossTest::test_squeeze_or_expand PASSED   [ 52%]
+keras/src/metrics/metric_test.py::MetricTest::test_dtype_arg PASSED      [ 57%]
+keras/src/metrics/metric_test.py::MetricTest::test_end_to_end_flow PASSED [ 61%]
+keras/src/metrics/metric_test.py::MetricTest::test_get_method PASSED     [ 66%]
+keras/src/metrics/metric_test.py::MetricTest::test_pickle PASSED         [ 71%]
+keras/src/metrics/metric_test.py::MetricTest::test_serialization PASSED  [ 76%]
+keras/src/metrics/metric_test.py::MetricTest::test_stateless_reset_state PASSED [ 80%]
+keras/src/metrics/metric_test.py::MetricTest::test_stateless_result PASSED [ 85%]
+keras/src/metrics/metric_test.py::MetricTest::test_stateless_update_state PASSED [ 90%]
+keras/src/metrics/metric_test.py::MetricTest::test_submetric_tracking PASSED [ 95%]
+keras/src/metrics/metric_test.py::MetricTest::test_variable_tracking PASSED [100%]
+
+==================================== PASSES ====================================
+___________________________ LossTest.test_dtype_arg ____________________________
+----------------------------- Captured stderr call -----------------------------
+2026-04-07 02:51:32.947612: E tensorflow/core/util/util.cc:131] oneDNN supports DT_HALF only on platforms with AVX-512. Falling back to the default Eigen-based implementation if present.
+=========================== short test summary info ============================
+PASSED keras/src/losses/loss_test.py::LossTest::test_dtype_arg
+PASSED keras/src/losses/loss_test.py::LossTest::test_get_method
+PASSED keras/src/losses/loss_test.py::LossTest::test_mask
+PASSED keras/src/losses/loss_test.py::LossTest::test_mask_and_sample_weight
+PASSED keras/src/losses/loss_test.py::LossTest::test_mask_and_sample_weight_rank2
+PASSED keras/src/losses/loss_test.py::LossTest::test_mixed_dtypes
+PASSED keras/src/losses/loss_test.py::LossTest::test_pickle
+PASSED keras/src/losses/loss_test.py::LossTest::test_rank_adjustment
+PASSED keras/src/losses/loss_test.py::LossTest::test_reduction
+PASSED keras/src/losses/loss_test.py::LossTest::test_sample_weight
+PASSED keras/src/losses/loss_test.py::LossTest::test_squeeze_or_expand
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_dtype_arg
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_end_to_end_flow
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_get_method
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_pickle
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_serialization
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_stateless_reset_state
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_stateless_result
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_stateless_update_state
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_submetric_tracking
+PASSED keras/src/metrics/metric_test.py::MetricTest::test_variable_tracking
+============================== 21 passed in 2.12s ==============================
++ : '>>>>> End Test Output'
++ git checkout 309f2c9c8959222e59d537b447c087a65c8b8998 keras/src/losses/loss_test.py keras/src/metrics/metric_test.py
+Updated 2 paths from c0ea8b136

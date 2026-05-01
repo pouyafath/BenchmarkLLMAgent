@@ -1,0 +1,366 @@
+diff --git a/doc/whats_new/upcoming_changes/sklearn.preprocessing/29907.enhancement.rst b/doc/whats_new/upcoming_changes/sklearn.preprocessing/29907.enhancement.rst
+new file mode 100644
+index 0000000000000..3f3716a3b740f
+--- /dev/null
++++ b/doc/whats_new/upcoming_changes/sklearn.preprocessing/29907.enhancement.rst
+@@ -0,0 +1,6 @@
++- :class:`preprocessing.KBinsDiscretizer` with `strategy="uniform"` now
++  accepts `sample_weight`. Additionally with `strategy="quantile"` the
++  `quantile_method` can now be specified (in the future
++  `quantile_method="averaged_inverted_cdf"` will become the default)
++  :pr:`29907` by :user:`Shruti Nath <snath-xoc>` and :user:`Olivier Grisel
++  <ogrisel>`
+diff --git a/doc/whats_new/upcoming_changes/sklearn.preprocessing/29907.fix.rst b/doc/whats_new/upcoming_changes/sklearn.preprocessing/29907.fix.rst
+new file mode 100644
+index 0000000000000..b4cbb2ac4b819
+--- /dev/null
++++ b/doc/whats_new/upcoming_changes/sklearn.preprocessing/29907.fix.rst
+@@ -0,0 +1,6 @@
++- :class:`preprocessing.KBinsDiscretizer` now uses weighted resampling when
++  sample weights are given and subsampling is used. This may change results
++  even when not using sample weights, although in absolute and not in terms
++  of statistical properties.
++  :pr:`29907` by :user:`Shruti Nath <snath-xoc>` and :user:`Jérémie du Boisberranger
++  <jeremiedbb>`
+diff --git a/doc/whats_new/upcoming_changes/sklearn.utils/29907.enhancement.rst b/doc/whats_new/upcoming_changes/sklearn.utils/29907.enhancement.rst
+new file mode 100644
+index 0000000000000..3efd5e28a4677
+--- /dev/null
++++ b/doc/whats_new/upcoming_changes/sklearn.utils/29907.enhancement.rst
+@@ -0,0 +1,7 @@
++
++- :func: `resample` now handles sample weights which allows
++  weighted resampling.
++- :func: `_averaged_weighted_percentile` now added which implements
++  an averaged inverted cdf calculation of percentiles.
++  :pr:`29907` by :user:`Shruti Nath <snath-xoc>` and :user:`Olivier Grisel
++  <ogrisel>`
+diff --git a/sklearn/preprocessing/_discretization.py b/sklearn/preprocessing/_discretization.py
+index 6a6a739c469fa..9c29d1f59b936 100644
+--- a/sklearn/preprocessing/_discretization.py
++++ b/sklearn/preprocessing/_discretization.py
+@@ -11,7 +11,8 @@
+ from ..utils import resample
+ from ..utils._param_validation import Interval, Options, StrOptions
+ from ..utils.deprecation import _deprecate_Xt_in_inverse_transform
+-from ..utils.stats import _weighted_percentile
++from ..utils.fixes import np_version, parse_version
++from ..utils.stats import _averaged_weighted_percentile, _weighted_percentile
+ from ..utils.validation import (
+     _check_feature_names_in,
+     _check_sample_weight,
+@@ -57,6 +58,17 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
+         For an example of the different strategies see:
+         :ref:`sphx_glr_auto_examples_preprocessing_plot_discretization_strategies.py`.
+ 
++    quantile_method : {"inverted_cdf", "averaged_inverted_cdf",
++            "closest_observation", "interpolated_inverted_cdf", "hazen",
++            "weibull", "linear", "median_unbiased", "normal_unbiased"},
++            default="linear"
++            Method to pass on to np.percentile calculation when using
++            strategy="quantile". Only `averaged_inverted_cdf` and `inverted_cdf`
++            support the use of `sample_weight != None` when subsampling is not
++            active.
++
++            .. versionadded:: 1.7
++
+     dtype : {np.float32, np.float64}, default=None
+         The desired data-type for the output. If None, output dtype is
+         consistent with input dtype. Only np.float32 and np.float64 are
+@@ -175,6 +187,22 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
+         "n_bins": [Interval(Integral, 2, None, closed="left"), "array-like"],
+         "encode": [StrOptions({"onehot", "onehot-dense", "ordinal"})],
+         "strategy": [StrOptions({"uniform", "quantile", "kmeans"})],
++        "quantile_method": [
++            StrOptions(
++                {
++                    "warn",
++                    "inverted_cdf",
++                    "averaged_inverted_cdf",
++                    "closest_observation",
++                    "interpolated_inverted_cdf",
++                    "hazen",
++                    "weibull",
++                    "linear",
++                    "median_unbiased",
++                    "normal_unbiased",
++                }
++            )
++        ],
+         "dtype": [Options(type, {np.float64, np.float32}), None],
+         "subsample": [Interval(Integral, 1, None, closed="left"), None],
+         "random_state": ["random_state"],
+@@ -186,6 +214,7 @@ def __init__(
+         *,
+         encode="onehot",
+         strategy="quantile",
++        quantile_method="warn",
+         dtype=None,
+         subsample=200_000,
+         random_state=None,
+@@ -193,6 +222,7 @@ def __init__(
+         self.n_bins = n_bins
+         self.encode = encode
+         self.strategy = strategy
++        self.quantile_method = quantile_method
+         self.dtype = dtype
+         self.subsample = subsample
+         self.random_state = random_state
+@@ -213,10 +243,12 @@ def fit(self, X, y=None, sample_weight=None):
+ 
+         sample_weight : ndarray of shape (n_samples,)
+             Contains weight values to be associated with each sample.
+-            Cannot be used when `strategy` is set to `"uniform"`.
+ 
+             .. versionadded:: 1.3
+ 
++            .. versionchanged:: 1.7
++               Added support for strategy="uniform".
++
+         Returns
+         -------
+         self : object
+@@ -231,32 +263,74 @@ def fit(self, X, y=None, sample_weight=None):
+ 
+         n_samples, n_features = X.shape
+ 
+-        if sample_weight is not None and self.strategy == "uniform":
+-            raise ValueError(
+-                "`sample_weight` was provided but it cannot be "
+-                "used with strategy='uniform'. Got strategy="
+-                f"{self.strategy!r} instead."
+-            )
++        if sample_weight is not None:
++            sample_weight = _check_sample_weight(sample_weight, X, dtype=X.dtype)
+ 
+         if self.subsample is not None and n_samples > self.subsample:
+             # Take a subsample of `X`
++            # When resampling, it is important to subsample **with replacement** to
++            # preserve the distribution, in particular in the presence of a few data
++            # points with large weights. You can check this by setting `replace=False`
++            # in sklearn.utils.test.test_indexing.test_resample_weighted and check that
++            # it fails as a justification for this claim.
+             X = resample(
+                 X,
+-                replace=False,
++                replace=True,
+                 n_samples=self.subsample,
+                 random_state=self.random_state,
++                sample_weight=sample_weight,
+             )
++            # Since we already used the weights when resampling when provided,
++            # we set them back to `None` to avoid accounting for the weights twice
++            # in subsequent operations to compute weight-aware bin edges with
++            # quantiles or k-means.
++            sample_weight = None
+ 
+         n_features = X.shape[1]
+         n_bins = self._validate_n_bins(n_features)
+ 
+-        if sample_weight is not None:
+-            sample_weight = _check_sample_weight(sample_weight, X, dtype=X.dtype)
+-
+         bin_edges = np.zeros(n_features, dtype=object)
++
++        # TODO(1.9): remove and switch to quantile_method="averaged_inverted_cdf"
++        # by default.
++        quantile_method = self.quantile_method
++        if self.strategy == "quantile" and quantile_method == "warn":
++            warnings.warn(
++                "The current default behavior, quantile_method='linear', will be "
++                "changed to quantile_method='averaged_inverted_cdf' in "
++                "scikit-learn version 1.9 to naturally support sample weight "
++                "equivalence properties by default. Pass "
++                "quantile_method='averaged_inverted_cdf' explicitly to silence this "
++                "warning.",
++                FutureWarning,
++            )
++            quantile_method = "linear"
++
++        if (
++            self.strategy == "quantile"
++            and quantile_method not in ["inverted_cdf", "averaged_inverted_cdf"]
++            and sample_weight is not None
++        ):
++            raise ValueError(
++                "When fitting with strategy='quantile' and sample weights, "
++                "quantile_method should either be set to 'averaged_inverted_cdf' or "
++                f"'inverted_cdf', got quantile_method='{quantile_method}' instead."
++            )
++
++        if self.strategy != "quantile" and sample_weight is not None:
++            # Preprare a mask to filter out zero-weight samples when extracting
++            # the min and max values of each columns which are needed for the
++            # "uniform" and "kmeans" strategies.
++            nnz_weight_mask = sample_weight != 0
++        else:
++            # Otherwise, all samples are used. Use a slice to avoid creating a
++            # new array.
++            nnz_weight_mask = slice(None)
++
+         for jj in range(n_features):
+             column = X[:, jj]
+-            col_min, col_max = column.min(), column.max()
++            col_min = column[nnz_weight_mask].min()
++            col_max = column[nnz_weight_mask].max()
+ 
+             if col_min == col_max:
+                 warnings.warn(
+@@ -270,14 +344,47 @@ def fit(self, X, y=None, sample_weight=None):
+                 bin_edges[jj] = np.linspace(col_min, col_max, n_bins[jj] + 1)
+ 
+             elif self.strategy == "quantile":
+-                quantiles = np.linspace(0, 100, n_bins[jj] + 1)
++                percentile_levels = np.linspace(0, 100, n_bins[jj] + 1)
++
++                # TODO: simplify the following when numpy min version >= 1.22.
++
++                # method="linear" is the implicit default for any numpy
++                # version. So we keep it version independent in that case by
++                # using an empty param dict.
++                percentile_kwargs = {}
++                if quantile_method != "linear" and sample_weight is None:
++                    if np_version < parse_version("1.22"):
++                        if quantile_method in ["averaged_inverted_cdf", "inverted_cdf"]:
++                            # The method parameter is not supported in numpy <
++                            # 1.22 but we can define unit sample weight to use
++                            # our own implementation instead:
++                            sample_weight = np.ones(X.shape[0], dtype=X.dtype)
++                        else:
++                            raise ValueError(
++                                f"quantile_method='{quantile_method}' is not "
++                                "supported with numpy < 1.22"
++                            )
++                    else:
++                        percentile_kwargs["method"] = quantile_method
++
+                 if sample_weight is None:
+-                    bin_edges[jj] = np.asarray(np.percentile(column, quantiles))
++                    bin_edges[jj] = np.asarray(
++                        np.percentile(column, percentile_levels, **percentile_kwargs),
++                        dtype=np.float64,
++                    )
+                 else:
++                    # TODO: make _weighted_percentile and
++                    # _averaged_weighted_percentile accept an array of
++                    # quantiles instead of calling it multiple times and
++                    # sorting the column multiple times as a result.
++                    percentile_func = {
++                        "inverted_cdf": _weighted_percentile,
++                        "averaged_inverted_cdf": _averaged_weighted_percentile,
++                    }[quantile_method]
+                     bin_edges[jj] = np.asarray(
+                         [
+-                            _weighted_percentile(column, sample_weight, q)
+-                            for q in quantiles
++                            percentile_func(column, sample_weight, percentile=p)
++                            for p in percentile_levels
+                         ],
+                         dtype=np.float64,
+                     )
+diff --git a/sklearn/utils/_indexing.py b/sklearn/utils/_indexing.py
+index 6b4b4779db269..eadfdf9a6e0fa 100644
+--- a/sklearn/utils/_indexing.py
++++ b/sklearn/utils/_indexing.py
+@@ -14,6 +14,7 @@
+ from ._param_validation import Interval, validate_params
+ from .extmath import _approximate_mode
+ from .validation import (
++    _check_sample_weight,
+     _is_arraylike_not_scalar,
+     _is_pandas_df,
+     _is_polars_df_or_series,
+@@ -414,10 +415,18 @@ def _get_column_indices_interchange(X_interchange, key, key_dtype):
+         "n_samples": [Interval(numbers.Integral, 1, None, closed="left"), None],
+         "random_state": ["random_state"],
+         "stratify": ["array-like", "sparse matrix", None],
++        "sample_weight": ["array-like", None],
+     },
+     prefer_skip_nested_validation=True,
+ )
+-def resample(*arrays, replace=True, n_samples=None, random_state=None, stratify=None):
++def resample(
++    *arrays,
++    replace=True,
++    n_samples=None,
++    random_state=None,
++    stratify=None,
++    sample_weight=None,
++):
+     """Resample arrays or sparse matrices in a consistent way.
+ 
+     The default strategy implements one step of the bootstrapping
+@@ -431,7 +440,10 @@ def resample(*arrays, replace=True, n_samples=None, random_state=None, stratify=
+         sparse matrices with consistent first dimension.
+ 
+     replace : bool, default=True
+-        Implements resampling with replacement. If False, this will implement
++        Implements resampling with replacement. It must be set to True
++        whenever sampling with non-uniform weights: a few data points with very large
++        weights are expected to be sampled several times with probability to preserve
++        the distribution induced by the weights. If False, this will implement
+         (sliced) random permutations.
+ 
+     n_samples : int, default=None
+@@ -451,6 +463,13 @@ def resample(*arrays, replace=True, n_samples=None, random_state=None, stratify=
+         If not None, data is split in a stratified fashion, using this as
+         the class labels.
+ 
++    sample_weight : array-like of shape (n_samples,), default=None
++        Contains weight values to be associated with each sample. Values are
++        normalized to sum to one and interpreted as probability for sampling
++        each data point.
++
++        .. versionadded:: 1.7
++
+     Returns
+     -------
+     resampled_arrays : sequence of array-like of shape (n_samples,) or \
+@@ -521,9 +540,29 @@ def resample(*arrays, replace=True, n_samples=None, random_state=None, stratify=
+ 
+     check_consistent_length(*arrays)
+ 
++    if sample_weight is not None and not replace:
++        raise NotImplementedError(
++            "Resampling with sample_weight is only implemented for replace=True."
++        )
++    if sample_weight is not None and stratify is not None:
++        raise NotImplementedError(
++            "Resampling with sample_weight is only implemented for stratify=None."
++        )
+     if stratify is None:
+         if replace:
+-            indices = random_state.randint(0, n_samples, size=(max_n_samples,))
++            if sample_weight is not None:
++                sample_weight = _check_sample_weight(
++                    sample_weight, first, dtype=np.float64
++                )
++                p = sample_weight / sample_weight.sum()
++            else:
++                p = None
++            indices = random_state.choice(
++                n_samples,
++                size=max_n_samples,
++                p=p,
++                replace=True,
++            )
+         else:
+             indices = np.arange(n_samples)
+             random_state.shuffle(indices)
+diff --git a/sklearn/utils/stats.py b/sklearn/utils/stats.py
+index 0fc3fae8a88f0..5b0f7e4e546ac 100644
+--- a/sklearn/utils/stats.py
++++ b/sklearn/utils/stats.py
+@@ -70,3 +70,12 @@ def _weighted_percentile(array, sample_weight, percentile=50):
+     percentile_in_sorted = sorted_idx[percentile_idx, col_index]
+     percentile = array[percentile_in_sorted, col_index]
+     return percentile[0] if n_dim == 1 else percentile
++
++
++# TODO: refactor to do the symmetrisation inside _weighted_percentile to avoid
++# sorting the input array twice.
++def _averaged_weighted_percentile(array, sample_weight, percentile=50):
++    return (
++        _weighted_percentile(array, sample_weight, percentile)
++        - _weighted_percentile(-array, sample_weight, 100 - percentile)
++    ) / 2

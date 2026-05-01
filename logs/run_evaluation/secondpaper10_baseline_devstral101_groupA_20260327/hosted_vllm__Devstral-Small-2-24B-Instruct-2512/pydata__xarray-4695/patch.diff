@@ -1,0 +1,29 @@
+diff --git a/xarray/core/indexing.py b/xarray/core/indexing.py
+index 843feb04..549f336c 100644
+--- a/xarray/core/indexing.py
++++ b/xarray/core/indexing.py
+@@ -188,7 +188,23 @@ def convert_label_indexer(index, label, index_name="", method=None, tolerance=No
+                     )
+                 indexer = index.get_loc(label_value)
+             else:
+-                indexer = index.get_loc(label_value, method=method, tolerance=tolerance)
++                # Only pass method/tolerance if the index type supports them
++                kwargs = {}
++                if method is not None:
++                    # Check if the index type supports method parameter
++                    try:
++                        # Test if get_loc accepts method parameter
++                        test_kwargs = {"method": method}
++                        if tolerance is not None:
++                            test_kwargs["tolerance"] = tolerance
++                        # This will raise TypeError if method is not supported
++                        index.get_loc(label_value, **test_kwargs)
++                        # If we get here, the method is supported
++                        kwargs = test_kwargs
++                    except TypeError:
++                        # Index type doesn't support method parameter, skip it
++                        pass
++                indexer = index.get_loc(label_value, **kwargs)
+         elif label.dtype.kind == "b":
+             indexer = label
+         else:

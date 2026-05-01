@@ -1,0 +1,190 @@
+diff --git a/haystack/utils/torch_utils.py b/haystack/utils/torch_utils.py
+new file mode 100644
+index 00000000..774c2d65fe57876e63580b905283efd8073dc23f
+--- /dev/null
++++ b/haystack/utils/torch_utils.py
+# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
+#
+# SPDX-License-Identifier: Apache-2.0
+"""Utility functions for handling PyTorch-related operations."""
+
+import torch
+from typing import Any, Dict
+
+def resolve_torch_dtype(dtype_str: str) -> torch.dtype:
+    """
+    Convert a string representation of a torch dtype to the actual torch.dtype.
+
+    This function handles string representations of torch dtypes that might be
+    used in serialization/deserialization scenarios.
+
+    :param dtype_str: String representation of a torch dtype (e.g., "torch.float16", "float32", "auto")
+    :return: The corresponding torch.dtype
+    :raises ValueError: If the string cannot be resolved to a valid torch dtype
+    """
+    if dtype_str == "auto":
+        return "auto"
+
+    # Handle direct torch dtype strings like "torch.float16"
+    if dtype_str.startswith("torch."):
+        dtype_str = dtype_str[6:]  # Remove "torch." prefix
+
+    # Handle simple dtype names like "float16", "float32", etc.
+    try:
+        return getattr(torch, dtype_str)
+    except AttributeError:
+        pass
+
+    # Handle special cases
+    if dtype_str == "float16":
+        return torch.float16
+    elif dtype_str == "float32":
+        return torch.float32
+    elif dtype_str == "float64":
+        return torch.float64
+    elif dtype_str == "bfloat16":
+        return torch.bfloat16
+    elif dtype_str == "uint8":
+        return torch.uint8
+    elif dtype_str == "int8":
+        return torch.int8
+    elif dtype_str == "int16":
+        return torch.int16
+    elif dtype_str == "int32":
+        return torch.int32
+    elif dtype_str == "int64":
+        return torch.int64
+    elif dtype_str == "bool":
+        return torch.bool
+
+    raise ValueError(f"Cannot resolve torch dtype from string: {dtype_str}")
+
+def serialize_torch_dtype(dtype: torch.dtype) -> str:
+    """
+    Convert a torch.dtype to its string representation for serialization.
+
+    :param dtype: The torch.dtype to serialize
+    :return: String representation of the dtype
+    """
+    return str(dtype)
+
+def serialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Serialize model_kwargs dictionary by converting non-serializable values to strings.
+
+    This function specifically handles torch.dtype values by converting them to strings.
+
+    :param model_kwargs: Dictionary of model kwargs that may contain non-serializable values
+    :return: Serialized dictionary with non-serializable values converted to strings
+    """
+    if not model_kwargs:
+        return model_kwargs
+
+    serialized_kwargs = {}
+    for key, value in model_kwargs.items():
+        if isinstance(value, torch.dtype):
+            serialized_kwargs[key] = serialize_torch_dtype(value)
+        else:
+            serialized_kwargs[key] = value
+    return serialized_kwargs
+
+def deserialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deserialize model_kwargs dictionary by converting string representations back to objects.
+
+    This function specifically handles torch.dtype string representations by converting them back to torch.dtype.
+
+    :param model_kwargs: Dictionary of model kwargs that may contain string representations
+    :return: Deserialized dictionary with string representations converted back to objects
+    """
+    if not model_kwargs:
+        return model_kwargs
+
+    deserialized_kwargs = {}
+    for key, value in model_kwargs.items():
+        if isinstance(value, str) and value.startswith("torch."):
+            try:
+                deserialized_kwargs[key] = resolve_torch_dtype(value)
+            except ValueError:
+                # If we can't resolve it, keep it as a string
+                deserialized_kwargs[key] = value
+        else:
+            deserialized_kwargs[key] = value
+    return deserialized_kwargs
+
+diff --git a/haystack/components/rankers/transformers_similarity.py b/haystack/components/rankers/transformers_similarity.py
+index 6dc163f5..472c042f 100644
+--- a/haystack/components/rankers/transformers_similarity.py
++++ b/haystack/components/rankers/transformers_similarity.py
+@@ -5,6 +5,7 @@ from typing import List, Union, Dict, Any, Optional
+ from haystack import ComponentError, Document, component, default_to_dict
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -124,9 +125,20 @@ class TransformersSimilarityRanker:
+             scale_score=self.scale_score,
+             calibration_factor=self.calibration_factor,
+             score_threshold=self.score_threshold,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "TransformersSimilarityRanker":
++        """
++        Deserialize this component from a dictionary.
++        """
++        init_params = data.get("init_parameters", {})
++        # Deserialize model_kwargs if present
++        if "model_kwargs" in init_params:
++            init_params["model_kwargs"] = deserialize_model_kwargs(init_params["model_kwargs"])
++        return cls(**init_params)
++
+     @component.output_types(documents=List[Document])
+     def run(
+         self,
+diff --git a/haystack/components/readers/extractive.py b/haystack/components/readers/extractive.py
+index dea016f7..f25b214b 100644
+--- a/haystack/components/readers/extractive.py
++++ b/haystack/components/readers/extractive.py
+@@ -7,6 +7,7 @@ import logging
+ from haystack import component, default_to_dict, ComponentError, Document, ExtractedAnswer
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ with LazyImport("Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+@@ -125,8 +126,18 @@ class ExtractiveReader:
+             answers_per_seq=self.answers_per_seq,
+             no_answer=self.no_answer,
+             calibration_factor=self.calibration_factor,
+-            model_kwargs=self.model_kwargs,
+-        )
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),        )
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "ExtractiveReader":
++        """
++        Deserialize this component from a dictionary.
++        """
++        init_params = data.get("init_parameters", {})
++        # Deserialize model_kwargs if present
++        if "model_kwargs" in init_params:
++            init_params["model_kwargs"] = deserialize_model_kwargs(init_params["model_kwargs"])
++        return cls(**init_params)
+ 
+     def warm_up(self):
+         """
+diff --git a/haystack/utils/__init__.py b/haystack/utils/__init__.py
+index 82a1470d..21272f5e 100644
+--- a/haystack/utils/__init__.py
++++ b/haystack/utils/__init__.py
+@@ -2,3 +2,4 @@ from haystack.utils.expit import expit
+ from haystack.utils.requests_utils import request_with_retry
+ from haystack.utils.filters import document_matches_filter
+ from haystack.utils.device import get_device
++from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs, resolve_torch_dtype

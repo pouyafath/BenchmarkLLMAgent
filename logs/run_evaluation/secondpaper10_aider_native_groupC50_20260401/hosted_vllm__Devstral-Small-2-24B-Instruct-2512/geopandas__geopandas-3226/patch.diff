@@ -1,0 +1,241 @@
+diff --git a/geopandas/_decorator.py b/geopandas/_decorator.py
+index 50ebec9d..a4c45918 100644
+--- a/geopandas/_decorator.py
++++ b/geopandas/_decorator.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ from collections.abc import Callable
+ from textwrap import dedent
+ 
+diff --git a/geopandas/array.py b/geopandas/array.py
+index df636785..499a477a 100644
+--- a/geopandas/array.py
++++ b/geopandas/array.py
+@@ -480,7 +480,7 @@ class GeometryArray(ExtensionArray):
+             value = value.values
+         if isinstance(value, pd.DataFrame):
+             value = value.values.flatten()
+-        if isinstance(value, list | np.ndarray):
++        if isinstance(value, (list, np.ndarray)):
+             value = from_shapely(value)
+         if isinstance(value, GeometryArray):
+             if isinstance(key, numbers.Integral):
+@@ -495,7 +495,7 @@ class GeometryArray(ExtensionArray):
+                 value = from_shapely([value])._data[0]
+             else:
+                 raise TypeError("should be valid geometry")
+-            if isinstance(key, slice | list | np.ndarray):
++            if isinstance(key, (slice, list, np.ndarray)):
+                 value_array = np.empty(1, dtype=object)
+                 value_array[:] = [value]
+                 self._data[key] = value_array
+@@ -914,7 +914,7 @@ class GeometryArray(ExtensionArray):
+         return self._binary_method("frechet_distance", self, other, **kwargs)
+ 
+     def buffer(self, distance, quad_segs: int | None = None, **kwargs):
+-        if not (isinstance(distance, int | float) and distance == 0):
++        if not (isinstance(distance, (int, float)) and distance == 0):
+             self.check_geographic_crs(stacklevel=5)
+         if "resolution" in kwargs:
+             if quad_segs is not None:
+@@ -1882,7 +1882,7 @@ class GeometryArray(ExtensionArray):
+                 ovalues = [param] * len(self)
+             return ovalues
+ 
+-        if isinstance(other, pd.Series | pd.Index | pd.DataFrame):
++        if isinstance(other, (pd.Series, pd.Index, pd.DataFrame)):
+             # rely on pandas to unbox and dispatch to us
+             return NotImplemented
+ 
+diff --git a/geopandas/base.py b/geopandas/base.py
+index 68fd048e..1d29a781 100644
+--- a/geopandas/base.py
++++ b/geopandas/base.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ from warnings import warn
+ 
+ import numpy as np
+diff --git a/geopandas/explore.py b/geopandas/explore.py
+index a11a87c5..ccd9ae18 100644
+--- a/geopandas/explore.py
++++ b/geopandas/explore.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ import warnings
+ from statistics import mean
+ 
+diff --git a/geopandas/geodataframe.py b/geopandas/geodataframe.py
+index 3b0d6685..c70c90e8 100644
+--- a/geopandas/geodataframe.py
++++ b/geopandas/geodataframe.py
+@@ -404,7 +404,7 @@ class GeoDataFrame(GeoPandasBase, DataFrame):
+ 
+         if geo_column_name is None:
+             geo_column_name = "geometry"
+-        if isinstance(col, Series | list | np.ndarray | GeometryArray):
++        if isinstance(col, (Series, list, np.ndarray, GeometryArray)):
+             if drop:
+                 msg = (
+                     "The `drop` keyword argument is deprecated and has no effect when "
+@@ -1977,7 +1977,7 @@ default 'snappy'
+             crs = getattr(self, "crs", None)
+             # if we don't have a GeoDataFrame yet and there is a column named crs,
+             # don't try to use that as a crs
+-            if isinstance(crs, pd.Series | pd.DataFrame):
++            if isinstance(crs, (pd.Series, pd.DataFrame)):
+                 crs = None
+             try:
+                 value = _ensure_geometry(value, crs=crs)
+diff --git a/geopandas/io/_geoarrow.py b/geopandas/io/_geoarrow.py
+index 16cc3870..bc930b84 100644
+--- a/geopandas/io/_geoarrow.py
++++ b/geopandas/io/_geoarrow.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ import json
+ 
+ import numpy as np
+diff --git a/geopandas/io/arrow.py b/geopandas/io/arrow.py
+index d94c7ff5..8a4e118d 100644
+--- a/geopandas/io/arrow.py
++++ b/geopandas/io/arrow.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ import json
+ import warnings
+ from typing import Literal, get_args
+diff --git a/geopandas/io/file.py b/geopandas/io/file.py
+index 40699b66..fbd88bca 100644
+--- a/geopandas/io/file.py
++++ b/geopandas/io/file.py
+@@ -395,13 +395,13 @@ def _read_file_fiona(
+ 
+             # handle loading the bounding box
+             if bbox is not None:
+-                if isinstance(bbox, GeoDataFrame | GeoSeries):
++                if isinstance(bbox, (GeoDataFrame, GeoSeries)):
+                     bbox = tuple(bbox.to_crs(crs).total_bounds)
+                 elif isinstance(bbox, BaseGeometry):
+                     bbox = bbox.bounds
+                 assert len(bbox) == 4
+             # handle loading the mask
+-            elif isinstance(mask, GeoDataFrame | GeoSeries):
++            elif isinstance(mask, (GeoDataFrame, GeoSeries)):
+                 if crs is not None and mask.crs is not None:
+                     mask = mask.to_crs(crs)
+                 else:
+@@ -504,7 +504,7 @@ def _read_file_pyogrio(path_or_bytes, bbox=None, mask=None, rows=None, **kwargs)
+         raise ValueError("mask and bbox can not be set together")
+ 
+     if bbox is not None:
+-        if isinstance(bbox, GeoDataFrame | GeoSeries):
++        if isinstance(bbox, (GeoDataFrame, GeoSeries)):
+             crs = pyogrio.read_info(path_or_bytes, layer=kwargs.get("layer")).get("crs")
+             if isinstance(path_or_bytes, IOBase):
+                 path_or_bytes.seek(0)
+@@ -517,7 +517,7 @@ def _read_file_pyogrio(path_or_bytes, bbox=None, mask=None, rows=None, **kwargs)
+ 
+     if mask is not None:
+         # NOTE: mask cannot be used at same time as bbox keyword
+-        if isinstance(mask, GeoDataFrame | GeoSeries):
++        if isinstance(mask, (GeoDataFrame, GeoSeries)):
+             crs = pyogrio.read_info(path_or_bytes, layer=kwargs.get("layer")).get("crs")
+             if crs is not None and mask.crs is not None:
+                 mask = mask.to_crs(crs)
+diff --git a/geopandas/plotting.py b/geopandas/plotting.py
+index 927845eb..ffcdc27c 100644
+--- a/geopandas/plotting.py
++++ b/geopandas/plotting.py
+@@ -870,7 +870,7 @@ def plot_dataframe(
+     _set_aspect(aspect, df, ax)
+ 
+     # Process polymorphic column argument (column name or array-like)
+-    if isinstance(column, np.ndarray | pd.Series | pd.Index):
++    if isinstance(column, (np.ndarray, pd.Series, pd.Index)):
+         if column.shape[0] != df.shape[0]:
+             raise ValueError(
+                 "The dataframe and given column have different number of rows."
+diff --git a/geopandas/sindex.py b/geopandas/sindex.py
+index 3a9e0cc7..4ae0516d 100644
+--- a/geopandas/sindex.py
++++ b/geopandas/sindex.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ import numpy as np
+ 
+ import shapely
+diff --git a/geopandas/testing.py b/geopandas/testing.py
+index 9c496e1c..bdfd76a4 100644
+--- a/geopandas/testing.py
++++ b/geopandas/testing.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ """Testing functionality for geopandas objects."""
+ 
+ import warnings
+diff --git a/geopandas/tools/clip.py b/geopandas/tools/clip.py
+index db5b3e77..1e86c41d 100644
+--- a/geopandas/tools/clip.py
++++ b/geopandas/tools/clip.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ """Module to clip vector data using GeoPandas."""
+ 
+ import warnings
+@@ -171,12 +172,12 @@ def clip(gdf, mask, keep_geom_type=False, sort=False):
+     >>> nws_groceries.shape
+     (7, 8)
+     """
+-    if not isinstance(gdf, GeoDataFrame | GeoSeries):
++    if not isinstance(gdf, (GeoDataFrame, GeoSeries)):
+         raise TypeError(f"'gdf' should be GeoDataFrame or GeoSeries, got {type(gdf)}")
+ 
+     clipping_by_rectangle = _mask_is_list_like_rectangle(mask)
+     if (
+-        not isinstance(mask, GeoDataFrame | GeoSeries | Polygon | MultiPolygon)
++        not isinstance(mask, (GeoDataFrame, GeoSeries, Polygon, MultiPolygon))
+         and not clipping_by_rectangle
+     ):
+         raise TypeError(
+@@ -189,11 +190,11 @@ def clip(gdf, mask, keep_geom_type=False, sort=False):
+             "If 'mask' is list-like, it must have four values (minx, miny, maxx, maxy)"
+         )
+ 
+-    if isinstance(mask, GeoDataFrame | GeoSeries):
++    if isinstance(mask, (GeoDataFrame, GeoSeries)):
+         if not _check_crs(gdf, mask):
+             _crs_mismatch_warn(gdf, mask, stacklevel=3)
+ 
+-    if isinstance(mask, GeoDataFrame | GeoSeries):
++    if isinstance(mask, (GeoDataFrame, GeoSeries)):
+         box_mask = mask.total_bounds
+     elif clipping_by_rectangle:
+         box_mask = mask
+@@ -210,7 +211,7 @@ def clip(gdf, mask, keep_geom_type=False, sort=False):
+     ):
+         return gdf.iloc[:0]
+ 
+-    if isinstance(mask, GeoDataFrame | GeoSeries):
++    if isinstance(mask, (GeoDataFrame, GeoSeries)):
+         combined_mask = mask.geometry.union_all()
+     else:
+         combined_mask = mask
+diff --git a/geopandas/tools/hilbert_curve.py b/geopandas/tools/hilbert_curve.py
+index d01f72a5..a8fe5566 100644
+--- a/geopandas/tools/hilbert_curve.py
++++ b/geopandas/tools/hilbert_curve.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ import numpy as np
+ 
+ 
+diff --git a/geopandas/tools/sjoin.py b/geopandas/tools/sjoin.py
+index 71bbdf1f..754793dc 100644
+--- a/geopandas/tools/sjoin.py
++++ b/geopandas/tools/sjoin.py
+@@ -1,3 +1,4 @@
++from __future__ import annotations
+ import warnings
+ from functools import partial
+ 

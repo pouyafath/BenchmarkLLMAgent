@@ -1,0 +1,42 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..123556ca5 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -211,11 +211,17 @@ class _BaseHeterogeneousEnsemble(
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):
++        if not isinstance(self.estimators, (list, tuple)):
++            raise TypeError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "list of (string, estimator) tuples."
++            )
+         if len(self.estimators) == 0:
+             raise ValueError(
+                 "Invalid 'estimators' attribute, 'estimators' should be a "
+                 "non-empty list of (string, estimator) tuples."
+             )
++
+         names, estimators = zip(*self.estimators)
+         # defined by MetaEstimatorMixin
+         self._validate_names(names)
+@@ -229,6 +235,19 @@ class _BaseHeterogeneousEnsemble(
+ 
+         is_estimator_type = is_classifier if is_classifier(self) else is_regressor
+ 
++        for name, est in self.estimators:
++            if not isinstance(name, str):
++                raise TypeError(
++                    "Invalid estimator name {}. "
++                    "Names should be strings.".format(repr(name))
++                )
++            if not isinstance(est, (tuple, list)) and est != "drop" and not hasattr(est, "fit"):
++                raise ValueError(
++                    "The estimator {} should be a {}.".format(
++                        est.__class__.__name__, is_estimator_type.__name__[3:]
++                    )
++                )
++
+         for est in estimators:
+             if est != "drop" and not is_estimator_type(est):
+                 raise ValueError(

@@ -1,0 +1,39 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..285513878 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -199,6 +199,34 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = m
+         return mat
++    if isinstance(model, CompoundModel):
++        # For CompoundModels, we need to handle them specially to preserve
++        # their internal separability structure. Instead of treating them
++        # as simple models, we recursively process their components.
++        #
++        # We use the same logic as _separable but without the recursion limit
++        # issue by directly using the operator functions.
++        if model.op == '&':
++            # Horizontal concatenation - process left and right separately
++            left_mat = _coord_matrix(model.left, 'left', noutp)
++            right_mat = _coord_matrix(model.right, 'right', noutp)
++            return np.hstack([left_mat, right_mat])
++        elif model.op == '|':
++            # Vertical concatenation (matrix multiplication)
++            # Process left and right, then combine
++            left_mat = _coord_matrix(model.left, 'left', model.left.n_outputs)
++            right_mat = _coord_matrix(model.right, 'right', model.right.n_outputs)
++            return np.dot(left_mat, right_mat)
++        else:
++            # For arithmetic operations, use the separability matrix
++            # from the compound model itself
++            sep_matrix = _separable(model)
++            mat = np.zeros((noutp, model.n_inputs))
++            if pos == 'left':
++                mat[:model.n_outputs, :model.n_inputs] = sep_matrix
++            else:
++                mat[-model.n_outputs:, -model.n_inputs:] = sep_matrix
++            return mat
+     if not model.separable:
+         # this does not work for more than 2 coordinates
+         mat = np.zeros((noutp, model.n_inputs))

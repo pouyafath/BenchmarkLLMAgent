@@ -1,0 +1,66 @@
+diff --git a/xarray/core/dtypes.py b/xarray/core/dtypes.py
+index d5371e96..8cc75a8c 100644
+--- a/xarray/core/dtypes.py
++++ b/xarray/core/dtypes.py
+@@ -40,7 +40,7 @@ NINF = AlwaysLessThan()
+ PROMOTE_TO_OBJECT = [
+     {np.number, np.character},  # numpy promotes to character
+     {np.bool_, np.character},  # numpy promotes to character
+-    {np.bytes_, np.unicode_},  # numpy promotes to unicode
++    {np.bytes_, np.str_},  # numpy promotes to unicode
+ ]
+ 
+ 
+diff --git a/xarray/core/rolling.py b/xarray/core/rolling.py
+index aef290f6..71f05450 100644
+--- a/xarray/core/rolling.py
++++ b/xarray/core/rolling.py
+@@ -270,16 +270,40 @@ class DataArrayRolling(Rolling["DataArray"]):
+     def __iter__(self) -> Iterator[tuple[RollingKey, DataArray]]:
+         if self.ndim > 1:
+             raise ValueError("__iter__ is only supported for 1d-rolling")
+-        stops = np.arange(1, len(self.window_labels) + 1)
+-        starts = stops - int(self.window[0])
+-        starts[: int(self.window[0])] = 0
+-        for (label, start, stop) in zip(self.window_labels, starts, stops):
+-            window = self.obj.isel({self.dim[0]: slice(start, stop)})
++        window_size = int(self.window[0])
++        center = self.center[0] if len(self.center) > 0 else False
++
++        if center:
++            # For center=True, windows are centered around each label
++            # This should match the behavior of the construct method
++            half_window = window_size // 2
++            for i, label in enumerate(self.window_labels):
++                # Pad the array and then select the window
++                padded_obj = self.obj.pad(
++                    {self.dim[0]: (half_window, half_window)},
++                    mode='constant',
++                    constant_values=dtypes.NA
++                )
++                window = padded_obj.isel({self.dim[0]: slice(i, i + window_size)})
+ 
+-            counts = window.count(dim=self.dim[0])
+-            window = window.where(counts >= self.min_periods)
++                # Apply min_periods filtering to match the behavior of the direct method
++                counts = window.count(dim=self.dim[0])
++                window = window.where(counts >= self.min_periods)
+ 
+-            yield (label, window)
++                yield (label, window)
++        else:
++            # For center=False, windows start from the beginning
++            stops = np.arange(1, len(self.window_labels) + 1)
++            starts = stops - window_size
++            starts[:window_size] = 0
++            for (label, start, stop) in zip(self.window_labels, starts, stops):
++                window = self.obj.isel({self.dim[0]: slice(start, stop)})
++
++                # Apply min_periods filtering to match the behavior of the direct method
++                counts = window.count(dim=self.dim[0])
++                window = window.where(counts >= self.min_periods)
++
++                yield (label, window)
+ 
+     def construct(
+         self,

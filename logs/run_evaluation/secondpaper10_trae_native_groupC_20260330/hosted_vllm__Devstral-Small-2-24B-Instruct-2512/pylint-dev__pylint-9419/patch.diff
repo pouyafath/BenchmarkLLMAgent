@@ -1,0 +1,83 @@
+diff --git a/pylint/checkers/refactoring/refactoring_checker.py b/pylint/checkers/refactoring/refactoring_checker.py
+index 97e509025..45eb632ed 100644
+--- a/pylint/checkers/refactoring/refactoring_checker.py
++++ b/pylint/checkers/refactoring/refactoring_checker.py
+@@ -483,6 +483,12 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+             "value by index lookup. "
+             "The value can be accessed directly instead.",
+         ),
++        "R1737": (
++            "Consider using yield from instead of for loop with yield",
++            "consider-using-yield-from",
++            "Used when a for loop that yields each item individually can be "
++            "simplified to use yield from, which is cleaner and potentially faster.",
++        ),
+     }
+     options = (
+         (
+@@ -1534,6 +1540,10 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+         self._append_context_managers_to_stack(node)
+         self.visit_return(node)  # remaining checks are identical as for return nodes
+ 
++    @utils.only_required_for_messages("consider-using-yield-from")
++    def visit_yield(self, node: nodes.Yield) -> None:
++        self._check_consider_using_yield_from(node)
++
+     @utils.only_required_for_messages(
+         "simplify-boolean-expression",
+         "consider-using-ternary",
+@@ -2342,6 +2352,54 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+                 confidence=confidence,
+             )
+ 
++    def _check_consider_using_yield_from(self, node: nodes.Yield) -> None:
++        """Check if a for loop with yield can be replaced with yield from.
++
++        Pattern to detect:
++        for item in generator:
++            yield item
++
++        Should be replaced with:
++        yield from generator
++        """
++        # Get the parent For node - the yield is inside an Expr, which is inside the For body
++        parent_expr = node.parent
++        if not isinstance(parent_expr, nodes.Expr):
++            return
++
++        grandparent = parent_expr.parent
++        if not isinstance(grandparent, nodes.For):
++            return
++
++        # Check if the for loop body contains only this yield statement
++        if len(grandparent.body) != 1:
++            return
++
++        # Check if the yield value is the same as the for loop target
++        if not isinstance(node.value, nodes.Name):
++            return
++
++        # Get the for loop target (left side of for)
++        for_target = grandparent.target
++        if isinstance(for_target, nodes.AssignName):
++            target_name = for_target.name
++        elif isinstance(for_target, nodes.Tuple):
++            # Handle tuple unpacking like "for a, b in generator:"
++            return
++        else:
++            return
++
++        # Check if the yield value matches the for loop target
++        if node.value.name != target_name:
++            return
++
++        # Check if the for loop iterable is a call (like generator())
++        if not isinstance(grandparent.iter, nodes.Call):
++            return
++
++        # If all conditions are met, emit the warning
++        self.add_message("consider-using-yield-from", node=grandparent)
++
+     def _enumerate_with_start(
+         self, node: nodes.For | nodes.Comprehension
+     ) -> tuple[bool, Confidence]:

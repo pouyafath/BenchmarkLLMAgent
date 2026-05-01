@@ -1,0 +1,144 @@
+diff --git a/gateway/platforms/discord.py b/gateway/platforms/discord.py
+index bed3fa9c..9876981d 100644
+--- a/gateway/platforms/discord.py
++++ b/gateway/platforms/discord.py
+@@ -495,6 +495,8 @@ class DiscordAdapter(BasePlatformAdapter):
+         self._client: Optional[commands.Bot] = None
+         self._ready_event = asyncio.Event()
+         self._allowed_user_ids: set = set()  # For button approval authorization
++        self._allowed_role_ids: set = set()  # Role IDs for role-based access control
++        self._allowed_role_members: set = set()  # Cached user IDs with allowed roles
+         # Voice channel state (per-guild)
+         self._voice_clients: Dict[int, Any] = {}  # guild_id -> VoiceClient
+         # Text batching: merge rapid successive messages (Telegram-style)
+@@ -573,6 +575,14 @@ class DiscordAdapter(BasePlatformAdapter):
+                     if uid.strip()
+                 }
+ 
++            # Parse allowed role entries (may contain role names or IDs)
++            allowed_roles_env = os.getenv("DISCORD_ALLOWED_ROLES", "")
++            if allowed_roles_env:
++                self._allowed_role_ids = {
++                    _clean_discord_id(rid) for rid in allowed_roles_env.split(",")
++                    if rid.strip()
++                }
++
+             # Set up intents.
+             # Message Content is required for normal text replies.
+             # Server Members is only needed when the allowlist contains usernames
+@@ -583,9 +593,9 @@ class DiscordAdapter(BasePlatformAdapter):
+             intents = Intents.default()
+             intents.message_content = True
+             intents.dm_messages = True
+-            intents.guild_messages = True
+-            intents.members = any(not entry.isdigit() for entry in self._allowed_user_ids)
++            # Request members intent if usernames or roles need resolution
+             intents.voice_states = True
++            intents.members = any(not entry.isdigit() for entry in self._allowed_user_ids) or bool(self._allowed_role_ids)
+ 
+             # Resolve proxy (DISCORD_PROXY > generic env vars > macOS system proxy)
+             from gateway.platforms.base import resolve_proxy_url, proxy_kwargs_for_bot
+@@ -613,6 +623,8 @@ class DiscordAdapter(BasePlatformAdapter):
+ 
+                 # Resolve any usernames in the allowed list to numeric IDs
+                 await adapter_self._resolve_allowed_usernames()
++                # Resolve any roles in the allowed list to member user IDs
++                await adapter_self._resolve_allowed_roles()
+                 adapter_self._ready_event.set()
+ 
+                 if adapter_self._post_connect_task and not adapter_self._post_connect_task.done():
+@@ -1366,10 +1378,17 @@ class DiscordAdapter(BasePlatformAdapter):
+                 pass
+ 
+     def _is_allowed_user(self, user_id: str) -> bool:
+-        """Check if user is in DISCORD_ALLOWED_USERS."""
+-        if not self._allowed_user_ids:
++        """Check if user is in DISCORD_ALLOWED_USERS or has any DISCORD_ALLOWED_ROLES."""
++        # If no allowlists are configured, allow all
++        if not self._allowed_user_ids and not self._allowed_role_members:
++            return True
++        # Check user allowlist
++        if self._allowed_user_ids and user_id in self._allowed_user_ids:
+             return True
+-        return user_id in self._allowed_user_ids
++        # Check role membership
++        if self._allowed_role_members and user_id in self._allowed_role_members:
++            return True
++        return False
+ 
+     async def send_image_file(
+         self,
+@@ -1640,6 +1659,73 @@ class DiscordAdapter(BasePlatformAdapter):
+             logger.error("[%s] Failed to get chat info for %s: %s", self.name, chat_id, e, exc_info=True)
+             return {"name": str(chat_id), "type": "dm", "error": str(e)}
+ 
++    async def _resolve_allowed_roles(self) -> None:
++        """
++        Resolve role names/IDs in DISCORD_ALLOWED_ROLES to Discord user IDs.
++
++        Fetches all guild members and checks if they have any of the allowed roles.
++        Resolved user IDs are cached in _allowed_role_members for authorization checks.
++        """
++        if not self._allowed_role_ids or not self._client:
++            return
++
++        resolved_members = set()
++
++        for entry in self._allowed_role_ids:
++            if not entry.isdigit():
++                logger.warning("Role ID '%s' is not numeric; role names are not supported yet", entry)
++                continue
++
++        print(f"[{self.name}] Resolving {len(self._allowed_role_ids)} role(s): {', '.join(self._allowed_role_ids)}")
++        resolved_count = 0
++
++        for guild in self._client.guilds:
++            # Fetch full member list (requires members intent)
++            try:
++                members = guild.members
++                if len(members) < guild.member_count:
++                    members = [m async for m in guild.fetch_members(limit=None)]
++            except Exception as e:
++                logger.warning("Failed to fetch members for guild %s: %s", guild.name, e)
++                continue
++
++            # Get all roles in the guild for name-to-ID mapping
++            try:
++                roles_by_name = {role.name.lower(): str(role.id) for role in guild.roles}
++                roles_by_id = {str(role.id): role for role in guild.roles}
++            except Exception as e:
++                logger.warning("Failed to fetch roles for guild %s: %s", guild.name, e)
++                continue
++
++            # Resolve role IDs (numeric entries)
++            role_ids_to_find = set()
++            for entry in self._allowed_role_ids:
++                if entry.isdigit():
++                    role_ids_to_find.add(entry)
++                else:
++                    # Try to resolve role name to ID
++                    if entry.lower() in roles_by_name:
++                        role_id = roles_by_name[entry.lower()]
++                        role_ids_to_find.add(role_id)
++                        print(f"[{self.name}] Resolved role name '{entry}' -> {role_id} in guild {guild.name}")
++
++            # Check each member for allowed roles
++            for member in members:
++                for role_id in role_ids_to_find:
++                    if guild.get_role(int(role_id)) in member.roles:
++                        uid = str(member.id)
++                        resolved_members.add(uid)
++                        resolved_count += 1
++                        break
++
++        if resolved_count:
++            print(f"[{self.name}] Resolved {resolved_count} member(s) with allowed role(s)")
++        else:
++            print(f"[{self.name}] No members found with allowed roles")
++
++        # Update cache
++        self._allowed_role_members = resolved_members
++
+     async def _resolve_allowed_usernames(self) -> None:
+         """
+         Resolve non-numeric entries in DISCORD_ALLOWED_USERS to Discord user IDs.

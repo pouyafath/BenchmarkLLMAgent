@@ -1,0 +1,18 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index abbb1e37cb..2dd22f4499 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -727,7 +727,12 @@ class SQLCompiler:
+         # If we get to this point and the field is a relation to another model,
+         # append the default ordering for that model unless it is the pk
+         # shortcut or the attribute name of the field that is specified.
+-        if field.is_relation and opts.ordering and getattr(field, 'attname', None) != name and name != 'pk':
++        # However, don't apply default ordering when ordering by a foreign key's
++        # ID field directly (e.g., record__root_id should not trigger OneModel's default ordering).
++        # We detect this by checking if the last piece of the path matches the foreign key's attname.
++        if (field.is_relation and opts.ordering and
++            getattr(field, 'attname', None) != name and name != 'pk' and
++            not (len(pieces) > 1 and pieces[-1] == field.attname and field.attname.endswith('_id'))):
+             # Firstly, avoid infinite loops.
+             already_seen = already_seen or set()
+             join_tuple = tuple(getattr(self.query.alias_map[j], 'join_cols', None) for j in joins)

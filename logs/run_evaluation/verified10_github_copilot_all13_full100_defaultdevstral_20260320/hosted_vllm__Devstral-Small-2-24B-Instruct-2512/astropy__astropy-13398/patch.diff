@@ -1,0 +1,377 @@
+diff --git a/astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py b/astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
+index a15248c38..c0c829c85 100644
+--- a/astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
++++ b/astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
+@@ -15,6 +15,8 @@ from astropy.coordinates.matrix_utilities import matrix_transpose
+ from .icrs import ICRS
+ from .gcrs import GCRS, PrecessedGeocentric
+ from .cirs import CIRS
++from .altaz import AltAz
++from .hadec import HADec
+ from .itrs import ITRS
+ from .equatorial import TEME, TETE
+ from .utils import get_polar_motion, get_jd12, EARTH_CENTER
+@@ -277,3 +279,363 @@ frame_transform_graph._add_merged_transform(ITRS, CIRS, ITRS)
+ frame_transform_graph._add_merged_transform(PrecessedGeocentric, GCRS, PrecessedGeocentric)
+ frame_transform_graph._add_merged_transform(TEME, ITRS, TEME)
+ frame_transform_graph._add_merged_transform(TETE, ICRS, TETE)
++
++# ITRS to observed frame transformations (without geocentric aberration)
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Create a rotation matrix for transforming from ITRS to an observed frame
++    (AltAz or HADec) without geocentric aberration corrections.
++
++    This function stays entirely within ITRS and treats ITRS positions as
++    time-invariant, adopting the output frame's obstime.
++
++    Parameters
++    ----------
++    observed_frame : AltAz or HADec
++        The observed frame to transform to
++
++    Returns
++    -------
++    matrix : numpy.ndarray
++        3x3 rotation matrix for ITRS -> observed frame transformation
++    """
++    from astropy.coordinates.earth import EarthLocation
++    import numpy as np
++
++    # Get the observer's location in ITRS
++    location = observed_frame.location
++    if location is None:
++        raise ValueError("observed_frame.location must be specified")
++
++    # Convert location to ITRS coordinates
++    itrs_location = location.itrs
++    if itrs_location.obstime is None:
++        # Use the observed frame's obstime if location doesn't have one
++        itrs_location = itrs_location.transform_to(ITRS(obstime=observed_frame.obstime))
++
++    # Get the observer's position in ITRS (cartesian)
++    observer_cart = itrs_location.cartesian
++
++    # Normalize the observer position vector
++    observer_vec = observer_cart.xyz.value
++    observer_norm = np.linalg.norm(observer_vec)
++    if observer_norm == 0:
++        raise ValueError("Observer position cannot be at the origin")
++
++    # Normalized observer position vector (from Earth center to observer)
++    observer_unit = observer_vec / observer_norm
++
++    # For AltAz: we need to rotate so that:
++    # - z-axis points along the local vertical (opposite of observer position)
++    # - x-axis points south, y-axis points east
++    # For HADec: we need to rotate so that:
++    # - z-axis points along the local vertical
++    # - x-axis points along the local meridian
++
++    if isinstance(observed_frame, AltAz):
++        # AltAz transformation: local vertical up, south along x, east along y
++        zenith_dir = -observer_unit  # Zenith direction (opposite of observer position)
++
++        # Find local horizontal directions
++        # Use a reference direction in the equatorial plane to find east/west
++        # We'll use the cross product to get orthogonal directions
++        if np.abs(observer_unit[2]) > 0.9:  # Near pole
++            # At poles, use arbitrary horizontal directions
++            x_axis = np.array([1.0, 0.0, 0.0])
++            y_axis = np.array([0.0, 1.0, 0.0])
++        else:
++            # Find a direction in the equatorial plane
++            equatorial_ref = np.array([1.0, 0.0, 0.0])
++            if np.abs(np.dot(observer_unit, equatorial_ref)) > 0.9:
++                equatorial_ref = np.array([0.0, 1.0, 0.0])
++
++            # Project equatorial reference onto horizontal plane
++            equatorial_ref_horiz = equatorial_ref - np.dot(equatorial_ref, observer_unit) * observer_unit
++            equatorial_ref_horiz = equatorial_ref_horiz / np.linalg.norm(equatorial_ref_horiz)
++
++            # East direction: cross product of zenith and equatorial reference
++            east_dir = np.cross(zenith_dir, equatorial_ref_horiz)
++            east_dir = east_dir / np.linalg.norm(east_dir)
++
++            # South direction: cross product of east and zenith
++            south_dir = np.cross(east_dir, zenith_dir)
++            south_dir = south_dir / np.linalg.norm(south_dir)
++
++            x_axis = south_dir
++            y_axis = east_dir
++
++        # Create rotation matrix: columns are the new basis vectors
++        rotation_matrix = np.column_stack([x_axis, y_axis, zenith_dir])
++
++    elif isinstance(observed_frame, HADec):
++        # HADec transformation: local vertical up, meridian along x
++        zenith_dir = -observer_unit  # Zenith direction
++
++        # Find local meridian direction (north-south line)
++        # The meridian is the great circle through zenith and celestial pole
++        # We'll use the cross product to get the meridian direction
++
++        if np.abs(observer_unit[2]) > 0.9:  # Near pole
++            # At poles, meridian is undefined, use arbitrary direction
++            x_axis = np.array([1.0, 0.0, 0.0])
++        else:
++            # Find a direction in the equatorial plane perpendicular to observer
++            equatorial_ref = np.array([1.0, 0.0, 0.0])
++            if np.abs(np.dot(observer_unit, equatorial_ref)) > 0.9:
++                equatorial_ref = np.array([0.0, 1.0, 0.0])
++
++            # Project equatorial reference onto horizontal plane
++            equatorial_ref_horiz = equatorial_ref - np.dot(equatorial_ref, observer_unit) * observer_unit
++            equatorial_ref_horiz = equatorial_ref_horiz / np.linalg.norm(equatorial_ref_horiz)
++
++            # Meridian direction: cross product of equatorial reference and zenith
++            meridian_dir = np.cross(equatorial_ref_horiz, zenith_dir)
++            meridian_dir = meridian_dir / np.linalg.norm(meridian_dir)
++
++            x_axis = meridian_dir
++
++        # East direction for y-axis: cross product of meridian and zenith
++        y_axis = np.cross(x_axis, zenith_dir)
++        y_axis = y_axis / np.linalg.norm(y_axis)
++
++        # Create rotation matrix: columns are the new basis vectors
++        rotation_matrix = np.column_stack([x_axis, y_axis, zenith_dir])
++
++    else:
++        raise TypeError(f"Unsupported observed frame type: {type(observed_frame)}")
++
++    return rotation_matrix
++
++# ITRS to observed frame transformations (without geocentric aberration)
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Create a rotation matrix for transforming from ITRS to an observed frame
++    (AltAz or HADec) without geocentric aberration corrections.
++
++    This function stays entirely within ITRS and treats ITRS positions as
++    time-invariant, adopting the output frame's obstime.
++
++    Parameters
++    ----------
++    observed_frame : AltAz or HADec
++        The observed frame to transform to
++
++    Returns
++    -------
++    matrix : numpy.ndarray
++        3x3 rotation matrix for ITRS -> observed frame transformation
++    """
++    from astropy.coordinates.earth import EarthLocation
++    import numpy as np
++
++    # Get the observer's location in ITRS
++    location = observed_frame.location
++    if location is None:
++        raise ValueError("observed_frame.location must be specified")
++
++    # Convert location to ITRS coordinates
++    itrs_location = location.itrs
++    if itrs_location.obstime is None:
++        # Use the observed frame's obstime if location doesn't have one
++        itrs_location = itrs_location.transform_to(ITRS(obstime=observed_frame.obstime))
++
++    # Get the observer's position in ITRS (cartesian)
++    observer_cart = itrs_location.cartesian
++
++    # Normalize the observer position vector
++    observer_vec = observer_cart.xyz.value
++    observer_norm = np.linalg.norm(observer_vec)
++    if observer_norm == 0:
++        raise ValueError("Observer position cannot be at the origin")
++
++    # Normalized observer position vector (from Earth center to observer)
++    observer_unit = observer_vec / observer_norm
++
++    # For AltAz: we need to rotate so that:
++    # - z-axis points along the local vertical (opposite of observer position)
++    # - x-axis points south, y-axis points east
++    # For HADec: we need to rotate so that:
++    # - z-axis points along the local vertical
++    # - x-axis points along the local meridian
++
++    if isinstance(observed_frame, AltAz):
++        # AltAz transformation: local vertical up, south along x, east along y
++        zenith_dir = -observer_unit  # Zenith direction (opposite of observer position)
++
++        # Find local horizontal directions
++        # Use a reference direction in the equatorial plane to find east/west
++        # We'll use the cross product to get orthogonal directions
++        if np.abs(observer_unit[2]) > 0.9:  # Near pole
++            # At poles, use arbitrary horizontal directions
++            x_axis = np.array([1.0, 0.0, 0.0])
++            y_axis = np.array([0.0, 1.0, 0.0])
++        else:
++            # Find a direction in the equatorial plane
++            equatorial_ref = np.array([1.0, 0.0, 0.0])
++            if np.abs(np.dot(observer_unit, equatorial_ref)) > 0.9:
++                equatorial_ref = np.array([0.0, 1.0, 0.0])
++
++            # Project equatorial reference onto horizontal plane
++            equatorial_ref_horiz = equatorial_ref - np.dot(equatorial_ref, observer_unit) * observer_unit
++            equatorial_ref_horiz = equatorial_ref_horiz / np.linalg.norm(equatorial_ref_horiz)
++
++            # East direction: cross product of zenith and equatorial reference
++            east_dir = np.cross(zenith_dir, equatorial_ref_horiz)
++            east_dir = east_dir / np.linalg.norm(east_dir)
++
++            # South direction: cross product of east and zenith
++            south_dir = np.cross(east_dir, zenith_dir)
++            south_dir = south_dir / np.linalg.norm(south_dir)
++
++            x_axis = south_dir
++            y_axis = east_dir
++
++        # Create rotation matrix: columns are the new basis vectors
++        rotation_matrix = np.column_stack([x_axis, y_axis, zenith_dir])
++
++    elif isinstance(observed_frame, HADec):
++        # HADec transformation: local vertical up, meridian along x
++        zenith_dir = -observer_unit  # Zenith direction
++
++        # Find local meridian direction (north-south line)
++        # The meridian is the great circle through zenith and celestial pole
++        # We'll use the cross product to get the meridian direction
++
++        if np.abs(observer_unit[2]) > 0.9:  # Near pole
++            # At poles, meridian is undefined, use arbitrary direction
++            x_axis = np.array([1.0, 0.0, 0.0])
++        else:
++            # Find a direction in the equatorial plane perpendicular to observer
++            equatorial_ref = np.array([1.0, 0.0, 0.0])
++            if np.abs(np.dot(observer_unit, equatorial_ref)) > 0.9:
++                equatorial_ref = np.array([0.0, 1.0, 0.0])
++
++            # Project equatorial reference onto horizontal plane
++            equatorial_ref_horiz = equatorial_ref - np.dot(equatorial_ref, observer_unit) * observer_unit
++            equatorial_ref_horiz = equatorial_ref_horiz / np.linalg.norm(equatorial_ref_horiz)
++
++            # Meridian direction: cross product of equatorial reference and zenith
++            meridian_dir = np.cross(equatorial_ref_horiz, zenith_dir)
++            meridian_dir = meridian_dir / np.linalg.norm(meridian_dir)
++
++            x_axis = meridian_dir
++
++        # East direction for y-axis: cross product of meridian and zenith
++        y_axis = np.cross(x_axis, zenith_dir)
++        y_axis = y_axis / np.linalg.norm(y_axis)
++
++        # Create rotation matrix: columns are the new basis vectors
++        rotation_matrix = np.column_stack([x_axis, y_axis, zenith_dir])
++
++    else:
++        raise TypeError(f"Unsupported observed frame type: {type(observed_frame)}")
++
++    return rotation_matrix
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++def itrs_to_altaz(itrs_coo, altaz_frame):
++    """
++    Transform from ITRS to AltAz without geocentric aberration corrections.
++
++    This transformation stays entirely within ITRS and treats ITRS positions as
++    time-invariant, adopting the AltAz frame's obstime.
++    """
++    from astropy.coordinates import CartesianRepresentation
++
++    # Get the rotation matrix
++    rotation_matrix = itrs_to_observed_mat(altaz_frame)
++
++    # Transform the ITRS coordinate to the target obstime first
++    itrs_coo_target_time = itrs_coo.transform_to(ITRS(obstime=altaz_frame.obstime))
++
++    # Get observer position in ITRS at the target time
++    observer_itrs = altaz_frame.location.itrs
++    if observer_itrs.obstime is None:
++        observer_itrs = observer_itrs.transform_to(ITRS(obstime=altaz_frame.obstime))
++
++    # Subtract observer position to get topocentric vector (parallax correction)
++    topocentric_cart = itrs_coo_target_time.cartesian - observer_itrs.cartesian
++
++    # Apply the rotation to get observed coordinates
++    observed_cart = topocentric_cart.transform(rotation_matrix)
++
++    # Create the AltAz coordinate
++    return altaz_frame.realize_frame(observed_cart)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++def altaz_to_itrs(altaz_coo, itrs_frame):
++    """
++    Transform from AltAz to ITRS without geocentric aberration corrections.
++    """
++    from astropy.coordinates import CartesianRepresentation
++
++    # Get the rotation matrix (transpose for inverse transformation)
++    rotation_matrix = itrs_to_observed_mat(altaz_coo)
++    rotation_matrix_inv = matrix_transpose(rotation_matrix)
++
++    # Apply the inverse rotation to get topocentric cartesian
++    topocentric_cart = altaz_coo.cartesian.transform(rotation_matrix_inv)
++
++    # Add observer position to get geocentric ITRS coordinates
++    observer_itrs = altaz_coo.location.itrs
++    if observer_itrs.obstime is None:
++        observer_itrs = observer_itrs.transform_to(ITRS(obstime=altaz_coo.obstime))
++
++    # Create the ITRS coordinate with the original obstime
++    itrs_cart = topocentric_cart + observer_itrs.cartesian
++    return itrs_frame.realize_frame(itrs_cart)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_hadec(itrs_coo, hadec_frame):
++    """
++    Transform from ITRS to HADec without geocentric aberration corrections.
++
++    This transformation stays entirely within ITRS and treats ITRS positions as
++    time-invariant, adopting the HADec frame's obstime.
++    """
++    from astropy.coordinates import CartesianRepresentation
++
++    # Get the rotation matrix
++    rotation_matrix = itrs_to_observed_mat(hadec_frame)
++
++    # Transform the ITRS coordinate to the target obstime first
++    itrs_coo_target_time = itrs_coo.transform_to(ITRS(obstime=hadec_frame.obstime))
++
++    # Get observer position in ITRS at the target time
++    observer_itrs = hadec_frame.location.itrs
++    if observer_itrs.obstime is None:
++        observer_itrs = observer_itrs.transform_to(ITRS(obstime=hadec_frame.obstime))
++
++    # Subtract observer position to get topocentric vector (parallax correction)
++    topocentric_cart = itrs_coo_target_time.cartesian - observer_itrs.cartesian
++
++    # Apply the rotation to get observed coordinates
++    observed_cart = topocentric_cart.transform(rotation_matrix)
++
++    # Create the HADec coordinate
++    return hadec_frame.realize_frame(observed_cart)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def hadec_to_itrs(hadec_coo, itrs_frame):
++    """
++    Transform from HADec to ITRS without geocentric aberration corrections.
++    """
++    from astropy.coordinates import CartesianRepresentation
++
++    # Get the rotation matrix (transpose for inverse transformation)
++    rotation_matrix = itrs_to_observed_mat(hadec_coo)
++    rotation_matrix_inv = matrix_transpose(rotation_matrix)
++
++    # Apply the inverse rotation to get topocentric cartesian
++    topocentric_cart = hadec_coo.cartesian.transform(rotation_matrix_inv)
++
++    # Add observer position to get geocentric ITRS coordinates
++    observer_itrs = hadec_coo.location.itrs
++    if observer_itrs.obstime is None:
++        observer_itrs = observer_itrs.transform_to(ITRS(obstime=hadec_coo.obstime))
++
++    # Create the ITRS coordinate with the original obstime
++    itrs_cart = topocentric_cart + observer_itrs.cartesian
++    return itrs_frame.realize_frame(itrs_cart)

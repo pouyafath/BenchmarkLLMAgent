@@ -1,0 +1,339 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..1d6e1a9a3 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -47,6 +47,7 @@ from . import galactic_transforms
+ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
++from . import itrs_observed_transforms
+ from . import icrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..a3434729b
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,321 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS
++without geocentric aberration corrections.
++"""
++import numpy as np
++import erfa
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                CartesianRepresentation,
++                                                UnitSphericalRepresentation)
++from astropy.coordinates.matrix_utilities import matrix_transpose
++
++from .itrs import ITRS
++from .altaz import AltAz
++from .hadec import HADec
++from .utils import get_polar_motion, get_jd12, PIOVER2
++from ..erfa_astrom import erfa_astrom
++
++def itrs_to_observed_mat(itrs_coo, observed_frame):
++    """
++    Compute the rotation matrix for ITRS to observed frame transformations.
++
++    This function computes the rotation matrices needed to transform from ITRS
++    to AltAz or HADec frames without going through geocentric aberration corrections.
++    It handles the left-handed frame conventions appropriately.
++
++    Parameters
++    ----------
++    itrs_coo : `~astropy.coordinates.ITRS`
++        The ITRS coordinate to transform.
++    observed_frame : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
++        The target observed frame.
++
++    Returns
++    -------
++    matrix : numpy.ndarray
++        The 3x3 rotation matrix for the transformation.
++    """
++    # Get the location and time from the observed frame
++    location = observed_frame.location
++    obstime = observed_frame.obstime if observed_frame.obstime is not None else itrs_coo.obstime
++
++    # Convert location to ITRS at the observation time
++    if location is None:
++        # Geocentric case - use Earth center
++        from .utils import EARTH_CENTER
++        loc_itrs = EARTH_CENTER.get_itrs(obstime)
++    else:
++        loc_itrs = location.get_itrs(obstime)
++
++    # Get geodetic coordinates of observer
++    lat = location.geodetic_latitude.to_value(u.radian)
++    lon = location.geodetic_longitude.to_value(u.radian)
++
++    # Compute the local horizontal frame basis vectors in ITRS
++    # North vector (in ITRS)
++    north = np.array([
++        -np.sin(lat) * np.cos(lon),
++        -np.sin(lat) * np.sin(lon),
++        np.cos(lat)
++    ])
++
++    # East vector (in ITRS)
++    east = np.array([
++        -np.sin(lon),
++        np.cos(lon),
++        0.0
++    ])
++
++    # Up vector (zenith, in ITRS)
++    up = np.array([
++        np.cos(lat) * np.cos(lon),
++        np.cos(lat) * np.sin(lon),
++        np.sin(lat)
++    ])
++
++    # Normalize basis vectors
++    north = north / np.linalg.norm(north)
++    east = east / np.linalg.norm(east)
++    up = up / np.linalg.norm(up)
++
++    # Create rotation matrix from ITRS to local horizontal (North, East, Up)
++    itrs_to_horiz = np.column_stack([north, east, up])
++
++    if isinstance(observed_frame, AltAz):
++        # For AltAz: x = Azimuth (East of North), y = Altitude, z = distance
++        # The rotation matrix is already in the right form
++        return itrs_to_horiz
++    else:  # HADec
++        # For HADec, we need to rotate to (Hour Angle, Declination)
++        # Get local sidereal time
++        lst = erfa.gst06a(*get_jd12(obstime, 'ut1')) + lon
++
++        # Rotation matrix from horizontal to HADec
++        sin_lat = np.sin(lat)
++        cos_lat = np.cos(lat)
++        sin_lst = np.sin(lst)
++        cos_lst = np.cos(lst)
++
++        # Rotation matrix from horizontal to HADec
++        horiz_to_hadec = np.array([
++            [-sin_lst, -cos_lst * sin_lat, cos_lst * cos_lat],
++            [cos_lst, -sin_lst * sin_lat, sin_lst * cos_lat],
++            [0, cos_lat, sin_lat]
++        ])
++
++        return np.dot(horiz_to_hadec, itrs_to_horiz)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++def itrs_to_altaz(itrs_coo, altaz_frame):
++    """
++    Transform ITRS coordinates to AltAz without geocentric aberration.
++
++    This transformation stays entirely within ITRS and treats ITRS positions
++    as time-invariant, adopting the output frame's obstime.
++    """
++    # Get the rotation matrix
++    rot_mat = itrs_to_observed_mat(itrs_coo, altaz_frame)
++
++    # Transform the Cartesian coordinates
++    new_cart = itrs_coo.cartesian.transform(rot_mat)
++
++    # Convert to spherical representation for AltAz
++    spherical = new_cart.represent_as(SphericalRepresentation)
++
++    # For AltAz, longitude is azimuth (East of North), latitude is altitude
++    return altaz_frame.realize_frame(spherical)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_hadec(itrs_coo, hadec_frame):
++    """
++    Transform ITRS coordinates to HADec without geocentric aberration.
++
++    This transformation stays entirely within ITRS and treats ITRS positions
++    as time-invariant, adopting the output frame's obstime.
++    """
++    # Get the rotation matrix
++    rot_mat = itrs_to_observed_mat(itrs_coo, hadec_frame)
++
++    # Transform the Cartesian coordinates
++    new_cart = itrs_coo.cartesian.transform(rot_mat)
++
++    # Convert to spherical representation for HADec
++    spherical = new_cart.represent_as(SphericalRepresentation)
++
++    # For HADec, longitude is hour angle, latitude is declination
++    return hadec_frame.realize_frame(spherical)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++def altaz_to_itrs(altaz_coo, itrs_frame):
++    """
++    Transform AltAz coordinates back to ITRS.
++    """
++    location = altaz_coo.location
++    obstime = altaz_coo.obstime if altaz_coo.obstime is not None else itrs_frame.obstime
++
++    if location is None:
++        from .utils import EARTH_CENTER
++        loc_itrs = EARTH_CENTER.get_itrs(obstime)
++    else:
++        loc_itrs = location.get_itrs(obstime)
++
++    # Get geodetic coordinates
++    lat = location.geodetic_latitude.to_value(u.radian)
++    lon = location.geodetic_longitude.to_value(u.radian)
++
++    # Get the direction vector in local horizontal coordinates
++    az = altaz_coo.az.to_value(u.radian)
++    alt = altaz_coo.alt.to_value(u.radian)
++
++    # Convert to Cartesian in local horizontal system (North, East, Up)
++    sin_alt = np.sin(alt)
++    cos_alt = np.cos(alt)
++    sin_az = np.sin(az)
++    cos_az = np.cos(az)
++
++    # Local horizontal coordinates (North, East, Up)
++    north = cos_alt * cos_az
++    east = cos_alt * sin_az
++    up = sin_alt
++
++    # Convert to ITRS coordinates
++    # North vector
++    north_vec = np.array([
++        -np.sin(lat) * np.cos(lon),
++        -np.sin(lat) * np.sin(lon),
++        np.cos(lat)
++    ])
++
++    # East vector
++    east_vec = np.array([
++        -np.sin(lon),
++        np.cos(lon),
++        0.0
++    ])
++
++    # Up vector
++    up_vec = np.array([
++        np.cos(lat) * np.cos(lon),
++        np.cos(lat) * np.sin(lon),
++        np.sin(lat)
++    ])
++
++    # Normalize
++    north_vec = north_vec / np.linalg.norm(north_vec)
++    east_vec = east_vec / np.linalg.norm(east_vec)
++    up_vec = up_vec / np.linalg.norm(up_vec)
++
++    # Compute ITRS coordinates
++    itrs_x = north_vec[0] * north + east_vec[0] * east + up_vec[0] * up
++    itrs_y = north_vec[1] * north + east_vec[1] * east + up_vec[1] * up
++    itrs_z = north_vec[2] * north + east_vec[2] * east + up_vec[2] * up
++
++    # Create Cartesian representation
++    cart_repr = CartesianRepresentation(
++        itrs_x * altaz_coo.distance,
++        itrs_y * altaz_coo.distance,
++        itrs_z * altaz_coo.distance,
++        copy=False
++    )
++
++    return itrs_frame.realize_frame(cart_repr)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def hadec_to_itrs(hadec_coo, itrs_frame):
++    """
++    Transform HADec coordinates back to ITRS.
++    """
++    location = hadec_coo.location
++    obstime = hadec_coo.obstime if hadec_coo.obstime is not None else itrs_frame.obstime
++
++    if location is None:
++        from .utils import EARTH_CENTER
++        loc_itrs = EARTH_CENTER.get_itrs(obstime)
++    else:
++        loc_itrs = location.get_itrs(obstime)
++
++    # Get geodetic coordinates
++    lat = location.geodetic_latitude.to_value(u.radian)
++    lon = location.geodetic_longitude.to_value(u.radian)
++
++    # Get local sidereal time
++    lst = erfa.gst06a(*get_jd12(obstime, 'ut1')) + lon
++
++    # Get the direction vector in HADec coordinates
++    ha = hadec_coo.ha.to_value(u.radian)
++    dec = hadec_coo.dec.to_value(u.radian)
++
++    # Convert HADec to local horizontal coordinates
++    sin_dec = np.sin(dec)
++    cos_dec = np.cos(dec)
++    sin_ha = np.sin(ha)
++    cos_ha = np.cos(ha)
++
++    # Rotation from HADec to horizontal
++    # First rotate by -ha around up axis
++    # Then rotate by (90° - lat) around east axis
++
++    # Intermediate coordinates after HA rotation
++    x_ha = cos_ha * cos_dec
++    y_ha = sin_ha * cos_dec
++    z_ha = sin_dec
++
++    # Now rotate by (90° - lat) around east axis
++    sin_lat = np.sin(lat)
++    cos_lat = np.cos(lat)
++
++    # Final horizontal coordinates (North, East, Up)
++    north = x_ha * cos_lat - z_ha * sin_lat
++    east = y_ha
++    up = x_ha * sin_lat + z_ha * cos_lat
++
++    # Convert to ITRS coordinates using the same basis as before
++    # North vector
++    north_vec = np.array([
++        -np.sin(lat) * np.cos(lon),
++        -np.sin(lat) * np.sin(lon),
++        np.cos(lat)
++    ])
++
++    # East vector
++    east_vec = np.array([
++        -np.sin(lon),
++        np.cos(lon),
++        0.0
++    ])
++
++    # Up vector
++    up_vec = np.array([
++        np.cos(lat) * np.cos(lon),
++        np.cos(lat) * np.sin(lon),
++        np.sin(lat)
++    ])
++
++    # Normalize
++    north_vec = north_vec / np.linalg.norm(north_vec)
++    east_vec = east_vec / np.linalg.norm(east_vec)
++    up_vec = up_vec / np.linalg.norm(up_vec)
++
++    # Compute ITRS coordinates
++    itrs_x = north_vec[0] * north + east_vec[0] * east + up_vec[0] * up
++    itrs_y = north_vec[1] * north + east_vec[1] * east + up_vec[1] * up
++    itrs_z = north_vec[2] * north + east_vec[2] * east + up_vec[2] * up
++
++    # Create Cartesian representation
++    cart_repr = CartesianRepresentation(
++        itrs_x * hadec_coo.distance,
++        itrs_y * hadec_coo.distance,
++        itrs_z * hadec_coo.distance,
++        copy=False
++    )
++
++    return itrs_frame.realize_frame(cart_repr)
++
++# Create loopback transformations
++frame_transform_graph._add_merged_transform(AltAz, ITRS, AltAz)
++frame_transform_graph._add_merged_transform(HADec, ITRS, HADec)

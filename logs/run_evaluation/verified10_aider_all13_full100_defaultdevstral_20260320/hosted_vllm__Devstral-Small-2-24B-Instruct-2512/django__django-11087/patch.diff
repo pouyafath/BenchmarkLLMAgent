@@ -1,0 +1,27 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 3a462f1c4c..0514e0bf37 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -231,10 +231,21 @@ class Collector:
+     def related_objects(self, related, objs):
+         """
+         Get a QuerySet of objects related to `objs` via the relation `related`.
++        Only fetch the primary key and foreign key fields to avoid loading unnecessary
++        fields that might contain invalid UTF-8 data.
+         """
+-        return related.related_model._base_manager.using(self.using).filter(
++        qs = related.related_model._base_manager.using(self.using).filter(
+             **{"%s__in" % related.field.name: objs}
+         )
++        # We need the PK for identification and the FK field for cascade operations
++        # but we can defer all other fields to avoid UnicodeDecodeError
++        fields_to_defer = [
++            f.name for f in related.related_model._meta.get_fields()
++            if f.name not in [related.related_model._meta.pk.name, related.field.name]
++        ]
++        if fields_to_defer:
++            return qs.defer(*fields_to_defer)
++        return qs
+ 
+     def instances_with_model(self):
+         for model, instances in self.data.items():

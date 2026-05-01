@@ -1,0 +1,47 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..30b0fe307 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -211,12 +211,41 @@ class _BaseHeterogeneousEnsemble(
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):
++        # Validate that estimators is a list or tuple
++        if not isinstance(self.estimators, (list, tuple)):
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "list or tuple of (string, estimator) tuples."
++            )
++
+         if len(self.estimators) == 0:
+             raise ValueError(
+                 "Invalid 'estimators' attribute, 'estimators' should be a "
+                 "non-empty list of (string, estimator) tuples."
+             )
+-        names, estimators = zip(*self.estimators)
++
++        # Validate each estimator item
++        names = []
++        estimators = []
++        for i, est in enumerate(self.estimators):
++            # Check if item is a tuple or list
++            if not isinstance(est, (tuple, list)) or len(est) != 2:
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, 'estimators' should be a "
++                    f"list of (string, estimator) tuples. Got {type(est).__name__} "
++                    f"at index {i}."
++                )
++            name, estimator = est
++            # Validate that name is a string
++            if not isinstance(name, str):
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, 'estimators' should be a "
++                    f"list of (string, estimator) tuples. Got {type(name).__name__} "
++                    f"instead of string at index {i} for the estimator name."
++                )
++            names.append(name)
++            estimators.append(estimator)
++
+         # defined by MetaEstimatorMixin
+         self._validate_names(names)
+ 

@@ -1,0 +1,29 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 8ea6c05ef9..e7cc1a28de 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -204,7 +204,14 @@ class ModelBase(type):
+             for field in base._meta.local_fields:
+                 if isinstance(field, OneToOneField):
+                     related = resolve_relation(new_class, field.remote_field.model)
+-                    parent_links[make_model_tuple(related)] = field
++                    related_key = make_model_tuple(related)
++                    # Prefer fields with parent_link=True over fields without it
++                    existing_field = parent_links.get(related_key)
++                    if existing_field is None:
++                        parent_links[related_key] = field
++                    elif not existing_field.remote_field.parent_link and field.remote_field.parent_link:
++                        parent_links[related_key] = field
++                    # If we already have a field with parent_link=True, keep it
+ 
+         # Track fields inherited from base models.
+         inherited_attributes = set()
+@@ -236,7 +243,7 @@ class ModelBase(type):
+                 # Concrete classes...
+                 base = base._meta.concrete_model
+                 base_key = make_model_tuple(base)
+-                if base_key in parent_links:
++                if base_key in parent_links and parent_links[base_key].remote_field.parent_link:
+                     field = parent_links[base_key]
+                 elif not is_proxy:
+                     attr_name = '%s_ptr' % base._meta.model_name

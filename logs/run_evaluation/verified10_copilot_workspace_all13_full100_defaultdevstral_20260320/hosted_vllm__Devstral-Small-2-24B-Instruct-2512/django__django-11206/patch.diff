@@ -1,0 +1,21 @@
+diff --git a/django/utils/numberformat.py b/django/utils/numberformat.py
+index 88b35fc435..94748ea76a 100644
+--- a/django/utils/numberformat.py
++++ b/django/utils/numberformat.py
+@@ -38,6 +38,16 @@ def format(number, decimal_sep, decimal_pos=None, grouping=0, thousand_sep='',
+                 coefficient, decimal_sep, decimal_pos, grouping,
+                 thousand_sep, force_grouping, use_l10n,
+             )
++            # If decimal_pos is specified and the coefficient is effectively zero
++            # (all decimal places are zero when formatted), return zero-padded decimal string
++            if decimal_pos is not None and int(exponent) < 0:
++                # Check if coefficient is effectively zero by examining its decimal part
++                if '.' in coefficient:
++                    _, dec_part = coefficient.split('.')
++                    # Pad or truncate to match decimal_pos
++                    formatted_dec_part = dec_part[:decimal_pos].ljust(decimal_pos, '0')
++                    if formatted_dec_part == '0' * decimal_pos:
++                        return sign + '0' + decimal_sep + ('0' * decimal_pos)
+             return '{}e{}'.format(coefficient, exponent)
+         else:
+             str_number = '{:f}'.format(number)

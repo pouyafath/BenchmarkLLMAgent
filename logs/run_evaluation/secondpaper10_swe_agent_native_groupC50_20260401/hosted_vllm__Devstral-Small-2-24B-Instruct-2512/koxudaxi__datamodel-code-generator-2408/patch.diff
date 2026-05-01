@@ -1,0 +1,159 @@
+diff --git a/src/datamodel_code_generator/__init__.py b/src/datamodel_code_generator/__init__.py
+index 86472b08..6f9e25d8 100644
+--- a/src/datamodel_code_generator/__init__.py
++++ b/src/datamodel_code_generator/__init__.py
+@@ -249,6 +249,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
+     strict_nullable: bool = False,
+     use_generic_container_types: bool = False,
+     enable_faux_immutability: bool = False,
++    frozen_dataclasses: bool = False,
+     disable_appending_item_suffix: bool = False,
+     strict_types: Sequence[StrictTypes] | None = None,
+     empty_enum_field_name: str | None = None,
+@@ -447,6 +448,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
+         strict_nullable=strict_nullable,
+         use_generic_container_types=use_generic_container_types,
+         enable_faux_immutability=enable_faux_immutability,
++        frozen_dataclasses=frozen_dataclasses,
+         remote_text_cache=remote_text_cache,
+         disable_appending_item_suffix=disable_appending_item_suffix,
+         strict_types=strict_types,
+diff --git a/src/datamodel_code_generator/__main__.py b/src/datamodel_code_generator/__main__.py
+index e04b3e82..84e73869 100644
+--- a/src/datamodel_code_generator/__main__.py
++++ b/src/datamodel_code_generator/__main__.py
+@@ -278,6 +278,7 @@ class Config(BaseModel):
+     use_generic_container_types: bool = False
+     use_union_operator: bool = False
+     enable_faux_immutability: bool = False
++    frozen_dataclasses: bool = False
+     url: Optional[ParseResult] = None  # noqa: UP045
+     disable_appending_item_suffix: bool = False
+     strict_types: list[StrictTypes] = []
+@@ -490,6 +491,7 @@ def main(args: Sequence[str] | None = None) -> Exit:  # noqa: PLR0911, PLR0912,
+             strict_nullable=config.strict_nullable,
+             use_generic_container_types=config.use_generic_container_types,
+             enable_faux_immutability=config.enable_faux_immutability,
++            frozen_dataclasses=config.frozen_dataclasses,
+             disable_appending_item_suffix=config.disable_appending_item_suffix,
+             strict_types=config.strict_types,
+             empty_enum_field_name=config.empty_enum_field_name,
+diff --git a/src/datamodel_code_generator/arguments.py b/src/datamodel_code_generator/arguments.py
+index 599cbb7f..2d0e7b0b 100644
+--- a/src/datamodel_code_generator/arguments.py
++++ b/src/datamodel_code_generator/arguments.py
+@@ -135,6 +135,12 @@ model_options.add_argument(
+     action="store_true",
+     default=None,
+ )
++model_options.add_argument(
++    "--frozen-dataclasses",
++    help="Enable frozen dataclasses (immutable)",
++    action="store_true",
++    default=None,
++)
+ model_options.add_argument(
+     "--enable-version-header",
+     help="Enable package version on file headers",
+diff --git a/src/datamodel_code_generator/model/template/dataclass.jinja2 b/src/datamodel_code_generator/model/template/dataclass.jinja2
+index 632026b5..528d1321 100644
+--- a/src/datamodel_code_generator/model/template/dataclass.jinja2
++++ b/src/datamodel_code_generator/model/template/dataclass.jinja2
+@@ -1,7 +1,7 @@
+ {% for decorator in decorators -%}
+ {{ decorator }}
+ {% endfor -%}
+-@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}
++@dataclass{%- if frozen -%}(frozen=True){%- endif -%}{%- if keyword_only -%}(kw_only=True){%- endif -%}
+ {%- if base_class %}
+ class {{ class_name }}({{ base_class }}):
+ {%- else %}
+diff --git a/src/datamodel_code_generator/parser/base.py b/src/datamodel_code_generator/parser/base.py
+index 098ceea4..98f6c5c2 100644
+--- a/src/datamodel_code_generator/parser/base.py
++++ b/src/datamodel_code_generator/parser/base.py
+@@ -341,6 +341,7 @@ class Parser(ABC):
+         strict_nullable: bool = False,
+         use_generic_container_types: bool = False,
+         enable_faux_immutability: bool = False,
++        frozen_dataclasses: bool = False,
+         remote_text_cache: DefaultPutDict[str, str] | None = None,
+         disable_appending_item_suffix: bool = False,
+         strict_types: Sequence[StrictTypes] | None = None,
+@@ -422,6 +423,7 @@ class Parser(ABC):
+         self.use_generic_container_types: bool = use_generic_container_types
+         self.use_union_operator: bool = use_union_operator
+         self.enable_faux_immutability: bool = enable_faux_immutability
++        self.frozen_dataclasses: bool = frozen_dataclasses,
+         self.custom_class_name_generator: Callable[[str], str] | None = custom_class_name_generator
+         self.field_extra_keys: set[str] = field_extra_keys or set()
+         self.field_extra_keys_without_x_prefix: set[str] = field_extra_keys_without_x_prefix or set()
+@@ -452,6 +454,8 @@ class Parser(ABC):
+ 
+         if enable_faux_immutability:
+             self.extra_template_data[ALL_MODEL]["allow_mutation"] = False
++        if frozen_dataclasses:
++            self.extra_template_data[ALL_MODEL]["frozen"] = True
+ 
+         self.model_resolver = ModelResolver(
+             base_url=source.geturl() if isinstance(source, ParseResult) else None,
+diff --git a/src/datamodel_code_generator/parser/graphql.py b/src/datamodel_code_generator/parser/graphql.py
+index 107a5164..ccf5548f 100644
+--- a/src/datamodel_code_generator/parser/graphql.py
++++ b/src/datamodel_code_generator/parser/graphql.py
+@@ -116,6 +116,7 @@ class GraphQLParser(Parser):
+         strict_nullable: bool = False,
+         use_generic_container_types: bool = False,
+         enable_faux_immutability: bool = False,
++        frozen_dataclasses: bool = False,
+         remote_text_cache: DefaultPutDict[str, str] | None = None,
+         disable_appending_item_suffix: bool = False,
+         strict_types: Sequence[StrictTypes] | None = None,
+@@ -192,6 +193,7 @@ class GraphQLParser(Parser):
+             strict_nullable=strict_nullable,
+             use_generic_container_types=use_generic_container_types,
+             enable_faux_immutability=enable_faux_immutability,
++            frozen_dataclasses=frozen_dataclasses,
+             remote_text_cache=remote_text_cache,
+             disable_appending_item_suffix=disable_appending_item_suffix,
+             strict_types=strict_types,
+diff --git a/src/datamodel_code_generator/parser/jsonschema.py b/src/datamodel_code_generator/parser/jsonschema.py
+index 09cfc0af..a8e7523e 100644
+--- a/src/datamodel_code_generator/parser/jsonschema.py
++++ b/src/datamodel_code_generator/parser/jsonschema.py
+@@ -396,6 +396,7 @@ class JsonSchemaParser(Parser):
+         strict_nullable: bool = False,
+         use_generic_container_types: bool = False,
+         enable_faux_immutability: bool = False,
++        frozen_dataclasses: bool = False,
+         remote_text_cache: DefaultPutDict[str, str] | None = None,
+         disable_appending_item_suffix: bool = False,
+         strict_types: Sequence[StrictTypes] | None = None,
+@@ -471,6 +472,7 @@ class JsonSchemaParser(Parser):
+             strict_nullable=strict_nullable,
+             use_generic_container_types=use_generic_container_types,
+             enable_faux_immutability=enable_faux_immutability,
++            frozen_dataclasses=frozen_dataclasses,
+             remote_text_cache=remote_text_cache,
+             disable_appending_item_suffix=disable_appending_item_suffix,
+             strict_types=strict_types,
+diff --git a/src/datamodel_code_generator/parser/openapi.py b/src/datamodel_code_generator/parser/openapi.py
+index ec8bec14..aa057547 100644
+--- a/src/datamodel_code_generator/parser/openapi.py
++++ b/src/datamodel_code_generator/parser/openapi.py
+@@ -178,6 +178,7 @@ class OpenAPIParser(JsonSchemaParser):
+         strict_nullable: bool = False,
+         use_generic_container_types: bool = False,
+         enable_faux_immutability: bool = False,
++        frozen_dataclasses: bool = False,
+         remote_text_cache: DefaultPutDict[str, str] | None = None,
+         disable_appending_item_suffix: bool = False,
+         strict_types: Sequence[StrictTypes] | None = None,
+@@ -254,6 +255,7 @@ class OpenAPIParser(JsonSchemaParser):
+             strict_nullable=strict_nullable,
+             use_generic_container_types=use_generic_container_types,
+             enable_faux_immutability=enable_faux_immutability,
++            frozen_dataclasses=frozen_dataclasses,
+             remote_text_cache=remote_text_cache,
+             disable_appending_item_suffix=disable_appending_item_suffix,
+             strict_types=strict_types,

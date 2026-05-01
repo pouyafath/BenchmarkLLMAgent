@@ -1,0 +1,34 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..c51b317ae 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -153,6 +153,20 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+             raise ValueError("Cannot slice WCS: the resulting WCS should have "
+                              "at least one pixel and one world dimension.")
+ 
++        # Pre-compute the world coordinate values for the sliced pixel positions
++        # This is needed for world_to_pixel_values to handle dropped dimensions correctly
++        self._dropped_world_values = []
++        pixel_for_dropped = []
++        for ipixel in range(self._wcs.pixel_n_dim):
++            if isinstance(self._slices_pixel[ipixel], numbers.Integral):
++                pixel_for_dropped.append(self._slices_pixel[ipixel])
++            else:
++                pixel_for_dropped.append(0)  # arbitrary value for non-sliced dimensions
++        all_world_coords = self._wcs.pixel_to_world_values(*pixel_for_dropped)
++        for iworld in range(self._wcs.world_n_dim):
++            if iworld not in self._world_keep:
++                self._dropped_world_values.append(all_world_coords[iworld])
++
+     @lazyproperty
+     def dropped_world_dimensions(self):
+         """
+@@ -251,7 +265,7 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                world_arrays_new.append(self._dropped_world_values[iworld - len(self._world_keep)])
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

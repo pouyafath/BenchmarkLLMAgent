@@ -1,0 +1,20 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..cbd6742ad 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -199,6 +199,15 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = m
+         return mat
++    elif isinstance(model, CompoundModel):
++        # For CompoundModels, recursively compute the coord matrix
++        coord_mat = _separable(model)
++        mat = np.zeros((noutp, model.n_inputs))
++        if pos == "left":
++            mat[:model.n_outputs, :model.n_inputs] = coord_mat
++        else:
++            mat[-model.n_outputs:, -model.n_inputs:] = coord_mat
++        return mat
+     if not model.separable:
+         # this does not work for more than 2 coordinates
+         mat = np.zeros((noutp, model.n_inputs))

@@ -1,0 +1,94 @@
+diff --git a/pylint/checkers/refactoring/recommendation_checker.py b/pylint/checkers/refactoring/recommendation_checker.py
+index 617406613..928c5f5d0 100644
+--- a/pylint/checkers/refactoring/recommendation_checker.py
++++ b/pylint/checkers/refactoring/recommendation_checker.py
+@@ -60,6 +60,12 @@ class RecommendationChecker(checkers.BaseChecker):
+             "which could potentially be an f-string. The use of f-strings is preferred. "
+             "Requires Python 3.6 and ``py-version >= 3.6``.",
+         ),
++        "C0210": (
++            "Consider using yield from instead of for loop with yield",
++            "consider-using-yield-from",
++            "Emitted when a for loop iterates over a generator and yields each item "
++            "individually. This can be simplified using yield from.",
++        ),
+     }
+ 
+     def open(self) -> None:
+@@ -187,11 +193,13 @@ class RecommendationChecker(checkers.BaseChecker):
+         "consider-using-enumerate",
+         "consider-using-dict-items",
+         "use-sequence-for-iteration",
++        "consider-using-yield-from",
+     )
+     def visit_for(self, node: nodes.For) -> None:
+         self._check_consider_using_enumerate(node)
+         self._check_consider_using_dict_items(node)
+         self._check_use_sequence_for_iteration(node)
++        self._check_consider_using_yield_from(node)
+ 
+     def _check_consider_using_enumerate(self, node: nodes.For) -> None:
+         """Emit a convention whenever range and len are used for indexing."""
+@@ -319,6 +327,7 @@ class RecommendationChecker(checkers.BaseChecker):
+     def visit_comprehension(self, node: nodes.Comprehension) -> None:
+         self._check_consider_using_dict_items_comprehension(node)
+         self._check_use_sequence_for_iteration(node)
++        self._check_consider_using_yield_from(node)
+ 
+     def _check_consider_using_dict_items_comprehension(
+         self, node: nodes.Comprehension
+@@ -449,3 +458,54 @@ class RecommendationChecker(checkers.BaseChecker):
+                 line=node.lineno,
+                 col_offset=node.col_offset,
+             )
++
++
++    def _check_consider_using_yield_from(self, node: nodes.For) -> None:
++        """Check if a for loop can be replaced with yield from.
++
++        This check looks for patterns like:
++        for item in generator:
++            yield item
++
++        Which can be simplified to:
++        yield from generator
++        """
++        # Check if the for loop body contains only one statement
++        if len(node.body) != 1:
++            return
++
++        # Check if the body contains an expression with a yield statement
++        body_stmt = node.body[0]
++        if not isinstance(body_stmt, nodes.Expr):
++            return
++
++        yield_stmt = body_stmt.value
++        if not isinstance(yield_stmt, nodes.Yield):
++            return
++
++        # Check if the yielded value is the loop variable
++        if not isinstance(yield_stmt.value, nodes.Name):
++            return
++
++        # Check if the loop variable name matches the yielded name
++        if not isinstance(node.target, nodes.AssignName):
++            return
++
++        if yield_stmt.value.name != node.target.name:
++            return
++
++        # Check if the current function is a generator
++        frame = node.frame()
++        if not isinstance(frame, nodes.FunctionDef):
++            return
++
++        if not frame.is_generator():
++            return
++
++        # If all checks pass, suggest using yield from
++        self.add_message(
++            "consider-using-yield-from",
++            node=node,
++            line=node.lineno,
++            col_offset=node.col_offset,
++        )

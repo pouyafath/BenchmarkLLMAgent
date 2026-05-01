@@ -1,0 +1,91 @@
+diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py
+index 8c1ac5d73..181acba13 100644
+--- a/astropy/io/fits/card.py
++++ b/astropy/io/fits/card.py
+@@ -5,7 +5,7 @@ import warnings
+ 
+ import numpy as np
+ 
+-from .util import _str_to_num, _is_int, translate, _words_group
++from .util import _str_to_num, _is_int, translate, _words_group, decode_ascii
+ from .verify import _Verify, _ErrList, VerifyError, VerifyWarning
+ 
+ from . import conf
+@@ -547,12 +547,16 @@ class Card(_Verify):
+     @classmethod
+     def fromstring(cls, image):
+         """
+-        Construct a `Card` object from a (raw) string. It will pad the string
+-        if it is not the length of a card image (80 columns).  If the card
+-        image is longer than 80 columns, assume it contains ``CONTINUE``
+-        card(s).
++        Construct a `Card` object from a (raw) string or byte string. It will
++        pad the string if it is not the length of a card image (80 columns).
++        If the card image is longer than 80 columns, assume it contains
++        ``CONTINUE`` card(s).
+         """
+ 
++        # Convert bytes to string if necessary
++        if isinstance(image, bytes):
++            image = decode_ascii(image)
++
+         card = cls()
+         card._image = _pad(image)
+         card._verified = False
+diff --git a/astropy/io/fits/header.py b/astropy/io/fits/header.py
+index ad07e6d52..a1a8454a5 100644
+--- a/astropy/io/fits/header.py
++++ b/astropy/io/fits/header.py
+@@ -334,10 +334,10 @@ class Header:
+ 
+         Parameters
+         ----------
+-        data : str
++        data : str or bytes
+            String containing the entire header.
+ 
+-        sep : str, optional
++        sep : str or bytes, optional
+             The string separating cards from each other, such as a newline.  By
+             default there is no card separator (as is the case in a raw FITS
+             file).
+@@ -348,6 +348,12 @@ class Header:
+             A new `Header` instance.
+         """
+ 
++
++        # Convert bytes to string if necessary
++        if isinstance(data, bytes):
++            data = decode_ascii(data)
++        if isinstance(sep, bytes):
++            sep = decode_ascii(sep)
+         cards = []
+ 
+         # If the card separator contains characters that may validly appear in
+@@ -409,7 +415,7 @@ class Header:
+             to be read.  For open file handles the file pointer must be at the
+             beginning of the header.
+ 
+-        sep : str, optional
++        sep : str or bytes, optional
+             The string separating cards from each other, such as a newline.  By
+             default there is no card separator (as is the case in a raw FITS
+             file).
+@@ -596,7 +602,7 @@ class Header:
+ 
+         Parameters
+         ----------
+-        sep : str, optional
++        sep : str or bytes, optional
+             The character or string with which to separate cards.  By default
+             there is no separator, but one could use ``'\\n'``, for example, to
+             separate each card with a new line
+@@ -647,7 +653,7 @@ class Header:
+             Either the pathname of a file, or an open file handle or file-like
+             object
+ 
+-        sep : str, optional
++        sep : str or bytes, optional
+             The character or string with which to separate cards.  By default
+             there is no separator, but one could use ``'\\n'``, for example, to
+             separate each card with a new line

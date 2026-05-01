@@ -1,0 +1,60 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..6241666b 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -184,6 +184,7 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL": None,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -451,7 +452,26 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        if self.config["CANONICAL_URL"] is not None:
++            # Use CANONICAL_URL for external URL generation
++            canonical_url = self.config["CANONICAL_URL"]
++            if not canonical_url.startswith(("http://", "https://")):
++                # If no scheme is provided, use PREFERRED_URL_SCHEME
++                canonical_url = f"{self.config['PREFERRED_URL_SCHEME']}://{canonical_url}"
++
++            # Parse the canonical URL to extract server_name
++            from urllib.parse import urlparse
++            parsed = urlparse(canonical_url)
++            server_name = parsed.netloc
++            url_scheme = parsed.scheme
++
++            return self.url_map.bind(
++                server_name,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=url_scheme,
++            )
++        elif self.config["SERVER_NAME"] is not None:
++            # Fallback to SERVER_NAME for backward compatibility
+             return self.url_map.bind(
+                 self.config["SERVER_NAME"],
+                 script_name=self.config["APPLICATION_ROOT"],
+@@ -1079,6 +1099,19 @@ class Flask(App):
+                     " needed."
+                 )
+ 
++            # Show deprecation warning if SERVER_NAME is used for URL generation
++            # without CANONICAL_URL being set
++            if (self.config["CANONICAL_URL"] is None and
++                self.config["SERVER_NAME"] is not None and
++                _external is True):
++                import warnings
++                warnings.warn(
++                    "Using SERVER_NAME for URL generation is deprecated. "
++                    "Use CANONICAL_URL instead for external URL construction.",
++                    DeprecationWarning,
++                    stacklevel=2
++                )
++
+             # When outside a request, generate a URL with scheme and
+             # domain by default.
+             if _external is None:

@@ -1,0 +1,335 @@
+diff --git a/src/streamlink/plugin/plugin.py b/src/streamlink/plugin/plugin.py
+index f53102de..973fa2c3 100644
+--- a/src/streamlink/plugin/plugin.py
++++ b/src/streamlink/plugin/plugin.py
+@@ -6,6 +6,7 @@ import operator
+ import re
+ import time
+ from collections.abc import Iterable, Mapping
++from typing import Union
+ from contextlib import suppress
+ from functools import partial
+ from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, TypeVar
+@@ -237,7 +238,7 @@ class Matchers(_MCollection[Matcher]):
+             self._names[matcher.name] = matcher
+ 
+ 
+-class Matches(_MCollection[re.Match | None]):
++class Matches(_MCollection[Union[re.Match, None]]):
+     def update(self, matchers: Matchers, value: str) -> tuple[re.Pattern[str] | None, re.Match[str] | None]:
+         matches = [(matcher, matcher.pattern.match(value)) for matcher in matchers]
+ 
+diff --git a/src/streamlink/session/options.py b/src/streamlink/session/options.py
+index 24686072..9ab334dc 100644
+--- a/src/streamlink/session/options.py
++++ b/src/streamlink/session/options.py
+@@ -371,20 +371,19 @@ class StreamlinkOptions(Options):
+         self.set_explicit(key, None if not value else value)
+ 
+     def _set_ipv4_ipv6(self, key, value):
+-        match key, value:
+-            case "ipv4", True:
+-                self.session.http.set_address_family(family=AF_INET)
+-                self.set_explicit("ipv4", True)
+-                self.set_explicit("ipv6", False)
+-            case "ipv6", True:
+-                self.session.http.set_address_family(family=AF_INET6)
+-                self.set_explicit("ipv4", False)
+-                self.set_explicit("ipv6", True)
+-            # only unset if the key's value is True
+-            case _ if self.get_explicit(key):
+-                self.session.http.set_address_family(family=None)
+-                self.set_explicit("ipv4", False)
+-                self.set_explicit("ipv6", False)
++        if key == "ipv4" and value:
++            self.session.http.set_address_family(family=AF_INET)
++            self.set_explicit("ipv4", True)
++            self.set_explicit("ipv6", False)
++        elif key == "ipv6" and value:
++            self.session.http.set_address_family(family=AF_INET6)
++            self.set_explicit("ipv4", False)
++            self.set_explicit("ipv6", True)
++        # only unset if the key's value is True
++        elif self.get_explicit(key):
++            self.session.http.set_address_family(family=None)
++            self.set_explicit("ipv4", False)
++            self.set_explicit("ipv6", False)
+ 
+     def _set_http_proxy(self, key, value):
+         self.session.http.proxies["http"] \
+@@ -412,6 +411,37 @@ class StreamlinkOptions(Options):
+ 
+         return inner
+ 
++    def _set_http_cookies(self, key: str, value: Any) -> None:
++        getattr(self.session.http, self._OPTIONS_HTTP_ATTRS[key]).update(
++            value if isinstance(value, dict) else dict(self._parse_key_equals_value_string(";", value)),
++        )
++
++    def _set_http_headers(self, key: str, value: Any) -> None:
++        getattr(self.session.http, self._OPTIONS_HTTP_ATTRS[key]).update(
++            value if isinstance(value, dict) else dict(self._parse_key_equals_value_string(";", value)),
++        )
++
++    def _set_http_query_params(self, key: str, value: Any) -> None:
++        getattr(self.session.http, self._OPTIONS_HTTP_ATTRS[key]).update(
++            value if isinstance(value, dict) else dict(self._parse_key_equals_value_string("&", value)),
++        )
++
++    def _set_hls_duration(self, key: str, value: Any) -> None:
++        self.set_explicit("stream-segmented-duration", float(value))
++        warnings.warn(
++            f"`{key}` has been deprecated in favor of the `stream-segmented-duration` option",
++            StreamlinkDeprecationWarning,
++            stacklevel=_get_deprecation_stacklevel_offset(3),
++        )
++
++    def _set_hls_segment_queue_threshold(self, key: str, value: Any) -> None:
++        self.set_explicit("stream-segmented-queue-deadline", float(value))
++        warnings.warn(
++            f"`{key}` has been deprecated in favor of the `stream-segmented-queue-deadline` option",
++            StreamlinkDeprecationWarning,
++            stacklevel=_get_deprecation_stacklevel_offset(3),
++        )
++
+     @staticmethod
+     def _factory_set_deprecated(name: str, mapper: Callable[[Any], Any]) -> Callable[[StreamlinkOptions, str, Any], None]:
+         def inner(self: StreamlinkOptions, key: str, value: Any) -> None:
+@@ -455,14 +485,14 @@ class StreamlinkOptions(Options):
+         "http-proxy": _set_http_proxy,
+         "https-proxy": _set_http_proxy,
+         "http-cookies-files": _set_http_cookies_files,
+-        "http-cookies": _factory_set_http_attr_key_equals_value(";"),
+-        "http-headers": _factory_set_http_attr_key_equals_value(";"),
+-        "http-query-params": _factory_set_http_attr_key_equals_value("&"),
++        "http-cookies": _set_http_cookies,
++        "http-headers": _set_http_headers,
++        "http-query-params": _set_http_query_params,
+         "http-disable-dh": _set_http_disable_dh,
+         "http-ssl-cert": _set_http_attr,
+         "http-ssl-verify": _set_http_attr,
+         "http-trust-env": _set_http_attr,
+         "http-timeout": _set_http_attr,
+-        "hls-duration": _factory_set_deprecated("stream-segmented-duration", float),
+-        "hls-segment-queue-threshold": _factory_set_deprecated("stream-segmented-queue-deadline", float),
++        "hls-duration": _set_hls_duration,
++        "hls-segment-queue-threshold": _set_hls_segment_queue_threshold,
+     }
+diff --git a/src/streamlink/session/plugins.py b/src/streamlink/session/plugins.py
+index 88c531a1..333e724c 100644
+--- a/src/streamlink/session/plugins.py
++++ b/src/streamlink/session/plugins.py
+@@ -8,7 +8,7 @@ import pkgutil
+ import re
+ from contextlib import suppress
+ from pathlib import Path
+-from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict, cast
++from typing import TYPE_CHECKING, Literal, TypedDict, cast
+ 
+ import streamlink.plugins
+ from streamlink.logger import getLogger
+@@ -207,9 +207,9 @@ class StreamlinkPlugins:
+ _RE_STRIP_JSON_COMMENTS = re.compile(rb"^(?:\s*//[^\n]*\n+)+")
+ 
+ if TYPE_CHECKING:
+-    _TListOfConstants: TypeAlias = list[bool | int | float | str | None]
+-    _TConstantOrListOfConstants: TypeAlias = bool | int | float | str | _TListOfConstants | None
+-    _TMappingOfConstantOrListOfConstants: TypeAlias = dict[str, _TConstantOrListOfConstants]
++    _TListOfConstants = list[bool | int | float | str | None]
++    _TConstantOrListOfConstants = bool | int | float | str | _TListOfConstants | None
++    _TMappingOfConstantOrListOfConstants = dict[str, _TConstantOrListOfConstants]
+ 
+ 
+ class _TPluginMatcherData(TypedDict):
+diff --git a/src/streamlink/stream/hls/segment.py b/src/streamlink/stream/hls/segment.py
+index 4e1a7244..797a96f0 100644
+--- a/src/streamlink/stream/hls/segment.py
++++ b/src/streamlink/stream/hls/segment.py
+@@ -29,7 +29,7 @@ class Resolution(NamedTuple):
+ # EXTINF
+ class ExtInf(NamedTuple):
+     duration: float  # version >= 3: float
+-    title: str | None
++    title: Union[str, None] = None
+ 
+ 
+ # EXT-X-BYTERANGE
+@@ -39,7 +39,7 @@ class ByteRange(NamedTuple):  # version >= 4
+ 
+ 
+ # EXT-X-DATERANGE
+-@dataclass(kw_only=True)
++@dataclass
+ class DateRange(metaclass=FormattedDataclass):
+     id: str | None
+     classname: str | None
+@@ -52,7 +52,7 @@ class DateRange(metaclass=FormattedDataclass):
+ 
+ 
+ # EXT-X-KEY
+-@dataclass(kw_only=True)
++@dataclass
+ class Key:
+     method: str
+     uri: str | None = field(repr=False)
+@@ -62,15 +62,15 @@ class Key:
+ 
+ 
+ # EXT-X-MAP
+-@dataclass(kw_only=True)
++@dataclass
+ class Map:
+     uri: str = field(repr=False)
+-    key: Key | None
+-    byterange: ByteRange | None
++    key: Union[Key, None] = None
++    byterange: Union[ByteRange, None] = None
+ 
+ 
+ # EXT-X-MEDIA
+-@dataclass(kw_only=True)
++@dataclass
+ class Media:
+     uri: str | None
+     type: str
+@@ -111,7 +111,7 @@ class Start(NamedTuple):
+ 
+ 
+ # EXT-X-STREAM-INF
+-@dataclass(kw_only=True)
++@dataclass
+ class StreamInfo:
+     bandwidth: int
+     program_id: str | None  # version < 6
+@@ -124,7 +124,7 @@ class StreamInfo:
+ 
+ 
+ # EXT-X-I-FRAME-STREAM-INF
+-@dataclass(kw_only=True)
++@dataclass
+ class IFrameStreamInfo:
+     bandwidth: int
+     program_id: str | None
+@@ -133,7 +133,7 @@ class IFrameStreamInfo:
+     video: str | None
+ 
+ 
+-@dataclass(kw_only=True)
++@dataclass
+ class HLSPlaylist:
+     uri: str
+     stream_info: StreamInfo | IFrameStreamInfo
+@@ -141,10 +141,10 @@ class HLSPlaylist:
+     is_iframe: bool
+ 
+ 
+-@dataclass(kw_only=True)
++@dataclass
+ class HLSSegment(Segment):
+-    title: str | None
+-    key: Key | None
+-    byterange: ByteRange | None
+-    date: datetime | None
+-    map: Map | None
++    title: Union[str, None] = None
++    key: Union[Key, None] = None
++    byterange: Union[ByteRange, None] = None
++    date: Union[datetime, None] = None
++    map: Union[Map, None] = None
+diff --git a/src/streamlink/stream/segmented/segment.py b/src/streamlink/stream/segmented/segment.py
+index c4a072e5..d00573a0 100644
+--- a/src/streamlink/stream/segmented/segment.py
++++ b/src/streamlink/stream/segmented/segment.py
+@@ -1,19 +1,20 @@
+ from dataclasses import dataclass, field
++from typing import Union
+ from urllib.parse import urlparse
+ 
+ from streamlink.utils.dataclass import FormattedDataclass
+ 
+ 
+-@dataclass(kw_only=True)
++@dataclass
+ class Segment(metaclass=FormattedDataclass, extra=["fileext"]):
+     num: int
+-    init: bool = False
+-    discontinuity: bool = False
+     uri: str = field(repr=False)
+     duration: float
++    init: bool = False
++    discontinuity: bool = False
+ 
+     @property
+-    def fileext(self) -> str | None:
++    def fileext(self) -> Union[str, None]:
+         path = urlparse(self.uri).path
+         ext = path.split(".")[-1]
+         if 4 >= len(ext) >= 2:
+diff --git a/src/streamlink/stream/segmented/segmented.py b/src/streamlink/stream/segmented/segmented.py
+index 01be7a99..33e39234 100644
+--- a/src/streamlink/stream/segmented/segmented.py
++++ b/src/streamlink/stream/segmented/segmented.py
+@@ -5,7 +5,7 @@ from concurrent import futures
+ from concurrent.futures import ThreadPoolExecutor
+ from datetime import timedelta
+ from threading import Event, current_thread
+-from typing import TYPE_CHECKING, ClassVar, Generic, TypeAlias, TypeVar
++from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
+ 
+ from streamlink.buffers import RingBuffer
+ from streamlink.logger import getLogger
+@@ -43,8 +43,8 @@ TSegment = TypeVar("TSegment", bound=Segment)
+ TResult = TypeVar("TResult")
+ 
+ if TYPE_CHECKING:
+-    TResultFuture: TypeAlias = Future[TResult | None]
+-    TQueueItem: TypeAlias = tuple[TSegment, TResultFuture, tuple]
++    TResultFuture = Future[TResult | None]
++    TQueueItem = tuple[TSegment, TResultFuture, tuple]
+ 
+ 
+ class SegmentedStreamWriter(AwaitableMixin, NamedThread, Generic[TSegment, TResult]):
+diff --git a/src/streamlink/utils/dataclass.py b/src/streamlink/utils/dataclass.py
+index 0890ff89..8b3e70b0 100644
+--- a/src/streamlink/utils/dataclass.py
++++ b/src/streamlink/utils/dataclass.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ import dataclasses
+ from datetime import datetime, timedelta
+-from typing import TYPE_CHECKING, TypeAlias, TypeVar
++from typing import TYPE_CHECKING, TypeVar
+ from weakref import WeakKeyDictionary
+ 
+ 
+@@ -20,7 +20,7 @@ if TYPE_CHECKING:
+     _Ta = TypeVar("_Ta")
+     _Tb = TypeVar("_Tb")
+ 
+-    _TFormatters: TypeAlias = dict[type[_Tb], Callable[[_Tb], str]]
++    _TFormatters = dict[type[_Tb], Callable[[_Tb], str]]
+ 
+ 
+ _DEFAULT_FORMATTERS: _TFormatters = {
+diff --git a/src/streamlink/utils/processoutput.py b/src/streamlink/utils/processoutput.py
+index 644ca418..12da9280 100644
+--- a/src/streamlink/utils/processoutput.py
++++ b/src/streamlink/utils/processoutput.py
+@@ -2,7 +2,16 @@ from __future__ import annotations
+ 
+ import codecs
+ import math
+-from contextlib import aclosing, suppress
++from contextlib import suppress
++
++# Compatibility for Python < 3.10
++try:
++    from contextlib import aclosing
++except ImportError:
++    async def aclosing(async_iterator):
++        async for item in async_iterator:
++            yield item
++        await async_iterator.aclose()
+ from functools import partial
+ from subprocess import PIPE
+ from typing import TYPE_CHECKING, BinaryIO

@@ -1,0 +1,53 @@
+diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py
+index abdeba8ef..39f4d276c 100644
+--- a/astropy/io/ascii/rst.py
++++ b/astropy/io/ascii/rst.py
+@@ -57,10 +57,44 @@ class RST(FixedWidth):
+     data_class = SimpleRSTData
+     header_class = SimpleRSTHeader
+ 
+-    def __init__(self):
+-        super().__init__(delimiter_pad=None, bookend=False)
++    def __init__(self, header_rows=None):
++        if header_rows is None:
++            header_rows = ["name"]
++        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
+ 
+     def write(self, lines):
+         lines = super().write(lines)
+-        lines = [lines[1]] + lines + [lines[1]]
+-        return lines
++
++        # For RST format, we need to add position lines (with '=' characters)
++        # The parent class adds position line at the end of header rows
++        # We need to add position lines at the beginning, between header rows, and at the end
++
++        # Get the position line from the end of header rows (index = len(header_rows))
++        position_line = lines[len(self.header.header_rows)]
++
++        # Build new lines with position lines at appropriate places
++        new_lines = []
++        header_rows_count = len(self.header.header_rows)
++
++        # Add initial position line
++        new_lines.append(position_line)
++
++        # Add header rows with position lines between them
++        for i in range(header_rows_count):
++            new_lines.append(lines[i])
++            # Add position line after each header row except the last one
++            if i < header_rows_count - 1:
++                new_lines.append(position_line)
++
++        # Add position line after all header rows (this is the one from parent)
++        new_lines.append(position_line)
++
++        # Add data lines (skip the position line from parent)
++        for i in range(header_rows_count, len(lines)):
++            if i != len(self.header.header_rows):  # Skip the position line
++                new_lines.append(lines[i])
++
++        # Add final position line
++        new_lines.append(position_line)
++
++        return new_lines

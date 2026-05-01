@@ -1,0 +1,87 @@
+diff --git a/sklearn/ensemble/_gradient_boosting.pyx b/sklearn/ensemble/_gradient_boosting.pyx
+index 290250292..66923fc79 100644
+--- a/sklearn/ensemble/_gradient_boosting.pyx
++++ b/sklearn/ensemble/_gradient_boosting.pyx
+@@ -8,7 +8,7 @@
+ 
+ cimport cython
+ 
+-from libc.stdlib cimport free
++from libc.stdlib cimport free, malloc, calloc
+ from libc.string cimport memset
+ 
+ import numpy as np
+@@ -130,8 +130,8 @@ def _predict_regression_tree_stages_sparse(np.ndarray[object, ndim=2] estimators
+     cdef Tree tree
+     cdef Node** nodes = NULL
+     cdef double** values = NULL
+-    safe_realloc(&nodes, n_stages * n_outputs)
+-    safe_realloc(&values, n_stages * n_outputs)
++    nodes = <Node**>malloc(n_stages * n_outputs * sizeof(Node*))
++    values = <double**>malloc(n_stages * n_outputs * sizeof(double*))
+     for stage_i in range(n_stages):
+         for output_i in range(n_outputs):
+             tree = estimators[stage_i, output_i].tree_
+@@ -147,8 +147,8 @@ def _predict_regression_tree_stages_sparse(np.ndarray[object, ndim=2] estimators
+     # which features are nonzero in the present sample.
+     cdef SIZE_t* feature_to_sample = NULL
+ 
+-    safe_realloc(&X_sample, n_features)
+-    safe_realloc(&feature_to_sample, n_features)
++    X_sample = <DTYPE_t*>malloc(n_features * sizeof(DTYPE_t))
++    feature_to_sample = <SIZE_t*>malloc(n_features * sizeof(SIZE_t))
+ 
+     memset(feature_to_sample, -1, n_features * sizeof(SIZE_t))
+ 
+diff --git a/sklearn/tree/_utils.pxd b/sklearn/tree/_utils.pxd
+index 04806ade1..8151c6ffe 100644
+--- a/sklearn/tree/_utils.pxd
++++ b/sklearn/tree/_utils.pxd
+@@ -10,7 +10,7 @@
+ 
+ import numpy as np
+ cimport numpy as np
+-from _tree cimport Node
++from sklearn.tree._tree cimport Node
+ from sklearn.neighbors.quad_tree cimport Cell
+ 
+ ctypedef np.npy_float32 DTYPE_t          # Type of X
+diff --git a/sklearn/utils/__init__.py b/sklearn/utils/__init__.py
+index f0a00d8b7..67d73a708 100644
+--- a/sklearn/utils/__init__.py
++++ b/sklearn/utils/__init__.py
+@@ -1,7 +1,7 @@
+ """
+ The :mod:`sklearn.utils` module includes various utilities.
+ """
+-from collections import Sequence
++from collections.abc import Sequence
+ 
+ import numpy as np
+ from scipy.sparse import issparse
+diff --git a/sklearn/utils/multiclass.py b/sklearn/utils/multiclass.py
+index 4adefd4ff..b10b55200 100644
+--- a/sklearn/utils/multiclass.py
++++ b/sklearn/utils/multiclass.py
+@@ -7,7 +7,7 @@ Multi-class / multi-label utility function
+ 
+ """
+ from __future__ import division
+-from collections import Sequence
++from collections.abc import Sequence
+ from itertools import chain
+ 
+ from scipy.sparse import issparse
+diff --git a/sklearn/utils/validation.py b/sklearn/utils/validation.py
+index 70e968ee6..b51a17a0c 100644
+--- a/sklearn/utils/validation.py
++++ b/sklearn/utils/validation.py
+@@ -13,7 +13,7 @@ import numbers
+ 
+ import numpy as np
+ import scipy.sparse as sp
+-from numpy.core.numeric import ComplexWarning
++from numpy.exceptions import ComplexWarning
+ 
+ from ..externals import six
+ from ..utils.fixes import signature

@@ -1,0 +1,54 @@
+diff --git a/sklearn/feature_extraction/text.py b/sklearn/feature_extraction/text.py
+index 9b1ebd632..8d2c552d9 100644
+--- a/sklearn/feature_extraction/text.py
++++ b/sklearn/feature_extraction/text.py
+@@ -300,11 +300,18 @@ class VectorizerMixin(object):
+ 
+     def _check_vocabulary(self):
+         """Check if vocabulary is empty or missing (not fit-ed)"""
+-        msg = "%(name)s - Vocabulary wasn't fitted."
+-        check_is_fitted(self, 'vocabulary_', msg=msg),
++        # If vocabulary was provided at initialization, it should be available
++        if self.vocabulary is not None:
++            # Use the provided vocabulary directly
++            if len(self.vocabulary) == 0:
++                raise ValueError("Vocabulary is empty")
++        else:
++            # Otherwise, check if vocabulary was fitted
++            msg = "%(name)s - Vocabulary wasn't fitted."
++            check_is_fitted(self, 'vocabulary_', msg=msg),
+ 
+-        if len(self.vocabulary_) == 0:
+-            raise ValueError("Vocabulary is empty")
++            if len(self.vocabulary_) == 0:
++                raise ValueError("Vocabulary is empty")
+ 
+     def _validate_params(self):
+         """Check validity of ngram_range parameter"""
+@@ -995,7 +1002,9 @@ class CountVectorizer(BaseEstimator, VectorizerMixin):
+         """Array mapping from feature integer indices to feature name"""
+         self._check_vocabulary()
+ 
+-        return [t for t, i in sorted(six.iteritems(self.vocabulary_),
++        # Use the fitted vocabulary if available, otherwise use the provided one
++        vocabulary = getattr(self, 'vocabulary_', self.vocabulary)
++        return [t for t, i in sorted(six.iteritems(vocabulary),
+                                      key=itemgetter(1))]
+ 
+ 
+diff --git a/sklearn/utils/__init__.py b/sklearn/utils/__init__.py
+index 21dcca4f0..6a321c7c2 100644
+--- a/sklearn/utils/__init__.py
++++ b/sklearn/utils/__init__.py
+@@ -1,7 +1,10 @@
+ """
+ The :mod:`sklearn.utils` module includes various utilities.
+ """
+-from collections import Sequence
++try:
++    from collections.abc import Sequence
++except ImportError:
++    from collections import Sequence
+ 
+ import numpy as np
+ from scipy.sparse import issparse

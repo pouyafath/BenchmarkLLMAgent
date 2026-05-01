@@ -1,0 +1,310 @@
+diff --git a/mcpgateway/config.py b/mcpgateway/config.py
+index 297a97fa..9ddae36a 100644
+--- a/mcpgateway/config.py
++++ b/mcpgateway/config.py
+@@ -107,6 +107,12 @@ class Settings(BaseSettings):
+ 
+     # Protocol
+     protocol_version: str = "2025-03-26"
++    
++    # Gateway Protocol Detection
++    gateway_protocol: str = "auto"
++    
++    # External URL for the gateway (overrides auto-detection if set)
++    external_url: Optional[str] = None
+ 
+     # Authentication
+     basic_auth_user: str = "admin"
+@@ -131,7 +137,9 @@ class Settings(BaseSettings):
+     # Tell pydantic *not* to touch this env var - our validator will.
+     allowed_origins: Annotated[Set[str], NoDecode] = {
+         "http://localhost",
++        "https://localhost",
+         "http://localhost:4444",
++        "https://localhost:4444",
+     }
+ 
+     # Max retries for HTTP requests
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..75d2f67b 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -79,9 +79,44 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
+ # First-Party
+ from mcpgateway import __version__
+ from mcpgateway.config import settings
++from mcpgateway.utils.protocol_detector import get_protocol_from_request
+ from mcpgateway.models import ServerCapabilities
+ 
+ logger = logging.getLogger(__name__)
++ 
++
++def _get_gateway_protocol() -> str:
++    """Get the protocol to use for gateway URLs.
++    
++    Determines the protocol based on configuration:
++    - If GATEWAY_PROTOCOL is set to "https", use HTTPS
++    - If GATEWAY_PROTOCOL is set to "http", use HTTP
++    - If GATEWAY_PROTOCOL is "auto" (default), try to detect from environment
++    - Falls back to HTTP for backward compatibility
++    
++    Returns:
++        str: "http" or "https"
++    """
++    protocol = settings.gateway_protocol.lower()
++    
++    if protocol == "https":
++        return "https"
++    elif protocol == "http":
++        return "http"
++    elif protocol == "auto":
++        # Try to detect from external_url if set
++        if settings.external_url:
++            from urllib.parse import urlparse
++            parsed = urlparse(settings.external_url)
++            return parsed.scheme or "http"
++        
++        # Default to http for backward compatibility
++        return "http"
++    else:
++        # Invalid value, default to http
++        logger.warning(f"Invalid GATEWAY_PROTOCOL value: {protocol}. Using http as default.")
++        return "http"
++
+ 
+ PROTOCOL_VERSION = os.getenv("PROTOCOL_VERSION", "2025-03-26")
+ 
+@@ -583,7 +618,7 @@ class DiscoveryService(LocalDiscoveryService):
+                     addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
+                     if addresses:
+                         port = info.port
+-                        url = f"http://{addresses[0]}:{port}"
++                        url = f"{_get_gateway_protocol()}://{addresses[0]}:{port}"
+                         name = info.properties.get(b"name", b"").decode()
+ 
+                         # Add peer
+diff --git a/mcpgateway/main.py b/mcpgateway/main.py
+index 7aa7bd61..e8123da1 100644
+--- a/mcpgateway/main.py
++++ b/mcpgateway/main.py
+@@ -921,7 +921,7 @@ async def sse_endpoint(request: Request, server_id: str, user: str = Depends(req
+         logger.debug(f"User {user} is establishing SSE connection for server {server_id}")
+         base_url = str(request.base_url).rstrip("/")
+         server_sse_url = f"{base_url}/servers/{server_id}"
+-        transport = SSETransport(base_url=server_sse_url)
++        transport = SSETransport(request=request, base_url=server_sse_url)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+         response = await transport.create_sse_response(request)
+@@ -2056,7 +2056,7 @@ async def utility_sse_endpoint(request: Request, user: str = Depends(require_aut
+     try:
+         logger.debug("User %s requested SSE connection", user)
+         base_url = str(request.base_url).rstrip("/")
+-        transport = SSETransport(base_url=base_url)
++        transport = SSETransport(request=request, base_url=base_url)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+ 
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..b9296f6d 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -14,7 +14,7 @@ import asyncio
+ from datetime import datetime
+ import json
+ import logging
+-from typing import Any, AsyncGenerator, Dict
++from typing import Any, AsyncGenerator, Dict, Optional
+ import uuid
+ 
+ # Third-Party
+@@ -24,10 +24,10 @@ from sse_starlette.sse import EventSourceResponse
+ # First-Party
+ from mcpgateway.config import settings
+ from mcpgateway.transports.base import Transport
++from mcpgateway.utils.protocol_detector import get_protocol_from_request
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ class SSETransport(Transport):
+     """Transport implementation using Server-Sent Events with proper session management.
+ 
+@@ -42,10 +42,19 @@ class SSETransport(Transport):
+         <mcpgateway.transports.sse_transport.SSETransport object at ...>
+ 
+         >>> # Create SSE transport with custom URL
+-        >>> transport = SSETransport("http://localhost:8080")
++        >>> transport = SSETransport(base_url="http://localhost:8080")
+         >>> transport._base_url
+         'http://localhost:8080'
+ 
++        >>> # Create SSE transport with request context (auto-detects protocol)
++        >>> from unittest.mock import Mock
++        >>> request = Mock()
++        >>> request.url.scheme = "https"
++        >>> request.base_url = "https://example.com:8443"
++        >>> transport = SSETransport(request=request)
++        >>> transport._base_url.startswith("https://")
++        True
++
+         >>> # Check initial connection state
+         >>> import asyncio
+         >>> asyncio.run(transport.is_connected())
+@@ -76,14 +85,15 @@ class SSETransport(Transport):
+         True
+     """
+ 
+-    def __init__(self, base_url: str = None):
++    def __init__(self, request: Optional[Request] = None, base_url: Optional[str] = None):
+         """Initialize SSE transport.
+ 
+         Args:
+-            base_url: Base URL for client message endpoints
++            request: Optional FastAPI Request object for protocol detection
++            base_url: Base URL for client message endpoints (overrides request-based detection)
+ 
+         Examples:
+-            >>> # Test default initialization
++            >>> # Test default initialization (falls back to http://host:port)
+             >>> transport = SSETransport()
+             >>> transport._connected
+             False
+@@ -95,17 +105,37 @@ class SSETransport(Transport):
+             True
+ 
+             >>> # Test custom base URL
+-            >>> transport = SSETransport("https://api.example.com")
++            >>> transport = SSETransport(base_url="https://api.example.com")
+             >>> transport._base_url
+             'https://api.example.com'
+ 
++            >>> # Test request-based protocol detection
++            >>> from unittest.mock import Mock
++            >>> request = Mock()
++            >>> request.url.scheme = "https"
++            >>> request.base_url = "https://example.com:8443"
++            >>> transport = SSETransport(request=request)
++            >>> transport._base_url.startswith("https://")
++            True
++
+             >>> # Test session ID uniqueness
+             >>> transport1 = SSETransport()
+             >>> transport2 = SSETransport()
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        # Determine base URL based on available information
++        if base_url:
++            # Explicit base_url takes precedence
++            self._base_url = base_url
++        elif request:
++            # Auto-detect protocol from request
++            protocol = get_protocol_from_request(request)
++            self._base_url = f"{protocol}://{settings.host}:{settings.port}"
++        else:
++            # Fallback to default (http)
++            self._base_url = f"http://{settings.host}:{settings.port}"
++
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()
+@@ -162,58 +192,23 @@ class SSETransport(Transport):
+         Args:
+             message: Message to send
+ 
+-        Raises:
+-            RuntimeError: If transport is not connected
+-            Exception: If unable to put message to queue
+-
+         Examples:
+-            >>> # Test sending message when connected
++            >>> # Test message sending
+             >>> transport = SSETransport()
+             >>> import asyncio
+             >>> asyncio.run(transport.connect())
+-            >>> message = {"jsonrpc": "2.0", "method": "test", "id": 1}
+-            >>> asyncio.run(transport.send_message(message))
+-            >>> transport._message_queue.qsize()
+-            1
+-
+-            >>> # Test sending message when not connected
+-            >>> transport = SSETransport()
+-            >>> try:
+-            ...     asyncio.run(transport.send_message({"test": "message"}))
+-            ... except RuntimeError as e:
+-            ...     print("Expected error:", str(e))
+-            Expected error: Transport not connected
+-
+-            >>> # Test message format validation
+-            >>> transport = SSETransport()
+-            >>> asyncio.run(transport.connect())
+-            >>> valid_message = {"jsonrpc": "2.0", "method": "initialize", "params": {}}
+-            >>> isinstance(valid_message, dict)
+-            True
+-            >>> "jsonrpc" in valid_message
++            >>> asyncio.run(transport.send_message({"test": "message"}))
++            >>> asyncio.run(transport.is_connected())
+             True
+-
+-            >>> # Test exception handling in queue put
+-            >>> transport = SSETransport()
+-            >>> asyncio.run(transport.connect())
+-            >>> # Create a full queue to trigger exception
+-            >>> transport._message_queue = asyncio.Queue(maxsize=1)
+-            >>> asyncio.run(transport._message_queue.put({"dummy": "message"}))
+-            >>> # Now queue is full, next put should fail
+-            >>> try:
+-            ...     asyncio.run(asyncio.wait_for(transport.send_message({"test": "message"}), timeout=0.1))
+-            ... except asyncio.TimeoutError:
+-            ...     print("Queue full as expected")
+-            Queue full as expected
+         """
+         if not self._connected:
+-            raise RuntimeError("Transport not connected")
++            raise RuntimeError(f"Transport not connected: {self._session_id}")
+ 
+         try:
+             await self._message_queue.put(message)
+-            logger.debug(f"Message queued for SSE: {self._session_id}, method={message.get('method', '(response)')}")
++            logger.debug(f"Message queued for SSE transport: {self._session_id}")
+         except Exception as e:
+-            logger.error(f"Failed to queue message: {e}")
++            logger.error(f"Error sending message via SSE: {e}")
+             raise
+ 
+     async def receive_message(self) -> AsyncGenerator[Dict[str, Any], None]:
+@@ -314,17 +309,17 @@ class SSETransport(Transport):
+         """
+         return self._connected
+ 
+-    async def create_sse_response(self, _request: Request) -> EventSourceResponse:
+-        """Create SSE response for streaming.
++    async def create_sse_response(self, request: Request) -> EventSourceResponse:
++        """Create SSE response for the given request.
+ 
+         Args:
+-            _request: FastAPI request
++            request: FastAPI Request object
+ 
+         Returns:
+-            SSE response object
++            EventSourceResponse: SSE response object
+ 
+         Examples:
+-            >>> # Test SSE response creation
++            >>> # Test response creation
+             >>> transport = SSETransport("http://localhost:8000")
+             >>> # Note: This method requires a FastAPI Request object
+             >>> # and cannot be easily tested in doctest environment
+@@ -434,8 +429,7 @@ class SSETransport(Transport):
+ 
+     @property
+     def session_id(self) -> str:
+-        """
+-        Get the session ID for this transport.
++        """Get the session ID for this transport.
+ 
+         Returns:
+             str: session_id

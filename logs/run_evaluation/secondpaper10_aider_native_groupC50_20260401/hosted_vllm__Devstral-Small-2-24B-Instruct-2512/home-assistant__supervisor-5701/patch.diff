@@ -1,0 +1,79 @@
+diff --git a/supervisor/homeassistant/module.py b/supervisor/homeassistant/module.py
+index 3b9b76cb..578c064e 100644
+--- a/supervisor/homeassistant/module.py
++++ b/supervisor/homeassistant/module.py
+@@ -398,10 +398,73 @@ class HomeAssistant(FileConfiguration, CoreSysAttributes):
+         if exclude_database:
+             excludes += HOMEASSISTANT_BACKUP_EXCLUDE_DATABASE
+ 
++        def _path_full_match_compat(path: PurePath, pattern: str) -> bool:
++            """Compatible implementation of PurePath.full_match() for Python < 3.12."""
++            import fnmatch
++            from pathlib import PurePath
++
++            path_str = str(path)
++            pattern_str = str(pattern)
++
++            # Handle ** patterns (recursive directory matching)
++            if "**" in pattern_str:
++                # Split both path and pattern into segments
++                path_segments = path_str.split("/")
++                pattern_segments = pattern_str.split("/")
++
++                # Find all ** positions in the pattern
++                double_star_indices = [i for i, seg in enumerate(pattern_segments) if seg == "**"]
++
++                if not double_star_indices:
++                    # No ** found, use simple fnmatch
++                    return fnmatch.fnmatch(path_str, pattern_str)
++
++                # Handle each ** separately
++                for ds_idx in double_star_indices:
++                    # Check segments before **
++                    for i in range(ds_idx):
++                        if i >= len(path_segments):
++                            return False
++                        if not fnmatch.fnmatch(path_segments[i], pattern_segments[i]):
++                            return False
++
++                    # Check segments after **
++                    remaining_pattern_segments = pattern_segments[ds_idx + 1:]
++                    if not remaining_pattern_segments:
++                        # ** at the end matches everything
++                        return True
++
++                    remaining_path_segments = path_segments[ds_idx:]
++
++                    # The remaining pattern must match the remaining path
++                    # We need to find where the remaining pattern matches in the remaining path
++                    pattern_len = len(remaining_pattern_segments)
++                    path_len = len(remaining_path_segments)
++
++                    if pattern_len > path_len:
++                        return False
++
++                    # Try to match the remaining pattern at different positions
++                    for i in range(path_len - pattern_len + 1):
++                        match = True
++                        for j in range(pattern_len):
++                            if not fnmatch.fnmatch(remaining_path_segments[i + j], remaining_pattern_segments[j]):
++                                match = False
++                                break
++                        if match:
++                            return True
++
++                    return False
++
++                return True
++            else:
++                # Simple case, use path.match which doesn't allow * to match /
++                return path.match(pattern_str)
++
+         def _is_excluded_by_filter(path: PurePath) -> bool:
+             """Filter function to filter out excluded files from the backup."""
+             for exclude in excludes:
+-                if not path.full_match(f"data/{exclude}"):
++                if not _path_full_match_compat(path, f"data/{exclude}"):
+                     continue
+                 _LOGGER.debug("Ignoring %s because of %s", path, exclude)
+                 return True

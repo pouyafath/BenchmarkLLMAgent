@@ -1,0 +1,123 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..fdd24f7e97 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,14 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
+-
+-        # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
+-
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        # For module:// syntax, preserve case sensitivity
++        if backend.startswith("module://"):
++            return backend[9:]
++        else:
++            backend = backend.lower()
++            # Check if have specific name to module mapping.
++            backend = self._name_to_module.get(backend, backend)
++            return f"matplotlib.backends.backend_{backend}"
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.
+@@ -224,7 +225,13 @@ class BackendRegistry:
+         bool
+             True if backend is valid, False otherwise.
+         """
+-        backend = backend.lower()
++        # For module:// syntax, preserve case sensitivity
++        original_backend = backend
++        if isinstance(backend, str) and backend.startswith("module://"):
++            # Don't lowercase module:// syntax to preserve case
++            pass
++        else:
++            backend = backend.lower()
+ 
+         # For backward compatibility, convert ipympl and matplotlib-inline long
+         # module:// names to their shortened forms.
+@@ -238,8 +245,8 @@ class BackendRegistry:
+                 backend in self._backend_to_gui_framework):
+             return True
+ 
+-        if backend.startswith("module://"):
+-            self._backend_to_gui_framework[backend] = "unknown"
++        if isinstance(original_backend, str) and original_backend.startswith("module://"):
++            self._backend_to_gui_framework[original_backend] = "unknown"
+             return True
+ 
+         # Only load entry points if really need to and not already done so.
+@@ -341,7 +348,12 @@ class BackendRegistry:
+         framework : str or None
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+-        if isinstance(backend, str):
++        # For module:// syntax, preserve case sensitivity
++        original_backend = backend
++        if isinstance(backend, str) and backend.startswith("module://"):
++            # Don't lowercase module:// syntax to preserve case
++            pass
++        elif isinstance(backend, str):
+             backend = backend.lower()
+         else:  # Might be _auto_backend_sentinel or None
+             # Use whatever is already running...
+@@ -353,7 +365,7 @@ class BackendRegistry:
+                self._backend_to_gui_framework.get(backend))
+ 
+         # Is backend "module://something"?
+-        if gui is None and isinstance(backend, str) and backend.startswith("module://"):
++        if gui is None and isinstance(original_backend, str) and original_backend.startswith("module://"):
+             gui = "unknown"
+ 
+         # Is backend a possible entry point?
+@@ -363,13 +375,15 @@ class BackendRegistry:
+ 
+         # Backend known but not its gui framework.
+         if gui == "unknown":
+-            gui = self._get_gui_framework_by_loading(backend)
+-            self._backend_to_gui_framework[backend] = gui
++            gui = self._get_gui_framework_by_loading(original_backend)
++            self._backend_to_gui_framework[original_backend] = gui
+ 
+         if gui is None:
+-            raise RuntimeError(f"'{backend}' is not a recognised backend name")
++            raise RuntimeError(f"'{original_backend}' is not a recognised backend name")
+ 
+-        return backend, gui if gui != "headless" else None
++        # For module:// syntax, return original case; for regular backends, return lowercase
++        return_backend = original_backend if original_backend.startswith("module://") else backend
++        return return_backend, gui if gui != "headless" else None
+ 
+     def resolve_gui_or_backend(self, gui_or_backend):
+         """
+@@ -395,7 +409,13 @@ class BackendRegistry:
+         framework : str or None
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+-        gui_or_backend = gui_or_backend.lower()
++        # For module:// syntax, preserve case sensitivity
++        original_gui_or_backend = gui_or_backend
++        if isinstance(gui_or_backend, str) and gui_or_backend.startswith("module://"):
++            # Don't lowercase module:// syntax to preserve case
++            pass
++        else:
++            gui_or_backend = gui_or_backend.lower()
+ 
+         # First check if it is a gui loop name.
+         backend = self.backend_for_gui_framework(gui_or_backend)
+@@ -404,10 +424,10 @@ class BackendRegistry:
+ 
+         # Then check if it is a backend name.
+         try:
+-            return self.resolve_backend(gui_or_backend)
++            return self.resolve_backend(original_gui_or_backend)
+         except Exception:  # KeyError ?
+             raise RuntimeError(
+-                f"'{gui_or_backend} is not a recognised GUI loop or backend name")
++                f"'{original_gui_or_backend}' is not a recognised GUI loop or backend name")
+ 
+ 
+ # Singleton

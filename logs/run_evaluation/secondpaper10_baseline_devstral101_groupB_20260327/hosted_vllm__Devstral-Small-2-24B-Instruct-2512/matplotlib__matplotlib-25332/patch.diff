@@ -1,0 +1,33 @@
+diff --git a/lib/matplotlib/cbook.py b/lib/matplotlib/cbook.py
+index c9699b2e21..ab9e77b354 100644
+--- a/lib/matplotlib/cbook.py
++++ b/lib/matplotlib/cbook.py
+@@ -845,6 +845,28 @@ class Grouper:
+         self.clean()
+         siblings = self._mapping.get(weakref.ref(a), [weakref.ref(a)])
+         return [x() for x in siblings]
++    def __getstate__(self):
++        """Return state for pickling by converting weak references to objects."""
++        state = {}
++        for weak_ref, weak_ref_list in self._mapping.items():
++            obj = weak_ref()
++            if obj is not None:
++                # Convert the list of weak references to actual objects
++                obj_list = [ref() for ref in weak_ref_list if ref() is not None]
++                state[id(obj)] = obj_list
++        return state
++
++    def __setstate__(self, state):
++        """Restore state from pickling by converting objects back to weak references."""
++        self._mapping = {}
++        for obj_id, obj_list in state.items():
++            if obj_list:
++                # The first object in the list represents the group
++                obj = obj_list[0]
++                if obj is not None:
++                    weak_ref = weakref.ref(obj)
++                    weak_ref_list = [weakref.ref(o) for o in obj_list if o is not None]
++                    self._mapping[weak_ref] = weak_ref_list
+ 
+ 
+ class GrouperView:

@@ -1,0 +1,49 @@
+diff --git a/trl/trainer/sft_trainer.py b/trl/trainer/sft_trainer.py
+index 983f9394..8aba6deb 100644
+--- a/trl/trainer/sft_trainer.py
++++ b/trl/trainer/sft_trainer.py
+@@ -408,6 +408,14 @@ class DataCollatorForVisionLanguageModeling(DataCollatorMixin):
+             return_tensors=self.return_tensors,
+             add_special_tokens=False,  # to avoid adding the BOS, twice see https://huggingface.co/blog/qgallouedec/gotchas-in-tokenizer-behavior#7-chat-template-and-tokenization-dont-compose-due-to-special-tokens
+         )
++        # Some VLM processors (e.g., Qwen3.5) return inputs_embeds with 4 dimensions (batch_size, num_media, seq_length, hidden_size)
++        # even when no images are provided. The model expects exactly 3 dimensions (batch_size, seq_length, hidden_size).
++        # We need to squeeze out the extra dimension(s) to ensure compatibility.
++        if "inputs_embeds" in output and output["inputs_embeds"].ndim > 3:
++            # Squeeze all dimensions with size 1 except the first two (batch and sequence)
++            # This handles cases where num_media=1 or other singleton dimensions
++            while output["inputs_embeds"].ndim > 3:
++                output["inputs_embeds"] = output["inputs_embeds"].squeeze(1)
+         labels = output["input_ids"].clone()
+         labels[output["attention_mask"] == 0] = -100
+         # We mask only padding tokens (-100) in the labels. Vision tokens are left unchanged because their handling in
+@@ -446,6 +454,14 @@ class DataCollatorForVisionLanguageModeling(DataCollatorMixin):
+             return_tensors=self.return_tensors,
+             add_special_tokens=False,  # to avoid adding the BOS, twice see https://huggingface.co/blog/qgallouedec/gotchas-in-tokenizer-behavior#7-chat-template-and-tokenization-dont-compose-due-to-special-tokens
+         )
++        # Some VLM processors (e.g., Qwen3.5) return inputs_embeds with 4 dimensions (batch_size, num_media, seq_length, hidden_size)
++        # even when no images are provided. The model expects exactly 3 dimensions (batch_size, seq_length, hidden_size).
++        # We need to squeeze out the extra dimension(s) to ensure compatibility.
++        if "inputs_embeds" in processed_prompts and processed_prompts["inputs_embeds"].ndim > 3:
++            # Squeeze all dimensions with size 1 except the first two (batch and sequence)
++            # This handles cases where num_media=1 or other singleton dimensions
++            while processed_prompts["inputs_embeds"].ndim > 3:
++                processed_prompts["inputs_embeds"] = processed_prompts["inputs_embeds"].squeeze(1)
+         processed_completions = self.processor(
+             text=completions,
+             padding=True,
+@@ -453,6 +469,14 @@ class DataCollatorForVisionLanguageModeling(DataCollatorMixin):
+             return_tensors=self.return_tensors,
+             add_special_tokens=False,  # to avoid adding the BOS, twice see https://huggingface.co/blog/qgallouedec/gotchas-in-tokenizer-behavior#7-chat-template-and-tokenization-dont-compose-due-to-special-tokens
+         )
++        # Some VLM processors (e.g., Qwen3.5) return inputs_embeds with 4 dimensions (batch_size, num_media, seq_length, hidden_size)
++        # even when no images are provided. The model expects exactly 3 dimensions (batch_size, seq_length, hidden_size).
++        # We need to squeeze out the extra dimension(s) to ensure compatibility.
++        if "inputs_embeds" in processed_completions and processed_completions["inputs_embeds"].ndim > 3:
++            # Squeeze all dimensions with size 1 except the first two (batch and sequence)
++            # This handles cases where num_media=1 or other singleton dimensions
++            while processed_completions["inputs_embeds"].ndim > 3:
++                processed_completions["inputs_embeds"] = processed_completions["inputs_embeds"].squeeze(1)
+ 
+         # Concatenate prompts and completions
+         prompt_ids, prompt_mask = processed_prompts["input_ids"], processed_prompts["attention_mask"]

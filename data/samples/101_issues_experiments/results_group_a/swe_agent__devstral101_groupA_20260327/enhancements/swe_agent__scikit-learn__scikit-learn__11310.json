@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#11310",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "Retrieving time to refit the estimator in BaseSearchCV",
+  "original_body": "Retrieving time to refit the estimator in BaseSearchCV\nBasically, I'm trying to figure out how much time it takes to refit the best model on the full data after doing grid/random search. What I can so far do is retrieve the time it takes to fit and score each model:\r\n```\r\nimport sklearn.datasets\r\nimport sklearn.model_selection\r\nimport sklearn.ensemble\r\n\r\nX, y = sklearn.datasets.load_iris(return_X_y=True)\r\n\r\nrs = sklearn.model_selection.GridSearchCV(\r\n    estimator=sklearn.ensemble.RandomForestClassifier(),\r\n    param_grid={'n_estimators': [2, 3, 4, 5]}\r\n)\r\nrs.fit(X, y)\r\nprint(rs.cv_results_['mean_fit_time'])\r\nprint(rs.cv_results_['mean_score_time'])\r\n```\r\nIn case I run this on a single core, I could time the whole search procedure and subtract the time it took to fit the single folds during hyperparameter optimization. Nevertheless, this isn't possible any more when setting `n_jobs != 1`.\r\n\r\nThus, it would be great to have an attribute `refit_time_` which is simply the time it took to refit the best model.\r\n\r\nUsecase: for [OpenML.org](https://openml.org) we want to support uploading the results of hyperparameter optimization, including the time it takes to do the hyperparameter optimization. \n",
+  "enhanced_title": "Add \\`refit_time_\\` attribute to track time taken for final model refit in BaseSearchCV",
+  "enhanced_body": "## Problem Description\nWhen using \\`GridSearchCV\\` or \\`RandomizedSearchCV\\` (both inheriting from \\`BaseSearchCV\\`), there's currently no way to retrieve the time taken to refit the best estimator on the full dataset after hyperparameter optimization completes.\n\n## Current Behavior\nUsers can access timing information for cross-validation folds:\n- \\`cv_results_['mean_fit_time']\\` - average time to fit each model\n- \\`cv_results_['mean_score_time']\\` - average time to score each model\n\nHowever, there's no attribute to track the time taken for the final refit operation on the entire dataset.\n\n## Expected Behavior\nAdd a \\`refit_time_\\` attribute to \\`BaseSearchCV\\` that stores the time taken to refit the best estimator on the full dataset.\n\n## Use Case\nFor [OpenML.org](https://openml.org), we need to track and report the complete time taken for hyperparameter optimization, including the final model refitting time.\n\n## Reproduction Steps\n1. Create a GridSearchCV or RandomizedSearchCV instance\n2. Fit it to data\n3. Try to access timing information for the refit operation\n4. Observe that no such attribute exists\n\n```python\nimport sklearn.datasets\nimport sklearn.model_selection\nimport sklearn.ensemble\n\nX, y = sklearn.datasets.load_iris(return_X_y=True)\n\nrs = sklearn.model_selection.GridSearchCV(\n    estimator=sklearn.ensemble.RandomForestClassifier(),\n    param_grid={'n_estimators': [2, 3, 4, 5]}\n)\nrs.fit(X, y)\n\n# Current available timing information\nprint(rs.cv_results_['mean_fit_time'])\nprint(rs.cv_results_['mean_score_time'])\n\n# Missing: refit_time_ attribute\ntry:\n    print(rs.refit_time_)\nexcept AttributeError:\n    print(\\\"refit_time_ attribute does not exist\\\")\n```\n\n## Affected Components\nBased on the hints, this change would affect:\n- \\`sklearn/model_selection/_search.py\\` (contains BaseSearchCV implementation)\n- Related search classes that inherit from BaseSearchCV\n\n## Environment Details\n- scikit-learn version: Any version (feature request)\n- Python version: Any supported version\n- Platform: Any\n\n## Proposed Solution\nAdd a \\`refit_time_\\` attribute to \\`BaseSearchCV\\` that:\n1. Measures the time taken for the final refit operation\n2. Is accessible after \\`fit()\\` completes\n3. Works correctly with both \\`n_jobs=1\\` and \\`n_jobs>1\\` configurations\n\n## Additional Context\nThis feature would complement the existing timing information and provide a complete picture of the computational resources required for hyperparameter optimization.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpjtxy8zrx/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

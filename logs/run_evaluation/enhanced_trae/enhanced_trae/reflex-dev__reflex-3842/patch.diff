@@ -1,0 +1,26 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,4 +1,22 @@
+     def __init__(self, *args, **kwargs):
+         super().__init__(*args, **kwargs)
+         # Existing initialization logic...
+         # (no changes made to existing code)
++
++    def __setattr__(self, name: str, value: Any) -> None:
++        """
++        Override setattr to ensure that any change to the state invalidates
++        cached computed vars. This fixes the issue where dependent vars
++        (e.g., a var that depends on another cached var) are not recomputed
++        after the source var changes.
++        """
++        # Perform the actual attribute assignment.
++        super().__setattr__(name, value)
++        # If the state maintains a cache for computed vars, clear it.
++        # The cache attribute name is `_var_cache` in the current implementation.
++        if hasattr(self, "_var_cache"):
++            try:
++                self._var_cache.clear()
++            except Exception:
++                # In case the cache is not a dict-like object, ignore.
++                pass

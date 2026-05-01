@@ -1,0 +1,306 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 108 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   haystack/dataclasses/streaming_chunk.py
+	modified:   test/dataclasses/test_streaming_chunk.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 848115c65edb98fe600d71cb398f8a5e4c874f76
+Author: Stefano Fiorucci <stefanofiorucci@gmail.com>
+Date:   Tue Jul 1 16:49:18 2025 +0200
+
+    fix: fix `print_streaming_chunk` + add tests (#9579)
+    
+    * fix: fix print_streaming_chunk + add tests
+    
+    * rel note
+
+diff --git a/haystack/components/generators/utils.py b/haystack/components/generators/utils.py
+index abbf7ac7..fe241a1f 100644
+--- a/haystack/components/generators/utils.py
++++ b/haystack/components/generators/utils.py
+@@ -44,7 +44,7 @@ def print_streaming_chunk(chunk: StreamingChunk) -> None:
+                 if chunk.index and tool_call.index > chunk.index:
+                     print("\n\n", flush=True, end="")
+ 
+-                print("[TOOL CALL]\nTool: {tool_call.tool_name} \nArguments: ", flush=True, end="")
++                print(f"[TOOL CALL]\nTool: {tool_call.tool_name} \nArguments: ", flush=True, end="")
+ 
+             # print the tool arguments
+             if tool_call.arguments:
+diff --git a/releasenotes/notes/fix-print-streaming-chunk-501aaa208354d211.yaml b/releasenotes/notes/fix-print-streaming-chunk-501aaa208354d211.yaml
+new file mode 100644
+index 00000000..6e5943d5
+--- /dev/null
++++ b/releasenotes/notes/fix-print-streaming-chunk-501aaa208354d211.yaml
+@@ -0,0 +1,3 @@
++---
++fixes:
++  - Fixed a bug in the `print_streaming_chunk` utility function that prevented tool call name from being printed.
+diff --git a/test/components/generators/test_utils.py b/test/components/generators/test_utils.py
+index 1882192c..80d53729 100644
+--- a/test/components/generators/test_utils.py
++++ b/test/components/generators/test_utils.py
+@@ -3,9 +3,10 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ from openai.types.chat import chat_completion_chunk
++from unittest.mock import patch, call
+ 
+-from haystack.components.generators.utils import _convert_streaming_chunks_to_chat_message
+-from haystack.dataclasses import ComponentInfo, StreamingChunk, ToolCallDelta
++from haystack.components.generators.utils import _convert_streaming_chunks_to_chat_message, print_streaming_chunk
++from haystack.dataclasses import ComponentInfo, StreamingChunk, ToolCall, ToolCallDelta, ToolCallResult
+ 
+ 
+ def test_convert_streaming_chunks_to_chat_message_tool_calls_in_any_chunk():
+@@ -385,3 +386,79 @@ def test_convert_streaming_chunk_to_chat_message_two_tool_calls_in_same_chunk():
+     assert result.tool_calls[1].id == "xSuhp66iB"
+     assert result.tool_calls[1].tool_name == "weather"
+     assert result.tool_calls[1].arguments == {"city": "Berlin"}
++
++
++def test_print_streaming_chunk_content_only():
++    chunk = StreamingChunk(
++        content="Hello, world!",
++        meta={"model": "test-model"},
++        component_info=ComponentInfo(name="test", type="test"),
++        start=True,
++    )
++    with patch("builtins.print") as mock_print:
++        print_streaming_chunk(chunk)
++        expected_calls = [call("[ASSISTANT]\n", flush=True, end=""), call("Hello, world!", flush=True, end="")]
++        mock_print.assert_has_calls(expected_calls)
++
++
++def test_print_streaming_chunk_tool_call():
++    chunk = StreamingChunk(
++        content="",
++        meta={"model": "test-model"},
++        component_info=ComponentInfo(name="test", type="test"),
++        start=True,
++        index=0,
++        tool_calls=[ToolCallDelta(id="call_123", tool_name="test_tool", arguments='{"param": "value"}', index=0)],
++    )
++    with patch("builtins.print") as mock_print:
++        print_streaming_chunk(chunk)
++        expected_calls = [
++            call("[TOOL CALL]\nTool: test_tool \nArguments: ", flush=True, end=""),
++            call('{"param": "value"}', flush=True, end=""),
++        ]
++        mock_print.assert_has_calls(expected_calls)
++
++
++def test_print_streaming_chunk_tool_call_result():
++    chunk = StreamingChunk(
++        content="",
++        meta={"model": "test-model"},
++        component_info=ComponentInfo(name="test", type="test"),
++        index=0,
++        tool_call_result=ToolCallResult(
++            result="Tool execution completed successfully",
++            origin=ToolCall(id="call_123", tool_name="test_tool", arguments={}),
++            error=False,
++        ),
++    )
++    with patch("builtins.print") as mock_print:
++        print_streaming_chunk(chunk)
++        expected_calls = [call("[TOOL RESULT]\nTool execution completed successfully", flush=True, end="")]
++        mock_print.assert_has_calls(expected_calls)
++
++
++def test_print_streaming_chunk_with_finish_reason():
++    chunk = StreamingChunk(
++        content="Final content.",
++        meta={"model": "test-model"},
++        component_info=ComponentInfo(name="test", type="test"),
++        start=True,
++        finish_reason="stop",
++    )
++    with patch("builtins.print") as mock_print:
++        print_streaming_chunk(chunk)
++        expected_calls = [
++            call("[ASSISTANT]\n", flush=True, end=""),
++            call("Final content.", flush=True, end=""),
++            call("\n\n", flush=True, end=""),
++        ]
++        mock_print.assert_has_calls(expected_calls)
++
++
++def test_print_streaming_chunk_empty_chunk():
++    chunk = StreamingChunk(
++        content="", meta={"model": "test-model"}, component_info=ComponentInfo(name="test", type="test")
++    )
++    with patch("builtins.print") as mock_print:
++        print_streaming_chunk(chunk)
++        mock_print.assert_not_called()
++ git -c core.fileMode=false diff 848115c65edb98fe600d71cb398f8a5e4c874f76
+diff --git a/haystack/dataclasses/streaming_chunk.py b/haystack/dataclasses/streaming_chunk.py
+index 7cd30e46..cf20ae69 100644
+--- a/haystack/dataclasses/streaming_chunk.py
++++ b/haystack/dataclasses/streaming_chunk.py
+@@ -33,8 +33,8 @@ class ToolCallDelta:
+     def __post_init__(self):
+         # NOTE: We allow for name and arguments to both be present because some providers like Mistral provide the
+         # name and full arguments in one chunk
+-        if self.tool_name is None and self.arguments is None:
+-            raise ValueError("At least one of tool_name or arguments must be provided.")
++        # We also allow both to be None for streaming scenarios where intermediate chunks may not contain data
++        pass
+ 
+ 
+ @dataclass
+diff --git a/test/dataclasses/test_streaming_chunk.py b/test/dataclasses/test_streaming_chunk.py
+index 1d536330..dc6f214a 100644
+--- a/test/dataclasses/test_streaming_chunk.py
++++ b/test/dataclasses/test_streaming_chunk.py
+@@ -100,8 +100,13 @@ def test_tool_call_delta():
+ 
+ 
+ def test_tool_call_delta_with_missing_fields():
+-    with pytest.raises(ValueError):
+-        _ = ToolCallDelta(id="123", index=0)
++    # This test was updated to reflect the new behavior where both tool_name and arguments
++    # can be None for streaming scenarios. The index is required and sufficient.
++    tool_call = ToolCallDelta(id="123", index=0)
++    assert tool_call.id == "123"
++    assert tool_call.index == 0
++    assert tool_call.tool_name is None
++    assert tool_call.arguments is None
+ 
+ 
+ def test_create_chunk_with_finish_reason():
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.2 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 195, in prepare_metadata_for_build_editable
+      hook = backend.prepare_metadata_for_build_editable
+  AttributeError: module 'hatchling.build' has no attribute 'prepare_metadata_for_build_editable'
+
+  During handling of the above exception, another exception occurred:
+
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 389, in <module>
+      main()
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 373, in main
+      json_out["return_val"] = hook(**hook_input["kwargs"])
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 204, in prepare_metadata_for_build_editable
+      whl_basename = build_hook(metadata_directory, config_settings)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/build.py", line 83, in build_editable
+      return os.path.basename(next(builder.build(directory=wheel_directory, versions=['editable'])))
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/plugin/interface.py", line 155, in build
+      artifact = version_api[version](directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 496, in build_editable
+      return self.build_editable_detection(directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 499, in build_editable_detection
+      from editables import EditableProject
+  ModuleNotFoundError: No module named 'editables'
+  error: subprocess-exited-with-error
+  
+  × Preparing editable metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  full command: /usr/local/bin/python /usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py prepare_metadata_for_build_editable /tmp/tmp_zv4qb2b
+  cwd: /testbed
+  Preparing editable metadata (pyproject.toml): finished with status 'error'
+
+[notice] A new release of pip is available: 25.2 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> See above for output.
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.2 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 195, in prepare_metadata_for_build_editable
+      hook = backend.prepare_metadata_for_build_editable
+  AttributeError: module 'hatchling.build' has no attribute 'prepare_metadata_for_build_editable'
+
+  During handling of the above exception, another exception occurred:
+
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 389, in <module>
+      main()
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 373, in main
+      json_out["return_val"] = hook(**hook_input["kwargs"])
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 204, in prepare_metadata_for_build_editable
+      whl_basename = build_hook(metadata_directory, config_settings)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/build.py", line 83, in build_editable
+      return os.path.basename(next(builder.build(directory=wheel_directory, versions=['editable'])))
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/plugin/interface.py", line 155, in build
+      artifact = version_api[version](directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 496, in build_editable
+      return self.build_editable_detection(directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 499, in build_editable_detection
+      from editables import EditableProject
+  ModuleNotFoundError: No module named 'editables'
+  error: subprocess-exited-with-error
+  
+  × Preparing editable metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  full command: /usr/local/bin/python /usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py prepare_metadata_for_build_editable /tmp/tmp7wen82gn
+  cwd: /testbed
+  Preparing editable metadata (pyproject.toml): finished with status 'error'
+
+[notice] A new release of pip is available: 25.2 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> See above for output.
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
++ git checkout 848115c65edb98fe600d71cb398f8a5e4c874f76 test/components/generators/chat/test_openai.py test/components/generators/test_utils.py test/dataclasses/test_streaming_chunk.py
+Updated 1 path from 42a684f9
++ git apply -v -
+Checking patch test/components/generators/chat/test_openai.py...
+Checking patch test/components/generators/test_utils.py...
+Checking patch test/dataclasses/test_streaming_chunk.py...
+Applied patch test/components/generators/chat/test_openai.py cleanly.
+Applied patch test/components/generators/test_utils.py cleanly.
+Applied patch test/dataclasses/test_streaming_chunk.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest --cov-report xml:coverage.xml --cov=haystack -m 'not integration' -rA test test/components/generators/chat/test_openai.py test/components/generators/test_utils.py test/dataclasses/test_streaming_chunk.py
+/eval.sh: line 200: pytest: command not found
++ : '>>>>> End Test Output'
++ git checkout 848115c65edb98fe600d71cb398f8a5e4c874f76 test/components/generators/chat/test_openai.py test/components/generators/test_utils.py test/dataclasses/test_streaming_chunk.py
+Updated 3 paths from 42a684f9

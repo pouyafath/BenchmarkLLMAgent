@@ -1,0 +1,36 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..4acb37236 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -208,6 +208,31 @@ class _BaseHeterogeneousEnsemble(
+ 
+     @abstractmethod
+     def __init__(self, estimators):
++        # Validate estimators format
++        if not isinstance(estimators, (list, tuple)):
++            raise ValueError(
++                "estimators should be a list/tuple of (name, estimator) pairs"
++            )
++        if len(estimators) == 0:
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "non-empty list of (string, estimator) tuples."
++            )
++        for item in estimators:
++            if not isinstance(item, (list, tuple)) or len(item) != 2:
++                raise ValueError(
++                    "Each element of estimators should be a tuple of (name, estimator)"
++                )
++            name, estimator = item
++            if not isinstance(name, str):
++                raise ValueError(
++                    "Estimator names must be strings"
++                )
++            # Check if estimator is a valid BaseEstimator
++            if estimator != 'drop' and not hasattr(estimator, 'fit'):
++                raise ValueError(
++                    f"Estimator {name} must be a scikit-learn estimator or 'drop'"
++                )
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):

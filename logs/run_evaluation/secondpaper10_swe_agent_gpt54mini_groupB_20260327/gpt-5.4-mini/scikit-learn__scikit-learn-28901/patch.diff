@@ -1,0 +1,82 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..c346d26f1 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -103,6 +103,12 @@ class Pipeline(_BaseComposition):
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
++    transform_input : list of str, default=None
++        The names of metadata arguments to transform along with ``X`` through
++        the pipeline up to the step that requests them.
++
++        This requires metadata routing to be enabled.
++
+     Attributes
+     ----------
+     named_steps : :class:`~sklearn.utils.Bunch`
+@@ -158,12 +164,14 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list, tuple],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -385,6 +393,13 @@ class Pipeline(_BaseComposition):
+ 
+         fit_transform_one_cached = memory.cache(_fit_transform_one)
+ 
++        transform_input = getattr(self, "transform_input", None)
++        if transform_input is not None and not _routing_enabled():
++            raise ValueError(
++                "`transform_input` can only be set if metadata routing is enabled."
++            )
++        transformed_metadata = {} if transform_input else None
++
+         for step_idx, name, transformer in self._iter(
+             with_final=False, filter_passthrough=False
+         ):
+@@ -412,6 +427,21 @@ class Pipeline(_BaseComposition):
+             # transformer. This is necessary when loading the transformer
+             # from the cache.
+             self.steps[step_idx] = (name, fitted_transformer)
++
++            if transformed_metadata is not None:
++                for metadata_name in transform_input:
++                    if metadata_name not in routed_params:
++                        continue
++                    if metadata_name in routed_params[name].transform:
++                        transformed_metadata.pop(metadata_name, None)
++                        continue
++                    metadata = transformed_metadata.get(
++                        metadata_name, routed_params[metadata_name].fit
++                    )
++                    transformed_metadata[metadata_name] = fitted_transformer.transform(
++                        metadata, **routed_params[name].transform
++                    )
++
+         return X
+ 
+     @_fit_context(
+@@ -1239,6 +1269,12 @@ def make_pipeline(*steps, memory=None, verbose=False):
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
++    transform_input : list of str, default=None
++        The names of metadata arguments to transform along with ``X`` through
++        the pipeline up to the step that requests them.
++
++        This requires metadata routing to be enabled.
++
+     Returns
+     -------
+     p : Pipeline

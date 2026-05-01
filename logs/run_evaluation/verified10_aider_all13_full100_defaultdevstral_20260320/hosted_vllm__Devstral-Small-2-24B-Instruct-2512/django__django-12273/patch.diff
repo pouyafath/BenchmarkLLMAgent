@@ -1,0 +1,18 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 844c01e95e..a19415c3c7 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -779,6 +779,13 @@ class Model(metaclass=ModelBase):
+         with context_manager:
+             parent_inserted = False
+             if not raw:
++                # Check if any non-auto-created primary key fields have been set to None
++                # This handles the case where a child model inherits a primary key and sets it to None
++                non_auto_pk_fields = [f for f in meta.fields if f.primary_key and not f.auto_created]
++                if any(getattr(self, f.attname) is None for f in non_auto_pk_fields):
++                    force_insert = True
++                    # Also reset the pointer field to None so it gets the new value from parent insert
++                    setattr(self, meta.pk.attname, None)
+                 parent_inserted = self._save_parents(cls, using, update_fields)
+             updated = self._save_table(
+                 raw, cls, force_insert or parent_inserted,

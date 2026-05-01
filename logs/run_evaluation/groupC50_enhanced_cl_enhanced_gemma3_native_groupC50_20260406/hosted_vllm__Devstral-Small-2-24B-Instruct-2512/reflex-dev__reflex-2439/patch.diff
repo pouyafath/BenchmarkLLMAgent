@@ -1,0 +1,153 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..e5c2949c 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -1,6 +1,6 @@
+ """rx.match."""
+ import textwrap
+-from typing import Any, Dict, List, Optional, Tuple, Union
++from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
+ 
+ from reflex.components.base import Fragment
+ from reflex.components.component import BaseComponent, Component, MemoizationLeaf
+@@ -13,6 +13,9 @@ from reflex.vars import BaseVar, Var, VarData
+ class Match(MemoizationLeaf):
+     """Match cases based on a condition."""
+ 
++    # The tag to use when rendering the component.
++    tag: str = "match"
++
+     # The condition to determine which case to match.
+     cond: Var[Any]
+ 
+@@ -194,14 +197,46 @@ class Match(MemoizationLeaf):
+             default = Fragment.create()
+ 
+         if types._issubclass(type(match_cases[0][-1]), BaseComponent):
+-            return Fragment.create(
+-                cls(
+-                    cond=match_cond_var,
+-                    match_cases=match_cases,
+-                    default=default,
+-                )
++            # Collect VarData from all components in match cases and default
++            var_data_list = []
++
++            # Add condition variable's VarData
++            if match_cond_var._var_data is not None:
++                var_data_list.append(match_cond_var._var_data)
++
++            # Add VarData from all components in match cases
++            for case in match_cases:
++                for element in case:
++                    if isinstance(element, BaseComponent):
++                        # Get VarData from the component's event triggers and props
++                        component_vars = element._get_vars()
++                        for var in component_vars:
++                            if var._var_data is not None:
++                                var_data_list.append(var._var_data)
++
++            # Add VarData from default component if it's a BaseComponent
++            if isinstance(default, BaseComponent):
++                default_vars = default._get_vars()
++                for var in default_vars:
++                    if var._var_data is not None:
++                        var_data_list.append(var._var_data)
++
++            # Merge all VarData
++            merged_var_data = VarData.merge(*var_data_list) if var_data_list else None
++
++            # Create the Match component with merged VarData
++            match_component = cls(
++                cond=match_cond_var,
++                match_cases=match_cases,
++                default=default,
+             )
+ 
++            # If we have merged VarData, add it to the component
++            if merged_var_data is not None:
++                match_component._var_data = merged_var_data
++
++            return Fragment.create(match_component)
++
+         # Validate the match cases (as well as the default case) to have Var return types.
+         if any(
+             case for case in match_cases if not types._isinstance(case[-1], BaseVar)
+@@ -232,6 +267,34 @@ class Match(MemoizationLeaf):
+         return MatchTag(
+             cond=self.cond, match_cases=self.match_cases, default=self.default
+         )
++    def _get_vars(self) -> list[Var]:
++        """Walk all Vars used in this component, including those in match cases.
++
++        Returns:
++            Each var referenced by the component (cond, match cases, default).
++        """
++        vars = super()._get_vars()
++
++        # Add the condition variable
++        if isinstance(self.cond, Var):
++            vars.append(self.cond)
++
++        # Add all vars from match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, Var):
++                    vars.append(element)
++                elif isinstance(element, BaseComponent):
++                    # Get vars from component children and props
++                    vars.extend(element._get_vars())
++
++        # Add vars from default if it's a Var or BaseComponent
++        if isinstance(self.default, Var):
++            vars.append(self.default)
++        elif isinstance(self.default, BaseComponent):
++            vars.extend(self.default._get_vars())
++
++        return vars
+ 
+     def render(self) -> Dict:
+         """Render the component.
+@@ -242,16 +305,36 @@ class Match(MemoizationLeaf):
+         tag = self._render()
+         tag.name = "match"
+         return dict(tag)
++    def get_hooks(self) -> set[str]:
++        """Get the React hooks for this component and its match cases.
++
++        Returns:
++            The hooks for the match component and all its cases.
++        """
++        hooks = set()
++
++        # Collect hooks from all components in match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseComponent):
++                    hooks |= element.get_hooks()
++
++        # Collect hooks from default component if it's a BaseComponent
++        if isinstance(self.default, BaseComponent):
++            hooks |= self.default.get_hooks()
++
++        return hooks
+ 
+     def _get_imports(self):
+         merged_imports = super()._get_imports()
+-        # Obtain the imports of all components the in match case.
++        # Obtain the imports of all components in match cases (both conditions and return values)
+         for case in self.match_cases:
+-            if isinstance(case[-1], BaseComponent):
+-                merged_imports = imports.merge_imports(
+-                    merged_imports,
+-                    case[-1].get_imports(),
+-                )
++            for element in case:
++                if isinstance(element, BaseComponent):
++                    merged_imports = imports.merge_imports(
++                        merged_imports,
++                        element.get_imports(),
++                    )
+         # Get the import of the default case component.
+         if isinstance(self.default, BaseComponent):
+             merged_imports = imports.merge_imports(

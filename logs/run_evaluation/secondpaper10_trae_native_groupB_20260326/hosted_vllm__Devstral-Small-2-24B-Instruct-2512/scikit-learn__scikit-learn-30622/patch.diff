@@ -1,0 +1,45 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..556bf2226 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -208,6 +208,40 @@ class _BaseHeterogeneousEnsemble(
+ 
+     @abstractmethod
+     def __init__(self, estimators):
++        # Validate estimators format early to provide clear error messages
++        if not isinstance(estimators, (list, tuple)):
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "list or tuple of (string, estimator) tuples."
++            )
++
++        if len(estimators) == 0:
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "non-empty list of (string, estimator) tuples."
++            )
++
++        for i, estimator in enumerate(estimators):
++            if not isinstance(estimator, (list, tuple)) or len(estimator) != 2:
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, 'estimators' should be a "
++                    f"list or tuple of (string, estimator) tuples. "
++                    f"Got estimator at index {i}: {type(estimator).__name__}"
++                )
++            name, estimator = estimator
++            if not isinstance(name, str):
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, the first element of each "
++                    f"tuple should be a string (name). Got at index {i}: "
++                    f"{type(name).__name__}"
++                )
++            if not isinstance(estimator, BaseEstimator) and estimator != "drop":
++                raise ValueError(
++                    f"Invalid 'estimators' attribute, the second element of each "
++                    f"tuple should be an estimator or 'drop'. Got at index {i}: "
++                    f"{type(estimator).__name__}"
++                )
++
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):

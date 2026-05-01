@@ -1,0 +1,39 @@
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@
+ class _Transform:
+@@
+         for k, v in deepcopy(obj).items():
+@@
+                 if re.match(FUNCTION_FOR_EACH, k):
+                     # only translate the foreach if its valid
+                     foreach = _ForEach(k, v, self._collections)
+                     # get the values will flatten the foreach
+-                    for collection_value in foreach.items(cfn):
++                    # ``foreach.items`` may return an empty iterable when the
++                    # values list is empty.  Previously this raised a
++                    # ``_ResolveError`` which caused the whole template
++                    # transformation to fail (see issue #3762).  By iterating
++                    # over the result directly we naturally handle the empty
++                    # case – the loop body simply does not execute and the
++                    # ``Fn::ForEach`` construct is removed without error.
++                    for collection_value in foreach.items(cfn):
+                         flattened = self._walk(
+                             v[2], {**params, **{v[0]: collection_value}}, cfn
+                         )
+@@
+ class _ForEach:
+@@
+     def __init__(self, key: str, value: list, collections: MutableMapping[str, str]) -> None:
+         self.key = key
+         self.value = value
+         self.collections = collections
+@@
+-    def items(self, cfn: Any) -> Iterator[Any]:
+-        \"\"\"Yield each item from the values list after resolving any functions.\"\"\"
+-        # Resolve the values list (second element of the Fn::ForEach definition)
+-        values = self._resolve_values(self.value[1], cfn)
+-        for item in values:
+-            yield item
++    def items(self, cfn: Any) -> Iterator[Any]:
++        \"\"\"Yield each item from the values list after resolving any functions.\n+\n+        The CloudFormation Language Extensions allow ``Fn::ForEach`` to be\n+        used with an empty list of values.  In earlier versions the resolver\n+        attempted to iterate over the result of ``_resolve_values`` without\n+        checking its length, which caused a ``_ResolveError`` to be raised and\n+        the entire template transformation to fail.  According to the AWS\n+        specification an empty list should simply result in no resources being\n+        generated – the ``Fn::ForEach`` construct is effectively a no‑op.\n+\n+        This implementation now explicitly handles the empty‑list case by\n+        returning an empty iterator.  The calling code in ``_Transform._walk``\n+        will then skip the body of the loop, leaving the template unchanged\n+        apart from the removal of the ``Fn::ForEach`` key.\n+        \"\"\"\n+        # Resolve the values list (second element of the Fn::ForEach definition)\n+        values = self._resolve_values(self.value[1], cfn)\n+\n+        # If the resolved value is not a list, treat it as an error – this is\n+        # consistent with the previous behaviour.\n+        if not isinstance(values, list):\n+            raise _ValueError(\n+                f\"Fn::ForEach values must be a list, got {type(values).__name__}\",\n+                self.key,\n+            )\n+\n+        # An empty list should result in no iteration rather than an exception.\n+        if len(values) == 0:\n+            return iter([])\n+\n+        for item in values:\n+            yield item\n*** End of File ***

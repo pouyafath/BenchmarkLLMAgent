@@ -1,0 +1,24 @@
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@
+-from reflex.ivars.base import ImmutableComputedVar, ImmutableVar, immutable_computed_var
++from reflex.ivars.base import ImmutableComputedVar, ImmutableVar, immutable_computed_var
+@@
+-var = immutable_computed_var
++# NOTE: The original `immutable_computed_var` supports caching via the `cache` argument.
++# However, caching of computed vars can lead to stale values when those vars depend
++# on other mutable state (e.g., router parameters). To ensure that dependent vars
++# are always recomputed on each access, we override the `var` decorator to ignore
++# the `cache` flag, effectively disabling caching for all computed vars.
++def var(*args, **kwargs):
++    """A wrapper around `immutable_computed_var` that disables caching.
+
++    This function mirrors the original signature but forces `cache=False` to
++    prevent stale values when a computed var depends on other mutable state.
++    """
++    # Remove any explicit cache argument to avoid caching.
++    kwargs.pop("cache", None)
++    # Ensure caching is disabled.
++    kwargs["cache"] = False
++    return immutable_computed_var(*args, **kwargs)
+*** End of File ***

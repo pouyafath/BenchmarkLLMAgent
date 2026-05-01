@@ -1,0 +1,47 @@
+diff --git a/sphinx/highlighting.py b/sphinx/highlighting.py
+index a042b1cf3..3d83ce7ef 100644
+--- a/sphinx/highlighting.py
++++ b/sphinx/highlighting.py
+@@ -7,9 +7,10 @@ from importlib import import_module
+ from typing import Any
+ 
+ from pygments import highlight
+-from pygments.filters import ErrorToken
++from pygments.filters import ErrorToken, Filter
+ from pygments.formatter import Formatter
+ from pygments.formatters import HtmlFormatter, LatexFormatter
++from pygments.token import Text, Whitespace
+ from pygments.lexer import Lexer
+ from pygments.lexers import (
+     CLexer,
+@@ -83,6 +84,18 @@ _LATEX_ADD_STYLES = r'''
+ '''
+ 
+ 
++
++class RemoveWhitespaceFilter(Filter):
++    """Filter to remove whitespace tokens but preserve actual whitespace."""
++
++    def filter(self, lexer, stream):
++        for ttype, value in stream:
++            if ttype == Whitespace:
++                # Yield as Text token instead of Whitespace
++                yield Text, value
++            else:
++                yield ttype, value
++
+ class PygmentsBridge:
+     # Set these attributes if you want to have different Pygments formatters
+     # than the default ones.
+@@ -163,7 +176,10 @@ class PygmentsBridge:
+         # highlight via Pygments
+         formatter = self.get_formatter(**kwargs)
+         try:
+-            hlsource = highlight(source, lexer, formatter)
++            from pygments import lex, format
++            tokens = lex(source, lexer)
++            filtered_tokens = RemoveWhitespaceFilter().filter(lexer, tokens)
++            hlsource = format(filtered_tokens, formatter)
+         except ErrorToken:
+             # this is most probably not the selected language,
+             # so let it pass unhighlighted

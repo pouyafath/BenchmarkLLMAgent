@@ -1,0 +1,89 @@
+diff --git a/sklearn/grid_search.py b/sklearn/grid_search.py
+index 6ba673d2f..22dccb118 100644
+--- a/sklearn/grid_search.py
++++ b/sklearn/grid_search.py
+@@ -11,6 +11,7 @@ from __future__ import print_function
+ # License: BSD 3 clause
+ 
+ from abc import ABCMeta, abstractmethod
++import time
+ from collections import Mapping, namedtuple, Sized
+ from functools import partial, reduce
+ from itertools import product
+@@ -614,12 +615,15 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
+         if self.refit:
+             # fit the best estimator using the entire dataset
+             # clone first to work around broken estimators
++            # Start timing the refit process
++            refit_start_time = time.time()
+             best_estimator = clone(base_estimator).set_params(
+                 **best.parameters)
+             if y is not None:
+                 best_estimator.fit(X, y, **self.fit_params)
+             else:
+                 best_estimator.fit(X, **self.fit_params)
++            self.refit_time_ = time.time() - refit_start_time
+             self.best_estimator_ = best_estimator
+         return self
+ 
+@@ -775,6 +779,9 @@ class GridSearchCV(BaseSearchCV):
+     best_score_ : float
+         Score of best_estimator on the left out data.
+ 
++    refit_time_ : float
++        Time to refit the best estimator on the whole dataset.
++
+     best_params_ : dict
+         Parameter setting that gave the best results on the hold out data.
+ 
+@@ -986,6 +993,9 @@ class RandomizedSearchCV(BaseSearchCV):
+     best_score_ : float
+         Score of best_estimator on the left out data.
+ 
++    refit_time_ : float
++        Time to refit the best estimator on the whole dataset.
++
+     best_params_ : dict
+         Parameter setting that gave the best results on the hold out data.
+ 
+diff --git a/sklearn/model_selection/_search.py b/sklearn/model_selection/_search.py
+index 99d6096af..ce9746612 100644
+--- a/sklearn/model_selection/_search.py
++++ b/sklearn/model_selection/_search.py
+@@ -15,6 +15,7 @@ from __future__ import division
+ from abc import ABCMeta, abstractmethod
+ from collections import Mapping, namedtuple, defaultdict, Sequence, Iterable
+ from functools import partial, reduce
++import time
+ from itertools import product
+ import operator
+ import warnings
+@@ -764,12 +765,15 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
+                 self.best_index_]
+ 
+         if self.refit:
++            # Start timing the refit process
++            refit_start_time = time.time()
+             self.best_estimator_ = clone(base_estimator).set_params(
+                 **self.best_params_)
+             if y is not None:
+                 self.best_estimator_.fit(X, y, **fit_params)
+             else:
+                 self.best_estimator_.fit(X, **fit_params)
++            self.refit_time_ = time.time() - refit_start_time
+ 
+         # Store the only scorer not as a dict for single metric evaluation
+         self.scorer_ = scorers if self.multimetric_ else scorers['score']
+@@ -1066,6 +1070,12 @@ class GridSearchCV(BaseSearchCV):
+         For multi-metric evaluation, this is present only if ``refit`` is
+         specified.
+ 
++    refit_time_ : float
++        Time to refit the best estimator on the whole dataset.
++
++        For multi-metric evaluation, this is present only if ``refit`` is
++        specified.
++
+     scorer_ : function or a dict
+         Scorer function used on the held out data to choose the best
+         parameters for the model.

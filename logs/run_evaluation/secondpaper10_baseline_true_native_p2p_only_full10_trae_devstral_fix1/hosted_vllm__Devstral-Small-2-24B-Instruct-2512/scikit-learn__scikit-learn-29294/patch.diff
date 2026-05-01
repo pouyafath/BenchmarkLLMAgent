@@ -1,0 +1,39 @@
+diff --git a/sklearn/covariance/_graph_lasso.py b/sklearn/covariance/_graph_lasso.py
+index 73fa4f1fd..873d2757d 100644
+--- a/sklearn/covariance/_graph_lasso.py
++++ b/sklearn/covariance/_graph_lasso.py
+@@ -1104,19 +1104,22 @@ class GraphicalLassoCV(BaseGraphicalLasso):
+         self.cv_results_["std_test_score"] = np.std(grid_scores, axis=1)
+ 
+         best_alpha = alphas[best_index]
+-        self.alpha_ = best_alpha
++        with warnings.catch_warnings():
++            # Suppress convergence warnings for the final fit as well
++            warnings.simplefilter("ignore", ConvergenceWarning)
++            self.alpha_ = best_alpha
+ 
+-        # Finally fit the model with the selected alpha
+-        self.covariance_, self.precision_, self.costs_, self.n_iter_ = _graphical_lasso(
+-            emp_cov,
+-            alpha=best_alpha,
+-            mode=self.mode,
+-            tol=self.tol,
+-            enet_tol=self.enet_tol,
+-            max_iter=self.max_iter,
+-            verbose=inner_verbose,
+-            eps=self.eps,
+-        )
++            # Finally fit the model with the selected alpha
++            self.covariance_, self.precision_, self.costs_, self.n_iter_ = _graphical_lasso(
++                emp_cov,
++                alpha=best_alpha,
++                mode=self.mode,
++                tol=self.tol,
++                enet_tol=self.enet_tol,
++                max_iter=self.max_iter,
++                verbose=inner_verbose,
++                eps=self.eps,
++            )
+         return self
+ 
+     def get_metadata_routing(self):

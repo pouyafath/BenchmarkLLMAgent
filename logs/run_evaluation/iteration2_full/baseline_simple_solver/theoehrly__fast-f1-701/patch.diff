@@ -1,0 +1,127 @@
+diff --git a/fast_f1/style.py b/fast_f1/style.py
+--- a/fast_f1/style.py
++++ b/fast_f1/style.py
+@@ -1,52 +1,71 @@
+-def get_driver_style(style: dict) -> dict:
+-    """
+-    Replace any occurrence of the string ``"auto"`` in the provided ``style`` mapping
+-    with the corresponding value from the driver style. The replacement is performed
+-    recursively so that nested dictionaries or iterables are also processed.
+-
+-    Parameters
+-    ----------
+-    style: dict
+-        A mapping describing the desired style. Values equal to ``"auto"`` act as a
+-        placeholder that will be substituted with the driver‑specific default.
+-
+-    Returns
+-    -------
+-    dict
+-        The style mapping with all ``"auto"`` placeholders resolved.
+-    """
+-    driver_style = {
+-        "fillcolor": "red",
+-        "line": {"color": "blue"},
+-        # ... other default driver style entries
+-    }
+-
+-    def _replace(value):
+-        # Base case: direct placeholder
+-        if value == "auto":
+-            # When the placeholder is at the top level we cannot infer the key,
+-            # so we simply return the whole driver_style mapping.
+-            # This mirrors the previous behaviour where only top‑level keys were
+-            # looked up; for nested structures the caller supplies the appropriate
+-            # driver style slice.
+-            return driver_style
+-        # If it's a dict, recurse into its items
+-        if isinstance(value, dict):
+-            return {k: _replace(v) for k, v in value.items()}
+-        # If it's a list or tuple, recurse into each element preserving type
+-        if isinstance(value, (list, tuple)):
+-            replaced = [_replace(v) for v in value]
+-            return type(value)(replaced)
+-        # Anything else is returned unchanged
+-        return value
+-
+-    # Apply replacement to each top‑level entry, using the driver style for look‑ups
+-    resolved = {}
+-    for key, val in style.items():
+-        if val == "auto":
+-            # Direct substitution from driver_style if available
+-            resolved[key] = driver_style.get(key, val)
+-        else:
+-            # Recursively replace inside nested structures
+-            resolved[key] = _replace(val)
+-    return resolved
++def get_driver_style(style: dict) -> dict:
++    """
++    Replace any occurrence of the string ``"auto"`` in the provided ``style`` mapping
++    with the corresponding value from the driver style. The replacement is performed
++    recursively so that nested dictionaries or iterables are also processed.
++
++    Parameters
++    ----------
++    style: dict
++        A mapping describing the desired style. Values equal to ``"auto"`` act as a
++        placeholder that will be substituted with the driver‑specific default.
++
++    Returns
++    -------
++    dict
++        The style mapping with all ``"auto"`` placeholders resolved.
++    """
++    driver_style = {
++        "fillcolor": "red",
++        "line": {"color": "blue"},
++        # ... other default driver style entries
++    }
++
++    def _lookup_driver(path):
++        """
++        Retrieve a value from ``driver_style`` following the sequence of keys in ``path``.
++        If any key is missing, ``None`` is returned.
++        """
++        cur = driver_style
++        for p in path:
++            if isinstance(cur, dict) and p in cur:
++                cur = cur[p]
++            else:
++                return None
++        return cur
++
++    def _replace(value, path):
++        """
++        Recursively replace ``"auto"`` placeholders.
++
++        Parameters
++        ----------
++        value : Any
++            Current value to process.
++        path : list
++            List of keys representing the location of ``value`` within the original
++            ``style`` dict. This is used to fetch the appropriate driver default.
++        """
++        # Direct placeholder – try to fetch the driver default for this path
++        if value == "auto":
++            driver_val = _lookup_driver(path)
++            # If a driver default exists, use it; otherwise keep the placeholder
++            return driver_val if driver_val is not None else value
++
++        # Dictionaries – recurse into each item, extending the path with the key
++        if isinstance(value, dict):
++            return {k: _replace(v, path + [k]) for k, v in value.items()}
++
++        # Lists or tuples – recurse into each element, path unchanged (no key)
++        if isinstance(value, (list, tuple)):
++            replaced = [_replace(v, path) for v in value]
++            return type(value)(replaced)
++
++        # All other types are returned unchanged
++        return value
++
++    # Build the resolved style dict by processing each top‑level entry
++    resolved = {}
++    for key, val in style.items():
++        resolved[key] = _replace(val, [key])
++    return resolved

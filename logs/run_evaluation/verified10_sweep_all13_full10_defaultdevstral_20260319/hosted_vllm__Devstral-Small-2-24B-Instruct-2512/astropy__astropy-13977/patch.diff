@@ -1,0 +1,34 @@
+diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py
+index b98abfafb..a718cd668 100644
+--- a/astropy/units/quantity.py
++++ b/astropy/units/quantity.py
+@@ -642,6 +642,14 @@ class Quantity(np.ndarray):
+         # and the unit of the result (or tuple of units for nout > 1).
+         converters, unit = converters_and_unit(function, method, *inputs)
+ 
++        # If converters and unit are both None, it means units are incompatible
++        # in a binary operation and we should return NotImplemented to allow fallback
++        # to reflected operators. But we need to be careful not to catch legitimate
++        # cases where unit is None (e.g., comparisons).
++        if (converters is not None and unit is None and all(c is None for c in converters) and
++            method == "__call__" and function.nin == 2):
++            return NotImplemented
++
+         out = kwargs.get("out", None)
+         # Avoid loop back by turning any Quantity output into array views.
+         if out is not None:
+diff --git a/astropy/units/quantity_helper/converters.py b/astropy/units/quantity_helper/converters.py
+index 47b40c207..f85675be4 100644
+--- a/astropy/units/quantity_helper/converters.py
++++ b/astropy/units/quantity_helper/converters.py
+@@ -282,6 +282,10 @@ def converters_and_unit(function, method, *args):
+             # NOTE: this cannot be the more logical UnitTypeError, since
+             # then things like np.cumprod will not longer fail (they check
+             # for TypeError).
++            # For incompatible units in binary operations, return NotImplemented
++            # to allow fallback to reflected operators
++            if method == "__call__" and function.nin == 2:
++                return [None] * len(converters), None
+             raise UnitsError(
+                 f"Cannot use '{method}' method on ufunc {function.__name__} with a "
+                 "Quantity instance as it would change the unit."

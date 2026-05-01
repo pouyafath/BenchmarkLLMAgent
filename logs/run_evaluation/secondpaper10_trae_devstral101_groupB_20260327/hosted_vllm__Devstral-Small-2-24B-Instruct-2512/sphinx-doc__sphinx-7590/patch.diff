@@ -1,0 +1,27 @@
+diff --git a/sphinx/domains/cpp.py b/sphinx/domains/cpp.py
+index fe52d881d..47ccc7817 100644
+--- a/sphinx/domains/cpp.py
++++ b/sphinx/domains/cpp.py
+@@ -4664,6 +4664,14 @@ class DefinitionParser(BaseParser):
+             if self.match(regex):
+                 while self.current_char in 'uUlLfF':
+                     self.pos += 1
++                # Check for user-defined literal suffix
++                if self.current_char == '_':
++                    # Parse the UDL suffix (identifier starting with _)
++                    # Use a simpler regex without word boundaries for UDL suffixes
++                    udl_suffix_re = re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')
++                    if self.match(udl_suffix_re):
++                        # Include the UDL suffix in the literal
++                        return ASTNumberLiteral(self.definition[pos:self.pos])
+                 return ASTNumberLiteral(self.definition[pos:self.pos])
+ 
+         string = self._parse_string()
+@@ -4682,7 +4690,6 @@ class DefinitionParser(BaseParser):
+                 self.fail("Can not handle character literal"
+                           " resulting in multiple decoded characters.")
+ 
+-        # TODO: user-defined lit
+         return None
+ 
+     def _parse_fold_or_paren_expression(self) -> ASTExpression:

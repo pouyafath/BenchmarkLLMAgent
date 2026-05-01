@@ -1,0 +1,73 @@
+diff --git a/Lib/fontTools/feaLib/builder.py b/Lib/fontTools/feaLib/builder.py
+index 36eed9514..02151620b 100644
+--- a/Lib/fontTools/feaLib/builder.py
++++ b/Lib/fontTools/feaLib/builder.py
+@@ -1338,7 +1338,7 @@ class Builder(object):
+         # substitutions to be specified on target sequences that contain
+         # glyph classes, the implementation software will enumerate
+         # all specific glyph sequences if glyph classes are detected"
+-        for g in sorted(itertools.product(*glyphs)):
++        for g in itertools.product(*glyphs):
+             lookup.ligatures[g] = replacement
+ 
+     # GSUB 5/6
+diff --git a/Lib/fontTools/otlLib/builder.py b/Lib/fontTools/otlLib/builder.py
+index 4b457f4d9..af1faf444 100644
+--- a/Lib/fontTools/otlLib/builder.py
++++ b/Lib/fontTools/otlLib/builder.py
+@@ -1567,16 +1567,20 @@ def buildAlternateSubstSubtable(mapping):
+     return self
+ 
+ 
+-def _getLigatureKey(components):
++def _getLigatureKey(components, index=None):
+     # Computes a key for ordering ligatures in a GSUB Type-4 lookup.
+ 
+     # When building the OpenType lookup, we need to make sure that
+     # the longest sequence of components is listed first, so we
+     # use the negative length as the primary key for sorting.
+-    # To make buildLigatureSubstSubtable() deterministic, we use the
+-    # component sequence as the secondary key.
+-
+-    # For example, this will sort (f,f,f) < (f,f,i) < (f,f) < (f,i) < (f,l).
++    # To maintain declaration order for ligatures of the same length,
++    # we use the original index as the secondary key.
++
++    # For example, this will sort (f,f,f) < (f,f,i) < (f,f) < (f,i) < (f,l)
++    # if (f,f,f) was declared before (f,f,i).
++    if index is not None:
++        return (-len(components), index)
++    # For backward compatibility, if no index is provided, use components
+     return (-len(components), components)
+ 
+ 
+@@ -1613,7 +1617,11 @@ def buildLigatureSubstSubtable(mapping):
+     # with fontTools >= 3.1:
+     # self.ligatures = dict(mapping)
+     self.ligatures = {}
+-    for components in sorted(mapping.keys(), key=_getLigatureKey):
++    # Create a list of (index, components) tuples to maintain declaration order
++    indexed_components = [(i, comp) for i, comp in enumerate(mapping.keys())]
++    # Sort by decreasing length, then by original index (for stable sort)
++    sorted_components = sorted(indexed_components, key=lambda x: _getLigatureKey(x[1], x[0]))
++    for index, components in sorted_components:
+         ligature = ot.Ligature()
+         ligature.Component = components[1:]
+         ligature.CompCount = len(ligature.Component) + 1
+diff --git a/Lib/fontTools/ttLib/tables/otTables.py b/Lib/fontTools/ttLib/tables/otTables.py
+index 262f8d418..bf4ffd542 100644
+--- a/Lib/fontTools/ttLib/tables/otTables.py
++++ b/Lib/fontTools/ttLib/tables/otTables.py
+@@ -1135,9 +1135,9 @@ class LigatureSubst(FormatSwitchingBaseTable):
+ 
+             # ligatures is map from components-sequence to lig-glyph
+             newLigatures = dict()
+-            for comps, lig in sorted(
+-                ligatures.items(), key=lambda item: (-len(item[0]), item[0])
+-            ):
++            for index, (comps, lig) in enumerate(sorted(
++                ligatures.items(), key=lambda item: (-len(item[0]), index)
++            )):
+                 ligature = Ligature()
+                 ligature.Component = comps[1:]
+                 ligature.CompCount = len(comps)

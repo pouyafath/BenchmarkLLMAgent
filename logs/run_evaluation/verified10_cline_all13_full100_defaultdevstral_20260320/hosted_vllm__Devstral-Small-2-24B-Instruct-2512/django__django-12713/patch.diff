@@ -1,0 +1,78 @@
+diff --git a/django/forms/models.py b/django/forms/models.py
+index 0f6608a4bc..e4d38b9a1a 100644
+--- a/django/forms/models.py
++++ b/django/forms/models.py
+@@ -250,6 +250,30 @@ class ModelFormMetaclass(DeclarativeFieldsMetaclass):
+                 # fields from the model"
+                 opts.fields = None
+ 
++            # If no explicit formfield_callback is provided, create a callback
++            # that uses the class's formfield_for methods
++            if formfield_callback is None:
++                def default_formfield_callback(db_field, **kwargs):
++                    # Call the appropriate formfield_for method based on field type
++                    from django.db import models
++                    if isinstance(db_field, models.ForeignKey):
++                        method_name = 'formfield_for_foreignkey'
++                    elif isinstance(db_field, models.ManyToManyField):
++                        method_name = 'formfield_for_manytomany'
++                    else:
++                        method_name = 'formfield_for_dbfield'
++
++                    # Call the method on a temporary instance
++                    instance = new_class()
++                    method = getattr(instance, method_name, None)
++                    if method:
++                        return method(db_field, request=None, **kwargs)
++                    else:
++                        return db_field.formfield(**kwargs)
++                formfield_callback = default_formfield_callback
++                # Store the callback on the class so it can be used later
++                new_class.formfield_callback = default_formfield_callback
++
+             fields = fields_for_model(
+                 opts.model, opts.fields, opts.exclude, opts.widgets,
+                 formfield_callback, opts.localized_fields, opts.labels,
+@@ -442,6 +466,42 @@ class BaseModelForm(BaseForm):
+             if f.name in cleaned_data:
+                 f.save_form_data(self.instance, cleaned_data[f.name])
+ 
++
++    def formfield_for_dbfield(self, db_field, request, **kwargs):
++        """
++        Get a form Field instance for a database Field.
++        """
++        return db_field.formfield(**kwargs)
++
++    def formfield_for_foreignkey(self, db_field, request, **kwargs):
++        """
++        Get a form Field instance for a ForeignKey.
++        """
++        return db_field.formfield(**kwargs)
++
++    def formfield_for_manytomany(self, db_field, request, **kwargs):
++        """
++        Get a form Field instance for a ManyToManyField.
++        """
++        return db_field.formfield(**kwargs)
++
++    def formfield_for_dbfield(self, db_field, request, **kwargs):
++        """
++        Get a form Field instance for a database Field.
++        """
++        return db_field.formfield(**kwargs)
++
++    def formfield_for_foreignkey(self, db_field, request, **kwargs):
++        """
++        Get a form Field instance for a ForeignKey.
++        """
++        return db_field.formfield(**kwargs)
++
++    def formfield_for_manytomany(self, db_field, request, **kwargs):
++        """
++        Get a form Field instance for a ManyToManyField.
++        """
++        return db_field.formfield(**kwargs)
+     def save(self, commit=True):
+         """
+         Save this form's self.instance object if commit=True. Otherwise, add

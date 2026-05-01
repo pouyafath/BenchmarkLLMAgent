@@ -1,0 +1,75 @@
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index f8e4be999..be63a1f38 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -1045,30 +1045,49 @@ class DocstringSignatureMixin:
+         docstrings = self.get_doc()
+         self._new_docstrings = docstrings[:]
+         result = None
++        signatures = []
++        retann = None
++
++        # Process all docstring lines to find signatures
+         for i, doclines in enumerate(docstrings):
+-            # no lines in docstring, no match
+             if not doclines:
+                 continue
+-            # match first line of docstring against signature RE
+-            match = py_ext_sig_re.match(doclines[0])
+-            if not match:
+-                continue
+-            exmod, path, base, args, retann = match.groups()
+-            # the base name must match ours
+-            valid_names = [self.objpath[-1]]  # type: ignore
+-            if isinstance(self, ClassDocumenter):
+-                valid_names.append('__init__')
+-                if hasattr(self.object, '__mro__'):
+-                    valid_names.extend(cls.__name__ for cls in self.object.__mro__)
+-            if base not in valid_names:
+-                continue
+-            # re-prepare docstring to ignore more leading indentation
+-            tab_width = self.directive.state.document.settings.tab_width  # type: ignore
+-            self._new_docstrings[i] = prepare_docstring('\n'.join(doclines[1:]),
+-                                                        tabsize=tab_width)
+-            result = args, retann
+-            # don't look any further
+-            break
++
++            # Check each line for a signature match
++            for line_idx, line in enumerate(doclines):
++                match = py_ext_sig_re.match(line)
++                if not match:
++                    continue
++                exmod, path, base, args, current_retann = match.groups()
++                # the base name must match ours
++                valid_names = [self.objpath[-1]]  # type: ignore
++                if isinstance(self, ClassDocumenter):
++                    valid_names.append('__init__')
++                    if hasattr(self.object, '__mro__'):
++                        valid_names.extend(cls.__name__ for cls in self.object.__mro__)
++                if base not in valid_names:
++                    continue
++                # Collect all matching signatures
++                signatures.append(args)
++                if current_retann and retann is None:
++                    retann = current_retann
++
++        if signatures:
++            # Remove all signature lines from the docstring
++            for i, doclines in enumerate(docstrings):
++                if not doclines:
++                    continue
++                # Filter out lines that match our signature pattern
++                filtered_lines = []
++                for line in doclines:
++                    match = py_ext_sig_re.match(line)
++                    if not match:
++                        filtered_lines.append(line)
++                # Re-prepare the docstring without signature lines
++                tab_width = self.directive.state.document.settings.tab_width  # type: ignore
++                self._new_docstrings[i] = prepare_docstring('\n'.join(filtered_lines),
++                                                            tabsize=tab_width)
++            result = '\n'.join(signatures), retann
+         return result
+ 
+     def get_doc(self, encoding: str = None, ignore: int = None) -> List[List[str]]:

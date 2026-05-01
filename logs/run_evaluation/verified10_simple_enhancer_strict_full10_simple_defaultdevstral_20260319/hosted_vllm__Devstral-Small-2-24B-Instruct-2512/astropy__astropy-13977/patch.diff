@@ -1,0 +1,51 @@
+diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py
+index b98abfafb..53a744ac2 100644
+--- a/astropy/units/quantity.py
++++ b/astropy/units/quantity.py
+@@ -640,7 +640,13 @@ class Quantity(np.ndarray):
+         # input to that expected (e.g., radian for np.sin), or to get
+         # consistent units between two inputs (e.g., in np.add) --
+         # and the unit of the result (or tuple of units for nout > 1).
+-        converters, unit = converters_and_unit(function, method, *inputs)
++        try:
++            converters, unit = converters_and_unit(function, method, *inputs)
++        except (UnitConversionError, UnitsError):
++            # If unit conversion is not possible, return NotImplemented to allow
++            # NumPy's operator dispatch mechanism to try the reflected method
++            # on the other operand (e.g., __radd__).
++            return NotImplemented
+ 
+         out = kwargs.get("out", None)
+         # Avoid loop back by turning any Quantity output into array views.
+@@ -649,7 +655,13 @@ class Quantity(np.ndarray):
+             # This also returns array view, to ensure we don't loop back.
+             if function.nout == 1:
+                 out = out[0]
+-            out_array = check_output(out, unit, inputs, function=function)
++            try:
++                out_array = check_output(out, unit, inputs, function=function)
++            except (UnitTypeError, TypeError):
++                # If output checking fails, return NotImplemented to allow
++                # NumPy's operator dispatch mechanism to try the reflected method
++                # on the other operand.
++                return NotImplemented
+             # Ensure output argument remains a tuple.
+             kwargs["out"] = (out_array,) if function.nout == 1 else out_array
+ 
+@@ -659,9 +671,13 @@ class Quantity(np.ndarray):
+             # well, which is typically the same as the input unit (but can
+             # in principle be different: unitless for np.equal, radian
+             # for np.arctan2, though those are not necessarily useful!)
+-            kwargs["initial"] = self._to_own_unit(
+-                kwargs["initial"], check_precision=False, unit=unit
+-            )
++            try:
++                kwargs["initial"] = self._to_own_unit(
++                    kwargs["initial"], check_precision=False, unit=unit
++                )
++            except (UnitsError, TypeError):
++                # If initial value conversion fails, return NotImplemented
++                return NotImplemented
+ 
+         # Same for inputs, but here also convert if necessary.
+         arrays = []

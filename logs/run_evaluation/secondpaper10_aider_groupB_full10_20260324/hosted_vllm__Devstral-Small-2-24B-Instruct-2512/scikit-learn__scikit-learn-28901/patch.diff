@@ -1,0 +1,163 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..d3ec785c4 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -100,6 +100,13 @@ class Pipeline(_BaseComposition):
+         transformers is advantageous when fitting is time consuming.
+ 
+     verbose : bool, default=False
++    transform_input : list of str or tuple, default=None
++        List of input parameter names (other than X) that should be transformed
++        through the pipeline steps. Each element can be a string (parameter name)
++        or a tuple (parameter name, step name) to specify up to which step the
++        parameter should be transformed. Requires metadata routing to be enabled.
++        
++        .. versionadded:: 1.6
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
+@@ -158,12 +165,14 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list, Hidden(tuple)],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -466,10 +475,69 @@ class Pipeline(_BaseComposition):
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+             if self._final_estimator != "passthrough":
+                 last_step_params = routed_params[self.steps[-1][0]]
++                last_step_params["fit"].update(self._transform_input_params(params, routed_params))
+                 self._final_estimator.fit(Xt, y, **last_step_params["fit"])
+ 
+         return self
+ 
++
++    def _transform_input_params(self, params, routed_params):
++        """Transform input parameters through pipeline steps.
++
++        Parameters
++        ----------
++        params : dict
++            Input parameters to potentially transform.
++        routed_params : Bunch
++            Already routed parameters from _check_method_params.
++
++        Returns
++        -------
++        dict
++            Transformed parameters ready to be passed to final estimator.
++        """
++        if not self.transform_input or not _routing_enabled():
++            return params
++
++        # Make a copy to avoid modifying the original
++        transformed_params = params.copy()
++
++        for input_param in self.transform_input:
++            # Handle both string and tuple formats
++            if isinstance(input_param, tuple):
++                param_name, stop_step = input_param
++            else:
++                param_name = input_param
++                stop_step = None  # Transform through all steps
++
++            if param_name not in transformed_params:
++                continue
++
++            # Transform the parameter through the pipeline steps
++            param_value = transformed_params[param_name]
++            X_transformed = param_value
++
++            # Transform through each step up to the stop_step (if specified)
++            for step_idx, name, transformer in self._iter(with_final=False):
++                if stop_step is not None and name == stop_step:
++                    break
++
++                if transformer is None or transformer == "passthrough":
++                    continue
++
++                # Get the routed parameters for this step (default to empty dict if not found)
++                step_routed_params = getattr(routed_params, name, Bunch(transform={}))
++                transform_params = getattr(step_routed_params, "transform", {})
++
++                # Transform the parameter
++                if hasattr(transformer, 'transform'):
++                    X_transformed = transformer.transform(X_transformed, **transform_params)
++
++            # Store the transformed parameter
++            transformed_params[param_name] = X_transformed
++
++        return transformed_params
++
+     def _can_fit_transform(self):
+         return (
+             self._final_estimator == "passthrough"
+@@ -534,10 +602,12 @@ class Pipeline(_BaseComposition):
+                 return Xt
+             last_step_params = routed_params[self.steps[-1][0]]
+             if hasattr(last_step, "fit_transform"):
++                last_step_params["fit_transform"].update(self._transform_input_params(params, routed_params))
+                 return last_step.fit_transform(
+                     Xt, y, **last_step_params["fit_transform"]
+                 )
+             else:
++                last_step_params["fit"].update(self._transform_input_params(params, routed_params))
+                 return last_step.fit(Xt, y, **last_step_params["fit"]).transform(
+                     Xt, **last_step_params["transform"]
+                 )
+@@ -662,6 +732,7 @@ class Pipeline(_BaseComposition):
+ 
+         params_last_step = routed_params[self.steps[-1][0]]
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
++            params_last_step["fit_predict"].update(self._transform_input_params(params, routed_params))
+             y_pred = self.steps[-1][1].fit_predict(
+                 Xt, y, **params_last_step.get("fit_predict", {})
+             )
+@@ -1236,6 +1307,13 @@ def make_pipeline(*steps, memory=None, verbose=False):
+         transformers is advantageous when fitting is time consuming.
+ 
+     verbose : bool, default=False
++    transform_input : list of str or tuple, default=None
++        List of input parameter names (other than X) that should be transformed
++        through the pipeline steps. Each element can be a string (parameter name)
++        or a tuple (parameter name, step name) to specify up to which step the
++        parameter should be transformed. Requires metadata routing to be enabled.
++        
++        .. versionadded:: 1.6
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
+@@ -1368,6 +1446,7 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
+         Raises ValueError if key not present in ``transformer_list``.
+ 
+     verbose : bool, default=False
++        .. versionadded:: 1.6
+         If True, the time elapsed while fitting each transformer will be
+         printed as it is completed.
+ 
+@@ -1441,6 +1520,7 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
+         self.n_jobs = n_jobs
+         self.transformer_weights = transformer_weights
+         self.verbose = verbose
++        self.transform_input = transform_input
+         self.verbose_feature_names_out = verbose_feature_names_out
+ 
+     def set_output(self, *, transform=None):
+@@ -1905,6 +1985,7 @@ def make_union(*transformers, n_jobs=None, verbose=False):
+            `n_jobs` default changed from 1 to None.
+ 
+     verbose : bool, default=False
++        .. versionadded:: 1.6
+         If True, the time elapsed while fitting each transformer will be
+         printed as it is completed.
+ 

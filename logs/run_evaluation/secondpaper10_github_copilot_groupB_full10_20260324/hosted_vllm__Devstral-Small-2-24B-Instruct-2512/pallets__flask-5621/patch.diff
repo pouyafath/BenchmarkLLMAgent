@@ -1,0 +1,64 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index 5133052f..1359118d 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -180,6 +180,7 @@ class Flask(App):
+             "TESTING": False,
+             "PROPAGATE_EXCEPTIONS": None,
+             "SECRET_KEY": None,
++            "SECRET_KEYS": None,
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..e3f013cb 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -215,6 +215,15 @@ class App(Scaffold):
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
+ 
++    #: A list of secret keys for key rotation support. If set, this takes
++    #: precedence over :data:`secret_key`. The first valid key in the list
++    #: is used to sign new data, and all keys are tried to verify existing data.
++    #: This allows for smooth key rotation without invalidating existing sessions.
++    #:
++    #: This attribute can also be configured from the config with the
++    #: :data:`SECRET_KEYS` configuration key. Defaults to ``None``.
++    secret_keys = ConfigAttribute[t.Union[t.List[str], t.List[bytes], None]]("SECRET_KEYS")
++
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+     #: permanent session survive for roughly one month.
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..234c7fde 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,13 +313,25 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        # Use secret_keys if available, otherwise fall back to secret_key
++        secret = None
++        if 'SECRET_KEYS' in app.config:
++            secret = app.secret_keys
++            # Empty list should be treated as no secret keys
++            if secret is not None and len(secret) == 0:
++                secret = None
++
++        if secret is None:
++            secret = app.secret_key
++
++        if not secret:
+             return None
++
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,

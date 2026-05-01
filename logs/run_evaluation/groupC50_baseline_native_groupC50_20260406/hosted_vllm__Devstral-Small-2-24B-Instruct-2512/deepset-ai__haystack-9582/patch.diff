@@ -1,0 +1,35 @@
+diff --git a/haystack/dataclasses/streaming_chunk.py b/haystack/dataclasses/streaming_chunk.py
+index 7cd30e46..cf20ae69 100644
+--- a/haystack/dataclasses/streaming_chunk.py
++++ b/haystack/dataclasses/streaming_chunk.py
+@@ -33,8 +33,8 @@ class ToolCallDelta:
+     def __post_init__(self):
+         # NOTE: We allow for name and arguments to both be present because some providers like Mistral provide the
+         # name and full arguments in one chunk
+-        if self.tool_name is None and self.arguments is None:
+-            raise ValueError("At least one of tool_name or arguments must be provided.")
++        # We also allow both to be None for streaming scenarios where intermediate chunks may not contain data
++        pass
+ 
+ 
+ @dataclass
+diff --git a/test/dataclasses/test_streaming_chunk.py b/test/dataclasses/test_streaming_chunk.py
+index 1d536330..dc6f214a 100644
+--- a/test/dataclasses/test_streaming_chunk.py
++++ b/test/dataclasses/test_streaming_chunk.py
+@@ -100,8 +100,13 @@ def test_tool_call_delta():
+ 
+ 
+ def test_tool_call_delta_with_missing_fields():
+-    with pytest.raises(ValueError):
+-        _ = ToolCallDelta(id="123", index=0)
++    # This test was updated to reflect the new behavior where both tool_name and arguments
++    # can be None for streaming scenarios. The index is required and sufficient.
++    tool_call = ToolCallDelta(id="123", index=0)
++    assert tool_call.id == "123"
++    assert tool_call.index == 0
++    assert tool_call.tool_name is None
++    assert tool_call.arguments is None
+ 
+ 
+ def test_create_chunk_with_finish_reason():

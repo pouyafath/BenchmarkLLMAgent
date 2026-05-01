@@ -1,0 +1,80 @@
+diff --git a/cli/lab.py b/cli/lab.py
+index fae3867a..ddf93b51 100755
+--- a/cli/lab.py
++++ b/cli/lab.py
+@@ -43,14 +43,20 @@ class Lab:
+ # pylint: disable=unused-argument
+ def configure(ctx, param, filename):
+     """Configure is responsible for reading the config file, initiating Lab object and CLI context."""
+-    # skip configuration reading when invoked command is `init`
+-    if len(sys.argv) > 0 and sys.argv[1] in ("init", "--help"):
++    # skip configuration reading when invoked command is `init` or `--help`
++    if len(sys.argv) > 0 and ("init" in sys.argv or "--help" in sys.argv):
+         return
+ 
+-    if not exists(filename):
+-        raise click.ClickException(
+-            f"`{filename}` does not exists, please run `lab init` or point to a valid configuration file using `--config=<path>`."
+-        )
++    try:
++        if not exists(filename):
++            raise click.ClickException(
++                f"`{filename}` does not exists, please run `lab init` or point to a valid configuration file using `--config=<path>`."
++            )
++    except click.ClickException:
++        # If the config file doesn't exist and we're running `init`, that's expected
++        if len(sys.argv) > 0 and "init" in sys.argv:
++            return
++        raise
+ 
+     try:
+         ctx.obj = Lab(filename)
+@@ -68,7 +74,6 @@ def configure(ctx, param, filename):
+     default=config.DEFAULT_CONFIG,
+     show_default=True,
+     callback=configure,
+-    is_eager=True,
+     help="Path to a configuration file.",
+ )
+ @click.pass_context
+@@ -135,6 +140,13 @@ def init(
+             return
+ 
+     clone_taxonomy_repo = True
++
++    # Check if taxonomy directory exists and has contents
++    try:
++        taxonomy_contents = os.listdir(taxonomy_path)
++    except FileNotFoundError:
++        taxonomy_contents = []
++
+     if interactive:
+         click.echo(
+             "Welcome to InstructLab CLI. This guide will help you to setup your environment."
+@@ -144,6 +156,7 @@ def init(
+         taxonomy_path = utils.expand_path(
+             click.prompt("Path to taxonomy repo", default=taxonomy_path)
+         )
++        # Re-check after user input
+         try:
+             taxonomy_contents = os.listdir(taxonomy_path)
+         except FileNotFoundError:
+@@ -154,6 +167,18 @@ def init(
+             clone_taxonomy_repo = click.confirm(
+                 f"`{taxonomy_path}` seems to not exists or is empty. Should I clone {repository} for you?"
+             )
++            # In interactive mode, if user says no, fail with error
++            if not clone_taxonomy_repo:
++                click.secho(
++                    f"Cannot proceed without cloning {repository}. Please ensure you have the correct access rights.",
++                    fg="red"
++                )
++                raise click.exceptions.Exit(1)
++    else:
++        # In non-interactive mode, always try to clone the taxonomy repo
++        # unless the directory already exists and has contents
++        if not taxonomy_contents:
++            clone_taxonomy_repo = True
+ 
+     # clone taxonomy repo if it needs to be cloned
+     if clone_taxonomy_repo:

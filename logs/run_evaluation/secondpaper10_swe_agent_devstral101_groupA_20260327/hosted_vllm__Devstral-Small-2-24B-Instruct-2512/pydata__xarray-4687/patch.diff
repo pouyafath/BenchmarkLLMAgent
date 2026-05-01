@@ -1,0 +1,76 @@
+diff --git a/xarray/core/computation.py b/xarray/core/computation.py
+index 9fe93c88..69f54074 100644
+--- a/xarray/core/computation.py
++++ b/xarray/core/computation.py
+@@ -1778,7 +1778,7 @@ def where(cond, x, y):
+     ... )
+     >>> y
+     <xarray.DataArray 'sst' (lat: 3, lon: 3)>
+-    array([[0. , 0.1, 0.2],
++    array([[0. , 0.1,  0.2],
+            [0.3, 0.4, 0.5],
+            [0.6, 0.7, 0.8]])
+     Coordinates:
+@@ -1808,15 +1808,59 @@ def where(cond, x, y):
+     Dataset.where, DataArray.where :
+         equivalent methods
+     """
++    from .dataarray import DataArray
++    from .dataset import Dataset
++    from .variable import Variable
++
++    # Determine which argument to use for attribute preservation
++    # Priority: x (most common case), then y, then cond (least common)
++    # Skip boolean arrays as they are typically conditions without meaningful attributes
++    attr_source = None
++    attr_source_arg = None  # Keep track of which argument contains the source
++    for arg in [x, y, cond]:
++        # Check if arg is a Variable
++        if isinstance(arg, Variable):
++            if arg.dtype != bool:
++                attr_source = arg
++                attr_source_arg = arg
++                break
++        # Check if arg is a DataArray or Dataset
++        elif isinstance(arg, (DataArray, Dataset)):
++            # For DataArray/Dataset, check the underlying variable
++            if hasattr(arg, 'variable') and isinstance(arg.variable, Variable):
++                if arg.variable.dtype != bool:
++                    attr_source = arg.variable
++                    attr_source_arg = arg
++                    break
++
+     # alignment for three arguments is complicated, so don't support it yet
++    # Reorder arguments to ensure the one with attributes comes first for apply_ufunc
++    if attr_source is not None:
++        # Find which argument contains our attr_source
++        if isinstance(x, DataArray) and attr_source is x.variable:
++            apply_args = (x, cond, y)
++        elif isinstance(x, Variable) and attr_source is x:
++            apply_args = (x, cond, y)
++        elif isinstance(y, DataArray) and attr_source is y.variable:
++            apply_args = (y, cond, x)
++        elif isinstance(y, Variable) and attr_source is y:
++            apply_args = (y, cond, x)
++        elif isinstance(cond, DataArray) and attr_source is cond.variable:
++            apply_args = (cond, x, y)
++        elif isinstance(cond, Variable) and attr_source is cond:
++            apply_args = (cond, x, y)
++        else:
++            apply_args = (cond, x, y)
++    else:
++        apply_args = (cond, x, y)
++
+     return apply_ufunc(
+         duck_array_ops.where,
+-        cond,
+-        x,
+-        y,
++        *apply_args,
+         join="exact",
+         dataset_join="exact",
+         dask="allowed",
++        keep_attrs=True if attr_source is not None else None,
+     )
+ 
+ 

@@ -1,0 +1,378 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 15 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   geopandas/io/_geoarrow.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit bdb4006f2ac24003b003e5975586c299bbf61b5d
+Author: Martin Fleischmann <martin@martinfleischmann.net>
+Date:   Thu Feb 13 11:45:56 2025 +0100
+
+    DOC: add clarification to concave_hull behaviour (#3508)
+
+diff --git a/geopandas/base.py b/geopandas/base.py
+index 2d4efbab..1030f379 100644
+--- a/geopandas/base.py
++++ b/geopandas/base.py
+@@ -901,7 +901,7 @@ GeometryCollection
+ 
+     def concave_hull(self, ratio=0.0, allow_holes=False):
+         """Returns a ``GeoSeries`` of geometries representing the concave hull
+-        of each geometry.
++        of vertices of each geometry.
+ 
+         The concave hull of a geometry is the smallest concave `Polygon`
+         containing all the points in each geometry, unless the number of points
+@@ -958,6 +958,12 @@ GeometryCollection
+         --------
+         GeoSeries.convex_hull : convex hull geometry
+ 
++        Notes
++        -----
++        The algorithms considers only vertices of each geometry. As a result the
++        hull may not fully enclose input geometry. If that happens, increasing ``ratio``
++        should resolve the issue.
++
+         """
+         return _delegate_geo_method(
+             "concave_hull", self, ratio=ratio, allow_holes=allow_holes
++ git -c core.fileMode=false diff bdb4006f2ac24003b003e5975586c299bbf61b5d
+diff --git a/geopandas/io/_geoarrow.py b/geopandas/io/_geoarrow.py
+index 9b7ec8f2..d6cc7834 100644
+--- a/geopandas/io/_geoarrow.py
++++ b/geopandas/io/_geoarrow.py
+@@ -186,7 +186,7 @@ def construct_wkb_array(
+     extension_metadata = {"ARROW:extension:name": "geoarrow.wkb"}
+     if crs is not None:
+         extension_metadata["ARROW:extension:metadata"] = json.dumps(
+-            {"crs": crs.to_json()}
++            {"crs": crs.to_json_dict()}
+         )
+     else:
+         # In theory this should not be needed, but otherwise pyarrow < 17
+@@ -319,7 +319,7 @@ def construct_geometry_array(
+     extension_metadata: dict[str, str] = {}
+     if crs is not None:
+         extension_metadata["ARROW:extension:metadata"] = json.dumps(
+-            {"crs": crs.to_json()}
++            {"crs": crs.to_json_dict()}
+         )
+     else:
+         # In theory this should not be needed, but otherwise pyarrow < 17
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.10/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running dist_info
+  creating /tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info
+  writing /tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/pip-modern-metadata-a99z6hng/geopandas.egg-info/SOURCES.txt'
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  creating '/tmp/pip-modern-metadata-a99z6hng/geopandas-1.0.1+58.gbdb4006f.dirty.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: numpy>=1.24 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+58.gbdb4006f.dirty) (2.2.3)
+Requirement already satisfied: pyogrio>=0.7.2 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+58.gbdb4006f.dirty) (0.10.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+58.gbdb4006f.dirty) (24.2)
+Requirement already satisfied: pandas>=2.0.0 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+58.gbdb4006f.dirty) (2.2.3)
+Requirement already satisfied: pyproj>=3.5.0 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+58.gbdb4006f.dirty) (3.7.0)
+Requirement already satisfied: shapely>=2.0.0 in /usr/local/lib/python3.10/site-packages (from geopandas==1.0.1+58.gbdb4006f.dirty) (2.0.7)
+WARNING: geopandas 1.0.1+58.gbdb4006f.dirty does not provide the extra 'test'
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.10/site-packages (from pandas>=2.0.0->geopandas==1.0.1+58.gbdb4006f.dirty) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.10/site-packages (from pandas>=2.0.0->geopandas==1.0.1+58.gbdb4006f.dirty) (2025.1)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.10/site-packages (from pandas>=2.0.0->geopandas==1.0.1+58.gbdb4006f.dirty) (2025.1)
+Requirement already satisfied: certifi in /usr/local/lib/python3.10/site-packages (from pyogrio>=0.7.2->geopandas==1.0.1+58.gbdb4006f.dirty) (2025.1.31)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.10/site-packages (from python-dateutil>=2.8.2->pandas>=2.0.0->geopandas==1.0.1+58.gbdb4006f.dirty) (1.17.0)
+Building wheels for collected packages: geopandas
+  Building editable for geopandas (pyproject.toml): started
+  Running command Building editable for geopandas (pyproject.toml)
+  /usr/local/lib/python3.10/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running editable_wheel
+  creating /tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info
+  writing /tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas.egg-info/SOURCES.txt'
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  creating '/tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas-1.0.1+58.gbdb4006f.dirty.dist-info'
+  creating /tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas-1.0.1+58.gbdb4006f.dirty.dist-info/WHEEL
+  running build_py
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running egg_info
+  creating /tmp/tmp41b7h5h_.build-temp/geopandas.egg-info
+  writing /tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/tmp41b7h5h_.build-temp/geopandas.egg-info/SOURCES.txt'
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  adding '__editable___geopandas_1_0_1_58_gbdb4006f_dirty_finder.py'
+  adding '__editable__.geopandas-1.0.1+58.gbdb4006f.dirty.pth'
+  creating '/tmp/pip-wheel-g8092xgj/tmplabltndy/geopandas-1.0.1+58.gbdb4006f.dirty-0.editable-py3-none-any.whl' and adding '/tmp/tmp2uqrwlsvgeopandas-1.0.1+58.gbdb4006f.dirty-0.editable-py3-none-any.whl' to it
+  adding 'geopandas-1.0.1+58.gbdb4006f.dirty.dist-info/LICENSE.txt'
+  adding 'geopandas-1.0.1+58.gbdb4006f.dirty.dist-info/METADATA'
+  adding 'geopandas-1.0.1+58.gbdb4006f.dirty.dist-info/WHEEL'
+  adding 'geopandas-1.0.1+58.gbdb4006f.dirty.dist-info/top_level.txt'
+  adding 'geopandas-1.0.1+58.gbdb4006f.dirty.dist-info/RECORD'
+  /usr/local/lib/python3.10/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for geopandas (pyproject.toml): finished with status 'done'
+  Created wheel for geopandas: filename=geopandas-1.0.1+58.gbdb4006f.dirty-0.editable-py3-none-any.whl size=4698 sha256=a84059825448601c17a41a092861b959afb87cdb8900c6e72cc6f85c5ee36d36
+  Stored in directory: /tmp/pip-ephem-wheel-cache-7dxf87lx/wheels/0d/a6/cb/465a7b303d624cc531250fa27c75d038ddc29430bdb6ba7c9f
+Successfully built geopandas
+Installing collected packages: geopandas
+  Attempting uninstall: geopandas
+    Found existing installation: geopandas 1.0.1+58.gbdb4006f
+    Uninstalling geopandas-1.0.1+58.gbdb4006f:
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable__.geopandas-1.0.1+58.gbdb4006f.pth
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable___geopandas_1_0_1_58_gbdb4006f_finder.py
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__pycache__/__editable___geopandas_1_0_1_58_gbdb4006f_finder.cpython-310.pyc
+      Removing file or directory /usr/local/lib/python3.10/site-packages/geopandas-1.0.1+58.gbdb4006f.dist-info/
+      Successfully uninstalled geopandas-1.0.1+58.gbdb4006f
+Successfully installed geopandas-1.0.1+58.gbdb4006f.dirty
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout bdb4006f2ac24003b003e5975586c299bbf61b5d geopandas/io/tests/test_geoarrow.py
+Updated 0 paths from cf559303
++ git apply -v -
+Checking patch geopandas/io/tests/test_geoarrow.py...
+Applied patch geopandas/io/tests/test_geoarrow.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -v -rA geopandas/io/tests/test_geoarrow.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.3.4, pluggy-1.5.0 -- /usr/local/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-6.0.0, xdist-3.6.1
+collecting ... collected 92 items
+
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-point-xy] PASSED [  1%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-point-xyz] PASSED [  2%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-linestring-xy] PASSED [  3%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-linestring-xyz] PASSED [  4%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-polygon-xy] PASSED [  5%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-polygon-xyz] PASSED [  6%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipoint-xy] PASSED [  7%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipoint-xyz] PASSED [  8%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multilinestring-xy] PASSED [  9%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multilinestring-xyz] PASSED [ 10%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipolygon-xy] PASSED [ 11%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipolygon-xyz] PASSED [ 13%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-point-xy] PASSED [ 14%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-point-xyz] PASSED [ 15%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-linestring-xy] PASSED [ 16%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-linestring-xyz] PASSED [ 17%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-polygon-xy] PASSED [ 18%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-polygon-xyz] PASSED [ 19%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipoint-xy] PASSED [ 20%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipoint-xyz] PASSED [ 21%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multilinestring-xy] PASSED [ 22%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multilinestring-xyz] PASSED [ 23%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipolygon-xy] PASSED [ 25%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipolygon-xyz] PASSED [ 26%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-point-xy] PASSED [ 27%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-point-xyz] PASSED [ 28%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-linestring-xy] PASSED [ 29%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-linestring-xyz] PASSED [ 30%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-polygon-xy] PASSED [ 31%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-polygon-xyz] PASSED [ 32%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipoint-xy] PASSED [ 33%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipoint-xyz] PASSED [ 34%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multilinestring-xy] PASSED [ 35%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multilinestring-xyz] PASSED [ 36%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipolygon-xy] PASSED [ 38%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipolygon-xyz] PASSED [ 39%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_multiple_geometry_crs[WKB] PASSED [ 40%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_multiple_geometry_crs[geoarrow] PASSED [ 41%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_series_name_crs[WKB] PASSED [ 42%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_series_name_crs[geoarrow] PASSED [ 43%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_unsupported_encoding PASSED [ 44%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_mixed_geometry_types PASSED [ 45%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[WKB-True-point] PASSED [ 46%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[WKB-True-polygon] PASSED [ 47%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-True-point] PASSED [ 48%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-True-polygon] PASSED [ 50%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-False-point] PASSED [ 51%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-False-polygon] PASSED [ 52%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_include_z PASSED      [ 53%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[point-xy] SKIPPED [ 54%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[point-xyz] SKIPPED [ 55%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[linestring-xy] SKIPPED [ 56%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[linestring-xyz] SKIPPED [ 57%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[polygon-xy] SKIPPED [ 58%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[polygon-xyz] SKIPPED [ 59%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[multipoint-xy] SKIPPED [ 60%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[multipoint-xyz] SKIPPED [ 61%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[multilinestring-xy] SKIPPED [ 63%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[multilinestring-xyz] SKIPPED [ 64%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[multipolygon-xy] SKIPPED [ 65%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_with_extension_types[multipolygon-xyz] SKIPPED [ 66%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_empty PASSED   [ 67%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[point-xy] PASSED [ 68%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[point-xyz] PASSED [ 69%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[linestring-xy] PASSED [ 70%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[linestring-xyz] PASSED [ 71%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[polygon-xy] PASSED [ 72%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[polygon-xyz] PASSED [ 73%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipoint-xy] PASSED [ 75%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipoint-xyz] PASSED [ 76%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multilinestring-xy] PASSED [ 77%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multilinestring-xyz] PASSED [ 78%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipolygon-xy] PASSED [ 79%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipolygon-xyz] PASSED [ 80%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_geometry_column[WKB] PASSED [ 81%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_geometry_column[geoarrow] PASSED [ 82%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_missing_geometry PASSED [ 83%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_capsule_interface PASSED [ 84%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[point-xy] SKIPPED [ 85%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[point-xyz] SKIPPED [ 86%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[linestring-xy] SKIPPED [ 88%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[linestring-xyz] SKIPPED [ 89%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[polygon-xy] SKIPPED [ 90%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[polygon-xyz] SKIPPED [ 91%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[multipoint-xy] SKIPPED [ 92%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[multipoint-xyz] SKIPPED [ 93%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[multilinestring-xy] SKIPPED [ 94%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[multilinestring-xyz] SKIPPED [ 95%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[multipolygon-xy] SKIPPED [ 96%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_from_extension_types[multipolygon-xyz] SKIPPED [ 97%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_geoseries SKIPPED [ 98%]
+geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_unknown_geoarrow_type PASSED [100%]
+
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-point-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-point-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-linestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-linestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-polygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-polygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipoint-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipoint-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multilinestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multilinestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipolygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[WKB-multipolygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-point-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-point-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-linestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-linestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-polygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-polygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipoint-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipoint-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multilinestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multilinestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipolygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-interleaved-multipolygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-point-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-point-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-linestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-linestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-polygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-polygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipoint-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipoint-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multilinestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multilinestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipolygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export[geoarrow-separated-multipolygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_multiple_geometry_crs[WKB]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_multiple_geometry_crs[geoarrow]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_series_name_crs[WKB]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_series_name_crs[geoarrow]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_unsupported_encoding
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_mixed_geometry_types
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[WKB-True-point]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[WKB-True-polygon]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-True-point]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-True-polygon]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-False-point]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_missing[geoarrow-False-polygon]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_include_z
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_export_empty
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[point-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[point-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[linestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[linestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[polygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[polygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipoint-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipoint-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multilinestring-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multilinestring-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipolygon-xy]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import[multipolygon-xyz]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_geometry_column[WKB]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_geometry_column[geoarrow]
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_missing_geometry
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_capsule_interface
+PASSED geopandas/io/tests/test_geoarrow.py::test_geoarrow_import_unknown_geoarrow_type
+SKIPPED [12] geopandas/io/tests/test_geoarrow.py:358: could not import 'geoarrow.pyarrow': No module named 'geoarrow'
+SKIPPED [12] geopandas/io/tests/test_geoarrow.py:497: could not import 'geoarrow.pyarrow': No module named 'geoarrow'
+SKIPPED [1] geopandas/io/tests/test_geoarrow.py:518: could not import 'geoarrow.pyarrow': No module named 'geoarrow'
+======================== 67 passed, 25 skipped in 0.49s ========================
++ : '>>>>> End Test Output'
++ git checkout bdb4006f2ac24003b003e5975586c299bbf61b5d geopandas/io/tests/test_geoarrow.py
+Updated 1 path from cf559303

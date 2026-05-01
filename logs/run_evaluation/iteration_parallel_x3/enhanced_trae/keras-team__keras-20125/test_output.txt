@@ -1,0 +1,607 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch master
+Your branch is behind 'origin/master' by 594 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   keras/src/ops/core.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	keras/src/ops/core.py.orig
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 6fd4873a367d20624105967c5be0d451f72f946d
+Author: Hongyu, Chiu <20734616+james77777778@users.noreply.github.com>
+Date:   Wed Aug 14 23:36:47 2024 +0800
+
+    Fix svd (#20122)
+
+diff --git a/keras/src/backend/tensorflow/linalg.py b/keras/src/backend/tensorflow/linalg.py
+index 636586d14..2813303a4 100644
+--- a/keras/src/backend/tensorflow/linalg.py
++++ b/keras/src/backend/tensorflow/linalg.py
+@@ -185,6 +185,8 @@ def solve_triangular(a, b, lower=False):
+ 
+ 
+ def svd(x, full_matrices=True, compute_uv=True):
++    if compute_uv is False:
++        return tf.linalg.svd(x, full_matrices=full_matrices, compute_uv=False)
+     s, u, v = tf.linalg.svd(
+         x, full_matrices=full_matrices, compute_uv=compute_uv
+     )
+diff --git a/keras/src/backend/torch/linalg.py b/keras/src/backend/torch/linalg.py
+index 17a710867..7bd2a5a05 100644
+--- a/keras/src/backend/torch/linalg.py
++++ b/keras/src/backend/torch/linalg.py
+@@ -68,9 +68,7 @@ def solve_triangular(a, b, lower=False):
+ 
+ def svd(x, full_matrices=True, compute_uv=True):
+     if not compute_uv:
+-        raise NotImplementedError(
+-            "`compute_uv=False` is not supported for torch backend."
+-        )
++        return torch.linalg.svdvals(x)
+     return torch.linalg.svd(x, full_matrices=full_matrices)
+ 
+ 
+diff --git a/keras/src/ops/linalg_test.py b/keras/src/ops/linalg_test.py
+index bc04ab0b0..8e722dd41 100644
+--- a/keras/src/ops/linalg_test.py
++++ b/keras/src/ops/linalg_test.py
+@@ -534,6 +534,10 @@ class LinalgOpsCorrectnessTest(testing.TestCase, parameterized.TestCase):
+         # High tolerance due to numerical instability
+         self.assertAllClose(x_reconstructed, x, atol=1e-3)
+ 
++        # Test `compute_uv=False`
++        s_no_uv = linalg.svd(x, compute_uv=False)
++        self.assertAllClose(s_no_uv, s)
++
+     @parameterized.named_parameters(
+         ("b_rank_1", 1, None),
+         ("b_rank_2", 2, None),
++ git -c core.fileMode=false diff 6fd4873a367d20624105967c5be0d451f72f946d
+diff --git a/keras/src/ops/core.py b/keras/src/ops/core.py
+index 88814ea5b..1ee6b6e73 100644
+--- a/keras/src/ops/core.py
++++ b/keras/src/ops/core.py
+@@ -31,6 +31,26 @@ class Map(Operation):
+         return y
+ 
+ 
++class StopGradient(Operation):
++    """Keras operation that stops gradient flow for a tensor."""
++
++    def __init__(self):
++        super().__init__()
++
++    def call(self, x):
++        # In eager mode we delegate to the backend implementation.
++        return backend.core.stop_gradient(x)
++
++    def compute_output_spec(self, x):
++        """
++        The output of `stop_gradient` has the same shape, dtype and sparsity
++        as the input. For symbolic tensors we simply return the input spec.
++        """
++        # `x` is expected to be a KerasTensor when this method is called.
++        # Returning `x` directly preserves the symbolic information.
++        return x
++
++
+ @keras_export("keras.ops.map")
+ def map(f, xs):
+     """Map a function over leading array axes.
+@@ -76,6 +96,24 @@ def map(f, xs):
+     return backend.core.map(f, xs)
+ 
+ 
++@keras_export("keras.ops.stop_gradient")
++def stop_gradient(x):
++    """
++    Stop gradient propagation for a tensor or KerasTensor.
++
++    This mirrors `tf.stop_gradient` but also supports symbolic `KerasTensor`
++    objects used in the Keras functional API. When a symbolic tensor is
++    provided, the operation returns a new symbolic tensor with the same
++    shape, dtype, and sparsity, ensuring the graph can be built without
++    invoking TensorFlow's eager `tf.stop_gradient` on a placeholder.
++    """
++    if any_symbolic_tensors((x,)):
++        # Use the symbolic operation which simply returns a KerasTensor with
++        # identical spec, effectively cutting gradient flow in the graph.
++        return StopGradient().symbolic_call(x)
++    return backend.core.stop_gradient(x)
++
++
+ class Scan(Operation):
+     def __init__(self, reverse=False, unroll=1):
+         super().__init__()
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-w6tvftx6/keras.egg-info
+  writing /tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-w6tvftx6/keras.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-w6tvftx6/keras-3.5.0.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: absl-py in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (2.1.0)
+Requirement already satisfied: numpy in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (1.26.4)
+Requirement already satisfied: rich in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (13.7.1)
+Requirement already satisfied: namex in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (0.0.8)
+Requirement already satisfied: h5py in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (3.11.0)
+Requirement already satisfied: optree in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (0.12.1)
+Requirement already satisfied: ml-dtypes in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (0.4.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from keras==3.5.0) (24.1)
+WARNING: keras 3.5.0 does not provide the extra 'test'
+Requirement already satisfied: typing-extensions>=4.5.0 in /usr/local/lib/python3.10/site-packages (from optree->keras==3.5.0) (4.12.2)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/site-packages (from rich->keras==3.5.0) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/site-packages (from rich->keras==3.5.0) (2.18.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/site-packages (from markdown-it-py>=2.2.0->rich->keras==3.5.0) (0.1.2)
+Building wheels for collected packages: keras
+  Building editable for keras (pyproject.toml): started
+  Running command Building editable for keras (pyproject.toml)
+  running editable_wheel
+  creating /tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info
+  writing /tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras-3.5.0.dist-info'
+  creating /tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras-3.5.0.dist-info/WHEEL
+  running build_py
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable___keras_3_5_0_finder.py'
+  adding '__editable__.keras-3.5.0.pth'
+  creating '/tmp/pip-wheel-1ht07jsb/tmpyjief3ft/keras-3.5.0-0.editable-py3-none-any.whl' and adding '/tmp/tmpuu7ecvcdkeras-3.5.0-0.editable-py3-none-any.whl' to it
+  adding 'keras-3.5.0.dist-info/LICENSE'
+  adding 'keras-3.5.0.dist-info/METADATA'
+  adding 'keras-3.5.0.dist-info/WHEEL'
+  adding 'keras-3.5.0.dist-info/top_level.txt'
+  adding 'keras-3.5.0.dist-info/RECORD'
+  /usr/local/lib/python3.10/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for keras (pyproject.toml): finished with status 'done'
+  Created wheel for keras: filename=keras-3.5.0-0.editable-py3-none-any.whl size=8872 sha256=4ac02862fcadb926bad03edd11b463f5a833dea43ed15fa92d1f99df3c8f90f3
+  Stored in directory: /tmp/pip-ephem-wheel-cache-t9wc3dea/wheels/0d/a6/cb/465a7b303d624cc531250fa27c75d038ddc29430bdb6ba7c9f
+Successfully built keras
+Installing collected packages: keras
+  Attempting uninstall: keras
+    Found existing installation: keras 3.5.0
+    Uninstalling keras-3.5.0:
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable__.keras-3.5.0.pth
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable___keras_3_5_0_finder.py
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__pycache__/__editable___keras_3_5_0_finder.cpython-310.pyc
+      Removing file or directory /usr/local/lib/python3.10/site-packages/keras-3.5.0.dist-info/
+      Successfully uninstalled keras-3.5.0
+Successfully installed keras-3.5.0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ python -m pip install tensorflow-cpu torch jax jaxlib
+Requirement already satisfied: tensorflow-cpu in /usr/local/lib/python3.10/site-packages (2.17.0)
+Requirement already satisfied: torch in /usr/local/lib/python3.10/site-packages (2.7.0+cpu)
+Requirement already satisfied: jax in /usr/local/lib/python3.10/site-packages (0.4.31)
+Requirement already satisfied: jaxlib in /usr/local/lib/python3.10/site-packages (0.4.31)
+Requirement already satisfied: absl-py>=1.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.1.0)
+Requirement already satisfied: astunparse>=1.6.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.6.3)
+Requirement already satisfied: flatbuffers>=24.3.25 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (24.3.25)
+Requirement already satisfied: gast!=0.5.0,!=0.5.1,!=0.5.2,>=0.2.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.6.0)
+Requirement already satisfied: google-pasta>=0.1.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.2.0)
+Requirement already satisfied: h5py>=3.10.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.11.0)
+Requirement already satisfied: libclang>=13.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (18.1.1)
+Requirement already satisfied: ml-dtypes<0.5.0,>=0.3.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.4.0)
+Requirement already satisfied: opt-einsum>=2.3.2 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.3.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (24.1)
+Requirement already satisfied: protobuf!=4.21.0,!=4.21.1,!=4.21.2,!=4.21.3,!=4.21.4,!=4.21.5,<5.0.0dev,>=3.20.3 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (4.25.4)
+Requirement already satisfied: requests<3,>=2.21.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.32.3)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (65.5.1)
+Requirement already satisfied: six>=1.12.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.16.0)
+Requirement already satisfied: termcolor>=1.1.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.4.0)
+Requirement already satisfied: typing-extensions>=3.6.6 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (4.12.2)
+Requirement already satisfied: wrapt>=1.11.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.16.0)
+Requirement already satisfied: grpcio<2.0,>=1.24.3 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.65.4)
+Requirement already satisfied: tensorboard<2.18,>=2.17 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.17.1)
+Requirement already satisfied: keras>=3.2.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.5.0)
+Requirement already satisfied: tensorflow-io-gcs-filesystem>=0.23.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.37.1)
+Requirement already satisfied: numpy<2.0.0,>=1.23.5 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.26.4)
+Requirement already satisfied: filelock in /usr/local/lib/python3.10/site-packages (from torch) (3.15.4)
+Requirement already satisfied: sympy>=1.13.3 in /usr/local/lib/python3.10/site-packages (from torch) (1.13.3)
+Requirement already satisfied: networkx in /usr/local/lib/python3.10/site-packages (from torch) (3.3)
+Requirement already satisfied: jinja2 in /usr/local/lib/python3.10/site-packages (from torch) (3.1.4)
+Requirement already satisfied: fsspec in /usr/local/lib/python3.10/site-packages (from torch) (2024.6.1)
+Requirement already satisfied: scipy>=1.10 in /usr/local/lib/python3.10/site-packages (from jax) (1.14.0)
+Requirement already satisfied: wheel<1.0,>=0.23.0 in /usr/local/lib/python3.10/site-packages (from astunparse>=1.6.0->tensorflow-cpu) (0.45.1)
+Requirement already satisfied: rich in /usr/local/lib/python3.10/site-packages (from keras>=3.2.0->tensorflow-cpu) (13.7.1)
+Requirement already satisfied: namex in /usr/local/lib/python3.10/site-packages (from keras>=3.2.0->tensorflow-cpu) (0.0.8)
+Requirement already satisfied: optree in /usr/local/lib/python3.10/site-packages (from keras>=3.2.0->tensorflow-cpu) (0.12.1)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (3.3.2)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (3.7)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (2.2.2)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (2024.7.4)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /usr/local/lib/python3.10/site-packages (from sympy>=1.13.3->torch) (1.3.0)
+Requirement already satisfied: markdown>=2.6.8 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.18,>=2.17->tensorflow-cpu) (3.6)
+Requirement already satisfied: tensorboard-data-server<0.8.0,>=0.7.0 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.18,>=2.17->tensorflow-cpu) (0.7.2)
+Requirement already satisfied: werkzeug>=1.0.1 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.18,>=2.17->tensorflow-cpu) (3.0.3)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.10/site-packages (from jinja2->torch) (2.1.5)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/site-packages (from rich->keras>=3.2.0->tensorflow-cpu) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/site-packages (from rich->keras>=3.2.0->tensorflow-cpu) (2.18.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/site-packages (from markdown-it-py>=2.2.0->rich->keras>=3.2.0->tensorflow-cpu) (0.1.2)
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout 6fd4873a367d20624105967c5be0d451f72f946d keras/src/ops/core_test.py
+Updated 0 paths from 710250296
++ git apply -v -
+Checking patch keras/src/ops/core_test.py...
+Applied patch keras/src/ops/core_test.py cleanly.
++ : '>>>>> Start Test Output'
++ SKIP_APPLICATIONS_TESTS=True
++ pytest -rA keras keras/src/ops/core_test.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.3.2, pluggy-1.5.0 -- /usr/local/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-5.0.0
+collecting ... collected 107 items
+
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_associative_scan PASSED [  0%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_fori_loop PASSED [  1%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_map PASSED      [  2%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_scan PASSED     [  3%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_scatter PASSED  [  4%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_scatter_update PASSED [  5%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_slice_update PASSED [  6%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_switch PASSED   [  7%]
+keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_unstack PASSED  [  8%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_associative_scan PASSED [  9%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cast PASSED     [ 10%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cast_float8_float8_e4m3fn PASSED [ 11%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cast_float8_float8_e5m2 PASSED [ 12%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cond PASSED     [ 13%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cond_raw_bool_compile PASSED [ 14%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_convert_to_tensor PASSED [ 14%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_convert_to_tensor_sparse PASSED [ 15%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_custom_gradient PASSED [ 16%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_dynamic_slice PASSED [ 17%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_fori_loop PASSED [ 18%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_is_tensor PASSED [ 19%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_map PASSED      [ 20%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_scan PASSED     [ 21%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_scatter PASSED  [ 22%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_scatter_update PASSED [ 23%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_shape PASSED    [ 24%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_shape_ragged PASSED [ 25%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_shape_sparse PASSED [ 26%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_slice PASSED    [ 27%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_slice_update PASSED [ 28%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_stop_gradient PASSED [ 28%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_stop_gradient_functional FAILED [ 29%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_stop_gradient_return PASSED [ 30%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_switch PASSED   [ 31%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_unstack PASSED  [ 32%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_vectorized_map PASSED [ 33%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_list_data_no_max PASSED [ 34%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_list_data_with_max PASSED [ 35%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_nested_data_no_max PASSED [ 36%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_nested_data_with_max PASSED [ 37%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_scalar_data_no_max PASSED [ 38%]
+keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_scalar_data_with_max PASSED [ 39%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor0 PASSED [ 40%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor1 PASSED [ 41%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor10 PASSED [ 42%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor11 PASSED [ 42%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor12 PASSED [ 43%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor13 PASSED [ 44%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor14 PASSED [ 45%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor15 PASSED [ 46%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor16 PASSED [ 47%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor17 PASSED [ 48%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor18 PASSED [ 49%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor19 PASSED [ 50%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor2 PASSED [ 51%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor20 PASSED [ 52%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor21 PASSED [ 53%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor22 PASSED [ 54%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor23 PASSED [ 55%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor24 PASSED [ 56%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor25 PASSED [ 57%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor26 PASSED [ 57%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor27 PASSED [ 58%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor28 PASSED [ 59%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor29 PASSED [ 60%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor3 PASSED [ 61%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor30 PASSED [ 62%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor31 PASSED [ 63%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor32 PASSED [ 64%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor33 PASSED [ 65%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor34 PASSED [ 66%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor35 PASSED [ 67%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor4 PASSED [ 68%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor5 PASSED [ 69%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor6 PASSED [ 70%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor7 PASSED [ 71%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor8 PASSED [ 71%]
+keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor9 PASSED [ 72%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_associative_scan_basic_call PASSED [ 73%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cast_basic_functionality PASSED [ 74%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_dict PASSED [ 75%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_list PASSED [ 76%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_list_tuple PASSED [ 77%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_none PASSED [ 78%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_other_types PASSED [ 79%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_tuple PASSED [ 80%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_fori_loop_basic_functionality PASSED [ 81%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_map_basic_call PASSED [ 82%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_scan_basic_call PASSED [ 83%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_scatter_basic_call PASSED [ 84%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_scatter_update_basic_call PASSED [ 85%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_basic_call PASSED [ 85%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_compute_output_spec PASSED [ 86%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_update_basic_call PASSED [ 87%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_with_non_symbolic_tensors PASSED [ 88%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_with_symbolic_tensors PASSED [ 89%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_stop_gradient_call PASSED [ 90%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_stop_gradient_compute_output_spec PASSED [ 91%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_switch_basic_call PASSED [ 92%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_unstack_basic_functionality PASSED [ 93%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_while_loop_basic_functionality PASSED [ 94%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_while_loop_output_spec PASSED [ 95%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_while_loop_with_max_iterations PASSED [ 96%]
+keras/src/ops/core_test.py::CoreOpsCallsTests::test_whileloop_compute_output_spec PASSED [ 97%]
+keras/src/ops/core_test.py::CoreOpsBehaviorTests::test_associative_scan_invalid_arguments PASSED [ 98%]
+keras/src/ops/core_test.py::CoreOpsBehaviorTests::test_convert_to_numpy PASSED [ 99%]
+keras/src/ops/core_test.py::CoreOpsBehaviorTests::test_scan_invalid_arguments PASSED [100%]
+
+=================================== FAILURES ===================================
+_____________ CoreOpsCorrectnessTest.test_stop_gradient_functional _____________
+
+self = <keras.src.ops.core_test.CoreOpsCorrectnessTest testMethod=test_stop_gradient_functional>
+
+    def test_stop_gradient_functional(self):
+        a = layers.Input(shape=(2,))
+        b = layers.Dense(4, kernel_initializer="ones", use_bias=False)(a)
+        c = layers.Dense(4, kernel_initializer="ones", use_bias=False)(b)
+>       d = ops.stop_gradient(b) + c
+
+keras/src/ops/core_test.py:590: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+keras/src/ops/core.py:650: in stop_gradient
+    return backend.core.stop_gradient(variable)
+keras/src/backend/tensorflow/core.py:613: in stop_gradient
+    return tf.stop_gradient(variable)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/ops/weak_tensor_ops.py:88: in wrapper
+    return op(*args, **kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:153: in error_handler
+    raise e.with_traceback(filtered_tb) from None
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <KerasTensor shape=(None, 4), dtype=float32, sparse=False, name=keras_tensor_1>
+dtype = None, name = None
+
+    def __tf_tensor__(self, dtype=None, name=None):
+>       raise ValueError(
+            "A KerasTensor cannot be used as input to a TensorFlow function. "
+            "A KerasTensor is a symbolic placeholder for a shape and dtype, "
+            "used when constructing Keras Functional models "
+            "or Keras Functions. You can only use it as input to a Keras layer "
+            "or a Keras operation (from the namespaces `keras.layers` "
+            "and `keras.operations`). "
+            "You are likely doing something like:\n\n"
+            "```\n"
+            "x = Input(...)\n"
+            "...\n"
+            "tf_fn(x)  # Invalid.\n"
+            "```\n\n"
+            "What you should do instead is wrap `tf_fn` in a layer:\n\n"
+            "```\n"
+            "class MyLayer(Layer):\n"
+            "    def call(self, x):\n"
+            "        return tf_fn(x)\n\n"
+            "x = MyLayer()(x)\n"
+            "```\n"
+        )
+E       ValueError: A KerasTensor cannot be used as input to a TensorFlow function. A KerasTensor is a symbolic placeholder for a shape and dtype, used when constructing Keras Functional models or Keras Functions. You can only use it as input to a Keras layer or a Keras operation (from the namespaces `keras.layers` and `keras.operations`). You are likely doing something like:
+E       
+E       ```
+E       x = Input(...)
+E       ...
+E       tf_fn(x)  # Invalid.
+E       ```
+E       
+E       What you should do instead is wrap `tf_fn` in a layer:
+E       
+E       ```
+E       class MyLayer(Layer):
+E           def call(self, x):
+E               return tf_fn(x)
+E       
+E       x = MyLayer()(x)
+E       ```
+
+keras/src/backend/common/keras_tensor.py:138: ValueError
+==================================== PASSES ====================================
+_______________________ CoreOpsCorrectnessTest.test_cast _______________________
+----------------------------- Captured stderr call -----------------------------
+2026-03-17 05:13:09.924067: E tensorflow/core/util/util.cc:131] oneDNN supports DT_HALF only on platforms with AVX-512. Falling back to the default Eigen-based implementation if present.
+______________ CoreOpsCorrectnessTest.test_cond_raw_bool_compile _______________
+----------------------------- Captured stdout call -----------------------------
+[1m1/1[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 114ms/step - loss: 4.0000[1m1/1[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 119ms/step - loss: 4.0000
+___________________ CoreOpsCorrectnessTest.test_slice_update ___________________
+----------------------------- Captured stderr call -----------------------------
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1773724390.461753      66 service.cc:146] XLA service 0x55e348871230 initialized for platform Host (this does not guarantee that XLA will be used). Devices:
+I0000 00:00:1773724390.461816      66 service.cc:154]   StreamExecutor device (0): Host, Default Version
+I0000 00:00:1773724390.483586      66 device_compiler.h:188] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+__________________ CoreOpsCorrectnessTest.test_stop_gradient ___________________
+----------------------------- Captured stdout call -----------------------------
+[1m1/1[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 134ms/step - loss: 0.5466[1m1/1[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 140ms/step - loss: 0.5466
+=========================== short test summary info ============================
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_associative_scan
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_fori_loop
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_map
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_scan
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_scatter
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_scatter_update
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_slice_update
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_switch
+PASSED keras/src/ops/core_test.py::CoreOpsStaticShapeTest::test_unstack
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_associative_scan
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cast
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cast_float8_float8_e4m3fn
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cast_float8_float8_e5m2
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cond
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_cond_raw_bool_compile
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_convert_to_tensor
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_convert_to_tensor_sparse
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_custom_gradient
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_dynamic_slice
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_fori_loop
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_is_tensor
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_map
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_scan
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_scatter
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_scatter_update
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_shape
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_shape_ragged
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_shape_sparse
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_slice
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_slice_update
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_stop_gradient
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_stop_gradient_return
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_switch
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_unstack
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_vectorized_map
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_list_data_no_max
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_list_data_with_max
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_nested_data_no_max
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_nested_data_with_max
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_scalar_data_no_max
+PASSED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_while_loop_scalar_data_with_max
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor0
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor1
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor10
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor11
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor12
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor13
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor14
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor15
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor16
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor17
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor18
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor19
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor2
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor20
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor21
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor22
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor23
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor24
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor25
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor26
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor27
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor28
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor29
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor3
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor30
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor31
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor32
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor33
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor34
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor35
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor4
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor5
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor6
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor7
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor8
+PASSED keras/src/ops/core_test.py::CoreOpsDtypeTest::test_convert_to_tensor9
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_associative_scan_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cast_basic_functionality
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_dict
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_list
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_list_tuple
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_none
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_other_types
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_cond_check_output_spec_tuple
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_fori_loop_basic_functionality
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_map_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_scan_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_scatter_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_scatter_update_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_compute_output_spec
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_update_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_with_non_symbolic_tensors
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_slice_with_symbolic_tensors
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_stop_gradient_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_stop_gradient_compute_output_spec
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_switch_basic_call
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_unstack_basic_functionality
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_while_loop_basic_functionality
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_while_loop_output_spec
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_while_loop_with_max_iterations
+PASSED keras/src/ops/core_test.py::CoreOpsCallsTests::test_whileloop_compute_output_spec
+PASSED keras/src/ops/core_test.py::CoreOpsBehaviorTests::test_associative_scan_invalid_arguments
+PASSED keras/src/ops/core_test.py::CoreOpsBehaviorTests::test_convert_to_numpy
+PASSED keras/src/ops/core_test.py::CoreOpsBehaviorTests::test_scan_invalid_arguments
+FAILED keras/src/ops/core_test.py::CoreOpsCorrectnessTest::test_stop_gradient_functional - ValueError: A KerasTensor cannot be used as input to a TensorFlow function. A KerasTensor is a symbolic placeholder for a shape and dtype, used when constructing Keras Functional models or Keras Functions. You can only use it as input to a Keras layer or a Keras operation (from the namespaces `keras.layers` and `keras.operations`). You are likely doing something like:
+
+```
+x = Input(...)
+...
+tf_fn(x)  # Invalid.
+```
+
+What you should do instead is wrap `tf_fn` in a layer:
+
+```
+class MyLayer(Layer):
+    def call(self, x):
+        return tf_fn(x)
+
+x = MyLayer()(x)
+```
+======================== 1 failed, 106 passed in 2.99s =========================
++ : '>>>>> End Test Output'
++ git checkout 6fd4873a367d20624105967c5be0d451f72f946d keras/src/ops/core_test.py
+Updated 1 path from 710250296

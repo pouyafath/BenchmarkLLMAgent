@@ -1,0 +1,64 @@
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@
+ from reflex.utils.types import get_origin, override
+ from reflex.vars import VarData
+ 
+ if TYPE_CHECKING:
+@@
+     from reflex.components.component import Component
+ 
+ 
+ Delta = Dict[str, Any]
+ var = computed_var
+@@
+ TO
+     return f"{token}_{state_cls_or_name}"
+ 
+ 
+ # Existing code continues...
+@@
+ 
+ # Existing code continues...
+ 
++# ---------------------------------------------------------------------------
++# Patch to make dynamically created State subclasses picklable
++# ---------------------------------------------------------------------------
++
++# Reflex allows users to define State subclasses inside local functions.
++# Such classes have a ``__module__`` attribute like ``"<locals>"`` which makes
++# them unpicklable because the pickle module cannot locate the class definition.
++# To fix this, we monkey‑patch the ``BaseState`` class (the common ancestor for
++# all user‑defined states) to normalise the ``__module__`` attribute of any
++# dynamically created subclass.  The chosen module name ``reflex.state`` is
++# importable and stable, ensuring that ``pickle`` can resolve the class.
++
++def _normalise_dynamic_state_module(cls: type) -> None:
++    """Set a stable ``__module__`` for dynamically created State subclasses.
++
++    Args:
++        cls: The subclass of ``BaseState`` that may have been defined locally.
++    """
++    # ``__module__`` is ``"<locals>"`` for classes defined inside a function.
++    # Changing it to an importable module makes the class pickleable.
++    if isinstance(cls.__module__, str) and cls.__module__.startswith("<locals>"):
++        cls.__module__ = "reflex.state"
++
++# Apply the normalisation logic to every subclass of ``BaseState`` when it is
++# created.  We wrap the original ``__init_subclass__`` (if any) to preserve
++# existing behaviour.
++if "BaseState" in globals():
++    _original_init_subclass = getattr(BaseState, "__init_subclass__", None)
++
++    @classmethod
++    def __init_subclass__(cls, **kwargs):  # type: ignore[misc]
++        # Call the original ``__init_subclass__`` if it exists.
++        if _original_init_subclass is not None:
++            _original_init_subclass(**kwargs)
++        # Normalise the module for dynamically created subclasses.
++        _normalise_dynamic_state_module(cls)
++
++    # Replace the method on ``BaseState``.
++    BaseState.__init_subclass__ = __init_subclass__  # type: ignore[assignment]
++
+*** End of File ***

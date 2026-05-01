@@ -1,0 +1,35 @@
+diff --git a/dspy/retrievers/embeddings.py b/dspy/retrievers/embeddings.py
+index 94bbc589..d16a4405 100644
+--- a/dspy/retrievers/embeddings.py
++++ b/dspy/retrievers/embeddings.py
+@@ -6,7 +6,6 @@ import numpy as np
+ 
+ from dspy.utils.unbatchify import Unbatchify
+ 
+-
+ class Embeddings:
+     def __init__(
+         self,
+@@ -37,8 +36,8 @@ class Embeddings:
+     def forward(self, query: str):
+         import dspy
+ 
+-        passages, indices = self.search_fn(query)
+-        return dspy.Prediction(passages=passages, indices=indices)
++        passages, indices, scores = self.search_fn(query)
++        return dspy.Prediction(passages=passages, indices=indices, scores=scores)
+ 
+     def _batch_forward(self, queries: list[str]):
+         q_embeds = self.embedder(queries)
+@@ -82,7 +81,10 @@ class Embeddings:
+         top_k_indices = np.argsort(-scores, axis=1)[:, : self.k]
+         top_indices = candidate_indices[np.arange(len(q_embeds))[:, None], top_k_indices]
+ 
+-        return [([self.corpus[idx] for idx in indices], [idx for idx in indices]) for indices in top_indices]  # noqa: C416
++        # Get the top k scores for each query
++        top_scores = scores[np.arange(len(q_embeds))[:, None], top_k_indices]
++
++        return [([self.corpus[idx] for idx in indices], [idx for idx in indices], [float(score) for score in scores_list]) for indices, scores_list in zip(top_indices, top_scores)]  # noqa: C416
+ 
+     def _normalize(self, embeddings: np.ndarray):
+         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)

@@ -1,0 +1,44 @@
+diff --git a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+index a260a445..b5d75224 100644
+--- a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
++++ b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+@@ -1,4 +1,4 @@
+-Value INTERFACE (\S+)
++Value INTERFACE ([a-zA-Z]+\d+\/\d+\/\d+|[a-zA-Z]+\d+\/\d+)
+ Value ADMIN_STATUS (\S+)
+ Value OPERATIONAL_STATUS (\S+)
+ Value POWER (\d+\.\d+)
+@@ -7,8 +7,10 @@ Value CLASS (\d|n/a)
+ Value MAX (\d+\.\d+)
+ 
+ Start
+-  ^Interface\s+Admin\s+Oper\s+Power\s+Device\s+Class\s+Max\s*$$ -> Interfaces
++  ^%No inline power card on switch -> Next.Clear
++  ^Interface\s+Admin\s+Priority\s+Oper\s+Power\(Watts\)\s+Device\s+Class\s+Police.*$$ -> Interfaces6880
+   ^Interface\s+Admin\s+Oper\s+Power\(Watts\)\s+Device\s+Class\s*$$ -> Interfaces45xx
++  ^Interface\s+Admin\s+Oper\s+Power\s+Device\s+Class\s+Max\s*$$ -> Interfaces
+   ^Available:
+   ^Module
+   ^\d+
+@@ -19,6 +21,8 @@ Start
+ 
+ Interfaces
+   ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${OPERATIONAL_STATUS}\s+${POWER}\s+${DEVICE}\s+${CLASS}\s+${MAX}\s*$$ -> Record
++  ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${OPERATIONAL_STATUS}\s+${POWER}\s+${DEVICE}\s+${CLASS}\s*$$ -> Record
++  ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${OPERATIONAL_STATUS}\s+${POWER}\s*$$ -> Record
+   ^Totals.*
+   ^\s+\(Watts\)
+   ^-+
+@@ -32,3 +36,12 @@ Interfaces45xx
+   ^\s*$$
+   ^Totals:.*
+   ^. -> Error
++
++Interfaces6880
++  ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+(\S+)\s+${OPERATIONAL_STATUS}\s+\d+\.\d+\s+${POWER}\s+${DEVICE}\s+${CLASS}\s+(\S+)\s*$$ -> Record
++  ^\s+\(enabled\)\s+From\s+PS\s+To\s+Device\s*$$
++  ^\s+From\s+PS\s+To\s+Device\s*$$
++  ^-+
++  ^\s*$$
++  ^Totals:.*
++  ^. -> Next.Clear

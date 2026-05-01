@@ -1,0 +1,59 @@
+diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py
+index abdeba8ef..455feae27 100644
+--- a/astropy/io/ascii/rst.py
++++ b/astropy/io/ascii/rst.py
+@@ -57,10 +57,50 @@ class RST(FixedWidth):
+     data_class = SimpleRSTData
+     header_class = SimpleRSTHeader
+ 
+-    def __init__(self):
+-        super().__init__(delimiter_pad=None, bookend=False)
++    def __init__(self, header_rows=None):
++        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
+ 
+     def write(self, lines):
+         lines = super().write(lines)
+-        lines = [lines[1]] + lines + [lines[1]]
+-        return lines
++        if not lines:
++            return lines
++
++        # Find the separator line (it should be the line with '=' characters separating columns)
++        # The separator line will have '=' characters with spaces between them
++        separator = None
++        separator_index = -1
++        for i, line in enumerate(lines):
++            if '=' in line and all(c == '=' or c.isspace() for c in line):
++                separator = line
++                separator_index = i
++                break
++
++        if separator is None:
++            # Fallback to the original logic if no separator found
++            separator = lines[1] if len(lines) > 1 else "=" * 20
++            separator_index = 1
++
++        # Build the output with separators around the content
++        output_lines = []
++        output_lines.append(separator)  # Top separator
++
++        # Add content lines (everything before the separator)
++        content_lines = lines[:separator_index]
++        for i, line in enumerate(content_lines):
++            output_lines.append(line)
++            # Add separator after each content line except the last one
++            if i < len(content_lines) - 1:
++                output_lines.append(separator)
++
++        # Add data lines (everything after the separator)
++        data_lines = lines[separator_index + 1:]
++        if data_lines:  # Only add separator before data if there are data lines
++            output_lines.append(separator)
++
++        for line in data_lines:
++            output_lines.append(line)
++
++        # Add bottom separator
++        output_lines.append(separator)
++
++        return output_lines

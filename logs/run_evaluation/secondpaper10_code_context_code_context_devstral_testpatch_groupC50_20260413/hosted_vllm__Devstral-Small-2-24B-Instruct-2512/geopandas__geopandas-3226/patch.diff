@@ -1,0 +1,166 @@
+diff --git a/geopandas/geoseries.py b/geopandas/geoseries.py
+index a9523d9d..bb11a004 100644
+--- a/geopandas/geoseries.py
++++ b/geopandas/geoseries.py
+@@ -565,7 +565,7 @@ class GeoSeries(GeoPandasBase, Series):
+         """
+         from geopandas import GeoDataFrame
+ 
+-        return GeoDataFrame({"geometry": self}).__geo_interface__
++        return self.to_geo_dict(na="null", show_bbox=True, drop_id=False)
+ 
+     def to_file(
+         self,
+@@ -1190,18 +1190,114 @@ class GeoSeries(GeoPandasBase, Series):
+         """
+         return self.values.estimate_utm_crs(datum_name)
+ 
+-    def to_json(self, **kwargs) -> str:
++    def to_geo_dict(self, na="null", show_bbox=False, drop_id=False):
++        """
++        Returns a python feature collection representation of the GeoSeries
++        as a dictionary with a list of features based on the ``__geo_interface__``
++        GeoJSON-like specification.
++
++        Parameters
++        ----------
++        na : str, optional
++            Options are {'null', 'drop', 'keep'}, default 'null'.
++            Indicates how to output missing (NaN) values in the GeoSeries
++
++            - null: output the missing entries as JSON null
++            - drop: remove the property from the feature. This applies to each feature individually so that features may have different properties
++            - keep: output the missing entries as NaN
++
++        show_bbox : bool, optional
++            Include bbox (bounds) in the geojson. Default False.
++        drop_id : bool, default: False
++            Whether to retain the index of the GeoSeries as the id property
++            in the generated dictionary. Default is False, but may want True
++            if the index is just arbitrary row numbers.
++
++        Examples
++        --------
++
++        >>> from shapely.geometry import Point
++        >>> s = geopandas.GeoSeries([Point(1, 2), Point(2, 1)])
++        >>> s
++        0    POINT (1 2)
++        1    POINT (2 1)
++        dtype: geometry
++
++        >>> s.to_geo_dict()
++        {'type': 'FeatureCollection', 'features': [{'id': '0', 'type': 'Feature', 'properties': {}, 'geometry': {'type': 'Point', 'coordinates': (1.0, 2.0)}}, {'id': '1', 'type': 'Feature', 'properties': {}, 'geometry': {'type': 'Point', 'coordinates': (2.0, 1.0)}}]}
++
++        See also
++        --------
++        GeoSeries.to_json : return a GeoSeries as a GeoJSON string
++
++        """
++        from geopandas import GeoDataFrame
++
++        if na not in ["null", "drop", "keep"]:
++            raise ValueError("Unknown na method {0}".format(na))
++
++        # Create a GeoDataFrame with just the geometry column
++        gdf = GeoDataFrame({"geometry": self})
++
++        # Get the geo dict from the GeoDataFrame
++        geo = {
++            "type": "FeatureCollection",
++            "features": list(
++                gdf.iterfeatures(na=na, show_bbox=show_bbox, drop_id=drop_id)
++            ),
++        }
++
++        if show_bbox:
++            geo["bbox"] = tuple(gdf.total_bounds)
++
++        return geo
++
++    def to_json(
++        self, na="null", show_bbox=False, drop_id=False, to_wgs84=False, **kwargs
++    ) -> str:
+         """
+         Returns a GeoJSON string representation of the GeoSeries.
+ 
+         Parameters
+         ----------
++        na : {'null', 'drop', 'keep'}, default 'null'
++            Indicates how to output missing (NaN) values in the GeoSeries.
++            See below.
++        show_bbox : bool, optional, default: False
++            Include bbox (bounds) in the geojson
++        drop_id : bool, default: False
++            Whether to retain the index of the GeoSeries as the id property
++            in the generated GeoJSON. Default is False, but may want True
++            if the index is just arbitrary row numbers.
++        to_wgs84: bool, optional, default: False
++            If the CRS is set on the GeoSeries it is exported as
++            WGS84 (EPSG:4326) to meet the `2016 GeoJSON specification
++            <https://tools.ietf.org/html/rfc7946>`_.
++            Set to True to force re-projection and set to False to ignore CRS. False by
++            default.
++
+         *kwargs* that will be passed to json.dumps().
+ 
+         Returns
+         -------
+         JSON string
+ 
++        Notes
++        -----
++        The remaining *kwargs* are passed to json.dumps().
++
++        Missing (NaN) values in the GeoSeries can be represented as follows:
++
++        - ``null``: output the missing entries as JSON null.
++        - ``drop``: remove the property from the feature. This applies to each
++          feature individually so that features may have different properties.
++        - ``keep``: output the missing entries as NaN.
++
++        If the GeoSeries has a defined CRS, its definition will be included
++        in the output unless it is equal to WGS84 (default GeoJSON CRS) or not
++        possible to represent in the URN OGC format, or unless ``to_wgs84=True``
++        is specified.
++
+         Examples
+         --------
+         >>> from shapely.geometry import Point
+@@ -1224,7 +1320,35 @@ e": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [3
+         --------
+         GeoSeries.to_file : write GeoSeries to file
+         """
+-        return json.dumps(self.__geo_interface__, **kwargs)
++        if to_wgs84:
++            if self.crs:
++                s = self.to_crs(epsg=4326)
++            else:
++                raise ValueError(
++                    "CRS is not set. Cannot re-project to WGS84 (EPSG:4326)."
++                )
++        else:
++            s = self
++
++        geo = s.to_geo_dict(na=na, show_bbox=show_bbox, drop_id=drop_id)
++
++        # if the geometry is not in WGS84, include CRS in the JSON
++        if s.crs is not None and not s.crs.equals("epsg:4326"):
++            auth_crsdef = self.crs.to_authority()
++            allowed_authorities = ["EDCS", "EPSG", "OGC", "SI", "UCUM"]
++
++            if auth_crsdef is None or auth_crsdef[0] not in allowed_authorities:
++                warnings.warn(
++                    "GeoSeries's CRS is not representable in URN OGC "
++                    "format. Resulting JSON will contain no CRS information.",
++                    stacklevel=2,
++                )
++            else:
++                authority, code = auth_crsdef
++                ogc_crs = f"urn:ogc:def:crs:{authority}::{code}"
++                geo["crs"] = {"type": "name", "properties": {"name": ogc_crs}}
++
++        return json.dumps(geo, **kwargs)
+ 
+     def to_wkb(self, hex: bool = False, **kwargs) -> Series:
+         """

@@ -1,0 +1,31 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..506805acdd 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,19 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
+-
+-        # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
+-
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        # For module:// imports, preserve case; for built-in backends, lowercase.
++        if backend.startswith("module://"):
++            # Preserve case for module:// imports
++            backend_module = backend[9:]
++            # Check if have specific name to module mapping.
++            backend_module = self._name_to_module.get(backend_module, backend_module)
++            return backend_module
++        else:
++            # Lowercase for built-in backends
++            backend = backend.lower()
++            # Check if have specific name to module mapping.
++            backend = self._name_to_module.get(backend, backend)
++            return f"matplotlib.backends.backend_{backend}"
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.

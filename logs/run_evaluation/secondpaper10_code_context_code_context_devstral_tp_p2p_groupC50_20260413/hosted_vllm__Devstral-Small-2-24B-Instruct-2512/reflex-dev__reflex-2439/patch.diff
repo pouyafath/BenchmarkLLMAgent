@@ -1,0 +1,77 @@
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -8,6 +8,7 @@ from reflex.components.tags import MatchTag, Tag
+ from reflex.utils import format, imports, types
+ from reflex.utils.exceptions import MatchTypeError
+ from reflex.vars import BaseVar, Var, VarData
++from reflex.constants import Hooks
+
+ class Match(MemoizationLeaf):
+     """Match cases based on a condition."""
+@@ -230,6 +231,46 @@ class Match(MemoizationLeaf):
+         return dict(tag)
+
+     def _get_vars(self) -> list[Var]:
++        """Walk all Vars used in this component.
++
++        Returns:
++            Each var referenced by the component (condition, match cases, default).
++        """
++        vars = getattr(self, "__vars", None)
++        if vars is not None:
++            return vars
++
++        vars = self.__vars = []
++
++        # Add the condition variable
++        if isinstance(self.cond, Var):
++            vars.append(self.cond)
++
++        # Add all variables from match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, Var):
++                    vars.append(element)
++                elif isinstance(element, BaseComponent):
++                    # Get vars from the component itself
++                    vars.extend(element._get_vars())
++                    # Also get vars from event triggers in the component
++                    for _, event_vars in element._get_vars_from_event_triggers(element.event_triggers):
++                        vars.extend(event_vars)
++
++        # Add the default case if it's a Var
++        if isinstance(self.default, Var):
++            vars.append(self.default)
++        elif isinstance(self.default, BaseComponent):
++            # Get vars from the default component
++            vars.extend(self.default._get_vars())
++            # Also get vars from event triggers in the default component
++            for _, event_vars in self.default._get_vars_from_event_triggers(self.default.event_triggers):
++                vars.extend(event_vars)
++
++        return vars
++
+     def _get_imports(self):
+         merged_imports = super()._get_imports()
+         # Obtain the imports of all components the in match case.
+@@ -243,3 +284,18 @@ class Match(MemoizationLeaf):
+                 self.default.get_imports(),
+             )
+         return merged_imports
++
++    def _get_events_hooks(self) -> set[str]:
++        """Get the hooks required by events referenced in this component.
++
++        Returns:
++            The hooks for the events.
++        """
++        # Check if any of the match cases or default have event triggers
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseComponent) and element.event_triggers:
++                    return {Hooks.EVENTS}
++
++        if isinstance(self.default, BaseComponent) and self.default.event_triggers:
++            return {Hooks.EVENTS}
++
++        return super()._get_events_hooks()

@@ -1,0 +1,44 @@
+diff --git a/conans/test/unittests/client/migrations/test_migrator.py b/conans/test/unittests/client/migrations/test_migrator.py
+index 1794fa0df..75d794026 100644
+--- a/conans/test/unittests/client/migrations/test_migrator.py
++++ b/conans/test/unittests/client/migrations/test_migrator.py
+@@ -2,27 +2,31 @@ import os
+ import platform
+ 
+ import pytest
++from unittest.mock import patch
+ 
+ from conans.errors import ConanMigrationError
+ from conans.migrations import Migrator
+ from conans.test.utils.test_files import temp_folder
+ 
+-
+ class FakeMigrator(Migrator):
+ 
+     def __init__(self, cache_folder, current_version):
+         self.cache_folder = cache_folder
+         super(FakeMigrator, self).__init__(cache_folder, current_version)
+ 
+-
+ class TestMigratorPermissionTest:
+ 
+     @pytest.mark.skipif(platform.system() == "Windows", reason="Can't apply chmod on Windows")
+     def test_invalid_permission(self):
+         conf_path = temp_folder(False)
+-        os.chmod(conf_path, 0o444)
+-        conf_path = os.path.join(conf_path, "foo")
+-        migrator = FakeMigrator(conf_path, "latest")
+-        with pytest.raises(ConanMigrationError) as error:
+-            migrator.migrate()
+-        assert f"Can't write version file in '{conf_path}/version.txt'" in str(error.value)
++        foo_path = os.path.join(conf_path, "foo")
++
++        # Mock the save function to simulate a permission error
++        def mock_save(path, content, encoding="utf-8"):
++            raise PermissionError("Permission denied")
++
++        with patch('conans.migrations.save', side_effect=mock_save):
++            migrator = FakeMigrator(foo_path, "latest")
++            with pytest.raises(ConanMigrationError) as error:
++                migrator.migrate()
++            assert f"Can't write version file in '{foo_path}/version.txt'" in str(error.value)

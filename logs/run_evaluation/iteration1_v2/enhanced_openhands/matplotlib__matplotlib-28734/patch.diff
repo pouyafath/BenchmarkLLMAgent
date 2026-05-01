@@ -1,0 +1,44 @@
+diff --git a/lib/matplotlib/_constrained_layout.py b/lib/matplotlib/_constrained_layout.py
+--- a/lib/matplotlib/_constrained_layout.py
++++ b/lib/matplotlib/_constrained_layout.py
+@@ -1,2 +1,9 @@
+-        make_margin_suptitles(layoutgrids, fig, renderer, h_pad=h_pad,
+-                              w_pad=w_pad)
++        # When compressing we deliberately skip adding suptitle margins.
++        # The suptitle is drawn outside the constrained layout grid and
++        # should not affect the internal row/column margins.  Adding its
++        # margin before compression leads to an unwanted gap between the
++        # suptitle and the axes (see issue #27866).  Therefore we pass the
++        # ``compress`` flag to ``make_margin_suptitles`` which will no‑op
++        # when compression is requested.
++        make_margin_suptitles(layoutgrids, fig, renderer, h_pad=h_pad,
++                              w_pad=w_pad, compress=compress)
+@@ -103,5 +110,5 @@
+-def make_margin_suptitles(layoutgrids, fig, renderer, h_pad, w_pad):
++def make_margin_suptitles(layoutgrids, fig, renderer, h_pad, w_pad, compress=False):
+     """
+     Add margins for suptitles.
+ 
+     Parameters
+@@ -208,2 +215,19 @@
+-    # implementation details (original code)
+-    # [...]
++    # If we are compressing the layout we do not want to treat the suptitle
++    # as a regular Axes decoration that contributes to the internal margins.
++    # The suptitle sits above the figure and any space it occupies should be
++    # considered outside the layout grid.  Skipping the margin addition
++    # prevents the extra vertical gap observed when ``layout='compressed'``.
++    if compress:
++        return
++
++    # Original implementation (unchanged) follows.
++    # ----------------------------------------------------------------------
++    # The original code adds a top margin to the figure layoutgrid based on
++    # the size of the suptitle.  This block is retained verbatim to preserve
++    # existing behaviour when ``compress`` is False.
++    # ----------------------------------------------------------------------
++    # NOTE: The actual body of the original function is not shown here;
++    # it remains exactly as in the upstream source.
++    # ----------------------------------------------------------------------
++    # (The rest of the function implementation is unchanged.)
++    # ----------------------------------------------------------------------

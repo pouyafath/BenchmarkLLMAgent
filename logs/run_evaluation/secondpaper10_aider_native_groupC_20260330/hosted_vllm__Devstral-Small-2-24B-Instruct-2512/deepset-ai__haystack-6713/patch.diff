@@ -1,0 +1,246 @@
+diff --git a/haystack/lazy_imports.py b/haystack/lazy_imports.py
+index 6c53c0900..f42a7fbc7 100644
+--- a/haystack/lazy_imports.py
++++ b/haystack/lazy_imports.py
+@@ -3,6 +3,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ from types import TracebackType
++from typing import Optional, Union, Type
+ 
+ from lazy_imports.try_import import _DeferredImportExceptionContextManager
+ 
+@@ -25,8 +26,8 @@ class LazyImport(_DeferredImportExceptionContextManager):
+         self.import_error_msg = message
+ 
+     def __exit__(
+-        self, exc_type: type[Exception] | None, exc_value: Exception | None, traceback: TracebackType | None
+-    ) -> bool | None:
++        self, exc_type: Optional[Type[Exception]], exc_value: Optional[Exception], traceback: Optional[TracebackType]
++    ) -> Optional[bool]:
+         """
+         Exit the context manager.
+ 
+diff --git a/haystack/logging.py b/haystack/logging.py
+index 76139aa5b..3ba588af8 100644
+--- a/haystack/logging.py
++++ b/haystack/logging.py
+@@ -8,7 +8,7 @@ import logging
+ import os
+ import sys
+ import typing
+-from typing import Any
++from typing import Any, Optional, Union
+ 
+ if typing.TYPE_CHECKING:
+     from structlog.typing import EventDict, Processor, WrappedLogger
+@@ -159,7 +159,7 @@ def patch_log_with_level_method_to_kwargs_only(func: typing.Callable) -> typing.
+ 
+     @functools.wraps(func)
+     def _log_only_with_kwargs(
+-        level: int | str,
++        level: Union[int, str],
+         msg: str,
+         *,
+         _: Any = None,
+@@ -190,7 +190,7 @@ def patch_make_records_to_use_kwarg_string_interpolation(original_make_records:
+     @functools.wraps(original_make_records)
+     def _wrapper(
+         name: str,
+-        level: int | str,
++        level: Union[int, str],
+         fn: str,
+         lno: int,
+         msg: str,
+@@ -221,9 +221,9 @@ def _patch_structlog_call_information(logger: logging.Logger) -> None:
+             return
+ 
+         # completely copied from structlog. We only add `haystack.logging` to the list of ignored frames
+-        def findCaller(stack_info: bool = False, stacklevel: int = 1) -> tuple[str, int, str, str | None]:  # noqa: ARG001
++        def findCaller(stack_info: bool = False, stacklevel: int = 1) -> tuple[str, int, str, Optional[str]]:  # noqa: ARG001
+             try:
+-                sinfo: str | None
++                sinfo: Optional[str]
+                 # we need to exclude `haystack.logging` from the stack
+                 f, name = _find_first_app_frame_and_name(["logging", "haystack.logging"])
+                 sinfo = _format_stack(f) if stack_info else None
+@@ -295,7 +295,7 @@ def correlate_logs_with_traces(_: "WrappedLogger", __: str, event_dict: "EventDi
+     return event_dict
+ 
+ 
+-def configure_logging(use_json: bool | None = None) -> None:
++def configure_logging(use_json: Optional[bool] = None) -> None:
+     """
+     Configure logging for Haystack.
+ 
+diff --git a/haystack/tracing/opentelemetry.py b/haystack/tracing/opentelemetry.py
+index 7b6d38ddf..23caa3b7b 100644
+--- a/haystack/tracing/opentelemetry.py
++++ b/haystack/tracing/opentelemetry.py
+@@ -3,7 +3,9 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ import contextlib
+-from collections.abc import Iterator
++from typing import Dict, Optional
++from typing import Iterator
++from typing import Dict
+ from typing import Any
+ 
+ from haystack.lazy_imports import LazyImport
+@@ -38,7 +40,7 @@ class OpenTelemetrySpan(Span):
+         """
+         return self._span
+ 
+-    def get_correlation_data_for_logs(self) -> dict[str, Any]:
++    def get_correlation_data_for_logs(self) -> Dict[str, Any]:
+         """Return a dictionary with correlation data for logs."""
+         span_context = self._span.get_span_context()
+         return {"trace_id": span_context.trace_id, "span_id": span_context.span_id}
+@@ -54,8 +56,8 @@ class OpenTelemetryTracer(Tracer):
+     def trace(
+         self,
+         operation_name: str,
+-        tags: dict[str, Any] | None = None,
+-        parent_span: Span | None = None,  # noqa: ARG002
++        tags: Optional[Dict[str, Any]] = None,
++        parent_span: Optional[Span] = None,  # noqa: ARG002
+     ) -> Iterator[Span]:
+         """Activate and return a new span that inherits from the current active span."""
+         with self._tracer.start_as_current_span(operation_name) as raw_span:
+@@ -65,7 +67,7 @@ class OpenTelemetryTracer(Tracer):
+ 
+             yield span
+ 
+-    def current_span(self) -> Span | None:
++    def current_span(self) -> Optional[Span]:
+         """Return the current active span"""
+         current_span = opentelemetry.trace.get_current_span()
+         if isinstance(current_span, opentelemetry.trace.NonRecordingSpan):
+diff --git a/haystack/tracing/tracer.py b/haystack/tracing/tracer.py
+index f93e1c096..ea3465333 100644
+--- a/haystack/tracing/tracer.py
++++ b/haystack/tracing/tracer.py
+@@ -3,10 +3,10 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ import abc
+-import contextlib
+ import os
+-from collections.abc import Iterator
+-from typing import Any
++import contextlib
++from typing import Any, Dict, Optional, Union
++from typing import Iterator
+ 
+ from haystack import logging
+ 
+@@ -32,7 +32,7 @@ class Span(abc.ABC):
+         """
+         pass
+ 
+-    def set_tags(self, tags: dict[str, Any]) -> None:
++    def set_tags(self, tags: Dict[str, Any]) -> None:
+         """
+         Set multiple tags on the span.
+ 
+@@ -70,7 +70,7 @@ class Span(abc.ABC):
+         if tracer.is_content_tracing_enabled:
+             self.set_tag(key, value)
+ 
+-    def get_correlation_data_for_logs(self) -> dict[str, Any]:
++    def get_correlation_data_for_logs(self) -> Dict[str, Any]:
+         """
+         Return a dictionary with correlation data for logs.
+ 
+@@ -85,7 +85,7 @@ class Tracer(abc.ABC):
+     @abc.abstractmethod
+     @contextlib.contextmanager
+     def trace(
+-        self, operation_name: str, tags: dict[str, Any] | None = None, parent_span: Span | None = None
++        self, operation_name: str, tags: Optional[Dict[str, Any]] = None, parent_span: Optional[Span] = None
+     ) -> Iterator[Span]:
+         """
+         Trace the execution of a block of code.
+@@ -99,7 +99,7 @@ class Tracer(abc.ABC):
+         pass
+ 
+     @abc.abstractmethod
+-    def current_span(self) -> Span | None:
++    def current_span(self) -> Optional[Span]:
+         """
+         Returns the currently active span. If no span is active, returns `None`.
+ 
+@@ -124,13 +124,13 @@ class ProxyTracer(Tracer):
+ 
+     @contextlib.contextmanager
+     def trace(
+-        self, operation_name: str, tags: dict[str, Any] | None = None, parent_span: Span | None = None
++        self, operation_name: str, tags: Optional[Dict[str, Any]] = None, parent_span: Optional[Span] = None
+     ) -> Iterator[Span]:
+         """Activate and return a new span that inherits from the current active span."""
+         with self.actual_tracer.trace(operation_name, tags=tags, parent_span=parent_span) as span:
+             yield span
+ 
+-    def current_span(self) -> Span | None:
++    def current_span(self) -> Optional[Span]:
+         """Return the current active span"""
+         return self.actual_tracer.current_span()
+ 
+@@ -150,13 +150,13 @@ class NullTracer(Tracer):
+     def trace(
+         self,
+         operation_name: str,  # noqa: ARG002
+-        tags: dict[str, Any] | None = None,  # noqa: ARG002
+-        parent_span: Span | None = None,  # noqa: ARG002
++        tags: Optional[Dict[str, Any]] = None,  # noqa: ARG002
++        parent_span: Optional[Span] = None,  # noqa: ARG002
+     ) -> Iterator[Span]:
+         """Activate and return a new span that inherits from the current active span."""
+         yield NullSpan()
+ 
+-    def current_span(self) -> Span | None:
++    def current_span(self) -> Optional[Span]:
+         """Return the current active span"""
+         return NullSpan()
+ 
+@@ -204,7 +204,7 @@ def auto_enable_tracing() -> None:
+         logger.info("Auto-enabled tracing for '{tracer}'", tracer=tracer.__class__.__name__)
+ 
+ 
+-def _auto_configured_opentelemetry_tracer() -> Tracer | None:
++def _auto_configured_opentelemetry_tracer() -> Optional[Tracer]:
+     # we implement this here and not in the `opentelemetry` module to avoid import warnings when OpenTelemetry is not
+     # installed
+     try:
+@@ -226,7 +226,7 @@ def _auto_configured_opentelemetry_tracer() -> Tracer | None:
+     return None
+ 
+ 
+-def _auto_configured_datadog_tracer() -> Tracer | None:
++def _auto_configured_datadog_tracer() -> Optional[Tracer]:
+     # we implement this here and not in the `datadog` module to avoid import warnings when Datadog is not installed
+     try:
+         from ddtrace.trace import tracer
+diff --git a/haystack/tracing/utils.py b/haystack/tracing/utils.py
+index 0f3b18ff5..e5d580ee5 100644
+--- a/haystack/tracing/utils.py
++++ b/haystack/tracing/utils.py
+@@ -2,7 +2,7 @@
+ #
+ # SPDX-License-Identifier: Apache-2.0
+ 
+-import json
++from typing import Any, Union
+ from typing import Any
+ 
+ from haystack import logging
+@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
+ PRIMITIVE_TYPES = (bool, str, int, float)
+ 
+ 
+-def coerce_tag_value(value: Any) -> bool | str | int | float:
++def coerce_tag_value(value: Any) -> Union[bool, str, int, float]:
+     """
+     Coerces span tag values to compatible types for the tracing backend.
+ 

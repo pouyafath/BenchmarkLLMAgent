@@ -1,0 +1,57 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..149f05e8 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -184,6 +184,7 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL": None,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -434,6 +435,10 @@ class Flask(App):
+         .. versionchanged:: 1.0
+             :data:`SERVER_NAME` no longer implicitly enables subdomain
+             matching. Use :attr:`subdomain_matching` instead.
++
++        .. versionchanged:: 3.1
++            :data:`CANONICAL_URL` can be used for URL generation instead
++            of :data:`SERVER_NAME`.
+         """
+         if request is not None:
+             # If subdomain matching is disabled (the default), use the
+@@ -449,9 +454,16 @@ class Flask(App):
+                 server_name=self.config["SERVER_NAME"],
+                 subdomain=subdomain,
+             )
+-        # We need at the very least the server name to be set for this
+-        # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        # When outside a request context, we need to create a URL adapter
++        # for URL generation. We prefer CANONICAL_URL for this purpose,
++        # falling back to SERVER_NAME for backward compatibility.
++        if self.config["CANONICAL_URL"] is not None:
++            return self.url_map.bind(
++                self.config["CANONICAL_URL"],
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=self.config["PREFERRED_URL_SCHEME"],
++            )
++        elif self.config["SERVER_NAME"] is not None:
+             return self.url_map.bind(
+                 self.config["SERVER_NAME"],
+                 script_name=self.config["APPLICATION_ROOT"],
+diff --git a/src/flask/testing.py b/src/flask/testing.py
+index 602b773b..bd9870fe 100644
+--- a/src/flask/testing.py
++++ b/src/flask/testing.py
+@@ -62,7 +62,8 @@ class EnvironBuilder(werkzeug.test.EnvironBuilder):
+         ), 'Cannot pass "subdomain" or "url_scheme" with "base_url".'
+ 
+         if base_url is None:
+-            http_host = app.config.get("SERVER_NAME") or "localhost"
++            # Prefer CANONICAL_URL for base URL construction, fall back to SERVER_NAME
++            http_host = app.config.get("CANONICAL_URL") or app.config.get("SERVER_NAME") or "localhost"
+             app_root = app.config["APPLICATION_ROOT"]
+ 
+             if subdomain:

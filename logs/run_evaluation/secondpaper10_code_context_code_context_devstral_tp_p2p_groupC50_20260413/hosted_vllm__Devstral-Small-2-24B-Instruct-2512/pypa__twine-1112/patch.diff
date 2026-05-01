@@ -1,0 +1,23 @@
+diff --git a/twine/utils.py b/twine/utils.py
+index 05739bc..2b3c915 100644
+--- a/twine/utils.py
++++ b/twine/utils.py
+@@ -171,10 +171,14 @@ _HOSTNAMES = {
+ def _config_from_repository_url(url: str) -> RepositoryConfig:
+     parsed = urlparse(url)
+     config = {"repository": url, "username": None, "password": None}
+-    if parsed.username:
+-        config["username"] = parsed.username
+-        config["password"] = parsed.password
+-        config["repository"] = urlunparse((parsed.scheme, parsed.hostname) + parsed[2:])
++    if parsed.username or parsed.password:
++        config["username"] = parsed.username or None
++        config["password"] = parsed.password or None
++        # Build netloc without authentication but with port
++        netloc = parsed.hostname
++        if parsed.port:
++            netloc = f"{netloc}:{parsed.port}"
++        config["repository"] = urlunparse((parsed.scheme, netloc) + parsed[2:])
+     config["repository"] = normalize_repository_url(cast(str, config["repository"]))
+     return config
+ 

@@ -1,0 +1,46 @@
+diff --git a/fastf1/plotting/_interface.py b/fastf1/plotting/_interface.py
+--- a/fastf1/plotting/_interface.py
++++ b/fastf1/plotting/_interface.py
+@@ -1,4 +1,20 @@
+     elif colormap == 'official':
+         return team.constants.TeamColor.Official
+     ...
+ 
++def _replace_auto(obj: Any, replacement: Any) -> Any:
++    """
++    Recursively replace any occurrence of the string ``\"auto\"`` in *obj*
++    with *replacement*. Handles dictionaries, lists, tuples and nested
++    structures. Non‑string values are returned unchanged.
++    """
++    if isinstance(obj, dict):
++        # Preserve the original dict type (normally a plain dict)
++        return {k: _replace_auto(v, replacement) for k, v in obj.items()}
++    if isinstance(obj, (list, tuple)):
++        # Preserve the original sequence type
++        return type(obj)(_replace_auto(v, replacement) for v in obj)
++    if isinstance(obj, str) and obj == "auto":
++        return replacement
++    return obj
++
+@@ -105,7 +121,15 @@
+-    style_dict = {
+-        'color': _get_driver_color(driver, session, colormap=colormap,
+-                                   exact_match=exact_match, _variants=_variants),
+-        # other style entries ...
+-    }
++    # Build the base style dictionary (original implementation)
++    style_dict = {
++        'color': _get_driver_color(driver, session, colormap=colormap,
++                                   exact_match=exact_match, _variants=_variants),
++        # other style entries ...
++    }
+ 
+-    return style_dict
++    # Recursively replace any ``\"auto\"`` placeholders with the driver color.
++    # This allows nested structures such as ``line={'color': 'auto'}`` to be
++    # correctly resolved.
++    driver_color = style_dict.get('color')
++    if driver_color is not None:
++        style_dict = _replace_auto(style_dict, driver_color)
++
++    return style_dict

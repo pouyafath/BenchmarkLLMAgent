@@ -1,0 +1,15 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index e3b14a41a0..ecd714609d 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -852,7 +852,9 @@ class Model(metaclass=ModelBase):
+             not force_insert and
+             self._state.adding and
+             self._meta.pk.default and
+-            self._meta.pk.default is not NOT_PROVIDED
++            self._meta.pk.default is not NOT_PROVIDED and
++            # Only force insert if the PK value doesn't already exist in the DB
++            not cls._base_manager.using(using).filter(pk=pk_val).exists()
+         ):
+             force_insert = True
+         # If possible, try an UPDATE. If that doesn't update anything, do an INSERT.

@@ -1,0 +1,19 @@
+diff --git a/keras/backend/torch/nn.py b/keras/backend/torch/nn.py
+index 6f24f8f17..c7053ebe5 100644
+--- a/keras/backend/torch/nn.py
++++ b/keras/backend/torch/nn.py
+@@ -727,7 +727,13 @@ def batch_normalization(
+         scale = convert_to_tensor(scale)
+         scale = torch.reshape(scale, shape)
+     else:
+-        scale = torch.ones_like(variance)
++        # When scale is None, we should not apply any scaling
++        # The formula becomes: y = (x - mean) / sqrt(variance + epsilon) + offset
++        return (
++            x.subtract(mean)
++            .mul_(variance.add(epsilon).rsqrt_())
++            .add_(offset)
++        )
+ 
+     return (
+         x.subtract(mean)

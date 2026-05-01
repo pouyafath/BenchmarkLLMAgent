@@ -1,0 +1,64 @@
+diff --git a/django/core/mail/message.py b/django/core/mail/message.py
+index e393b4cf5c..1c9580082f 100644
+--- a/django/core/mail/message.py
++++ b/django/core/mail/message.py
+@@ -13,9 +13,8 @@ from email.mime.text import MIMEText
+ from email.utils import formatdate, getaddresses, make_msgid
+ from io import BytesIO, StringIO
+ from pathlib import Path
+-
++from django.core.mail.utils import DNS_NAME, encode_idna_domain
+ from django.conf import settings
+-from django.core.mail.utils import DNS_NAME
+ from django.utils.encoding import force_str
+ 
+ # Don't BASE64-encode UTF-8 messages so that we avoid unwanted attention from
+@@ -257,7 +256,7 @@ class EmailMessage:
+             msg['Date'] = formatdate(localtime=settings.EMAIL_USE_LOCALTIME)
+         if 'message-id' not in header_names:
+             # Use cached DNS_NAME for performance
+-            msg['Message-ID'] = make_msgid(domain=DNS_NAME)
++            msg['Message-ID'] = make_msgid(domain=encode_idna_domain(DNS_NAME))
+         for name, value in self.extra_headers.items():
+             if name.lower() != 'from':  # From is already handled
+                 msg[name] = value
+diff --git a/django/core/mail/utils.py b/django/core/mail/utils.py
+index d18dfe4667..030ddc819c 100644
+--- a/django/core/mail/utils.py
++++ b/django/core/mail/utils.py
+@@ -3,7 +3,7 @@ Email message and email sending related helper functions.
+ """
+ 
+ import socket
+-
++from encodings.idna import ToASCII
+ 
+ # Cache the hostname, but do it lazily: socket.getfqdn() can take a couple of
+ # seconds, which slows down the restart of the server.
+@@ -16,5 +16,26 @@ class CachedDnsName:
+             self._fqdn = socket.getfqdn()
+         return self._fqdn
+ 
++def encode_idna_domain(domain):
++    """
++    Convert a domain name to IDNA ASCII (Punycode) representation.
++
++    This is necessary for non-ASCII domain names in email headers, particularly
++    in the Message-ID header when using non-Unicode encodings.
++    """
++    if not isinstance(domain, str):
++        domain = str(domain)
++    try:
++        # Try to encode as ASCII first - if it works, no conversion needed
++        domain.encode('ascii')
++        return domain
++    except UnicodeEncodeError:
++        # Convert to IDNA ASCII (Punycode)
++        try:
++            return ToASCII(domain).decode('ascii')
++        except Exception:
++            # If IDNA conversion fails, return the original domain
++            # This ensures we don't break existing functionality
++            return domain
+ 
+ DNS_NAME = CachedDnsName()

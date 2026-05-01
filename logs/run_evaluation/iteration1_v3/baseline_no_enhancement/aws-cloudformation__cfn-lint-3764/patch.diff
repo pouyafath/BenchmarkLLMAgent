@@ -1,0 +1,27 @@
+diff --git a/src/cfnlint/template/transforms/_language_extensions.py b/src/cfnlint/template/transforms/_language_extensions.py
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@ -392,7 +392,10 @@
+                    if only_string:
+                        return obj[k]
+                    if len(v) == 2:
++                        obj[k][1] = self._walk(v[1], params, cfn)
+                 elif k == "Fn::FindInMap":
+                     try:
+                         mapping = _ForEachValueFnFindInMap(get_hash(v), v)
+@@ -400,6 +403,7 @@
+                         if isinstance(map_value, tuple([list]) + _SCALAR_TYPES):
+                             return map_value
+                     except Exception as e:  # pylint: disable=broad-exception-caught
++                        LOGGER.debug("Transform and Fn::FindInMap error: %s", {str(e)})
+                     for i, el in enumerate(v):
+                         v[i] = self._walk(el, params, cfn)
+                     obj[k] = v
+@@ -410,6 +414,7 @@
+                     if isinstance(r, str):
+                         if r in params:
+                             return params[r]
++                    obj[k] = r
+                 else:
+                     sub_value = self._walk(v, params, cfn)
+                     # a sub object may be none or we have returned

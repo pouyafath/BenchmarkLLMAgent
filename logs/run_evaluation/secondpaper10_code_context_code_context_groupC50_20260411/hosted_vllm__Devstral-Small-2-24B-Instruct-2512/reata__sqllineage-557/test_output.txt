@@ -1,0 +1,584 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch master
+Your branch is behind 'origin/master' by 31 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   setup.py
+	modified:   sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 942fcf4e5578da3f3ce22501b17fbceb5ea9c350
+Author: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+Date:   Fri May 3 23:01:13 2024 +0800
+
+    chore(deps): bump sqlparse from 0.4.4 to 0.5.0 (#595)
+    
+    * chore(deps): bump sqlparse from 0.4.4 to 0.5.0
+    
+    Bumps [sqlparse](https://github.com/andialbrecht/sqlparse) from 0.4.4 to 0.5.0.
+    - [Changelog](https://github.com/andialbrecht/sqlparse/blob/master/CHANGELOG)
+    - [Commits](https://github.com/andialbrecht/sqlparse/compare/0.4.4...0.5.0)
+    
+    ---
+    updated-dependencies:
+    - dependency-name: sqlparse
+      dependency-type: direct:production
+    ...
+    
+    Signed-off-by: dependabot[bot] <support@github.com>
+    
+    * fix: remove window function monkey patching
+    
+    ---------
+    
+    Signed-off-by: dependabot[bot] <support@github.com>
+    Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+    Co-authored-by: reata <reddevil.hjw@gmail.com>
+
+diff --git a/setup.py b/setup.py
+index ba421dd..897f5b3 100644
+--- a/setup.py
++++ b/setup.py
+@@ -66,7 +66,7 @@ setup(
+     ],
+     python_requires=">=3.8",
+     install_requires=[
+-        "sqlparse==0.4.4",
++        "sqlparse==0.5.0",
+         "networkx>=2.4",
+         "sqlfluff==3.0.3",
+         "sqlalchemy>=2.0.0",
+diff --git a/sqllineage/core/parser/sqlparse/__init__.py b/sqllineage/core/parser/sqlparse/__init__.py
+index 14735e7..7fe5946 100644
+--- a/sqllineage/core/parser/sqlparse/__init__.py
++++ b/sqllineage/core/parser/sqlparse/__init__.py
+@@ -1,15 +1,8 @@
+ import re
+ 
+ from sqlparse import tokens
+-from sqlparse.engine import grouping
+ from sqlparse.keywords import KEYWORDS, SQL_REGEX
+ 
+-from sqllineage.core.parser.sqlparse.utils import group_function_with_window
+-
+-
+-def _patch_adding_window_function_token() -> None:
+-    grouping.group_functions = group_function_with_window
+-
+ 
+ def _patch_adding_builtin_type() -> None:
+     KEYWORDS["STRING"] = tokens.Name.Builtin
+@@ -26,7 +19,6 @@ def _patch_updating_lateral_view_lexeme() -> None:
+ 
+ 
+ def _monkey_patch() -> None:
+-    _patch_adding_window_function_token()
+     _patch_adding_builtin_type()
+     _patch_updating_lateral_view_lexeme()
+ 
+diff --git a/sqllineage/core/parser/sqlparse/utils.py b/sqllineage/core/parser/sqlparse/utils.py
+index 312dafe..2f973c9 100644
+--- a/sqllineage/core/parser/sqlparse/utils.py
++++ b/sqllineage/core/parser/sqlparse/utils.py
+@@ -1,20 +1,18 @@
+-import itertools
+-from typing import Iterator, List, Union
++from typing import List, Union
+ 
+-from sqlparse.engine.grouping import _group, group_functions
+ from sqlparse.sql import (
+     Case,
+     Comment,
+     Comparison,
+     Function,
+     Identifier,
++    Over,
+     Parenthesis,
+     TokenList,
+     Values,
+     Where,
+ )
+-from sqlparse.tokens import DML, Keyword, Name, Wildcard
+-from sqlparse.utils import recurse
++from sqlparse.tokens import DML, Keyword, Wildcard
+ 
+ from sqllineage.utils.entities import SubQueryTuple
+ 
+@@ -151,82 +149,12 @@ def get_parameters(token: Function):
+         if(col1 = 'foo' AND col2 = 'bar', 1, 0)
+     This implementation ignores the constant parameter as we don't need them for column lineage for now
+     """
+-    if isinstance(token, Window):
+-        return token.get_parameters()
+-    else:
+-        return [
+-            tk for tk in token.tokens[-1].tokens if tk.is_group or tk.ttype == Wildcard
+-        ]
+-
+-
+-class Window(Function):
+-    """window function + OVER keyword + window defn"""
+-
+-    def get_parameters(self) -> Iterator[TokenList]:
+-        return itertools.chain(
+-            get_parameters(self.get_window_function()),
+-            self.get_window_defn().get_sublists(),
+-        )
+-
+-    def get_window_function(self) -> Function:
+-        return self.tokens[0]
+-
+-    def get_window_defn(self) -> Parenthesis:
+-        return self.tokens[-1]
+-
+-
+-@recurse(Window)
+-def group_window(tlist):
+-    def match(token):
+-        return token.is_keyword and token.normalized == "OVER"
+-
+-    def valid_prev(token):
+-        return isinstance(token, Function)
+-
+-    def valid_next(token):
+-        return isinstance(token, Parenthesis)
+-
+-    def post(tlist, pidx, tidx, nidx):
+-        return pidx, nidx
+-
+-    _group(
+-        tlist, Window, match, valid_prev, valid_next, post, extend=False, recurse=False
+-    )
+-
+-
+-@recurse(Function)
+-def group_functions_as(tlist):
+-    """
+-    This function is to allow parsing columns in functions with CTAS syntax like:
+-        CREATE TABLE tbl1 AS SELECT coalesce(t1.col1, 0) AS col1 FROM t1;
+-    The code is mostly taken from original sqlparse.sql.group_functions by
+-    replacing with one condition.
+-
+-    This is no longer needed if this PR get merged:
+-    https://github.com/andialbrecht/sqlparse/pull/662
+-    """
+-    has_create = False
+-    has_table = False
+-    has_as = False
+-    for tmp_token in tlist.tokens:
+-        if tmp_token.value == "CREATE":
+-            has_create = True
+-        if tmp_token.value == "TABLE":
+-            has_table = True
+-        if tmp_token.value == "AS":
+-            has_as = True
+-    if not has_create or not has_table or not has_as:
+-        return
+-
+-    tidx, token = tlist.token_next_by(t=Name)
+-    while token:
+-        nidx, next_ = tlist.token_next(tidx)
+-        if isinstance(next_, Parenthesis):
+-            tlist.group_tokens(Function, tidx, nidx)
+-        tidx, token = tlist.token_next_by(t=Name, idx=tidx)
+-
+-
+-def group_function_with_window(tlist):
+-    group_functions(tlist)
+-    group_functions_as(tlist)
+-    group_window(tlist)
++    last_token = token.tokens[-1]
++    parameters = []
++    if isinstance(last_token, Over):
++        # special handling for window function
++        parameters = token.get_parameters()
++    parameters += [
++        tk for tk in last_token.tokens if tk.is_group or tk.ttype == Wildcard
++    ]
++    return parameters
++ git -c core.fileMode=false diff 942fcf4e5578da3f3ce22501b17fbceb5ea9c350
+diff --git a/setup.py b/setup.py
+index 897f5b3..1c344fe 100644
+--- a/setup.py
++++ b/setup.py
+@@ -68,7 +68,7 @@ setup(
+     install_requires=[
+         "sqlparse==0.5.0",
+         "networkx>=2.4",
+-        "sqlfluff==3.0.3",
++        "sqlfluff==2.3.5",
+         "sqlalchemy>=2.0.0",
+     ],
+     entry_points={"console_scripts": ["sqllineage = sqllineage.cli:main"]},
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+index 7610bac..e4bac9a 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+@@ -1,7 +1,7 @@
+ from sqlfluff.core.parser import BaseSegment
+ 
+ from sqllineage.core.holders import SubQueryLineageHolder
+-from sqllineage.core.models import Path
++from sqllineage.core.models import Path, Table
+ from sqllineage.core.parser.sqlfluff.extractors.base import BaseExtractor
+ from sqllineage.core.parser.sqlfluff.extractors.select import SelectExtractor
+ from sqllineage.core.parser.sqlfluff.models import SqlFluffColumn, SqlFluffTable
+@@ -11,7 +11,6 @@ from sqllineage.core.parser.sqlfluff.utils import (
+ from sqllineage.utils.entities import AnalyzerContext
+ from sqllineage.utils.helpers import escape_identifier_name
+ 
+-
+ class CreateInsertExtractor(BaseExtractor):
+     """
+     Create statement and Insert statement lineage extractor
+@@ -32,6 +31,7 @@ class CreateInsertExtractor(BaseExtractor):
+     ) -> SubQueryLineageHolder:
+         holder = self._init_holder(context)
+         src_flag = tgt_flag = False
++        has_explicit_write_columns = False
+         for segment in list_child_segments(statement):
+             if segment.type == "with_compound_statement":
+                 holder |= self.delegate_to_cte(segment, holder)
+@@ -42,6 +42,9 @@ class CreateInsertExtractor(BaseExtractor):
+                     if sgmt.type == "with_compound_statement":
+                         holder |= self.delegate_to_cte(segment, holder)
+             elif segment.type in ("select_statement", "set_expression"):
++                # Before processing SELECT, check if we need to populate write_columns from metadata
++                if holder.write and not holder.write_columns and not has_explicit_write_columns:
++                    self._populate_write_columns_from_metadata(holder)
+                 holder |= self.delegate_to_select(segment, holder)
+             elif segment.type == "values_clause":
+                 for bracketed in segment.get_children("bracketed"):
+@@ -51,6 +54,9 @@ class CreateInsertExtractor(BaseExtractor):
+                                 if select_statement := sub_expression.get_child(
+                                     "select_statement"
+                                 ):
++                                    # Before processing SELECT, check if we need to populate write_columns from metadata
++                                    if holder.write and not holder.write_columns and not has_explicit_write_columns:
++                                        self._populate_write_columns_from_metadata(holder)
+                                     holder |= self.delegate_to_select(
+                                         select_statement, holder
+                                     )
+@@ -65,6 +71,9 @@ class CreateInsertExtractor(BaseExtractor):
+                 # top-level subquery in DML like: 1) create table foo as (subquery); 2) insert into foo (subquery)
+                 # subquery here isn't added as read source, and it inherits DML-level write_columns if parsed
+                 for subquery_segment in subquery_segments:
++                    # Before processing SELECT, check if we need to populate write_columns from metadata
++                    if holder.write and not holder.write_columns and not has_explicit_write_columns:
++                        self._populate_write_columns_from_metadata(holder)
+                     holder |= self.delegate_to_select(subquery_segment, holder)
+ 
+             elif segment.type == "bracketed":
+@@ -84,6 +93,7 @@ class CreateInsertExtractor(BaseExtractor):
+                                 sub_segment = identifier
+                         columns.append(SqlFluffColumn.of(sub_segment))
+                     holder.add_write_column(*columns)
++                    has_explicit_write_columns = True
+ 
+             elif segment.type == "keyword":
+                 if segment.raw_upper in [
+@@ -117,6 +127,32 @@ class CreateInsertExtractor(BaseExtractor):
+                 src_flag = False
+         return holder
+ 
++    def _populate_write_columns_from_metadata(self, holder: SubQueryLineageHolder) -> None:
++        """
++        Populate write_columns from target table metadata when no explicit column list is provided.
++        """
++        if not self.metadata_provider:
++            return
++
++        # Get the target table (should be only one)
++        write_tables = list(holder.write)
++        if not write_tables:
++            return
++
++        # Only handle Table objects (not Path or SubQuery)
++        target_table = write_tables[0]
++        if not isinstance(target_table, Table):
++            return
++
++        # Get columns from metadata provider
++        try:
++            columns = self.metadata_provider.get_table_columns(target_table)
++            if columns:
++                holder.add_write_column(*columns)
++        except Exception:
++            # If metadata provider fails, just continue without write_columns
++            pass
++
+     def delegate_to_cte(
+         self, segment: BaseSegment, holder: SubQueryLineageHolder
+     ) -> SubQueryLineageHolder:
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Preparing metadata (setup.py): started
+  Running command python setup.py egg_info
+  running egg_info
+  creating /tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info
+  writing /tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/requires.txt
+  writing top-level names to /tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-pip-egg-info-pmwsu7oh/sqllineage.egg-info/SOURCES.txt'
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: sqlparse==0.5.0 in /usr/local/lib/python3.10/site-packages (from sqllineage==1.5.2) (0.5.0)
+Requirement already satisfied: networkx>=2.4 in /usr/local/lib/python3.10/site-packages (from sqllineage==1.5.2) (3.2.1)
+Requirement already satisfied: sqlfluff==2.3.5 in /usr/local/lib/python3.10/site-packages (from sqllineage==1.5.2) (2.3.5)
+Requirement already satisfied: sqlalchemy>=2.0.0 in /usr/local/lib/python3.10/site-packages (from sqllineage==1.5.2) (2.0.25)
+Requirement already satisfied: appdirs in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (1.4.4)
+Requirement already satisfied: chardet in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (5.2.0)
+Requirement already satisfied: click in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (8.1.7)
+Requirement already satisfied: colorama>=0.3 in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (0.4.6)
+Requirement already satisfied: diff-cover>=2.5.0 in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (8.0.2)
+Requirement already satisfied: Jinja2 in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (3.1.3)
+Requirement already satisfied: pathspec in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (0.12.1)
+Requirement already satisfied: pytest in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (7.4.4)
+Requirement already satisfied: pyyaml>=5.1 in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (6.0.1)
+Requirement already satisfied: regex in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (2023.12.25)
+Requirement already satisfied: tblib in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (3.0.0)
+Requirement already satisfied: tqdm in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (4.66.1)
+Requirement already satisfied: typing-extensions in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (4.9.0)
+Requirement already satisfied: toml in /usr/local/lib/python3.10/site-packages (from sqlfluff==2.3.5->sqllineage==1.5.2) (0.10.2)
+WARNING: sqllineage 1.5.2 does not provide the extra 'test'
+Requirement already satisfied: greenlet!=0.4.17 in /usr/local/lib/python3.10/site-packages (from sqlalchemy>=2.0.0->sqllineage==1.5.2) (3.0.3)
+Requirement already satisfied: Pygments<3.0.0,>=2.9.0 in /usr/local/lib/python3.10/site-packages (from diff-cover>=2.5.0->sqlfluff==2.3.5->sqllineage==1.5.2) (2.17.2)
+Requirement already satisfied: pluggy<2,>=0.13.1 in /usr/local/lib/python3.10/site-packages (from diff-cover>=2.5.0->sqlfluff==2.3.5->sqllineage==1.5.2) (1.3.0)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.10/site-packages (from Jinja2->sqlfluff==2.3.5->sqllineage==1.5.2) (2.1.3)
+Requirement already satisfied: iniconfig in /usr/local/lib/python3.10/site-packages (from pytest->sqlfluff==2.3.5->sqllineage==1.5.2) (2.0.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from pytest->sqlfluff==2.3.5->sqllineage==1.5.2) (23.2)
+Requirement already satisfied: exceptiongroup>=1.0.0rc8 in /usr/local/lib/python3.10/site-packages (from pytest->sqlfluff==2.3.5->sqllineage==1.5.2) (1.2.0)
+Requirement already satisfied: tomli>=1.0.0 in /usr/local/lib/python3.10/site-packages (from pytest->sqlfluff==2.3.5->sqllineage==1.5.2) (2.0.1)
+Installing collected packages: sqllineage
+  Attempting uninstall: sqllineage
+    Found existing installation: sqllineage 1.5.2
+    Uninstalling sqllineage-1.5.2:
+      Removing file or directory /usr/local/bin/sqllineage
+      Removing file or directory /usr/local/lib/python3.10/site-packages/sqllineage.egg-link
+      Removing pth entries from /usr/local/lib/python3.10/site-packages/easy-install.pth:
+      Removing entry: /testbed
+      Successfully uninstalled sqllineage-1.5.2
+  DEPRECATION: Legacy editable install of sqllineage[test]==1.5.2 from file:///testbed (setup.py develop) is deprecated. pip 25.1 will enforce this behaviour change. A possible replacement is to add a pyproject.toml or enable --use-pep517, and use setuptools >= 64. If the resulting installation is not behaving as expected, try using --config-settings editable_mode=compat. Please consult the setuptools documentation for more information. Discussion can be found at https://github.com/pypa/pip/issues/11457
+  Running setup.py develop for sqllineage
+    Running command python setup.py develop
+    running develop
+    /usr/local/lib/python3.10/site-packages/setuptools/command/easy_install.py:144: EasyInstallDeprecationWarning: easy_install command is deprecated. Use build and pip and other standards-based tools.
+      warnings.warn(
+    /usr/local/lib/python3.10/site-packages/setuptools/command/install.py:34: SetuptoolsDeprecationWarning: setup.py install is deprecated. Use build and pip and other standards-based tools.
+      warnings.warn(
+    running egg_info
+    writing sqllineage.egg-info/PKG-INFO
+    writing dependency_links to sqllineage.egg-info/dependency_links.txt
+    writing entry points to sqllineage.egg-info/entry_points.txt
+    writing requirements to sqllineage.egg-info/requires.txt
+    writing top-level names to sqllineage.egg-info/top_level.txt
+    reading manifest file 'sqllineage.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    adding license file 'LICENSE'
+    writing manifest file 'sqllineage.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.10/site-packages/sqllineage.egg-link (link to .)
+    Adding sqllineage 1.5.2 to easy-install.pth file
+    Installing sqllineage script to /usr/local/bin
+
+    Installed /testbed
+Successfully installed sqllineage
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout 942fcf4e5578da3f3ce22501b17fbceb5ea9c350
+Note: switching to '942fcf4e5578da3f3ce22501b17fbceb5ea9c350'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+HEAD is now at 942fcf4 chore(deps): bump sqlparse from 0.4.4 to 0.5.0 (#595)
+M	setup.py
+M	sqllineage/core/parser/sqlfluff/extractors/create_insert.py
++ git apply -v -
+Checking patch tests/sql/column/test_metadata_target_column.py...
+Applied patch tests/sql/column/test_metadata_target_column.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA tests/sql/column/test_metadata_target_column.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-7.4.4, pluggy-1.3.0
+rootdir: /testbed
+plugins: cov-4.1.0
+collected 4 items
+
+tests/sql/column/test_metadata_target_column.py ..FF                     [100%]
+
+=================================== FAILURES ===================================
+__________________ test_metadata_target_column_cte[provider0] __________________
+
+provider = <sqllineage.core.metadata.dummy.DummyMetaDataProvider object at 0x7f5f9becfe50>
+
+    @pytest.mark.parametrize("provider", providers)
+    def test_metadata_target_column_cte(provider: MetaDataProvider):
+        sql = """
+    INSERT INTO ods.target_tab
+    WITH cte_table AS (SELECT day_id as acct_id, user_id as xxx, name as yyy FROM ods.source_tab)
+    SELECT acct_id, xxx, yyy FROM cte_table"""
+>       assert_column_lineage_equal(
+            sql=sql,
+            column_lineages=[
+                (
+                    ColumnQualifierTuple("user_id", "ods.source_tab"),
+                    ColumnQualifierTuple("user_code", "ods.target_tab"),
+                ),
+                (
+                    ColumnQualifierTuple("day_id", "ods.source_tab"),
+                    ColumnQualifierTuple("day_no", "ods.target_tab"),
+                ),
+                (
+                    ColumnQualifierTuple("name", "ods.source_tab"),
+                    ColumnQualifierTuple("user_name", "ods.target_tab"),
+                ),
+            ],
+            metadata_provider=provider,
+            test_sqlparse=False,
+        )
+
+tests/sql/column/test_metadata_target_column.py:46: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/helpers.py:92: in assert_column_lineage_equal
+    _assert_column_lineage(lr_sqlfluff, column_lineages)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+lr = <sqllineage.runner.LineageRunner object at 0x7f5f9b6a8f40>
+column_lineages = [(ColumnQualifierTuple(column='user_id', qualifier='ods.source_tab'), ColumnQualifierTuple(column='user_code', qualifi...uple(column='name', qualifier='ods.source_tab'), ColumnQualifierTuple(column='user_name', qualifier='ods.target_tab'))]
+
+    def _assert_column_lineage(lr: LineageRunner, column_lineages=None):
+        expected = set()
+        if column_lineages:
+            for src, tgt in column_lineages:
+                src_col: Column = Column(src.column)
+                if src.qualifier is not None:
+                    src_col.parent = Table(src.qualifier)
+                tgt_col: Column = Column(tgt.column)
+                tgt_col.parent = Table(tgt.qualifier)
+                expected.add((src_col, tgt_col))
+        actual = {(lineage[0], lineage[-1]) for lineage in set(lr.get_column_lineage())}
+    
+        assert (
+>           set(actual) == expected
+        ), f"\n\tExpected Lineage: {expected}\n\tActual Lineage: {actual}"
+E       AssertionError: 
+E       	Expected Lineage: {(Column: ods.source_tab.user_id, Column: ods.target_tab.user_code), (Column: ods.source_tab.day_id, Column: ods.target_tab.day_no), (Column: ods.source_tab.name, Column: ods.target_tab.user_name)}
+E       	Actual Lineage: {(Column: ods.source_tab.name, Column: ods.target_tab.yyy), (Column: ods.source_tab.day_id, Column: ods.target_tab.acct_id), (Column: ods.source_tab.user_id, Column: ods.target_tab.xxx)}
+
+tests/helpers.py:52: AssertionError
+__________________ test_metadata_target_column_cte[provider1] __________________
+
+provider = <sqllineage.core.metadata.sqlalchemy.SQLAlchemyMetaDataProvider object at 0x7f5f9becfb80>
+
+    @pytest.mark.parametrize("provider", providers)
+    def test_metadata_target_column_cte(provider: MetaDataProvider):
+        sql = """
+    INSERT INTO ods.target_tab
+    WITH cte_table AS (SELECT day_id as acct_id, user_id as xxx, name as yyy FROM ods.source_tab)
+    SELECT acct_id, xxx, yyy FROM cte_table"""
+>       assert_column_lineage_equal(
+            sql=sql,
+            column_lineages=[
+                (
+                    ColumnQualifierTuple("user_id", "ods.source_tab"),
+                    ColumnQualifierTuple("user_code", "ods.target_tab"),
+                ),
+                (
+                    ColumnQualifierTuple("day_id", "ods.source_tab"),
+                    ColumnQualifierTuple("day_no", "ods.target_tab"),
+                ),
+                (
+                    ColumnQualifierTuple("name", "ods.source_tab"),
+                    ColumnQualifierTuple("user_name", "ods.target_tab"),
+                ),
+            ],
+            metadata_provider=provider,
+            test_sqlparse=False,
+        )
+
+tests/sql/column/test_metadata_target_column.py:46: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/helpers.py:92: in assert_column_lineage_equal
+    _assert_column_lineage(lr_sqlfluff, column_lineages)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+lr = <sqllineage.runner.LineageRunner object at 0x7f5f995d3c40>
+column_lineages = [(ColumnQualifierTuple(column='user_id', qualifier='ods.source_tab'), ColumnQualifierTuple(column='user_code', qualifi...uple(column='name', qualifier='ods.source_tab'), ColumnQualifierTuple(column='user_name', qualifier='ods.target_tab'))]
+
+    def _assert_column_lineage(lr: LineageRunner, column_lineages=None):
+        expected = set()
+        if column_lineages:
+            for src, tgt in column_lineages:
+                src_col: Column = Column(src.column)
+                if src.qualifier is not None:
+                    src_col.parent = Table(src.qualifier)
+                tgt_col: Column = Column(tgt.column)
+                tgt_col.parent = Table(tgt.qualifier)
+                expected.add((src_col, tgt_col))
+        actual = {(lineage[0], lineage[-1]) for lineage in set(lr.get_column_lineage())}
+    
+        assert (
+>           set(actual) == expected
+        ), f"\n\tExpected Lineage: {expected}\n\tActual Lineage: {actual}"
+E       AssertionError: 
+E       	Expected Lineage: {(Column: ods.source_tab.user_id, Column: ods.target_tab.user_code), (Column: ods.source_tab.day_id, Column: ods.target_tab.day_no), (Column: ods.source_tab.name, Column: ods.target_tab.user_name)}
+E       	Actual Lineage: {(Column: ods.source_tab.name, Column: ods.target_tab.yyy), (Column: ods.source_tab.day_id, Column: ods.target_tab.acct_id), (Column: ods.source_tab.user_id, Column: ods.target_tab.xxx)}
+
+tests/helpers.py:52: AssertionError
+=============================== warnings summary ===============================
+tests/sql/column/test_metadata_target_column.py::test_metadata_target_column[provider0]
+tests/sql/column/test_metadata_target_column.py::test_metadata_target_column[provider1]
+tests/sql/column/test_metadata_target_column.py::test_metadata_target_column_cte[provider0]
+tests/sql/column/test_metadata_target_column.py::test_metadata_target_column_cte[provider1]
+  /testbed/tests/helpers.py:83: DeprecationWarning: dialect `non-validating` is deprecated, use `ansi` or dialect of your SQL instead. `non-validating` will be completely removed in v1.6.x
+    lr = LineageRunner(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/sql/column/test_metadata_target_column.py::test_metadata_target_column[provider0]
+PASSED tests/sql/column/test_metadata_target_column.py::test_metadata_target_column[provider1]
+FAILED tests/sql/column/test_metadata_target_column.py::test_metadata_target_column_cte[provider0]
+FAILED tests/sql/column/test_metadata_target_column.py::test_metadata_target_column_cte[provider1]
+=================== 2 failed, 2 passed, 4 warnings in 0.84s ====================
++ : '>>>>> End Test Output'
++ git checkout 942fcf4e5578da3f3ce22501b17fbceb5ea9c350
+HEAD is now at 942fcf4 chore(deps): bump sqlparse from 0.4.4 to 0.5.0 (#595)
+M	setup.py
+M	sqllineage/core/parser/sqlfluff/extractors/create_insert.py

@@ -1,0 +1,190 @@
+diff --git a/src/instructlab/model/evaluate.py b/src/instructlab/model/evaluate.py
+index 92ff92cc..9de7f984 100644
+--- a/src/instructlab/model/evaluate.py
++++ b/src/instructlab/model/evaluate.py
+@@ -146,17 +146,25 @@ def sort_score(pairing: tuple[str, float]) -> float:
+     return pairing[1]
+ 
+ 
+-def display_models(model, base_model) -> None:
+-    """prints the base_model and model with a header"""
+-    print("## BASE MODEL")
+-    print(base_model)
+-    display_model(model)
++def display_models(model, base_model, base_score=None, base_total=None, score=None, total=None) -> None:
++    """prints the base_model and model with a header and optional scores"""
++    if base_score is not None and base_total is not None:
++        print("## BASE MODEL (SCORE)")
++        print(f"{base_model} ({base_score}/{base_total})")
++    else:
++        print("## BASE MODEL")
++        print(base_model)
++    display_model(model, score, total)
+ 
+ 
+-def display_model(model) -> None:
+-    """prints the given model with a header"""
+-    print("\n## MODEL")
+-    print(model)
++def display_model(model, score=None, total=None) -> None:
++    """prints the given model with a header and optional score"""
++    if score is not None and total is not None:
++        print(f"\n## MODEL (SCORE)")
++        print(f"{model} ({score}/{total})")
++    else:
++        print("\n## MODEL")
++        print(model)
+ 
+ 
+ def display_error_rate(error_rate) -> None:
+@@ -167,37 +175,56 @@ def display_error_rate(error_rate) -> None:
+ 
+ 
+ def display_branch_eval_summary(
+-    improvements: list[tuple[str, float]],
+-    regressions: list[tuple[str, float]],
+-    no_changes: list[str],
++    improvements: list[tuple[str, float, float, float]],
++    regressions: list[tuple[str, float, float, float]],
++    no_changes: list[tuple[str, float]],
+     new=None,
++    score_range=None,
+ ):
+     """takes in results lists from mt_bench_branch benchmark evaluation
+     prints out diff between the branches to the user
+     """
++    if score_range is not None:
++        improvements_header = "\n### IMPROVEMENTS"
++        regressions_header = "\n### REGRESSIONS"
++        no_change_header = "\n### NO CHANGE"
++        new_header = "\n### NEW"
++        if len(score_range) == 2:
++            improvements_header += f" ({score_range[0]} to {score_range[1]})"
++            regressions_header += f" ({score_range[0]} to {score_range[1]})"
++            no_change_header += f" ({score_range[0]} to {score_range[1]})"
++            new_header += f" ({score_range[0]} to {score_range[1]})"
++    else:
++        improvements_header = "\n### IMPROVEMENTS"
++        regressions_header = "\n### REGRESSIONS"
++        no_change_header = "\n### NO CHANGE"
++        new_header = "\n### NEW"
++
+     if len(improvements) > 0:
+         improvements.sort(key=sort_score, reverse=True)
+-        print("\n### IMPROVEMENTS:")
++        print(improvements_header)
+         for index, improvement in enumerate(improvements):
+-            task, delta = improvement
+-            print(f"{index+1}. {task} (+{delta})")
++            task, base_score, new_score, delta = improvement
++            print(f"{index+1}. {task}: {base_score} -> {new_score} (+{delta})")
+ 
+     if len(regressions) > 0:
+         regressions.sort(key=sort_score)
+-        print("\n### REGRESSIONS:")
++        print(regressions_header)
+         for index, regression in enumerate(regressions):
+-            task, delta = regression
+-            print(f"{index+1}. {task} ({delta})")
++            task, base_score, new_score, delta = regression
++            print(f"{index+1}. {task}: {base_score} -> {new_score} ({delta})")
+ 
+     if len(no_changes) > 0:
+-        print("\n### NO CHANGE:")
+-        for index, task in enumerate(no_changes):
+-            print(f"{index+1}. {task}")
++        print(no_change_header)
++        for index, no_change in enumerate(no_changes):
++            task, score = no_change
++            print(f"{index+1}. {task} ({score})")
+ 
+     if new is not None and len(new) > 0:
+-        print("\n### NEW:")
++        print(new_header)
+         for index, qna in enumerate(new):
+-            print(f"{index+1}. {qna}")
++            qna_file, score = qna
++            print(f"{index+1}. {qna_file} ({score})")
+ 
+ 
+ def qa_pairs_to_qna_to_avg_scores(qa_pairs: list[dict]) -> dict[str, float]:
+@@ -577,12 +604,12 @@ def evaluate(
+                     server.shutdown()
+ 
+             print("# SKILL EVALUATION REPORT")
+-            display_model(model)
++            display_model(model, round(overall_score, 2), len(qa_pairs))
+             print("\n### AVERAGE:")
+             print(f"{round(overall_score, 2)} (across {len(qa_pairs)})")
+-            print("\n### TURN ONE:")
++            print("\n### TURN ONE (0.0 to 10.0):")
+             print(round(turn_scores[0], 2))
+-            print("\n### TURN TWO:")
++            print("\n### TURN TWO (0.0 to 10.0):")
+             turn2_score = turn_scores[1]
+             if isinstance(turn2_score, float):
+                 turn2_score = round(turn2_score, 2)
+@@ -689,16 +716,16 @@ def evaluate(
+                 base_avg_score = base_qna_to_avg_scores.get(qna)
+                 if base_avg_score is not None:
+                     if avg_score > base_avg_score:
+-                        improvements.append((qna, round(avg_score - base_avg_score, 2)))
++                        improvements.append((qna, round(base_avg_score, 1), round(avg_score, 1), round(avg_score - base_avg_score, 2)))
+                     elif avg_score == base_avg_score:
+-                        no_changes.append(qna)
++                        no_changes.append((qna, round(avg_score, 1)))
+                     else:
+-                        regressions.append((qna, round(avg_score - base_avg_score, 2)))
++                        regressions.append((qna, round(base_avg_score, 1), round(avg_score, 1), round(avg_score - base_avg_score, 2)))
+                 else:
+-                    new_qnas.append((qna))
++                    new_qnas.append((qna, round(avg_score, 1)))
+ 
+             # display summary of evaluation before exiting
+-            display_branch_eval_summary(improvements, regressions, no_changes, new_qnas)
++            display_branch_eval_summary(improvements, regressions, no_changes, new_qnas, score_range=(0.0, 10.0))
+             display_error_rate((error_rate + base_error_rate) / 2)
+ 
+         elif benchmark == Benchmark.MMLU:
+@@ -733,11 +760,11 @@ def evaluate(
+                     server.shutdown()
+ 
+             print("# KNOWLEDGE EVALUATION REPORT")
+-            display_model(model)
++            display_model(model, round(overall_score, 2), 1.0)
+             print("\n### AVERAGE:")
+             print(f"{round(overall_score, 2)} (across {len(individual_scores)})\n")
+ 
+-            print("### SCORES:")
++            print("### SCORES (0.0 to 1.0):")
+             for task, score in individual_scores.items():
+                 s = round(score["score"], 2)
+                 print(f"{task} - {s}")
+@@ -791,7 +818,7 @@ def evaluate(
+             base_individual_scores = individual_scores_list[1]
+ 
+             print("# KNOWLEDGE EVALUATION REPORT\n")
+-            display_models(model, base_model)
++            display_models(model, base_model, round(base_overall_score, 2), len(individual_scores), round(overall_score, 2), len(individual_scores))
+ 
+             print("\n### AVERAGE:")
+             delta = round(overall_score - base_overall_score, 2)
+@@ -809,14 +836,14 @@ def evaluate(
+                 b_s = base_score["score"]
+                 d = round(s - b_s, 2)
+                 if s > b_s:
+-                    improvements.append((task, d))
++                    improvements.append((task, b_s, s, d))
+                 elif b_s > s:
+-                    regressions.append((task, d))
++                    regressions.append((task, b_s, s, d))
+                 else:
+-                    no_changes.append(task)
++                    no_changes.append((task, s))
+ 
+             # display summary of evaluation before exiting
+-            display_branch_eval_summary(improvements, regressions, no_changes)
++            display_branch_eval_summary(improvements, regressions, no_changes, score_range=(0.0, 1.0))
+     except EvalError as ee:
+         print(ee.message)
+         raise click.exceptions.Exit(1)

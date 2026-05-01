@@ -1,0 +1,436 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 9 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/datamodel_code_generator/model/template/dataclass.jinja2
+	modified:   src/datamodel_code_generator/parser/base.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 48f347efa674992d9904262252db2d1b135ed417
+Author: minomocca <104247372+minomocca@users.noreply.github.com>
+Date:   Tue Jun 3 18:58:04 2025 +0200
+
+    fix regex rewrite bug (#2404)
+    
+    * fix regex rewrite bug
+    
+    * [pre-commit.ci] auto fixes from pre-commit.com hooks
+    
+    for more information, see https://pre-commit.ci
+    
+    * add tests for constraint strings with regex or pattern
+    
+    * [pre-commit.ci] auto fixes from pre-commit.com hooks
+    
+    for more information, see https://pre-commit.ci
+    
+    * * fix _remove_none_from_union for constraint strings with use_union_operator
+    
+    * change variable compare to int comparision
+    
+    * use similar method for union operator and union prefix
+    
+    * add tests for changes
+    
+    * * fix pyright
+    
+    ---------
+    
+    Co-authored-by: Christian Schmitt <christian.schmitt@energymeteo.de>
+    Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+    Co-authored-by: Koudai Aono <koxudaxi@gmail.com>
+
+diff --git a/src/datamodel_code_generator/types.py b/src/datamodel_code_generator/types.py
+index 66e8dbdb..1680642f 100644
+--- a/src/datamodel_code_generator/types.py
++++ b/src/datamodel_code_generator/types.py
+@@ -6,13 +6,27 @@ from enum import Enum, auto
+ from functools import lru_cache
+ from itertools import chain
+ from re import Pattern
+-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Protocol, TypeVar, Union, runtime_checkable
++from typing import (
++    TYPE_CHECKING,
++    Any,
++    Callable,
++    ClassVar,
++    Optional,
++    Protocol,
++    TypeVar,
++    Union,
++    runtime_checkable,
++)
+ 
+ import pydantic
+ from packaging import version
+ from pydantic import StrictBool, StrictInt, StrictStr, create_model
+ 
+-from datamodel_code_generator.format import DatetimeClassType, PythonVersion, PythonVersionMin
++from datamodel_code_generator.format import (
++    DatetimeClassType,
++    PythonVersion,
++    PythonVersionMin,
++)
+ from datamodel_code_generator.imports import (
+     IMPORT_ABC_MAPPING,
+     IMPORT_ABC_SEQUENCE,
+@@ -167,53 +181,57 @@ def _remove_none_from_type(type_: str, split_pattern: Pattern[str], delimiter: s
+     return types
+ 
+ 
+-def _remove_none_from_union(type_: str, *, use_union_operator: bool) -> str:  # noqa: PLR0911, PLR0912
++def _remove_none_from_union(type_: str, *, use_union_operator: bool) -> str:  # noqa: PLR0912
+     if use_union_operator:
+         if " | " not in type_:
+             return type_
++        separator = "|"
++        inner_text = type_
++    else:
++        if not type_.startswith(UNION_PREFIX):
++            return type_
++        separator = ","
++        inner_text = type_[len(UNION_PREFIX) : -1]
+ 
+-        # Process each part of the union
+-        parts = UNION_OPERATOR_PATTERN.split(type_)
+-        processed_parts = []
+-        for part in parts:
+-            if part == NONE:
+-                continue
+-
+-            # Check if this part contains a nested union
+-            processed_part = _remove_none_from_union(part, use_union_operator=True) if " | " in part else part
+-            processed_parts.append(processed_part)
+-
+-        if not processed_parts:
+-            return NONE
+-
+-        return UNION_OPERATOR_DELIMITER.join(processed_parts)
+-    if not type_.startswith(UNION_PREFIX):
+-        return type_
+-
+-    inner_text = type_[len(UNION_PREFIX) : -1]
+     parts = []
+     inner_count = 0
+     current_part = ""
+ 
++    # With this variable we count any non-escaped round bracket, whenever we are inside a
++    # constraint string expression. Once found a part starting with `constr(`, we increment
++    # this counter for each non-escaped opening round bracket and decrement it for each
++    # non-escaped closing round bracket.
++    in_constr = 0
++
+     # Parse union parts carefully to handle nested structures
+     for char in inner_text:
+         current_part += char
+-        if char == "[":
++        if char == "[" and in_constr == 0:
+             inner_count += 1
+-        elif char == "]":
++        elif char == "]" and in_constr == 0:
+             inner_count -= 1
+-        elif char == "," and inner_count == 0:
++        elif char == "(":
++            if current_part.strip().startswith("constr(") and current_part[-2] != "\\":
++                # non-escaped opening round bracket found inside constraint string expression
++                in_constr += 1
++        elif char == ")":
++            if in_constr > 0 and current_part[-2] != "\\":
++                # non-escaped closing round bracket found inside constraint string expression
++                in_constr -= 1
++        elif char == separator and inner_count == 0 and in_constr == 0:
+             part = current_part[:-1].strip()
+             if part != NONE:
+                 # Process nested unions recursively
+-                if part.startswith(UNION_PREFIX):
++                # only UNION_PREFIX might be nested but not union_operator
++                if not use_union_operator and part.startswith(UNION_PREFIX):
+                     part = _remove_none_from_union(part, use_union_operator=False)
+                 parts.append(part)
+             current_part = ""
+ 
+     part = current_part.strip()
+     if current_part and part != NONE:
+-        if part.startswith(UNION_PREFIX):
++        # only UNION_PREFIX might be nested but not union_operator
++        if not use_union_operator and part.startswith(UNION_PREFIX):
+             part = _remove_none_from_union(part, use_union_operator=False)
+         parts.append(part)
+ 
+@@ -222,6 +240,9 @@ def _remove_none_from_union(type_: str, *, use_union_operator: bool) -> str:  #
+     if len(parts) == 1:
+         return parts[0]
+ 
++    if use_union_operator:
++        return UNION_OPERATOR_DELIMITER.join(parts)
++
+     return f"{UNION_PREFIX}{UNION_DELIMITER.join(parts)}]"
+ 
+ 
+diff --git a/tests/test_types.py b/tests/test_types.py
+index a3a5ade4..b1542e94 100644
+--- a/tests/test_types.py
++++ b/tests/test_types.py
+@@ -53,16 +53,69 @@ def test_get_optional_type(input_: str, use_union_operator: bool, expected: str)
+         ("Union[None]", False, "None"),
+         ("Union[None, None]", False, "None"),
+         ("Union[Union[str, None], int]", False, "Union[str, int]"),
++        # Union for constraint strings with pattern or regex
++        (
++            "Union[constr(pattern=r'^a,b$'), None]",
++            False,
++            "constr(pattern=r'^a,b$')",
++        ),
++        (
++            "Union[constr(regex=r'^a,b$'), None]",
++            False,
++            "constr(regex=r'^a,b$')",
++        ),
++        (
++            "Union[constr(pattern=r'^\\d+,\\w+$'), None]",
++            False,
++            "constr(pattern=r'^\\d+,\\w+$')",
++        ),
++        (
++            "Union[constr(regex=r'^\\d+,\\w+$'), None]",
++            False,
++            "constr(regex=r'^\\d+,\\w+$')",
++        ),
+         # Union operator syntax
+         ("str | None", True, "str"),
+         ("int | str | None", True, "int | str"),
+         ("None | str", True, "str"),
+         ("None | None", True, "None"),
++        ("constr(pattern='0|1') | None", True, "constr(pattern='0|1')"),
++        ("constr(pattern='0  |1') | int | None", True, "constr(pattern='0  |1') | int"),
+         # Complex nested types - traditional syntax
+         ("Union[str, int] | None", True, "Union[str, int]"),
+-        ("Optional[List[Dict[str, Any]]] | None", True, "Optional[List[Dict[str, Any]]]"),
++        (
++            "Optional[List[Dict[str, Any]]] | None",
++            True,
++            "Optional[List[Dict[str, Any]]]",
++        ),
++        # Union for constraint strings with pattern or regex on nested types
++        (
++            "Union[constr(pattern=r'\\['), Union[str, None], int]",
++            False,
++            "Union[constr(pattern=r'\\['), str, int]",
++        ),
++        (
++            "Union[constr(regex=r'\\['), Union[str, None], int]",
++            False,
++            "Union[constr(regex=r'\\['), str, int]",
++        ),
+         # Complex nested types - union operator syntax
+         ("List[str | None] | None", True, "List[str | None]"),
++        (
++            "List[constr(pattern='0|1') | None] | None",
++            True,
++            "List[constr(pattern='0|1') | None]",
++        ),
++        (
++            "List[constr(pattern='0 | 1') | None] | None",
++            True,
++            "List[constr(pattern='0 | 1') | None]",
++        ),
++        (
++            "List[constr(pattern='0  | 1') | None] | None",
++            True,
++            "List[constr(pattern='0  | 1') | None]",
++        ),
+         ("Dict[str, int] | None | List[str]", True, "Dict[str, int] | List[str]"),
+         # Edge cases that test the fixed regex pattern issue
+         ("List[str] | None", True, "List[str]"),
++ git -c core.fileMode=false diff 48f347efa674992d9904262252db2d1b135ed417
+diff --git a/src/datamodel_code_generator/model/template/dataclass.jinja2 b/src/datamodel_code_generator/model/template/dataclass.jinja2
+index 632026b5..3ef31a66 100644
+--- a/src/datamodel_code_generator/model/template/dataclass.jinja2
++++ b/src/datamodel_code_generator/model/template/dataclass.jinja2
+@@ -1,7 +1,7 @@
+ {% for decorator in decorators -%}
+ {{ decorator }}
+ {% endfor -%}
+-@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}
++@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}{%- if frozen -%}(frozen=True){%- endif %}
+ {%- if base_class %}
+ class {{ class_name }}({{ base_class }}):
+ {%- else %}
+diff --git a/src/datamodel_code_generator/parser/base.py b/src/datamodel_code_generator/parser/base.py
+index 098ceea4..27b87224 100644
+--- a/src/datamodel_code_generator/parser/base.py
++++ b/src/datamodel_code_generator/parser/base.py
+@@ -451,6 +451,8 @@ class Parser(ABC):
+             self.extra_template_data[ALL_MODEL]["allow_extra_fields"] = True
+ 
+         if enable_faux_immutability:
++            if self.data_model_type == dataclass_model.DataClass:
++                self.extra_template_data[ALL_MODEL]["frozen"] = True
+             self.extra_template_data[ALL_MODEL]["allow_mutation"] = False
+ 
+         self.model_resolver = ModelResolver(
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.1.1 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+
+[notice] A new release of pip is available: 25.1.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/cli/base_command.py", line 105, in _run_wrapper
+    status = _inner_run()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/cli/base_command.py", line 96, in _inner_run
+    return self.run(options, args)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/cli/req_command.py", line 68, in wrapper
+    return func(self, options, args)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/commands/install.py", line 387, in run
+    requirement_set = resolver.resolve(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 77, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 331, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 341, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/operations/prepare.py", line 703, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/operations/prepare.py", line 71, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+  File "/usr/local/lib/python3.9/functools.py", line 993, in __get__
+    val = self.func(instance)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+  File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+  File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.1.1 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+
+[notice] A new release of pip is available: 25.1.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/cli/base_command.py", line 105, in _run_wrapper
+    status = _inner_run()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/cli/base_command.py", line 96, in _inner_run
+    return self.run(options, args)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/cli/req_command.py", line 68, in wrapper
+    return func(self, options, args)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/commands/install.py", line 387, in run
+    requirement_set = resolver.resolve(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 77, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 331, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 341, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/operations/prepare.py", line 703, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/operations/prepare.py", line 71, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+  File "/usr/local/lib/python3.9/functools.py", line 993, in __get__
+    val = self.func(instance)
+  File "/usr/local/lib/python3.9/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+  File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+  File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ git checkout 48f347efa674992d9904262252db2d1b135ed417 tests/main/test_main_general.py
+Updated 0 paths from 12e582df
++ git apply -v -
+Checking patch tests/data/expected/main/frozen_dataclasses.py...
+Checking patch tests/data/expected/main/frozen_dataclasses_keyword_only.py...
+Checking patch tests/data/jsonschema/simple_frozen_test.json...
+Checking patch tests/main/test_main_general.py...
+Checking patch tests/model/dataclass/__init__.py...
+Checking patch tests/model/dataclass/test_param.py...
+Applied patch tests/data/expected/main/frozen_dataclasses.py cleanly.
+Applied patch tests/data/expected/main/frozen_dataclasses_keyword_only.py cleanly.
+Applied patch tests/data/jsonschema/simple_frozen_test.json cleanly.
+Applied patch tests/main/test_main_general.py cleanly.
+Applied patch tests/model/dataclass/__init__.py cleanly.
+Applied patch tests/model/dataclass/test_param.py cleanly.
++ : '>>>>> Start Test Output'
++ tox -e 3.9 -- -rA tests/data/expected/main/frozen_dataclasses.py tests/data/expected/main/frozen_dataclasses_keyword_only.py tests/main/test_main_general.py tests/model/dataclass/__init__.py tests/model/dataclass/test_param.py
+3.9: uv-sync> uv sync --locked --python-preference system --extra all --no-default-groups --no-editable --reinstall-package datamodel-code-generator --group test -p /usr/local/bin/python3.9
+3.9: venv-query> .tox/3.9/bin/python /usr/local/lib/python3.9/site-packages/tox_uv/_venv_query.py
+3.9: commands[0]> pytest -rA tests/data/expected/main/frozen_dataclasses.py tests/data/expected/main/frozen_dataclasses_keyword_only.py tests/main/test_main_general.py tests/model/dataclass/__init__.py tests/model/dataclass/test_param.py
+============================= test session starts ==============================
+platform linux -- Python 3.9.23, pytest-8.3.4, pluggy-1.5.0
+codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
+cachedir: .tox/3.9/.pytest_cache
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: anyio-4.8.0, mock-3.14.0, codspeed-3.2.0, cov-6.0.0, xdist-3.6.1, benchmark-5.1.0
+collected 19 items / 1 error
+
+==================================== ERRORS ====================================
+_ ERROR collecting tests/data/expected/main/frozen_dataclasses_keyword_only.py _
+tests/data/expected/main/frozen_dataclasses_keyword_only.py:11: in <module>
+    @dataclass(kw_only=True, frozen=True)
+E   TypeError: dataclass() got an unexpected keyword argument 'kw_only'
+=========================== short test summary info ============================
+ERROR tests/data/expected/main/frozen_dataclasses_keyword_only.py - TypeError...
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.34s ===============================
+3.9: exit 2 (1.01 seconds) /testbed> pytest -rA tests/data/expected/main/frozen_dataclasses.py tests/data/expected/main/frozen_dataclasses_keyword_only.py tests/main/test_main_general.py tests/model/dataclass/__init__.py tests/model/dataclass/test_param.py pid=177
+  3.9: FAIL code 2 (15.46=setup[14.45]+cmd[1.01] seconds)
+  evaluation failed :( (15.55 seconds)
++ : '>>>>> End Test Output'
++ git checkout 48f347efa674992d9904262252db2d1b135ed417 tests/main/test_main_general.py
+Updated 1 path from 12e582df

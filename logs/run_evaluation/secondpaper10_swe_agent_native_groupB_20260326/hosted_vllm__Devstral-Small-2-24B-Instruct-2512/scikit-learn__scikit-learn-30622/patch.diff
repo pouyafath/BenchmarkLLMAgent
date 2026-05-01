@@ -1,0 +1,39 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..5684a72ed 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -208,8 +208,34 @@ class _BaseHeterogeneousEnsemble(
+ 
+     @abstractmethod
+     def __init__(self, estimators):
++        # Convert tuple to list for consistency with parameter validation
++        if isinstance(estimators, tuple):
++            estimators = list(estimators)
+         self.estimators = estimators
+ 
++        # Validate estimators format during initialization
++        if not isinstance(estimators, list):
++            raise ValueError(
++                "estimators should be a list or tuple of (str, estimator) tuples"
++            )
++        if len(estimators) == 0:
++            raise ValueError(
++                "estimators should be a non-empty list of (str, estimator) tuples"
++            )
++        for item in estimators:
++            if not isinstance(item, (tuple, list)) or len(item) != 2:
++                raise ValueError(
++                    "Each element in estimators should be a (str, estimator) tuple"
++                )
++            if not isinstance(item[0], str):
++                raise ValueError(
++                    "First element of each tuple should be a string"
++                )
++            if not isinstance(item[1], BaseEstimator):
++                raise ValueError(
++                    "Second element of each tuple should be an estimator"
++                )
++
+     def _validate_estimators(self):
+         if len(self.estimators) == 0:
+             raise ValueError(

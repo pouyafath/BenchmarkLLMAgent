@@ -1,0 +1,59 @@
+diff --git a/src/cfnlint/rules/resources/iam/Policy.py b/src/cfnlint/rules/resources/iam/Policy.py
+index d2f0162f0..6f3ae3314 100644
+--- a/src/cfnlint/rules/resources/iam/Policy.py
++++ b/src/cfnlint/rules/resources/iam/Policy.py
+@@ -13,7 +13,6 @@ from cfnlint.jsonschema import ValidationResult, Validator
+ from cfnlint.rules.jsonschema.CfnLintJsonSchema import CfnLintJsonSchema
+ from cfnlint.schema.resolver import RefResolver
+ 
+-
+ # pylint: disable=unused-argument
+ def _scalar_or_array(validator: Validator, subschema: Any, instance: Any, schema: Any):
+     if validator.is_type(instance, "array"):
+@@ -22,6 +21,36 @@ def _scalar_or_array(validator: Validator, subschema: Any, instance: Any, schema
+     else:
+         yield from validator.descend(instance, subschema)
+ 
++def _has_cfn_function_in_principal(instance: Any) -> bool:
++    """Check if the instance contains CloudFormation functions in Principal field"""
++    if isinstance(instance, dict):
++        if "Statement" in instance:
++            statements = instance["Statement"]
++            if isinstance(statements, list):
++                for statement in statements:
++                    if isinstance(statement, dict):
++                        if _check_statement_principal(statement):
++                            return True
++        elif "Principal" in instance:
++            return _check_statement_principal(instance)
++    return False
++
++def _check_statement_principal(statement: Any) -> bool:
++    """Check a single statement for CFN functions in Principal"""
++    if isinstance(statement, dict) and "Principal" in statement:
++        principal = statement["Principal"]
++        if isinstance(principal, dict):
++            for key in principal:
++                value = principal[key]
++                if isinstance(value, dict):
++                    if any(fn in value for fn in ["Ref", "Fn::GetAtt", "Fn::Join", "Fn::Sub"]):
++                        return True
++                elif isinstance(value, list):
++                    for item in value:
++                        if isinstance(item, dict):
++                            if any(fn in item for fn in ["Ref", "Fn::GetAtt", "Fn::Join", "Fn::Sub"]):
++                                return True
++    return False
+ 
+ class Policy(CfnLintJsonSchema):
+     """Check IAM policies"""
+@@ -86,6 +115,9 @@ class Policy(CfnLintJsonSchema):
+             )
+ 
+         for err in iam_validator.iter_errors(policy):
++            # Skip validation errors for CloudFormation functions in Principal field
++            if _has_cfn_function_in_principal(policy) and err.path and "Principal" in err.path:
++                continue
+             if not err.validator.startswith("fn_") and err.validator not in ["cfnLint"]:
+                 err.rule = self
+             yield err

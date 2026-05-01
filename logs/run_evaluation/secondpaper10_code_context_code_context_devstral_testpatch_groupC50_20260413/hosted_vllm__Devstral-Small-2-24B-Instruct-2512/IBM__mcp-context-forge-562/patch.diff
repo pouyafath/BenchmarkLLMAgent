@@ -1,0 +1,144 @@
+diff --git a/mcpgateway/utils/protocol_utils.py b/mcpgateway/utils/protocol_utils.py
+new file mode 100644
+index 00000000..8ba8e88e
+--- /dev/null
++++ b/mcpgateway/utils/protocol_utils.py
+@@ -0,0 +1,138 @@
++# -*- coding: utf-8 -*-
++"""Protocol detection utilities.
++
++Copyright 2025
++SPDX-License-Identifier: Apache-2.0
++Authors: Mihai Criveti
++
++This module provides utilities for detecting the protocol (HTTP/HTTPS) used
++to access the gateway, supporting both direct TLS and reverse proxy deployments.
++"""
++
++# Standard
++import logging
++from typing import Optional
++from urllib.parse import urlparse
++
++# Third-Party
++from fastapi import Request
++
++# First-Party
++from mcpgateway.config import settings
++
++logger = logging.getLogger(__name__)
++
++def get_protocol_from_request(request: Request) -> str:
++    """Detect protocol from request headers and context.
++
++    This function detects the protocol used to access the gateway by checking:
++    1. X-Forwarded-Proto header (for reverse proxies)
++    2. request.url.scheme (direct TLS or proxy that sets scheme)
++    3. X-Forwarded-SSL header (alternative proxy indicator)
++    4. Falls back to HTTP if no indicators found
++
++    Args:
++        request: FastAPI Request object
++
++    Returns:
++        str: Either "http" or "https"
++
++    Examples:
++        >>> from fastapi import Request
++        >>> from unittest.mock import MagicMock
++        >>> request = MagicMock()
++        >>> request.url.scheme = "https"
++        >>> get_protocol_from_request(request)
++        'https'
++        >>> request.headers.get = lambda x: "http" if x == "X-Forwarded-Proto" else None
++        >>> get_protocol_from_request(request)
++        'http'
++    """
++    # Check X-Forwarded-Proto header (most reliable for reverse proxies)
++    forwarded_proto = request.headers.get("X-Forwarded-Proto")
++    if forwarded_proto:
++        protocol = forwarded_proto.lower()
++        if protocol in ("http", "https"):
++            logger.debug(f"Detected protocol from X-Forwarded-Proto: {protocol}")
++            return protocol
++        logger.warning(f"Invalid X-Forwarded-Proto value: {forwarded_proto}, defaulting to http")
++
++    # Check request URL scheme (works for direct TLS and some proxies)
++    if hasattr(request, 'url') and hasattr(request.url, 'scheme'):
++        scheme = request.url.scheme.lower()
++        if scheme in ("http", "https"):
++            logger.debug(f"Detected protocol from request.url.scheme: {scheme}")
++            return scheme
++
++    # Check X-Forwarded-SSL header (alternative proxy indicator)
++    if request.headers.get("X-Forwarded-SSL") == "on":
++        logger.debug("Detected HTTPS via X-Forwarded-SSL header")
++        return "https"
++
++    # Fallback to HTTP
++    logger.debug("No protocol indicators found, defaulting to http")
++    return "http"
++
++def update_url_protocol(url: str, protocol: Optional[str] = None) -> str:
++    """Update the protocol of a URL.
++
++    If protocol is not provided, it will be detected from the current request
++    context if available. Otherwise, it defaults to HTTP.
++
++    Args:
++        url: The URL to update
++        protocol: Optional protocol to use ("http" or "https")
++
++    Returns:
++        str: URL with updated protocol
++
++    Examples:
++        >>> update_url_protocol("http://example.com", "https")
++        'https://example.com'
++        >>> update_url_protocol("https://example.com", "http")
++        'http://example.com'
++        >>> update_url_protocol("http://example.com")
++        'http://example.com'
++    """
++    if not protocol:
++        # Try to get protocol from request context if available
++        # This is a fallback for cases where request isn't passed directly
++        protocol = "http"  # default
++
++    parsed = urlparse(url)
++    if not parsed.scheme:
++        # If no scheme, assume http
++        return f"{protocol}://{url}"
++
++    # Replace the scheme
++    return f"{protocol}://{parsed.netloc}{parsed.path}{parsed.params}{parsed.query}{parsed.fragment}"
++
++def get_gateway_base_url(request: Optional[Request] = None, protocol: Optional[str] = None) -> str:
++    """Get the base URL for the gateway.
++
++    This function constructs the base URL using the configured host and port,
++    with protocol detection from the request or explicit protocol override.
++
++    Args:
++        request: Optional FastAPI Request for protocol detection
++        protocol: Optional explicit protocol override
++
++    Returns:
++        str: Base URL for the gateway
++
++    Examples:
++        >>> from fastapi import Request
++        >>> from unittest.mock import MagicMock
++        >>> request = MagicMock()
++        >>> request.url.scheme = "https"
++        >>> get_gateway_base_url(request)
++        'https://127.0.0.1:4444'
++        >>> get_gateway_base_url(protocol="http")
++        'http://127.0.0.1:4444'
++    """
++    if protocol is None and request is not None:
++        protocol = get_protocol_from_request(request)
++    elif protocol is None:
++        protocol = "http"  # default
++
++    return f"{protocol}://{settings.host}:{settings.port}"

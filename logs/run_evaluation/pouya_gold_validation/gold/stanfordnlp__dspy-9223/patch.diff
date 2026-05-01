@@ -1,0 +1,1807 @@
+diff --git a/dspy/clients/lm.py b/dspy/clients/lm.py
+index 9df61ae0..53582e1b 100644
+--- a/dspy/clients/lm.py
++++ b/dspy/clients/lm.py
+@@ -306,6 +306,7 @@ def _get_stream_completion_fn(
+     request: dict[str, Any],
+     cache_kwargs: dict[str, Any],
+     sync=True,
++    headers: dict[str, Any] | None = None,
+ ):
+     stream = dspy.settings.send_stream
+     caller_predict = dspy.settings.caller_predict
+@@ -321,11 +322,10 @@ def _get_stream_completion_fn(
+         request["stream_options"] = {"include_usage": True}
+ 
+     async def stream_completion(request: dict[str, Any], cache_kwargs: dict[str, Any]):
+-        headers = request.pop("headers", None)
+         response = await litellm.acompletion(
+             cache=cache_kwargs,
+             stream=True,
+-            headers=_get_headers(headers),
++            headers=headers,
+             **request,
+         )
+         chunks = []
+@@ -354,14 +354,14 @@ def litellm_completion(request: dict[str, Any], num_retries: int, cache: dict[st
+     cache = cache or {"no-cache": True, "no-store": True}
+     request = dict(request)
+     request.pop("rollout_id", None)
+-    headers = request.pop("headers", None)
+-    stream_completion = _get_stream_completion_fn(request, cache, sync=True)
++    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
++    stream_completion = _get_stream_completion_fn(request, cache, sync=True, headers=headers)
+     if stream_completion is None:
+         return litellm.completion(
+             cache=cache,
+             num_retries=num_retries,
+             retry_strategy="exponential_backoff_retry",
+-            headers=_get_headers(headers),
++            headers=headers,
+             **request,
+         )
+ 
+@@ -393,7 +393,7 @@ def litellm_text_completion(request: dict[str, Any], num_retries: int, cache: di
+         prompt=prompt,
+         num_retries=num_retries,
+         retry_strategy="exponential_backoff_retry",
+-        headers=_get_headers(headers),
++        headers=_add_dspy_identifier_to_headers(headers),
+         **request,
+     )
+ 
+@@ -409,7 +409,7 @@ async def alitellm_completion(request: dict[str, Any], num_retries: int, cache:
+             cache=cache,
+             num_retries=num_retries,
+             retry_strategy="exponential_backoff_retry",
+-            headers=_get_headers(headers),
++            headers=_add_dspy_identifier_to_headers(headers),
+             **request,
+         )
+ 
+@@ -439,7 +439,7 @@ async def alitellm_text_completion(request: dict[str, Any], num_retries: int, ca
+         prompt=prompt,
+         num_retries=num_retries,
+         retry_strategy="exponential_backoff_retry",
+-        headers=_get_headers(headers),
++        headers=_add_dspy_identifier_to_headers(headers),
+         **request,
+     )
+ 
+@@ -455,7 +455,7 @@ def litellm_responses_completion(request: dict[str, Any], num_retries: int, cach
+         cache=cache,
+         num_retries=num_retries,
+         retry_strategy="exponential_backoff_retry",
+-        headers=_get_headers(headers),
++        headers=_add_dspy_identifier_to_headers(headers),
+         **request,
+     )
+ 
+@@ -471,7 +471,7 @@ async def alitellm_responses_completion(request: dict[str, Any], num_retries: in
+         cache=cache,
+         num_retries=num_retries,
+         retry_strategy="exponential_backoff_retry",
+-        headers=_get_headers(headers),
++        headers=_add_dspy_identifier_to_headers(headers),
+         **request,
+     )
+ 
+@@ -554,7 +554,7 @@ def _convert_content_item_to_responses_format(item: dict[str, Any]) -> dict[str,
+     return item
+ 
+ 
+-def _get_headers(headers: dict[str, Any] | None = None):
++def _add_dspy_identifier_to_headers(headers: dict[str, Any] | None = None):
+     headers = headers or {}
+     return {
+         "User-Agent": f"DSPy/{dspy.__version__}",
+diff --git a/dspy/dsp/colbertv2.py b/dspy/dsp/colbertv2.py
+index d6c01fb8..23b77c8e 100644
+--- a/dspy/dsp/colbertv2.py
++++ b/dspy/dsp/colbertv2.py
+@@ -43,8 +43,16 @@ def colbertv2_get_request_v2(url: str, query: str, k: int):
+ 
+     payload = {"query": query, "k": k}
+     res = requests.get(url, params=payload, timeout=10)
++    res.raise_for_status()
+ 
+-    topk = res.json()["topk"][:k]
++    res_json = res.json()
++    if res_json.get("error"):
++        error_message = res_json.get("message", "Unknown error")
++        raise ValueError(f"ColBERTv2 server returned an error: {error_message}")
++    if "topk" not in res_json:
++        raise ValueError(f"ColBERTv2 server returned an unexpected response: {res_json}")
++
++    topk = res_json["topk"][:k]
+     topk = [{**d, "long_text": d["text"]} for d in topk]
+     return topk[:k]
+ 
+@@ -62,8 +70,16 @@ def colbertv2_post_request_v2(url: str, query: str, k: int):
+     headers = {"Content-Type": "application/json; charset=utf-8"}
+     payload = {"query": query, "k": k}
+     res = requests.post(url, json=payload, headers=headers, timeout=10)
++    res.raise_for_status()
++
++    res_json = res.json()
++    if res_json.get("error"):
++        error_message = res_json.get("message", "Unknown error")
++        raise ValueError(f"ColBERTv2 server returned an error: {error_message}")
++    if "topk" not in res_json:
++        raise ValueError(f"ColBERTv2 server returned an unexpected response: {res_json}")
+ 
+-    return res.json()["topk"][:k]
++    return res_json["topk"][:k]
+ 
+ 
+ @request_cache()
+diff --git a/dspy/predict/rlm.py b/dspy/predict/rlm.py
+index 7dc99bdf..90b1e16f 100644
+--- a/dspy/predict/rlm.py
++++ b/dspy/predict/rlm.py
+@@ -10,7 +10,6 @@ Reference: "Recursive Language Models" (Zhang, Kraska, Khattab, 2025)
+ 
+ from __future__ import annotations
+ 
+-import inspect
+ import logging
+ import re
+ import threading
+@@ -21,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
+ import pydantic
+ 
+ import dspy
++from dspy.adapters.types.tool import Tool
+ from dspy.adapters.utils import parse_value, translate_field_type
+ from dspy.primitives.code_interpreter import SIMPLE_TYPES, CodeInterpreter, CodeInterpreterError, FinalOutput
+ from dspy.primitives.module import Module
+@@ -63,7 +63,7 @@ IMPORTANT: This is ITERATIVE. Each code block you write will execute, you'll see
+ You have max {max_llm_calls} sub-LLM calls. When done, call SUBMIT() with your output."""
+ 
+ # Pattern to match markdown code fences: ```python\n...\n``` or ```\n...\n```
+-_CODE_FENCE_PATTERN = re.compile(r"^```(?:python|py)?\s*\n(.*?)\n```\s*$", re.DOTALL)
++_CODE_FENCE_PATTERN = re.compile(r"^```(?:python|py)?\s*\n(.*)\n```\s*$", re.DOTALL)
+ 
+ 
+ def _strip_code_fences(code: str) -> str:
+@@ -105,7 +105,7 @@ class RLM(Module):
+         max_llm_calls: int = 50,
+         max_output_chars: int = 100_000,
+         verbose: bool = False,
+-        tools: dict[str, Callable[..., str]] | None = None,
++        tools: list[Callable] | None = None,
+         sub_lm: dspy.LM | None = None,
+         interpreter: CodeInterpreter | None = None,
+     ):
+@@ -117,7 +117,7 @@ class RLM(Module):
+             max_llm_calls: Maximum sub-LLM calls (llm_query/llm_query_batched) per execution.
+             max_output_chars: Maximum characters to include from REPL output.
+             verbose: Whether to log detailed execution info.
+-            tools: Additional tool functions callable from interpreter code.
++            tools: List of tool functions or dspy.Tool objects callable from interpreter code.
+                   Built-in tools: llm_query(prompt), llm_query_batched(prompts).
+             sub_lm: LM for llm_query/llm_query_batched. Defaults to dspy.settings.lm.
+                    Allows using a different (e.g., cheaper) model for sub-queries.
+@@ -131,7 +131,7 @@ class RLM(Module):
+         self.verbose = verbose
+         self.sub_lm = sub_lm
+         self._interpreter = interpreter
+-        self._user_tools = tools or {}
++        self._user_tools = self._normalize_tools(tools)
+         self._validate_tools(self._user_tools)
+ 
+         # Build the action and extract signatures
+@@ -146,47 +146,55 @@ class RLM(Module):
+     # Reserved tool names that conflict with built-in sandbox functions
+     _RESERVED_TOOL_NAMES = frozenset({"llm_query", "llm_query_batched", "SUBMIT", "print"})
+ 
+-    def _validate_tools(self, tools: dict[str, Callable]) -> None:
+-        """Validate user-provided tools have valid names and are callable."""
+-        for name, func in tools.items():
++    def _normalize_tools(self, tools: list[Callable] | None) -> dict[str, Tool]:
++        """Normalize tools list to a dict of Tool objects keyed by name."""
++        if not tools:
++            return {}
++
++        if isinstance(tools, dict):
++            raise TypeError(
++                "tools must be a list, not a dict. "
++                "Change tools={'name': func} to tools=[func] "
++                "(tool names are inferred from function names, or use dspy.Tool(func, name='custom_name'))"
++            )
++
++        def to_tool(func: Callable | Tool) -> Tool:
++            if isinstance(func, Tool):
++                return func
++            if not callable(func):
++                raise TypeError(f"Tool {func!r} must be callable, got {type(func).__name__}")
++            return Tool(func)
++
++        # List of callables/Tools -> normalize to Tool objects
++        tool_list = [to_tool(t) for t in tools]
++        return {tool.name: tool for tool in tool_list}
++
++    def _validate_tools(self, tools: dict[str, Tool]) -> None:
++        """Validate user-provided tools have valid names."""
++        for name, tool in tools.items():
+             if not name.isidentifier():
+                 raise ValueError(f"Invalid tool name '{name}': must be a valid Python identifier")
+             if name in self._RESERVED_TOOL_NAMES:
+                 raise ValueError(f"Tool name '{name}' conflicts with built-in sandbox function")
+-            if not callable(func):
+-                raise TypeError(f"Tool '{name}' must be callable, got {type(func).__name__}")
+ 
+-    def _format_tool_docs(self, tools: dict[str, Callable]) -> str:
++    def _format_tool_docs(self, tools: dict[str, Tool]) -> str:
+         """Format user-provided tools for inclusion in instructions."""
+         if not tools:
+             return ""
+ 
+         lines = ["\nAdditional tools available (use these instead of standard library equivalents):"]
+-        for name, func in tools.items():
+-            # Get function signature with return type
+-            try:
+-                sig = inspect.signature(func)
+-                params = []
+-                for p in sig.parameters.values():
+-                    if p.annotation != inspect.Parameter.empty:
+-                        type_name = getattr(p.annotation, "__name__", str(p.annotation))
+-                        params.append(f"{p.name}: {type_name}")
+-                    else:
+-                        params.append(p.name)
+-                params_str = ", ".join(params)
+-
+-                # Get return type
+-                if sig.return_annotation != inspect.Parameter.empty:
+-                    ret_type = getattr(sig.return_annotation, "__name__", str(sig.return_annotation))
+-                    sig_str = f"{name}({params_str}) -> {ret_type}"
+-                else:
+-                    sig_str = f"{name}({params_str})"
+-            except (ValueError, TypeError):
+-                sig_str = f"{name}(...)"
+-
+-            # Get first line of docstring
+-            doc = func.__doc__.strip().split("\n")[0] if func.__doc__ else "No description"
+-            lines.append(f"- `{sig_str}` - {doc}")
++        for tool in tools.values():
++            # Build signature string from Tool's args
++            params = []
++            for arg_name, arg_schema in (tool.args or {}).items():
++                arg_type = arg_schema.get("type", "Any")
++                params.append(f"{arg_name}: {arg_type}")
++            params_str = ", ".join(params)
++            sig_str = f"{tool.name}({params_str})"
++
++            # Get description with newlines escaped
++            desc = (tool.desc or "No description").replace("\n", "  ")
++            lines.append(f"- `{sig_str}` - {desc}")
+ 
+         return "\n".join(lines)
+ 
+@@ -244,7 +252,7 @@ class RLM(Module):
+         return {"llm_query": llm_query, "llm_query_batched": llm_query_batched}
+ 
+     @property
+-    def tools(self) -> dict[str, Callable]:
++    def tools(self) -> dict[str, Tool]:
+         """User-provided tools (excludes internal llm_query/llm_query_batched)."""
+         return dict(self._user_tools)
+ 
+@@ -279,7 +287,7 @@ class RLM(Module):
+             .append("repl_history", dspy.InputField(desc="Previous REPL code executions and their outputs"), type_=REPLHistory)
+             .append("iteration", dspy.InputField(desc="Current iteration number (1-indexed) out of max_iterations"), type_=str)
+             .append("reasoning", dspy.OutputField(desc="Think step-by-step: what do you know? What remains? Plan your next action."), type_=str)
+-            .append("code", dspy.OutputField(desc="Python code to execute."), type_=str)
++            .append("code", dspy.OutputField(desc="Python code to execute. Use markdown code block format: ```python\\n<code>\\n```"), type_=str)
+         )
+ 
+         # Extract signature: includes the original signature's output fields and task instructions.
+@@ -348,7 +356,8 @@ class RLM(Module):
+     def _prepare_execution_tools(self) -> dict[str, Callable]:
+         """Create fresh LLM tools and merge with user-provided tools."""
+         execution_tools = self._make_llm_tools()
+-        execution_tools.update(self._user_tools)
++        # Extract underlying functions from Tool objects for the interpreter
++        execution_tools.update({name: tool.func for name, tool in self._user_tools.items()})
+         return execution_tools
+ 
+     def _inject_execution_context(self, interpreter: CodeInterpreter, execution_tools: dict[str, Callable]) -> None:
+@@ -462,20 +471,22 @@ class RLM(Module):
+         Returns:
+             Prediction if FINAL was called successfully, else updated REPLHistory
+         """
++        # Strip markdown fences from code for history (format() will re-add them)
++        code = _strip_code_fences(pred.code)
+         # Handle error strings from caught exceptions
+         if isinstance(result, str) and result.startswith("[Error]"):
+             output = self._format_output(result)
+-            return history.append(reasoning=pred.reasoning, code=pred.code, output=output)
++            return history.append(reasoning=pred.reasoning, code=code, output=output)
+ 
+         # Handle FINAL output
+         if isinstance(result, FinalOutput):
+             parsed_outputs, error = self._process_final_output(result, output_field_names)
+ 
+             if error:
+-                return history.append(reasoning=pred.reasoning, code=pred.code, output=error)
++                return history.append(reasoning=pred.reasoning, code=code, output=error)
+ 
+             final_history = history.append(
+-                reasoning=pred.reasoning, code=pred.code, output=f"FINAL: {parsed_outputs}"
++                reasoning=pred.reasoning, code=code, output=f"FINAL: {parsed_outputs}"
+             )
+             return Prediction(
+                 **parsed_outputs,
+@@ -490,7 +501,7 @@ class RLM(Module):
+             output = str(result) if result else ""
+ 
+         output = self._format_output(output)
+-        return history.append(reasoning=pred.reasoning, code=pred.code, output=output)
++        return history.append(reasoning=pred.reasoning, code=code, output=output)
+ 
+     def _execute_iteration(
+         self,
+diff --git a/dspy/primitives/code_interpreter.py b/dspy/primitives/code_interpreter.py
+index 03050381..9eccb796 100644
+--- a/dspy/primitives/code_interpreter.py
++++ b/dspy/primitives/code_interpreter.py
+@@ -14,10 +14,25 @@ SIMPLE_TYPES = (str, int, float, bool, list, dict, type(None))
+ 
+ 
+ class CodeInterpreterError(RuntimeError):
+-    """Error raised during code execution in an interpreter.
++    """Error raised during code interpretation.
+ 
+-    This covers runtime errors, undefined variables, tool call failures, etc.
+-    SyntaxError is raised separately for invalid Python syntax.
++    This exception covers two distinct failure modes:
++
++    1. **Execution errors**: The sandbox ran user code that failed.
++       - NameError, TypeError, ValueError, etc.
++       - Tool call failures (unknown tool, tool raised exception)
++       - These are normal user code errors.
++
++    2. **Protocol errors**: Communication between host and sandbox failed.
++       - Malformed JSON from sandbox
++       - Sandbox process crashed or became unresponsive
++       - Invalid JSON-RPC message structure
++       - These may indicate a corrupted sandbox needing restart.
++
++    The error message typically includes the original error type (e.g., "NameError: ...")
++    which can help distinguish the failure mode.
++
++    Note: SyntaxError is raised separately (not wrapped) for invalid Python syntax.
+     """
+ 
+ 
+diff --git a/dspy/primitives/python_interpreter.py b/dspy/primitives/python_interpreter.py
+index 3136c4a0..76b685ad 100644
+--- a/dspy/primitives/python_interpreter.py
++++ b/dspy/primitives/python_interpreter.py
+@@ -13,6 +13,7 @@ import keyword
+ import logging
+ import os
+ import subprocess
++import threading
+ from os import PathLike
+ from typing import Any, Callable
+ 
+@@ -22,6 +23,61 @@ __all__ = ["PythonInterpreter", "FinalOutput", "CodeInterpreterError"]
+ 
+ logger = logging.getLogger(__name__)
+ 
++# Pyodide's FFI crashes at exactly 128MB (134,217,728 bytes). Use filesystem
++# injection for strings above 100MB to stay safely below this limit.
++LARGE_VAR_THRESHOLD = 100 * 1024 * 1024
++
++# =============================================================================
++# JSON-RPC 2.0 Helpers
++# =============================================================================
++
++# JSON-RPC 2.0 protocol errors (reserved range: -32700 to -32600)
++JSONRPC_PROTOCOL_ERRORS = {
++    "ParseError": -32700,
++    "InvalidRequest": -32600,
++    "MethodNotFound": -32601,
++}
++
++# Application errors (range: -32000 to -32099)
++JSONRPC_APP_ERRORS = {
++    "SyntaxError": -32000,
++    "NameError": -32001,
++    "TypeError": -32002,
++    "ValueError": -32003,
++    "AttributeError": -32004,
++    "IndexError": -32005,
++    "KeyError": -32006,
++    "RuntimeError": -32007,
++    "CodeInterpreterError": -32008,
++    "Unknown": -32099,
++}
++
++
++def _jsonrpc_request(method: str, params: dict, id: int | str) -> str:
++    """Create a JSON-RPC 2.0 request (expects response)."""
++    return json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": id})
++
++
++def _jsonrpc_notification(method: str, params: dict | None = None) -> str:
++    """Create a JSON-RPC 2.0 notification (no response expected)."""
++    msg = {"jsonrpc": "2.0", "method": method}
++    if params:
++        msg["params"] = params
++    return json.dumps(msg)
++
++
++def _jsonrpc_result(result: Any, id: int | str) -> str:
++    """Create a JSON-RPC 2.0 success response."""
++    return json.dumps({"jsonrpc": "2.0", "result": result, "id": id})
++
++
++def _jsonrpc_error(code: int, message: str, id: int | str, data: dict | None = None) -> str:
++    """Create a JSON-RPC 2.0 error response."""
++    err = {"code": code, "message": message}
++    if data:
++        err["data"] = data
++    return json.dumps({"jsonrpc": "2.0", "error": err, "id": id})
++
+ 
+ class PythonInterpreter:
+     """Local interpreter for secure Python execution using Deno and Pyodide.
+@@ -125,6 +181,20 @@ class PythonInterpreter:
+ 
+         self.deno_process = None
+         self._mounted_files = False
++        self._request_id = 0
++        self._owner_thread: int | None = None
++        self._pending_large_vars = {}
++
++    def _check_thread_ownership(self) -> None:
++        """Ensure this interpreter is only used from a single thread."""
++        current_thread = threading.current_thread().ident
++        if self._owner_thread is None:
++            self._owner_thread = current_thread
++        elif self._owner_thread != current_thread:
++            raise RuntimeError(
++                "PythonInterpreter is not thread-safe and cannot be shared across threads. "
++                "Create a separate interpreter instance for each thread."
++            )
+ 
+     @staticmethod
+     @functools.lru_cache(maxsize=1)
+@@ -170,9 +240,7 @@ class PythonInterpreter:
+                 else:
+                     raise FileNotFoundError(f"Cannot mount non-existent file: {path}")
+             virtual_path = f"/sandbox/{os.path.basename(path)}"
+-            mount_msg = json.dumps({"mount_file": str(path), "virtual_path": virtual_path})
+-            self.deno_process.stdin.write(mount_msg + "\n")
+-            self.deno_process.stdin.flush()
++            self._send_request("mount_file", {"host_path": str(path), "virtual_path": virtual_path}, f"mounting {path}")
+         self._mounted_files = True
+ 
+     def _sync_files(self):
+@@ -180,10 +248,7 @@ class PythonInterpreter:
+             return
+         for path in self.enable_write_paths:
+             virtual_path = f"/sandbox/{os.path.basename(path)}"
+-            sync_msg = json.dumps({
+-                "sync_file": virtual_path,
+-                "host_file": str(path)
+-            })
++            sync_msg = _jsonrpc_notification("sync_file", {"virtual_path": virtual_path, "host_path": str(path)})
+             self.deno_process.stdin.write(sync_msg + "\n")
+             self.deno_process.stdin.flush()
+ 
+@@ -208,8 +273,8 @@ class PythonInterpreter:
+         if self._tools_registered:
+             return
+ 
+-        # Build registration message with typed tool signatures
+-        msg = {}
++        # Build registration params with typed tool signatures
++        params = {}
+ 
+         if self.tools:
+             tools_info = []
+@@ -218,43 +283,42 @@ class PythonInterpreter:
+                     "name": name,
+                     "parameters": self._extract_parameters(fn)
+                 })
+-            msg["register_tools"] = tools_info
++            params["tools"] = tools_info
+ 
+         if self.output_fields:
+-            msg["register_outputs"] = self.output_fields
++            params["outputs"] = self.output_fields
+ 
+         # Skip if nothing to register
+-        if not msg:
++        if not params:
+             self._tools_registered = True
+             return
+ 
+-        self.deno_process.stdin.write(json.dumps(msg) + "\n")
+-        self.deno_process.stdin.flush()
+-        response_line = self.deno_process.stdout.readline().strip()
+-        if not response_line:
+-            raise CodeInterpreterError("No response when registering tools/outputs")
+-        response = json.loads(response_line)
+-        if "tools_registered" not in response and "outputs_registered" not in response:
+-            raise CodeInterpreterError(f"Unexpected response when registering: {response_line}")
++        self._send_request("register", params, "registering tools/outputs")
+         self._tools_registered = True
+ 
+     def _handle_tool_call(self, request: dict) -> None:
+         """Handle a tool call request from the sandbox."""
+-        request_id, tool_name = request["id"], request["name"]
+-        call_args = request.get("args", {})
++        request_id = request["id"]
++        params = request.get("params", {})
++        tool_name = params.get("name")
++        args = params.get("args", [])
++        kwargs = params.get("kwargs", {})
+ 
+         try:
+             if tool_name not in self.tools:
+                 raise CodeInterpreterError(f"Unknown tool: {tool_name}")
+-            result = self.tools[tool_name](*call_args.get("args", []), **call_args.get("kwargs", {}))
++            result = self.tools[tool_name](*args, **kwargs)
+             is_json = isinstance(result, (list, dict))
+-            response = {"type": "tool_response", "id": request_id, "error": None,
+-                        "result": json.dumps(result) if is_json else str(result or ""),
+-                        "result_type": "json" if is_json else "string"}
++            response = _jsonrpc_result(
++                {"value": json.dumps(result) if is_json else str(result or ""), "type": "json" if is_json else "string"},
++                request_id
++            )
+         except Exception as e:
+-            response = {"type": "tool_response", "id": request_id, "result": None, "error": str(e)}
++            error_type = type(e).__name__
++            error_code = JSONRPC_APP_ERRORS.get(error_type, JSONRPC_APP_ERRORS["Unknown"])
++            response = _jsonrpc_error(error_code, str(e), request_id, {"type": error_type})
+ 
+-        self.deno_process.stdin.write(json.dumps(response) + "\n")
++        self.deno_process.stdin.write(response + "\n")
+         self.deno_process.stdin.flush()
+ 
+     def _ensure_deno_process(self) -> None:
+@@ -279,58 +343,149 @@ class PythonInterpreter:
+                     "For additional configurations: https://docs.deno.com/runtime/getting_started/installation/"
+                 )
+                 raise CodeInterpreterError(install_instructions) from e
++            self._health_check()
++
++    def _send_request(self, method: str, params: dict, context: str) -> dict:
++        """Send a JSON-RPC request and return the parsed response."""
++        self._request_id += 1
++        request_id = self._request_id
++        msg = _jsonrpc_request(method, params, request_id)
++        self.deno_process.stdin.write(msg + "\n")
++        self.deno_process.stdin.flush()
++
++        response_line = self.deno_process.stdout.readline().strip()
++        if not response_line:
++            exit_code = self.deno_process.poll()
++            if exit_code is not None:
++                stderr = self.deno_process.stderr.read() if self.deno_process.stderr else ""
++                raise CodeInterpreterError(f"Deno exited (code {exit_code}) {context}: {stderr}")
++            raise CodeInterpreterError(f"No response {context}")
++
++        response = json.loads(response_line)
++        if response.get("id") != request_id:
++            raise CodeInterpreterError(f"Response ID mismatch {context}: expected {request_id}, got {response.get('id')}")
++        if "error" in response:
++            raise CodeInterpreterError(f"Error {context}: {response['error'].get('message', 'Unknown error')}")
++        return response
++
++    def _health_check(self) -> None:
++        """Verify the subprocess is alive by executing a simple expression."""
++        response = self._send_request("execute", {"code": "print(1+1)"}, "during health check")
++        if response.get("result", {}).get("output", "").strip() != "2":
++            raise CodeInterpreterError(f"Unexpected ping response: {response}")
++
++    def _to_json_compatible(self, value: Any) -> Any:
++        """Recursively convert Python values to JSON-compatible types."""
++        if value is None or isinstance(value, (str, int, float, bool)):
++            return value
++        elif isinstance(value, dict):
++            return {k: self._to_json_compatible(v) for k, v in value.items()}
++        elif isinstance(value, (list, tuple)):
++            return [self._to_json_compatible(v) for v in value]
++        elif isinstance(value, set):
++            try:
++                return sorted(self._to_json_compatible(v) for v in value)
++            except TypeError:
++                return [self._to_json_compatible(v) for v in value]
++        else:
++            raise CodeInterpreterError(f"Unsupported value type: {type(value).__name__}")
+ 
+     def _inject_variables(self, code: str, variables: dict[str, Any]) -> str:
+         """Insert Python assignments for each variable at the top of the code."""
+         for key in variables:
+-            if not key.isidentifier() or keyword.iskeyword(key):
++            if not key.isidentifier() or keyword.iskeyword(key) or key == "json":
+                 raise CodeInterpreterError(f"Invalid variable name: '{key}'")
+-        assignments = [f"{k} = {self._serialize_value(v)}" for k, v in variables.items()]
++
++        large_vars = {}
++        small_assignments = []
++        for k, v in variables.items():
++            serialized = self._serialize_value(v)
++            if len(serialized) > LARGE_VAR_THRESHOLD:
++                large_vars[k] = json.dumps(self._to_json_compatible(v))
++            else:
++                small_assignments.append(f"{k} = {serialized}")
++
++        self._pending_large_vars = large_vars
++
++        if large_vars:
++            large_assignments = [f"{k} = json.loads(open('/tmp/dspy_vars/{k}.json').read())" for k in large_vars]
++            assignments = ["import json"] + small_assignments + large_assignments
++        else:
++            assignments = small_assignments
++
+         return "\n".join(assignments) + "\n" + code if assignments else code
+ 
+     def _serialize_value(self, value: Any) -> str:
+-        """Serialize a Python value to a string representation for injection."""
++        """Serialize a Python value to a Python literal string for injection.
++
++        Sets and tuples are converted to lists for JSON round-trip compatibility,
++        since the sandbox returns values via JSON which doesn't support these types.
++        """
+         if value is None:
+             return "None"
+         elif isinstance(value, str):
+             return repr(value)
+         elif isinstance(value, bool):
+-            return str(value)
++            # Must check bool before int since bool is a subclass of int
++            return "True" if value else "False"
+         elif isinstance(value, (int, float)):
+             return str(value)
+-        elif isinstance(value, (list, dict)):
+-            return json.dumps(value)
+-        elif isinstance(value, tuple):
+-            return json.dumps(list(value))
++        elif isinstance(value, (list, tuple)):
++            # Tuples become lists for JSON compatibility
++            items = ", ".join(self._serialize_value(item) for item in value)
++            return f"[{items}]"
++        elif isinstance(value, dict):
++            items = ", ".join(
++                f"{self._serialize_value(k)}: {self._serialize_value(v)}"
++                for k, v in value.items()
++            )
++            return f"{{{items}}}"
+         elif isinstance(value, set):
++            # Sets become sorted lists (or unsorted if mixed types) for JSON compatibility
+             try:
+-                return json.dumps(sorted(value))
++                sorted_items = sorted(value)
+             except TypeError:
+-                return json.dumps(list(value))
++                sorted_items = list(value)
++            items = ", ".join(self._serialize_value(item) for item in sorted_items)
++            return f"[{items}]"
+         else:
+             raise CodeInterpreterError(f"Unsupported value type: {type(value).__name__}")
+ 
++    def _inject_large_var(self, name: str, value: str) -> None:
++        """Inject a large variable via the virtual filesystem."""
++        self._send_request("inject_var", {"name": name, "value": value}, f"injecting variable '{name}'")
++
+     def execute(
+         self,
+         code: str,
+         variables: dict[str, Any] | None = None,
+     ) -> Any:
++        self._check_thread_ownership()
+         variables = variables or {}
+         code = self._inject_variables(code, variables)
+         self._ensure_deno_process()
+         self._mount_files()
+         self._register_tools()
+ 
+-        # Send the code as JSON
+-        input_data = json.dumps({"code": code})
++        for name, value in self._pending_large_vars.items():
++            self._inject_large_var(name, value)
++
++        # Send the code as JSON-RPC request
++        self._request_id += 1
++        execute_request_id = self._request_id
++        input_data = _jsonrpc_request("execute", {"code": code}, execute_request_id)
+         try:
+             self.deno_process.stdin.write(input_data + "\n")
+             self.deno_process.stdin.flush()
+         except BrokenPipeError:
+             # If the process died, restart and try again once
+             self._tools_registered = False
++            self._mounted_files = False
+             self._ensure_deno_process()
++            self._mount_files()
+             self._register_tools()
++            for name, value in self._pending_large_vars.items():
++                self._inject_large_var(name, value)
+             self.deno_process.stdin.write(input_data + "\n")
+             self.deno_process.stdin.flush()
+ 
+@@ -343,36 +498,55 @@ class PythonInterpreter:
+                 err_output = self.deno_process.stderr.read()
+                 raise CodeInterpreterError(f"No output from Deno subprocess. Stderr: {err_output}")
+ 
++            # Skip non-JSON lines (e.g., Pyodide package loading messages)
++            if not output_line.startswith("{"):
++                logger.debug(f"Skipping non-JSON output: {output_line}")
++                continue
++
+             # Parse that line as JSON
+             try:
+-                result = json.loads(output_line)
++                msg = json.loads(output_line)
+             except json.JSONDecodeError:
+-                # If not valid JSON, just return raw text
+-                result = {"output": output_line}
+-
+-            # Handle tool call requests from sandbox
+-            if result.get("type") == "tool_call":
+-                self._handle_tool_call(result)
++                # Malformed JSON starting with '{' - log and continue
++                logger.info(f"Skipping malformed JSON: {output_line[:100]}")
+                 continue
+ 
+-            # Handle errors based on errorType
+-            if "error" in result:
+-                error_msg = result["error"]
+-                error_type = result.get("errorType", "Sandbox Error")
+-                error_args = result.get("errorArgs", [])
+-
+-                if error_type == "FinalOutput":
+-                    output = error_args[0] if error_args else None
+-                    self._sync_files()
+-                    return FinalOutput(output)
+-                elif error_type == "SyntaxError":
+-                    raise SyntaxError(f"Invalid Python syntax. message: {error_msg}")
++            # Handle incoming requests (tool calls from sandbox)
++            if "method" in msg:
++                if msg["method"] == "tool_call":
++                    self._handle_tool_call(msg)
++                    continue
++
++            # Handle success response
++            if "result" in msg:
++                if msg.get("id") != execute_request_id:
++                    raise CodeInterpreterError(f"Response ID mismatch: expected {execute_request_id}, got {msg.get('id')}")
++                result = msg["result"]
++                self._sync_files()
++                # Check for SUBMIT (encoded as success with "final" field)
++                if "final" in result:
++                    return FinalOutput(result["final"])
++                return result.get("output", None)
++
++            # Handle error response
++            if "error" in msg:
++                # Errors with id=null are unsolicited errors (e.g., unhandled async rejections)
++                # Treat them as errors for the current request
++                if msg.get("id") is not None and msg.get("id") != execute_request_id:
++                    raise CodeInterpreterError(f"Response ID mismatch: expected {execute_request_id}, got {msg.get('id')}")
++                error = msg["error"]
++                error_code = error.get("code", JSONRPC_APP_ERRORS["Unknown"])
++                error_message = error.get("message", "Unknown error")
++                error_data = error.get("data", {})
++                error_type = error_data.get("type", "Error")
++
++                if error_code == JSONRPC_APP_ERRORS["SyntaxError"]:
++                    raise SyntaxError(f"Invalid Python syntax. message: {error_message}")
+                 else:
+-                    raise CodeInterpreterError(f"{error_type}: {error_args or error_msg}")
++                    raise CodeInterpreterError(f"{error_type}: {error_data.get('args') or error_message}")
+ 
+-            # If there's no error or got `FinalAnswer`, return the "output" field
+-            self._sync_files()
+-            return result.get("output", None)
++            # Unexpected message format - neither a recognized method nor a response
++            raise CodeInterpreterError(f"Unexpected message format from sandbox: {msg}")
+ 
+     def start(self) -> None:
+         """Initialize the Deno/Pyodide sandbox.
+@@ -400,8 +574,9 @@ class PythonInterpreter:
+ 
+     def shutdown(self) -> None:
+         if self.deno_process and self.deno_process.poll() is None:
+-            self.deno_process.stdin.write(json.dumps({"shutdown": True}) + "\n")
++            self.deno_process.stdin.write(_jsonrpc_notification("shutdown") + "\n")
+             self.deno_process.stdin.flush()
+             self.deno_process.stdin.close()
+             self.deno_process.wait()
+         self.deno_process = None
++        self._owner_thread = None
+diff --git a/dspy/primitives/runner.js b/dspy/primitives/runner.js
+index b2dca376..1c1599b9 100644
+--- a/dspy/primitives/runner.js
++++ b/dspy/primitives/runner.js
+@@ -96,14 +96,54 @@ def SUBMIT(${sigParts.join(', ')}):
+ `;
+ };
+ 
++// =============================================================================
++// JSON-RPC 2.0 Helpers
++// =============================================================================
++
++// JSON-RPC 2.0 protocol errors (reserved range: -32700 to -32600)
++const JSONRPC_PROTOCOL_ERRORS = {
++  ParseError: -32700,
++  InvalidRequest: -32600,
++  MethodNotFound: -32601,
++};
++
++// Application errors (range: -32000 to -32099)
++const JSONRPC_APP_ERRORS = {
++  SyntaxError: -32000,
++  NameError: -32001,
++  TypeError: -32002,
++  ValueError: -32003,
++  AttributeError: -32004,
++  IndexError: -32005,
++  KeyError: -32006,
++  RuntimeError: -32007,
++  CodeInterpreterError: -32008,
++  Unknown: -32099,
++};
++
++const jsonrpcRequest = (method, params, id) =>
++  JSON.stringify({ jsonrpc: "2.0", method, params, id });
++
++const jsonrpcNotification = (method, params = null) => {
++  const msg = { jsonrpc: "2.0", method };
++  if (params) msg.params = params;
++  return JSON.stringify(msg);
++};
++
++const jsonrpcResult = (result, id) =>
++  JSON.stringify({ jsonrpc: "2.0", result, id });
++
++const jsonrpcError = (code, message, id, data = null) => {
++  const err = { code, message };
++  if (data) err.data = data;
++  return JSON.stringify({ jsonrpc: "2.0", error: err, id });
++};
++
+ // Global handler to prevent uncaught promise rejections from crashing Deno
+ // These can occur during async Python <-> JS interop
+ globalThis.addEventListener("unhandledrejection", (event) => {
+   event.preventDefault();
+-  console.log(JSON.stringify({
+-    error: `Unhandled async error: ${event.reason?.message || event.reason}`,
+-    errorType: "UnhandledPromiseRejection"
+-  }));
++  console.log(jsonrpcError(JSONRPC_APP_ERRORS.RuntimeError, `Unhandled async error: ${event.reason?.message || event.reason}`, null));
+ });
+ 
+ const pyodide = await pyodideModule.loadPyodide();
+@@ -115,16 +155,18 @@ let requestIdCounter = 0;
+ 
+ // This function is called from Python to invoke a host-side tool
+ async function toolCallBridge(name, argsJson) {
+-  const requestId = `req_${Date.now()}_${++requestIdCounter}`;
++  const requestId = `tc_${Date.now()}_${++requestIdCounter}`;
+ 
+   try {
+-    // Send tool call request to host
+-    console.log(JSON.stringify({
+-      type: "tool_call",
+-      id: requestId,
++    // Parse args to extract positional and keyword args
++    const parsedArgs = JSON.parse(argsJson);
++
++    // Send tool call request to host using JSON-RPC
++    console.log(jsonrpcRequest("tool_call", {
+       name: name,
+-      args: JSON.parse(argsJson)
+-    }));
++      args: parsedArgs.args || [],
++      kwargs: parsedArgs.kwargs || {}
++    }, requestId));
+ 
+     // Wait for response from host
+     const { value: responseLine, done } = await stdinReader.next();
+@@ -133,19 +175,22 @@ async function toolCallBridge(name, argsJson) {
+     }
+ 
+     const response = JSON.parse(responseLine);
+-    if (response.type !== "tool_response" || response.id !== requestId) {
+-      throw new Error(`Unexpected response: expected tool_response with id ${requestId}`);
++
++    // Expect JSON-RPC result or error with matching id
++    if (response.id !== requestId) {
++      throw new Error(`Unexpected response: expected id ${requestId}, got ${response.id}`);
+     }
+ 
+     if (response.error) {
+-      throw new Error(response.error);
++      throw new Error(response.error.message || "Tool call failed");
+     }
+ 
+     // Deserialize result based on type
+-    if (response.result_type === "json") {
+-      return JSON.parse(response.result);
++    const result = response.result;
++    if (result.type === "json") {
++      return JSON.parse(result.value);
+     }
+-    return response.result;
++    return result.value;
+   } catch (error) {
+     // Re-throw with context so Python can catch it properly
+     throw new Error(`Tool bridge error for '${name}': ${error.message}`);
+@@ -179,17 +224,39 @@ while (true) {
+   try {
+     input = JSON.parse(line);
+   } catch (error) {
+-    console.log(JSON.stringify({
+-      error: "Invalid JSON input: " + error.message,
+-      errorType: "ValueError"
+-    }));
++    // JSON-RPC parse error
++    console.log(jsonrpcError(JSONRPC_PROTOCOL_ERRORS.ParseError, "Invalid JSON input: " + error.message, null));
++    continue;
++  }
++
++  // Validate JSON-RPC format
++  if (typeof input !== 'object' || input === null || input.jsonrpc !== "2.0") {
++    console.log(jsonrpcError(JSONRPC_PROTOCOL_ERRORS.InvalidRequest, "Invalid Request: not a JSON-RPC 2.0 message", null));
+     continue;
+   }
+ 
+-  if (input.mount_file) {
+-    const virtualPath = input.virtual_path || input.mount_file;
++  const method = input.method;
++  const params = input.params || {};
++  const requestId = input.id; // May be undefined for notifications
++
++  // Handle notifications (no response expected)
++  if (method === "sync_file") {
+     try {
+-      const contents = await Deno.readFile(input.mount_file);
++      const virtualPath = params.virtual_path;
++      const hostPath = params.host_path || virtualPath;
++      await Deno.writeFile(hostPath, pyodide.FS.readFile(virtualPath));
++    } catch (e) { /* ignore sync errors */ }
++    continue;
++  }
++
++  if (method === "shutdown") break;
++
++  // Handle requests (expect response)
++  if (method === "mount_file") {
++    const hostPath = params.host_path;
++    const virtualPath = params.virtual_path || hostPath;
++    try {
++      const contents = await Deno.readFile(hostPath);
+       const dirs = virtualPath.split('/').slice(1, -1);
+       let cur = '';
+       for (const d of dirs) {
+@@ -203,33 +270,19 @@ while (true) {
+         }
+       }
+       pyodide.FS.writeFile(virtualPath, contents);
++      console.log(jsonrpcResult({ mounted: virtualPath }, requestId));
+     } catch (e) {
+-      console.log(JSON.stringify({error: "Failed to mount file: " + e.message}));
++      console.log(jsonrpcError(JSONRPC_APP_ERRORS.RuntimeError, `Failed to mount file: ${e.message}`, requestId));
+     }
+     continue;
+   }
+ 
+-  if (input.sync_file) {
+-    try {
+-      await Deno.writeFile(input.host_file || input.sync_file, pyodide.FS.readFile(input.sync_file));
+-    } catch (e) { /* ignore sync errors */ }
+-    continue;
+-  }
+-
+-  if (typeof input !== 'object' || input === null) {
+-    console.log(JSON.stringify({ error: "Input is not a JSON object", errorType: "ValueError" }));
+-    continue;
+-  }
+-
+-  if (input.shutdown) break;
+-
+-  // Register tools and/or output fields
+-  if (input.register_tools || input.register_outputs) {
++  if (method === "register") {
+     const toolNames = [];
+ 
+     // Register tools with typed signatures
+-    if (input.register_tools) {
+-      for (const tool of input.register_tools) {
++    if (params.tools) {
++      for (const tool of params.tools) {
+         // Support both old format (string) and new format (object with parameters)
+         if (typeof tool === 'string') {
+           pyodide.runPython(makeToolWrapper(tool, []));
+@@ -242,47 +295,90 @@ while (true) {
+     }
+ 
+     // Register SUBMIT with output signature
+-    if (input.register_outputs) {
+-      pyodide.runPython(makeSubmitWrapper(input.register_outputs));
++    if (params.outputs) {
++      pyodide.runPython(makeSubmitWrapper(params.outputs));
+     }
+ 
+-    console.log(JSON.stringify({
+-      tools_registered: toolNames,
+-      outputs_registered: input.register_outputs ? input.register_outputs.map(o => o.name) : []
+-    }));
++    console.log(jsonrpcResult({
++      tools: toolNames,
++      outputs: params.outputs ? params.outputs.map(o => o.name) : []
++    }, requestId));
+     continue;
+   }
+ 
+-  const code = input.code || "";
++  if (method === "inject_var") {
++    const { name, value } = params;
++    try {
++      try { pyodide.FS.mkdir('/tmp'); } catch (e) { /* exists */ }
++      try { pyodide.FS.mkdir('/tmp/dspy_vars'); } catch (e) { /* exists */ }
++      pyodide.FS.writeFile(`/tmp/dspy_vars/${name}.json`, new TextEncoder().encode(value));
++      console.log(jsonrpcResult({ injected: name }, requestId));
++    } catch (e) {
++      console.log(jsonrpcError(JSONRPC_APP_ERRORS.RuntimeError, `Failed to inject var: ${e.message}`, requestId));
++    }
++    continue;
++  }
+ 
+-  try {
+-    await pyodide.loadPackagesFromImports(code);
+-    pyodide.runPython(PYTHON_SETUP_CODE);
+-    // Run the user's code
+-    const result = await pyodide.runPythonAsync(code);
+-    const capturedStdout = pyodide.runPython("buf_stdout.getvalue()");
+-    pyodide.runPython("sys.stdout, sys.stderr = old_stdout, old_stderr");
+-
+-    // If result is None, output prints; otherwise output the result
+-    let output = (result === null || result === undefined) ? capturedStdout : (result.toJs?.() ?? result);
+-    console.log(JSON.stringify({ output }));
+-  } catch (error) {
+-    // We have an error => check if it's a SyntaxError or something else
+-    // The Python error class name is stored in error.type: https://pyodide.org/en/stable/usage/api/js-api.html#pyodide.ffi.PythonError
+-    const errorType = error.type || "Error";
+-    // error.message is mostly blank.
+-    const errorMessage = (error.message || "").trim();
+-    // The arguments of the exception are stored in sys.last_exc.args,
+-    // which is always helpful but pyodide don't extract them for us.
+-    // Use a bridge function to get them.
+-    let errorArgs = [];
+-    if (errorType !== "SyntaxError") {
+-      // Only python exceptions have args.
+-      const last_exception_args = pyodide.globals.get("last_exception_args");
+-      // Regarding https://pyodide.org/en/stable/usage/type-conversions.html#type-translations-errors,
+-      // we do a additional `json.dumps` and `JSON.parse` on the values, to avoid the possible memory leak.
+-      errorArgs = JSON.parse(last_exception_args()) || [];
++  if (method === "execute") {
++    const code = params.code || "";
++    let setupCompleted = false;  // Track if PYTHON_SETUP_CODE ran successfully
++
++    try {
++      await pyodide.loadPackagesFromImports(code);
++      pyodide.runPython(PYTHON_SETUP_CODE);
++      setupCompleted = true;  // Mark setup as complete - old_stdout/old_stderr now exist
++
++      // Run the user's code
++      const result = await pyodide.runPythonAsync(code);
++      const capturedStdout = pyodide.runPython("buf_stdout.getvalue()");
++
++      // If result is None, output prints; otherwise output the result
++      let output = (result === null || result === undefined) ? capturedStdout : (result.toJs?.() ?? result);
++      console.log(jsonrpcResult({ output }, requestId));
++    } catch (error) {
++      // We have an error => check if it's a SyntaxError or something else
++      // The Python error class name is stored in error.type: https://pyodide.org/en/stable/usage/api/js-api.html#pyodide.ffi.PythonError
++      const errorType = error.type || "Error";
++      // error.message is mostly blank.
++      const errorMessage = (error.message || "").trim();
++
++      // Handle FinalOutput as a success result, not an error
++      if (errorType === "FinalOutput") {
++        const last_exception_args = pyodide.globals.get("last_exception_args");
++        const errorArgs = JSON.parse(last_exception_args()) || [];
++        const answer = errorArgs[0] || null;
++        console.log(jsonrpcResult({ final: answer }, requestId));
++        continue;
++      }
++
++      // Get error args for other exception types
++      let errorArgs = [];
++      if (errorType !== "SyntaxError") {
++        // Only python exceptions have args.
++        const last_exception_args = pyodide.globals.get("last_exception_args");
++        // Regarding https://pyodide.org/en/stable/usage/type-conversions.html#type-translations-errors,
++        // we do a additional `json.dumps` and `JSON.parse` on the values, to avoid the possible memory leak.
++        errorArgs = JSON.parse(last_exception_args()) || [];
++      }
++
++      // Map error type to JSON-RPC error code
++      const errorCode = JSONRPC_APP_ERRORS[errorType] || JSONRPC_APP_ERRORS.Unknown;
++      console.log(jsonrpcError(errorCode, errorMessage, requestId, { type: errorType, args: errorArgs }));
++    } finally {
++      // Always restore stdout/stderr if setup completed, even after errors.
++      // This prevents stream corruption where subsequent executions capture
++      // StringIO buffers as old_stdout/old_stderr instead of real streams.
++      if (setupCompleted) {
++        try {
++          pyodide.runPython("sys.stdout, sys.stderr = old_stdout, old_stderr");
++        } catch (e) {
++          // Ignore restoration errors to avoid masking the original error
++        }
++      }
+     }
+-    console.log(JSON.stringify({ error: errorMessage, errorArgs, errorType }));
++    continue;
+   }
++
++  // Unknown method
++  console.log(jsonrpcError(JSONRPC_PROTOCOL_ERRORS.MethodNotFound, `Method not found: ${method}`, requestId));
+ }
+diff --git a/dspy/teleprompt/gepa/gepa.py b/dspy/teleprompt/gepa/gepa.py
+index d0427ffe..cb752150 100644
+--- a/dspy/teleprompt/gepa/gepa.py
++++ b/dspy/teleprompt/gepa/gepa.py
+@@ -1,5 +1,4 @@
+ import inspect
+-import json
+ import logging
+ import random
+ from dataclasses import dataclass
+@@ -10,15 +9,8 @@ from gepa.core.adapter import ProposalFn
+ from gepa.proposer.reflective_mutation.base import ReflectionComponentSelector
+ 
+ from dspy.clients.lm import LM
+-from dspy.predict.react import ReAct
+ from dspy.primitives import Example, Module, Prediction
+-from dspy.teleprompt.gepa.gepa_utils import (
+-    TOOL_MODULE_PREFIX,
+-    DspyAdapter,
+-    DSPyTrace,
+-    PredictorFeedbackFn,
+-    ScoreWithFeedback,
+-)
++from dspy.teleprompt.gepa.gepa_utils import DspyAdapter, DSPyTrace, PredictorFeedbackFn, ScoreWithFeedback
+ from dspy.teleprompt.teleprompt import Teleprompter
+ from dspy.utils.annotation import experimental
+ 
+@@ -283,11 +275,6 @@ class GEPA(Teleprompter):
+         warn_on_score_mismatch: GEPA (currently) expects the metric to return the same module-level score when
+             called with and without the pred_name. This flag (defaults to True) determines whether a warning is
+             raised if a mismatch in module-level and predictor-level score is detected.
+-        enable_tool_optimization: Whether to enable joint optimization of dspy.ReAct modules.
+-            When enabled, GEPA jointly optimizes predictor instructions and tool descriptions together
+-            for dspy.ReAct modules. See the
+-            [Tool Optimization guide](https://dspy.ai/api/optimizers/GEPA/GEPA_Advanced/#tool-optimization)
+-            for details on when to use this feature and how it works. Default is False.
+         seed: The random seed to use for reproducibility. Default is 0.
+         gepa_kwargs: (Optional) Additional keyword arguments to pass directly to [gepa.optimize](https://github.com/gepa-ai/gepa/blob/main/src/gepa/api.py).
+             Useful for accessing advanced GEPA features not directly exposed through DSPy's GEPA interface.
+@@ -371,7 +358,6 @@ class GEPA(Teleprompter):
+         wandb_init_kwargs: dict[str, Any] | None = None,
+         track_best_outputs: bool = False,
+         warn_on_score_mismatch: bool = True,
+-        enable_tool_optimization: bool = False,
+         use_mlflow: bool = False,
+         # Reproducibility
+         seed: int | None = 0,
+@@ -429,7 +415,6 @@ class GEPA(Teleprompter):
+         self.wandb_api_key = wandb_api_key
+         self.wandb_init_kwargs = wandb_init_kwargs
+         self.warn_on_score_mismatch = warn_on_score_mismatch
+-        self.enable_tool_optimization = enable_tool_optimization
+         self.use_mlflow = use_mlflow
+ 
+         if track_best_outputs:
+@@ -443,80 +428,6 @@ class GEPA(Teleprompter):
+         self.component_selector = component_selector
+         self.gepa_kwargs = gepa_kwargs or {}
+ 
+-    def _build_seed_candidate(self, student: Module) -> dict[str, str]:
+-        """
+-        Build the seed candidate configuration from the student module.
+-
+-        For ReAct modules (when tool optimization is enabled), creates a JSON config containing:
+-        - react predictor instructions
+-        - extract predictor instructions
+-        - tool descriptions and argument descriptions
+-
+-        For regular predictors, uses their signature instructions directly.
+-
+-        Returns:
+-            A dictionary mapping component names to their text representations (instructions or JSON configs).
+-        """
+-        seed_candidate = {}
+-        claimed_predictor_names = set()
+-
+-        # Process ReAct modules when tool optimization is enabled
+-        if self.enable_tool_optimization:
+-            for module_path, module in student.named_sub_modules():
+-                if not isinstance(module, ReAct):
+-                    continue
+-
+-                # Verify DSPy's two-predictor ReAct design
+-                assert hasattr(module, "extract") and hasattr(module.extract, "predict"), (
+-                    f"ReAct module '{module_path}' missing extract.predict - DSPy design may have changed"
+-                )
+-
+-                # Get predictor names via object identity
+-                extract_predictor = module.extract.predict
+-                react_predictor = module.react
+-                extract_predictor_name = None
+-                react_predictor_name = None
+-                for name, pred in student.named_predictors():
+-                    if pred is extract_predictor:
+-                        extract_predictor_name = name
+-                    elif pred is react_predictor:
+-                        react_predictor_name = name
+-
+-                # Use extract.predict as the key since it is the target predictor for feedback lookup
+-                module_key = f"{TOOL_MODULE_PREFIX}:{extract_predictor_name}"
+-
+-                # Build JSON config with dynamic predictor names as keys
+-                config = {
+-                    react_predictor_name: react_predictor.signature.instructions,
+-                    extract_predictor_name: extract_predictor.signature.instructions,
+-                    "tools": {
+-                        tool_name: {"desc": tool.desc, "args": tool.args}
+-                        for tool_name, tool in module.tools.items()
+-                        if tool_name != "finish"  # Skip the built-in finish tool
+-                    },
+-                }
+-
+-                seed_candidate[module_key] = json.dumps(config, indent=2)
+-                # Track predictor names that are part of ReAct modules
+-                claimed_predictor_names.add(react_predictor_name)
+-                claimed_predictor_names.add(extract_predictor_name)
+-        else:
+-            # Warn if ReAct modules found but tool optimization disabled
+-            for module_path, module in student.named_sub_modules():
+-                if isinstance(module, ReAct):
+-                    logger.info(
+-                        f"Detected ReAct module at '{module_path}'. Consider using "
+-                        "`enable_tool_optimization=True` to jointly optimize react instructions, "
+-                        "extract instructions, tool descriptions, and tool argument descriptions."
+-                    )
+-
+-        # Add individual predictors that aren't part of ReAct module configs
+-        for name, pred in student.named_predictors():
+-            if name not in claimed_predictor_names:
+-                seed_candidate[name] = pred.signature.instructions
+-
+-        return seed_candidate
+-
+     def auto_budget(
+         self, num_preds, num_candidates, valset_size: int, minibatch_size: int = 35, full_eval_steps: int = 5
+     ) -> int:
+@@ -640,12 +551,11 @@ class GEPA(Teleprompter):
+             reflection_lm=self.reflection_lm,
+             custom_instruction_proposer=self.custom_instruction_proposer,
+             warn_on_score_mismatch=self.warn_on_score_mismatch,
+-            enable_tool_optimization=self.enable_tool_optimization,
+             reflection_minibatch_size=self.reflection_minibatch_size,
+         )
+ 
+-        # Build the seed candidate configuration
+-        seed_candidate = self._build_seed_candidate(student)
++        # Build the seed candidate: map each predictor name to its current instruction
++        seed_candidate = {name: pred.signature.instructions for name, pred in student.named_predictors()}
+ 
+         gepa_result: GEPAResult = optimize(
+             seed_candidate=seed_candidate,
+diff --git a/dspy/teleprompt/gepa/gepa_utils.py b/dspy/teleprompt/gepa/gepa_utils.py
+index c9fa3e18..dae7157f 100644
+--- a/dspy/teleprompt/gepa/gepa_utils.py
++++ b/dspy/teleprompt/gepa/gepa_utils.py
+@@ -1,4 +1,3 @@
+-import json
+ import logging
+ import random
+ from typing import Any, Callable, Protocol, TypedDict
+@@ -11,18 +10,13 @@ import dspy
+ from dspy.adapters.chat_adapter import ChatAdapter
+ from dspy.adapters.types import History
+ from dspy.adapters.types.base_type import Type
+-from dspy.adapters.types.tool import Tool
+ from dspy.evaluate import Evaluate
+-from dspy.primitives import Example, Module, Prediction
++from dspy.primitives import Example, Prediction
+ from dspy.teleprompt.bootstrap_trace import FailedPrediction, TraceData
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+-# Constants for module optimization
+-TOOL_MODULE_PREFIX = "tool_module"
+-
+-
+ class LoggerAdapter:
+     def __init__(self, logger: logging.Logger):
+         self.logger = logger
+@@ -93,7 +87,6 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+         reflection_lm=None,
+         custom_instruction_proposer: "ProposalFn | None" = None,
+         warn_on_score_mismatch: bool = True,
+-        enable_tool_optimization: bool = False,
+         reflection_minibatch_size: int | None = None,
+     ):
+         self.student = student_module
+@@ -106,7 +99,6 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+         self.reflection_lm = reflection_lm
+         self.custom_instruction_proposer = custom_instruction_proposer
+         self.warn_on_score_mismatch = warn_on_score_mismatch
+-        self.enable_tool_optimization = enable_tool_optimization
+         self.reflection_minibatch_size = reflection_minibatch_size
+ 
+     def propose_new_texts(
+@@ -125,129 +117,31 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                     components_to_update=components_to_update,
+                 )
+ 
+-        # Otherwise, route to appropriate proposers
+-        # Separate into two categories: tool-using modules (ReAct) vs regular instructions
+-        # TODO: Add generic tool module support when DSPy trace lineage is improved
+-        tool_components = []
+-        instruction_components = []
+-
+-        for c in components_to_update:
+-            if c.startswith(TOOL_MODULE_PREFIX):
+-                tool_components.append(c)
+-            else:
+-                instruction_components.append(c)
+-
+         results: dict[str, str] = {}
+ 
+         with dspy.context(lm=reflection_lm):
+-            # Handle regular instruction components
+-            if instruction_components:
+-                for name in instruction_components:
+-                    base_instruction = candidate[name]
+-                    dataset_with_feedback = reflective_dataset[name]
+-                    results[name] = InstructionProposalSignature.run(
+-                        lm=(lambda x: self.stripped_lm_call(x)[0]),
+-                        input_dict={
+-                            "current_instruction_doc": base_instruction,
+-                            "dataset_with_feedback": dataset_with_feedback,
+-                        },
+-                    )["new_instruction"]
+-
+-            # Handle ReAct modules
+-            if tool_components:
+-                from dspy.teleprompt.gepa.instruction_proposal import ToolProposer
+-
+-                tool_proposer = ToolProposer()
+-                results.update(
+-                    tool_proposer(
+-                        candidate=candidate,
+-                        reflective_dataset=reflective_dataset,
+-                        components_to_update=tool_components,
+-                    )
+-                )
++            for name in components_to_update:
++                base_instruction = candidate[name]
++                dataset_with_feedback = reflective_dataset[name]
++                results[name] = InstructionProposalSignature.run(
++                    lm=(lambda x: self.stripped_lm_call(x)[0]),
++                    input_dict={
++                        "current_instruction_doc": base_instruction,
++                        "dataset_with_feedback": dataset_with_feedback,
++                    },
++                )["new_instruction"]
+ 
+         return results
+ 
+     def build_program(self, candidate: dict[str, str]):
+         new_prog = self.student.deepcopy()
+ 
+-        # Start with plain string instructions from candidate
+-        predictor_candidates = {k: v for k, v in candidate.items() if not k.startswith(TOOL_MODULE_PREFIX)}
+-
+-        tool_candidates = {}
+-        if self.enable_tool_optimization:
+-            for key, value in candidate.items():
+-                if not key.startswith(TOOL_MODULE_PREFIX):
+-                    continue
+-
+-                config = json.loads(value)
+-
+-                for pred_name, instruction in config.items():
+-                    if isinstance(instruction, str):
+-                        predictor_candidates[pred_name] = instruction
+-
+-                tool_candidates.update(config.get("tools", {}))
+-
+-        # Update predictor instructions
+         for name, pred in new_prog.named_predictors():
+-            if name in predictor_candidates:
+-                pred.signature = pred.signature.with_instructions(predictor_candidates[name])
+-
+-        # Update tool descriptions
+-        if tool_candidates:
+-            self._update_tool_descriptions(new_prog, tool_candidates)
++            if name in candidate:
++                pred.signature = pred.signature.with_instructions(candidate[name])
+ 
+         return new_prog
+ 
+-    def _update_tool_descriptions(self, program: Module, tool_candidates: dict[str, Any]) -> None:
+-        all_tools = self._collect_tools(program)
+-
+-        for tool_name, tool_config in tool_candidates.items():
+-            if tool_name not in all_tools:
+-                logger.warning(
+-                    f"Skipping updates for tool:'{tool_name}' because it cannot be detected on the student program."
+-                )
+-                continue
+-
+-            tool = all_tools[tool_name]
+-
+-            # Update tool description if present.
+-            if tool_config.get("desc"):
+-                tool.desc = tool_config["desc"]
+-
+-            # Update arg descriptions if present.
+-            args_schema = tool_config.get("args") or {}
+-            for arg_name, arg_schema in args_schema.items():
+-                if arg_schema.get("description") is not None:
+-                    tool.args[arg_name]["description"] = arg_schema["description"]
+-
+-    def _collect_tools(self, module: Module) -> dict[str, Tool]:
+-        """Recursively collect all Tool instances from a module and its sub-modules."""
+-        all_tools = {}
+-        visited = set()
+-
+-        def _collect_from_attribute(attr_value):
+-            if isinstance(attr_value, Tool):
+-                all_tools[attr_value.name] = attr_value
+-            elif isinstance(attr_value, dspy.Module):
+-                _traverse(attr_value)
+-            elif isinstance(attr_value, list | dict):
+-                items = attr_value if isinstance(attr_value, list) else attr_value.values()
+-                for item in items:
+-                    if isinstance(item, Tool):
+-                        all_tools[item.name] = item
+-
+-        def _traverse(current_module):
+-            if id(current_module) in visited or not hasattr(current_module, "__dict__"):
+-                return
+-            visited.add(id(current_module))
+-
+-            for attr_value in current_module.__dict__.values():
+-                _collect_from_attribute(attr_value)
+-
+-        _traverse(module)
+-        return all_tools
+-
+     def evaluate(self, batch, candidate, capture_traces=False):
+         program = self.build_program(candidate)
+         callback_metadata = (
+@@ -309,19 +203,13 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+         ret_d: dict[str, list[ReflectiveExample]] = {}
+ 
+         for pred_name in components_to_update:
+-            # Extract predictor name from component key
+-            if pred_name.startswith(TOOL_MODULE_PREFIX):
+-                target_name = pred_name.removeprefix(f"{TOOL_MODULE_PREFIX}:")
+-            else:
+-                target_name = pred_name
+-
+             # Find the predictor object
+             module = None
+             for name, m in program.named_predictors():
+-                if name == target_name:
++                if name == pred_name:
+                     module = m
+                     break
+-            assert module is not None, f"Predictor not found: {target_name}"
++            assert module is not None, f"Predictor not found: {pred_name}"
+ 
+             # Create reflective examples from traces
+             items: list[ReflectiveExample] = []
+@@ -400,8 +288,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                     d["Feedback"] = "Your output failed to parse. Follow this structure:\n" + structure_instruction
+                     # d['score'] = self.failure_score
+                 else:
+-                    # Use actual predictor name for feedback lookup
+-                    feedback_fn = self.feedback_map[target_name]
++                    feedback_fn = self.feedback_map[pred_name]
+                     fb = feedback_fn(
+                         predictor_output=outputs,
+                         predictor_inputs=inputs,
+@@ -448,36 +335,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+ 
+         return outputs
+ 
+-    # TODO: Generic tool module optimization - pending DSPy trace lineage improvements
+-    # Currently only ReAct modules are supported for tool optimization.
+-    # Re-enable _update_candidate_tools when DSPy provides better tool→trace lineage.
+-    #
+-    # def _update_candidate_tools(self, candidate, program, trajectories) -> None:
+-    #     """Extract dspy.Tool objects from traces for tool modules and update candidate["tools"]."""
+-    #     ...
+-
+-    # TODO: The current DSPyAdapter implementation uses the GEPA default propose_new_texts.
+-    # We can potentially override this, to use the instruction proposal similar to MIPROv2.
+-
+-    # def propose_new_texts(
+-    #     self,
+-    #     candidate: Dict[str, str],
+-    #     reflective_dataset: Dict[str, List[Dict[str, Any]]],
+-    #     components_to_update: List[str]
+-    # ) -> Dict[str, str]:
+-    #     if self.adapter.propose_new_texts is not None:
+-    #         return self.adapter.propose_new_texts(candidate, reflective_dataset, components_to_update)
+-
+-    #     from .instruction_proposal import InstructionProposalSignature
+-    #     new_texts: Dict[str, str] = {}
+-    #     for name in components_to_update:
+-    #         base_instruction = candidate[name]
+-    #         dataset_with_feedback = reflective_dataset[name]
+-    #         new_texts[name] = InstructionProposalSignature.run(
+-    #             lm=self.reflection_lm,
+-    #             input_dict={
+-    #                 "current_instruction_doc": base_instruction,
+-    #                 "dataset_with_feedback": dataset_with_feedback
+-    #             }
+-    #         )['new_instruction']
+-    #     return new_texts
+diff --git a/dspy/teleprompt/gepa/instruction_proposal.py b/dspy/teleprompt/gepa/instruction_proposal.py
+index 19d3ac40..9a0e26d3 100644
+--- a/dspy/teleprompt/gepa/instruction_proposal.py
++++ b/dspy/teleprompt/gepa/instruction_proposal.py
+@@ -1,4 +1,3 @@
+-import json
+ import logging
+ from typing import Any
+ 
+@@ -314,184 +313,3 @@ class MultiModalInstructionProposer(ProposalFn):
+                 updated_components[component_name] = new_instruction
+ 
+         return updated_components
+-
+-
+-class GenerateImprovedToolModuleDescriptionsFromFeedback(dspy.Signature):
+-    """I provided an assistant with predictor instructions and tool descriptions,
+-    but its performance needs improvement based on the examples_with_feedback below.
+-
+-    Your task is to propose better predictor instructions, tool descriptions, and tool argument descriptions that address the issues shown in these examples.
+-    Focus on reinforcing patterns that clearly improve the assistant's performance on similar tasks, rather than rewriting everything from scratch unless necessary.
+-    These components are progressively optimized - refine only what needs to change.
+-
+-    Analyze the examples_with_feedback to identify success and failure patterns, and write improved instructions and descriptions at their appropriate level of abstraction and/or specificity,
+-    so that each layer plays a clear, complementary role without unnecessary repetition or verbosity unless redundancy clearly helps the assistant's performance.
+-    """
+-
+-    current_predictor_instruction = dspy.InputField(desc="Current instruction guiding the predictor")
+-    current_tools = dspy.InputField(annotation=list[dspy.Tool], desc="Available tools with their complete schemas")
+-    examples_with_feedback = dspy.InputField(desc="Execution examples with feedback showing successes and failures")
+-
+-    improved_predictor_instruction: str | None = dspy.OutputField(
+-        desc="Improved instruction for the predictor", default=None
+-    )
+-
+-
+-class ToolProposer(ProposalFn):
+-    """Proposer for optimizing tool-using module configurations.
+-
+-    Supports two types of modules:
+-    - Tool modules (1 predictor): Optimizes predictor instruction and tool descriptions
+-    - ReAct modules (2 predictors): Jointly optimizes react instruction, extract instruction, and tool descriptions
+-
+-    Uses dynamic signature generation to create output fields for each tool and parameter,
+-    enabling the reflection LM to optimize all components cohesively based on execution feedback.
+-
+-    This joint optimization approach allows the LM to see how instructions and tool descriptions
+-    work together, leading to more coherent improvements than optimizing each component separately.
+-    """
+-
+-    def __call__(
+-        self,
+-        candidate: dict[str, str],
+-        reflective_dataset: dict[str, list[ReflectiveExample]],
+-        components_to_update: list[str],
+-    ) -> dict[str, str]:
+-        """Optimize tool-using module components.
+-
+-        Args:
+-            candidate: Current component name -> JSON config mapping
+-            reflective_dataset: Component name -> list of reflective examples
+-            components_to_update: List of tool-using module component names to update
+-
+-        Returns:
+-            dict: Mapping of component names to improved JSON configs
+-        """
+-
+-        updated_components = {}
+-
+-        for module_key in components_to_update:
+-            if module_key not in candidate or module_key not in reflective_dataset:
+-                logger.debug(
+-                    f"Skipping {module_key}: not in candidate={module_key not in candidate}, not in "
+-                    "reflective_dataset={module_key not in reflective_dataset}"
+-                )
+-                continue
+-            current_module_config = json.loads(candidate[module_key])
+-
+-            # Predictor keys: ReAct has 2 predictors (react + extract)
+-            predictor_keys = [k for k, v in current_module_config.items() if isinstance(v, str)]
+-            primary_predictor_key = predictor_keys[0]
+-            extract_predictor_key = predictor_keys[1] if len(predictor_keys) > 1 else None
+-
+-            # Reconstruct Tool objects from JSON (func is placeholder since it can't be serialized)
+-            current_tools_dict = current_module_config.get("tools", {})
+-            tools_list = []
+-            for tool_name, tool_info in current_tools_dict.items():
+-                tool = dspy.Tool(
+-                    func=lambda *args, **kwargs: None,  # Placeholder - Tool requires Callable, but only schema is used
+-                    name=tool_name,
+-                    desc=tool_info.get("desc", ""),
+-                )
+-                tool.args = tool_info.get("args", {})
+-                tools_list.append(tool)
+-
+-            # Build dynamic signature with tool-specific output fields
+-            signature = GenerateImprovedToolModuleDescriptionsFromFeedback
+-
+-            for tool in tools_list:
+-                tool_name = tool.name
+-                tool_info = current_tools_dict[tool_name]
+-
+-                signature = signature.append(
+-                    f"improved_tool_{tool_name}_desc",
+-                    dspy.OutputField(desc=f"Improved description of tool '{tool_name}'", default=None),
+-                )
+-
+-                for arg_name in tool_info["args"].keys():
+-                    signature = signature.append(
+-                        f"improved_tool_{tool_name}_arg_{arg_name}_desc",
+-                        dspy.OutputField(
+-                            desc=f"Improved description of the argument '{arg_name}' of tool '{tool_name}'",
+-                            default=None,
+-                        ),
+-                    )
+-
+-            kwargs = {
+-                "current_predictor_instruction": current_module_config[primary_predictor_key],
+-                "current_tools": tools_list,
+-                "examples_with_feedback": self._format_examples(reflective_dataset[module_key]),
+-            }
+-            # If module has extract predictor, add extract fields
+-            if extract_predictor_key is not None:
+-                signature = signature.append(
+-                    "current_extract_instruction", dspy.InputField(desc="Current instruction for extraction predictor")
+-                )
+-                signature = signature.append(
+-                    "improved_extract_instruction",
+-                    dspy.OutputField(desc="Improved instruction for extraction", default=None),
+-                )
+-                kwargs["current_extract_instruction"] = current_module_config[extract_predictor_key]
+-
+-            propose_descriptions = dspy.Predict(signature)
+-            result = propose_descriptions(**kwargs)
+-
+-            # Build improved config (reflection LM returns None to keep original, or new text)
+-            improved_module_config = {}
+-
+-            if result.improved_predictor_instruction is not None:
+-                improved_module_config[primary_predictor_key] = result.improved_predictor_instruction
+-
+-            if extract_predictor_key is not None and result.improved_extract_instruction is not None:
+-                improved_module_config[extract_predictor_key] = result.improved_extract_instruction
+-
+-            improved_module_config["tools"] = {}
+-            for tool_name, tool_info in current_tools_dict.items():
+-                # Update tool description if LM proposed a change
+-                improved_tool_desc = getattr(result, f"improved_tool_{tool_name}_desc", None)
+-                if improved_tool_desc is not None:
+-                    tool_info["desc"] = improved_tool_desc
+-
+-                # Update arg descriptions if LM proposed changes
+-                for arg_name in tool_info["args"].keys():
+-                    improved_tool_arg_desc = getattr(result, f"improved_tool_{tool_name}_arg_{arg_name}_desc", None)
+-                    if improved_tool_arg_desc is not None:
+-                        tool_info["args"][arg_name]["description"] = improved_tool_arg_desc
+-
+-                improved_module_config["tools"][tool_name] = tool_info
+-
+-            updated_components[module_key] = json.dumps(improved_module_config, indent=2)
+-
+-        return updated_components
+-
+-    def _format_examples(self, reflective_dataset: list[ReflectiveExample]) -> str:
+-        """Format reflective examples using GEPA's markdown structure."""
+-
+-        def render_value(value, level=3):
+-            if isinstance(value, dict):
+-                s = ""
+-                for key, val in value.items():
+-                    s += f"{'#' * level} {key}\n"
+-                    s += render_value(val, min(level + 1, 6))
+-                if not value:
+-                    s += "\n"
+-                return s
+-            if isinstance(value, (list, tuple)):
+-                s = ""
+-                for index, item in enumerate(value):
+-                    s += f"{'#' * level} Item {index + 1}\n"
+-                    s += render_value(item, min(level + 1, 6))
+-                if not value:
+-                    s += "\n"
+-                return s
+-            return f"{str(value).strip()}\n\n"
+-
+-        def convert_sample_to_markdown(sample, example_num):
+-            s = f"# Example {example_num}\n"
+-            for key, val in sample.items():
+-                s += f"## {key}\n"
+-                s += render_value(val, level=3)
+-            return s
+-
+-        formatted_parts = [convert_sample_to_markdown(example, i + 1) for i, example in enumerate(reflective_dataset)]
+-        return "\n\n".join(formatted_parts)
+diff --git a/pyproject.toml b/pyproject.toml
+index c862ed4a..78c4e903 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -38,7 +38,7 @@ dependencies = [
+     "cloudpickle>=3.0.0",
+     "numpy>=1.26.0",
+     "xxhash>=3.5.0",
+-    "gepa[dspy]==0.0.24",
++    "gepa[dspy]==0.0.26",
+ ]
+ 
+ [project.optional-dependencies]
+diff --git a/uv.lock b/uv.lock
+index 7fde8aae..5a501065 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -1,5 +1,5 @@
+ version = 1
+-revision = 3
++revision = 2
+ requires-python = ">=3.10, <3.15"
+ resolution-markers = [
+     "(python_full_version >= '3.14' and sys_platform != 'win32') or (python_full_version >= '3.12.4' and sys_platform == 'win32')",
+@@ -729,7 +729,7 @@ wheels = [
+ 
+ [[package]]
+ name = "dspy"
+-version = "3.1.0"
++version = "3.1.2"
+ source = { editable = "." }
+ dependencies = [
+     { name = "anyio" },
+@@ -801,7 +801,7 @@ requires-dist = [
+     { name = "datamodel-code-generator", marker = "extra == 'dev'", specifier = ">=0.26.3" },
+     { name = "datasets", marker = "extra == 'test-extras'", specifier = ">=2.14.6" },
+     { name = "diskcache", specifier = ">=5.6.0" },
+-    { name = "gepa", extras = ["dspy"], specifier = "==0.0.24" },
++    { name = "gepa", extras = ["dspy"], specifier = "==0.0.26" },
+     { name = "json-repair", specifier = ">=0.54.2" },
+     { name = "langchain-core", marker = "extra == 'langchain'" },
+     { name = "langchain-core", marker = "extra == 'test-extras'" },
+@@ -1014,11 +1014,11 @@ wheels = [
+ 
+ [[package]]
+ name = "gepa"
+-version = "0.0.24"
++version = "0.0.26"
+ source = { registry = "https://pypi.org/simple" }
+-sdist = { url = "https://files.pythonhosted.org/packages/bc/2c/8f249827bcdc56212a445f4f671ee2201b864e433d2c88428933bd4b08f3/gepa-0.0.24.tar.gz", hash = "sha256:8035d1a0877661b6a63db457dc935b4878ee76acf7da1e488d7e6209bb32c054", size = 135673, upload-time = "2026-01-05T16:45:30.553Z" }
++sdist = { url = "https://files.pythonhosted.org/packages/ef/98/b8f1ccc8cc2a319f21433df45bcec8a8f7903ee08aacd0acfdc475f47c05/gepa-0.0.26.tar.gz", hash = "sha256:0119ca8022e93b6236bc154a57bb910bdb117485dc067d77777933dd3e9e9ad8", size = 141776, upload-time = "2026-01-24T18:11:18.362Z" }
+ wheels = [
+-    { url = "https://files.pythonhosted.org/packages/7e/b1/33b035ff1aaf22d4e104c5b15ba48fe5050639764457048e967c20d6317a/gepa-0.0.24-py3-none-any.whl", hash = "sha256:6d8b16699e7b24ed01435dea7bbbc89156a88cbb4b877b14d90e7455db2b0032", size = 137539, upload-time = "2026-01-05T16:45:29.244Z" },
++    { url = "https://files.pythonhosted.org/packages/05/6e/f1141b76398026ef77f0d52a17b37d26ceb7cd320e0ad3a72c59fe00b983/gepa-0.0.26-py3-none-any.whl", hash = "sha256:331e40d8693a4192de2eb3b2b4df10d410ead49173f748d50c32a035cf746e63", size = 139666, upload-time = "2026-01-24T18:11:16.836Z" },
+ ]
+ 
+ [[package]]

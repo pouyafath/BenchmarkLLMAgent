@@ -1,0 +1,44 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..f915b65a33 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,20 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
++        # For module:// backends, preserve the case as specified by the user.
++        # For built-in backends, lowercase to find the correct module.
++        if backend.startswith("module://"):
++            # Preserve case for module:// backends
++            backend_name = backend[9:]
++        else:
++            # Lowercase built-in backend names
++            backend_name = backend.lower()
+ 
+         # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
++        backend_name = self._name_to_module.get(backend_name, backend_name)
+ 
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        return (backend_name if backend.startswith("module://")
++                else f"matplotlib.backends.backend_{backend_name}")
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.
+@@ -342,7 +349,13 @@ class BackendRegistry:
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+         if isinstance(backend, str):
+-            backend = backend.lower()
++            # For module:// backends, preserve the case as specified by the user.
++            # For built-in backends, lowercase to find the correct backend.
++            if backend.startswith("module://"):
++                backend_name = backend
++            else:
++                backend_name = backend.lower()
++            backend = backend_name
+         else:  # Might be _auto_backend_sentinel or None
+             # Use whatever is already running...
+             from matplotlib import get_backend

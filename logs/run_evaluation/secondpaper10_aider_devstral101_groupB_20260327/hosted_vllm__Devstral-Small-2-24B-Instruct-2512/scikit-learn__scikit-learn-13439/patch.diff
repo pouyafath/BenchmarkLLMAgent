@@ -1,0 +1,53 @@
+diff --git a/sklearn/neighbors/binary_tree.pxi b/sklearn/neighbors/binary_tree.pxi
+index 9f3a94e3e..5bf080ef8 100755
+--- a/sklearn/neighbors/binary_tree.pxi
++++ b/sklearn/neighbors/binary_tree.pxi
+@@ -1104,7 +1104,7 @@ cdef class BinaryTree:
+         # the number of nodes in the tree.  This results in leaf nodes
+         # with numbers of points between leaf_size and 2 * leaf_size
+         self.n_levels = np.log2(fmax(1, (n_samples - 1) / self.leaf_size)) + 1
+-        self.n_nodes = (2 ** self.n_levels) - 1
++        self.n_nodes = <ITYPE_t>((2 ** self.n_levels) - 1)
+ 
+         # allocate arrays for storage
+         self.idx_array_arr = np.arange(n_samples, dtype=ITYPE)
+diff --git a/sklearn/neighbors/quad_tree.pxd b/sklearn/neighbors/quad_tree.pxd
+index 89d742b00..96d2b5862 100644
+--- a/sklearn/neighbors/quad_tree.pxd
++++ b/sklearn/neighbors/quad_tree.pxd
+@@ -83,7 +83,7 @@ cdef class _QuadTree:
+ 
+     # Create a summary of the Tree compare to a query point
+     cdef long summarize(self, DTYPE_t[3] point, DTYPE_t* results,
+-                        float squared_theta=*, int cell_id=*, long idx=*
++                        float squared_theta=.5, SIZE_t cell_id=0, long idx=0
+                         ) nogil
+ 
+     # Internal cell initialization methods
+diff --git a/sklearn/neighbors/quad_tree.pyx b/sklearn/neighbors/quad_tree.pyx
+index 2934d64ae..9ee632db8 100644
+--- a/sklearn/neighbors/quad_tree.pyx
++++ b/sklearn/neighbors/quad_tree.pyx
+@@ -436,7 +436,8 @@ cdef class _QuadTree:
+             number of elements in the results array.
+         """
+         cdef:
+-            int i, idx_d = idx + self.n_dimensions
++            long idx_d = idx + self.n_dimensions
++            int i
+             bint duplicate = True
+             Cell* cell = &self.cells[cell_id]
+ 
+diff --git a/sklearn/utils/random.py b/sklearn/utils/random.py
+index 7efbba37d..59f4ab655 100644
+--- a/sklearn/utils/random.py
++++ b/sklearn/utils/random.py
+@@ -2,6 +2,8 @@
+ #
+ # License: BSD 3 clause
+ import numpy as np
++# Ensure standard library random module is available before other imports
++import random as _stdlib_random
+ import scipy.sparse as sp
+ import array
+ 

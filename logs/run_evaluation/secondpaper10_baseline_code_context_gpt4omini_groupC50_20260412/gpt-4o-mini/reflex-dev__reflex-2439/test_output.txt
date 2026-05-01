@@ -1,0 +1,265 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 1422 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   reflex/components/core/match.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 84858854ae2bc4a5b3b136e04b65b44fef26ebab
+Author: Martin Xu <15661672+martinxu9@users.noreply.github.com>
+Date:   Mon Jan 22 15:07:27 2024 -0800
+
+    Clean up Radix Form component (#2423)
+    
+    * form pr
+    
+    * cleanup
+    
+    * pyi
+
+diff --git a/reflex/components/radix/primitives/form.py b/reflex/components/radix/primitives/form.py
+index 561d161a..c6d95864 100644
+--- a/reflex/components/radix/primitives/form.py
++++ b/reflex/components/radix/primitives/form.py
+@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterator, Literal
+ from jinja2 import Environment
+ 
+ from reflex.components.component import Component
++from reflex.components.radix.themes.components.textfield import TextFieldInput
+ from reflex.components.tags.tag import Tag
+ from reflex.constants.base import Dirs
+ from reflex.constants.event import EventTriggers
+@@ -52,7 +53,7 @@ class FormRoot(FormComponent):
+     # If true, the form will be cleared after submit.
+     reset_on_submit: Var[bool] = False  # type: ignore
+ 
+-    # The name used to make this form's submit handler function unique
++    # The name used to make this form's submit handler function unique.
+     handle_submit_unique_name: Var[str]
+ 
+     def get_event_triggers(self) -> Dict[str, Any]:
+@@ -64,7 +65,7 @@ class FormRoot(FormComponent):
+         return {
+             **super().get_event_triggers(),
+             EventTriggers.ON_SUBMIT: lambda e0: [FORM_DATA],
+-            "on_clear_server_errors": lambda: [],
++            EventTriggers.ON_CLEAR_SERVER_ERRORS: lambda: [],
+         }
+ 
+     @classmethod
+@@ -171,8 +172,10 @@ class FormField(FormComponent):
+ 
+     alias = "RadixFormField"
+ 
++    # The name of the form field, that is passed down to the control and used to match with validation messages.
+     name: Var[str]
+ 
++    # Flag to mark the form field as invalid, for server side validation.
+     server_invalid: Var[bool]
+ 
+     def _apply_theme(self, theme: Component | None):
+@@ -206,6 +209,32 @@ class FormControl(FormComponent):
+ 
+     alias = "RadixFormControl"
+ 
++    @classmethod
++    def create(cls, *children, **props):
++        """Create a Form Control component.
++
++        Args:
++            *children: The children of the form.
++            **props: The properties of the form.
++
++        Raises:
++            ValueError: If the number of children is greater than 1.
++            TypeError: If a child exists but it is not a TextFieldInput.
++
++        Returns:
++            The form control component.
++        """
++        if len(children) > 1:
++            raise ValueError(
++                f"FormControl can only have at most one child, got {len(children)} children"
++            )
++        for child in children:
++            if not isinstance(child, TextFieldInput):
++                raise TypeError(
++                    "Only Radix TextFieldInput is allowed as child of FormControl"
++                )
++        return super().create(*children, **props)
++
+ 
+ LiteralMatcher = Literal[
+     "badInput",
+@@ -235,7 +264,7 @@ class FormMessage(FormComponent):
+     match: Var[LiteralMatcher]
+ 
+     # Forces the message to be shown. This is useful when using server-side validation.
+-    forceMatch: Var[bool]
++    force_match: Var[bool]
+ 
+     def _apply_theme(self, theme: Component | None):
+         return {
+diff --git a/reflex/components/radix/primitives/form.pyi b/reflex/components/radix/primitives/form.pyi
+index 208aab41..0a11250a 100644
+--- a/reflex/components/radix/primitives/form.pyi
++++ b/reflex/components/radix/primitives/form.pyi
+@@ -11,6 +11,7 @@ from hashlib import md5
+ from typing import Any, Dict, Iterator, Literal
+ from jinja2 import Environment
+ from reflex.components.component import Component
++from reflex.components.radix.themes.components.textfield import TextFieldInput
+ from reflex.components.tags.tag import Tag
+ from reflex.constants.base import Dirs
+ from reflex.constants.event import EventTriggers
+@@ -180,7 +181,7 @@ class FormRoot(FormComponent):
+         Args:
+             *children: The children of the form.
+             reset_on_submit: If true, the form will be cleared after submit.
+-            handle_submit_unique_name: The name used to make this form's submit handler function unique
++            handle_submit_unique_name: The name used to make this form's submit handler function unique.
+             as_child: Change the default rendered element for the one passed as a child.
+             style: The style of the component.
+             key: A unique key for the component.
+@@ -261,6 +262,8 @@ class FormField(FormComponent):
+ 
+         Args:
+             *children: The children of the component.
++            name: The name of the form field, that is passed down to the control and used to match with validation messages.
++            server_invalid: Flag to mark the form field as invalid, for server side validation.
+             as_child: Change the default rendered element for the one passed as a child.
+             style: The style of the component.
+             key: A unique key for the component.
+@@ -419,10 +422,10 @@ class FormControl(FormComponent):
+         ] = None,
+         **props
+     ) -> "FormControl":
+-        """Create the component.
++        """Create a Form Control component.
+ 
+         Args:
+-            *children: The children of the component.
++            *children: The children of the form.
+             as_child: Change the default rendered element for the one passed as a child.
+             style: The style of the component.
+             key: A unique key for the component.
+@@ -430,13 +433,14 @@ class FormControl(FormComponent):
+             class_name: The class name for the component.
+             autofocus: Whether the component should take the focus once the page is loaded
+             custom_attrs: custom attribute
+-            **props: The props of the component.
+-
+-        Returns:
+-            The component.
++            **props: The properties of the form.
+ 
+         Raises:
+-            TypeError: If an invalid child is passed.
++            ValueError: If the number of children is greater than 1.
++            TypeError: If a child exists but it is not a TextFieldInput.
++
++        Returns:
++            The form control component.
+         """
+         ...
+ 
+@@ -490,7 +494,7 @@ class FormMessage(FormComponent):
+                 ],
+             ]
+         ] = None,
+-        forceMatch: Optional[Union[Var[bool], bool]] = None,
++        force_match: Optional[Union[Var[bool], bool]] = None,
+         as_child: Optional[Union[Var[bool], bool]] = None,
+         style: Optional[Style] = None,
+         key: Optional[Any] = None,
+@@ -551,7 +555,7 @@ class FormMessage(FormComponent):
+             *children: The children of the component.
+             name: Used to target a specific field by name when rendering outside of a Field part.
+             match: Used to indicate on which condition the message should be visible.
+-            forceMatch: Forces the message to be shown. This is useful when using server-side validation.
++            force_match: Forces the message to be shown. This is useful when using server-side validation.
+             as_child: Change the default rendered element for the one passed as a child.
+             style: The style of the component.
+             key: A unique key for the component.
+diff --git a/reflex/constants/event.py b/reflex/constants/event.py
+index b62bc0d9..d54ea434 100644
+--- a/reflex/constants/event.py
++++ b/reflex/constants/event.py
+@@ -84,3 +84,4 @@ class EventTriggers(SimpleNamespace):
+     ON_SUBMIT = "on_submit"
+     ON_MOUNT = "on_mount"
+     ON_UNMOUNT = "on_unmount"
++    ON_CLEAR_SERVER_ERRORS = "on_clear_server_errors"
++ git -c core.fileMode=false diff 84858854ae2bc4a5b3b136e04b65b44fef26ebab
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..d2f10f62 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -72,6 +72,8 @@ class Match(MemoizationLeaf):
+ 
+     @classmethod
+     def _process_cases(
++    @classmethod\n    def _process_match_cases(cls, cases: List) -> List[List[BaseVar]]:\n        """Process the individual match cases.\n\n        Args:\n            cases: The match cases.\n\n        Returns:\n            The processed match cases.\n\n        Raises:\n            ValueError: If the default case is not the last case or the tuple elements are less than 2.\n        """\n        match_cases = []\n        var_data_list = []\n        for case in cases:\n            if not isinstance(case, tuple):\n                raise ValueError(\n                    "rx.match should have tuples of cases and a default case as the last argument."\n                )\n            # There should be at least two elements in a case tuple(a condition and return value)\n            if len(case) < 2:\n                raise ValueError(\n                    "A case tuple should have at least a match case element and a return value."\n                )\n\n            case_list = []\n            for element in case:\n                # convert all non component element to vars.\n                el = (\n                    Var.create(element, _var_is_string=type(element) is str)\n                    if not isinstance(element, BaseComponent)\n                    else element\n                )\n                if not isinstance(el, (BaseVar, BaseComponent)):\n                    raise ValueError("Case element must be a var or component")\n                case_list.append(el)\n\n                # Extract VarData from each element\n                if isinstance(el, BaseVar) and el._var_data:\n                    var_data_list.append(el._var_data)\n\n            match_cases.append(case_list)\n\n        return match_cases
++    def _process_cases(cls, cases: List) -> Tuple[List, Optional[Union[BaseVar, BaseComponent]]]:\n        """Process the list of match cases and the catchall default case.\n\n        Args:\n            cases: The list of match cases.\n\n        Returns:\n            The default case and the list of match case tuples.\n\n        Raises:\n            ValueError: If there are multiple default cases.\n        """\n        default = None\n\n        if len([case for case in cases if not isinstance(case, tuple)]) > 1:\n            raise ValueError("rx.match can only have one default case.")\n\n        # Get the default case which should be the last non-tuple arg\n        if not isinstance(cases[-1], tuple):\n            default = cases.pop()\n            default = (\n                Var.create(default, _var_is_string=type(default) is str)\n                if not isinstance(default, BaseComponent)\n                else default\n            )\n\n        # Merge VarData from cases and default\n        merged_var_data = VarData.merge(*[el._var_data for el in cases if isinstance(el, BaseVar)])\n\n        return cases, default, merged_var_data
+         cls, cases: List
+     ) -> Tuple[List, Optional[Union[BaseVar, BaseComponent]]]:
+         """Process the list of match cases and the catchall default case.
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ poetry install --with dev
+Installing dependencies from lock file
+
+No dependencies to install or update
+
+Installing the current project: reflex (0.3.9)
++ git checkout 84858854ae2bc4a5b3b136e04b65b44fef26ebab tests/test_style.py
+Updated 0 paths from 64adc919
++ git apply -v -
+Checking patch tests/test_style.py...
+Applied patch tests/test_style.py cleanly.
++ : '>>>>> Start Test Output'
++ poetry run pytest -rA tests tests/test_style.py
+ImportError while loading conftest '/testbed/tests/conftest.py'.
+tests/conftest.py:12: in <module>
+    from reflex.app import App
+reflex/app.py:36: in <module>
+    from reflex.compiler import compiler
+reflex/compiler/compiler.py:9: in <module>
+    from reflex.compiler import templates, utils
+reflex/compiler/utils.py:11: in <module>
+    from reflex.components.base import (
+reflex/components/__init__.py:5: in <module>
+    from .chakra import *
+reflex/components/chakra/__init__.py:4: in <module>
+    from .datadisplay import *
+reflex/components/chakra/datadisplay/__init__.py:4: in <module>
+    from .code import Code, CodeBlock
+reflex/components/chakra/datadisplay/code.py:8: in <module>
+    from reflex.components.chakra.forms import Button, color_mode_cond
+reflex/components/chakra/forms/__init__.py:5: in <module>
+    from .colormodeswitch import (
+reflex/components/chakra/forms/colormodeswitch.py:24: in <module>
+    from reflex.components.core.cond import Cond, cond
+reflex/components/core/__init__.py:7: in <module>
+    from .match import Match
+E     File "/testbed/reflex/components/core/match.py", line 74
+E       def _process_cases(
+E                         ^
+E   SyntaxError: '(' was never closed
++ : '>>>>> End Test Output'
++ git checkout 84858854ae2bc4a5b3b136e04b65b44fef26ebab tests/test_style.py
+Updated 1 path from 64adc919

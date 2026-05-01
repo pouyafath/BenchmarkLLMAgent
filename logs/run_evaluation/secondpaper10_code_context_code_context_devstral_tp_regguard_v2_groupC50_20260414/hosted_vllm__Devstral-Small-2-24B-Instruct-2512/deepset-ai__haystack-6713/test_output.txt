@@ -1,0 +1,669 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 1071 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   haystack/components/generators/hugging_face_local.py
+	modified:   haystack/components/rankers/transformers_similarity.py
+	modified:   haystack/components/readers/extractive.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 1841aec11e479ed75d912bb01db7cc90dd2c4e47
+Author: Daria Fokina <daria.fokina@deepset.ai>
+Date:   Thu Jan 11 16:33:45 2024 +0100
+
+    docs: reorder and rename Classifier and CacheChecker files (#6726)
+    
+    * docs: reorder
+    
+    * others's order
+    
+    * whisper order
+
+diff --git a/docs/pydoc/config/caching.yml b/docs/pydoc/config/caching.yml
+index 92898fb2..f116f92b 100644
+--- a/docs/pydoc/config/caching.yml
++++ b/docs/pydoc/config/caching.yml
+@@ -15,9 +15,9 @@ renderer:
+   type: renderers.ReadmePreviewRenderer
+   excerpt: Checks if any document coming from the given URL is already present in the store.
+   category_slug: haystack-classes
+-  title: UrlCacheChecker API
++  title: CacheChecker API
+   slug: caching-api
+-  order: 160
++  order: 7
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
+diff --git a/docs/pydoc/config/classifier.yml b/docs/pydoc/config/classifier.yml
+index 85eb4e77..1789b017 100644
+--- a/docs/pydoc/config/classifier.yml
++++ b/docs/pydoc/config/classifier.yml
+@@ -15,12 +15,12 @@ renderer:
+   type: renderers.ReadmePreviewRenderer
+   excerpt: Detects the language of the Documents and routes them appropriately.
+   category_slug: haystack-classes
+-  title: Language Classifier API
+-  slug: language-classifier-api
++  title: Classifier API
++  slug: classifier-api
+   order: 10
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
+     add_method_class_prefix: true
+     add_member_class_prefix: false
+-    filename: language_classifier_api.md
++    filename: classifier_api.md
+diff --git a/docs/pydoc/config/joiner.yml b/docs/pydoc/config/joiner.yml
+index 34a9141a..2ec25c1f 100644
+--- a/docs/pydoc/config/joiner.yml
++++ b/docs/pydoc/config/joiner.yml
+@@ -17,7 +17,7 @@ renderer:
+   category_slug: haystack-classes
+   title: Joiner API
+   slug: joiner-api
+-  order: 140
++  order: 75
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
+diff --git a/docs/pydoc/config/others.yml b/docs/pydoc/config/others.yml
+index 1dc1103c..88b8bfb6 100644
+--- a/docs/pydoc/config/others.yml
++++ b/docs/pydoc/config/others.yml
+@@ -17,7 +17,7 @@ renderer:
+   category_slug: haystack-classes
+   title: Other Components API
+   slug: others
+-  order: 170
++  order: 85
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
++ git -c core.fileMode=false diff 1841aec11e479ed75d912bb01db7cc90dd2c4e47
+diff --git a/haystack/components/generators/hugging_face_local.py b/haystack/components/generators/hugging_face_local.py
+index b72ad0c5..84dfbd64 100644
+--- a/haystack/components/generators/hugging_face_local.py
++++ b/haystack/components/generators/hugging_face_local.py
+@@ -8,6 +8,7 @@ from haystack.lazy_imports import LazyImport
+ logger = logging.getLogger(__name__)
+ 
+ SUPPORTED_TASKS = ["text-generation", "text2text-generation"]
++from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ with LazyImport(message="Run 'pip install transformers[torch]'") as torch_and_transformers_import:
+     import torch
+@@ -167,7 +168,9 @@ class HuggingFaceLocalGenerator:
+                 "Please specify only one of them."
+             )
+ 
+-        self.huggingface_pipeline_kwargs = huggingface_pipeline_kwargs
++                # Store both serialized and deserialized versions of huggingface_pipeline_kwargs
++        self._huggingface_pipeline_kwargs_serialized = serialize_model_kwargs(huggingface_pipeline_kwargs)
++        self.huggingface_pipeline_kwargs = deserialize_model_kwargs(huggingface_pipeline_kwargs)
+         self.generation_kwargs = generation_kwargs
+         self.stop_words = stop_words
+         self.pipeline = None
+@@ -195,7 +198,7 @@ class HuggingFaceLocalGenerator:
+         """
+         Serialize this component to a dictionary.
+         """
+-        pipeline_kwargs_to_serialize = deepcopy(self.huggingface_pipeline_kwargs)
++        pipeline_kwargs_to_serialize = deepcopy(self._huggingface_pipeline_kwargs_serialized)
+ 
+         # we don't want to serialize valid tokens
+         if isinstance(pipeline_kwargs_to_serialize["token"], str):
+@@ -234,3 +237,24 @@ class HuggingFaceLocalGenerator:
+             replies = [reply.replace(stop_word, "").rstrip() for reply in replies for stop_word in self.stop_words]
+ 
+         return {"replies": replies}
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "HuggingFaceLocalGenerator":
++        """
++        Deserialize this component from a dictionary.
++
++        This method handles deserialization of huggingface_pipeline_kwargs that may contain string representations
++        of torch dtypes, converting them back to actual torch.dtype objects.
++        """
++        # Deserialize huggingface_pipeline_kwargs before creating the instance
++        init_params = data.get("init_parameters", {}).copy()
++        if "huggingface_pipeline_kwargs" in init_params:
++            # Store the serialized version for later use in to_dict
++            serialized_kwargs = init_params["huggingface_pipeline_kwargs"]
++            # Deserialize for internal use
++            init_params["huggingface_pipeline_kwargs"] = deserialize_model_kwargs(serialized_kwargs)
++
++        instance = cls(**init_params)
++        # Store the serialized version separately so it can be used in to_dict
++        instance._huggingface_pipeline_kwargs_serialized = serialized_kwargs if "huggingface_pipeline_kwargs" in init_params else {}
++        return instance
+diff --git a/haystack/components/rankers/transformers_similarity.py b/haystack/components/rankers/transformers_similarity.py
+index 6dc163f5..35a94ffc 100644
+--- a/haystack/components/rankers/transformers_similarity.py
++++ b/haystack/components/rankers/transformers_similarity.py
+@@ -5,15 +5,14 @@ from typing import List, Union, Dict, Any, Optional
+ from haystack import ComponentError, Document, component, default_to_dict
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ with LazyImport(message="Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     import torch
+     from transformers import AutoModelForSequenceClassification, AutoTokenizer
+ 
+-
+ @component
+ class TransformersSimilarityRanker:
+     """
+@@ -88,7 +87,30 @@ class TransformersSimilarityRanker:
+                 f"scale_score is True so calibration_factor must be provided, but got {calibration_factor}"
+             )
+         self.score_threshold = score_threshold
+-        self.model_kwargs = model_kwargs or {}
++        # Store both serialized and deserialized versions
++        self._model_kwargs_serialized = model_kwargs or {}
++        self.model_kwargs = deserialize_model_kwargs(model_kwargs or {})
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "TransformersSimilarityRanker":
++        """
++        Deserialize this component from a dictionary.
++
++        This method handles deserialization of model_kwargs that may contain string representations
++        of torch dtypes, converting them back to actual torch.dtype objects.
++        """
++        # Deserialize model_kwargs before creating the instance
++        init_params = data.get("init_parameters", {}).copy()
++        if "model_kwargs" in init_params:
++            # Store the serialized version for later use in to_dict
++            serialized_kwargs = init_params["model_kwargs"]
++            # Deserialize for internal use
++            init_params["model_kwargs"] = deserialize_model_kwargs(serialized_kwargs)
++
++        instance = cls(**init_params)
++        # Store the serialized version separately so it can be used in to_dict
++        instance._model_kwargs_serialized = serialized_kwargs if "model_kwargs" in init_params else {}
++        return instance
+ 
+     def _get_telemetry_data(self) -> Dict[str, Any]:
+         """
+@@ -124,7 +146,7 @@ class TransformersSimilarityRanker:
+             scale_score=self.scale_score,
+             calibration_factor=self.calibration_factor,
+             score_threshold=self.score_threshold,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self._model_kwargs_serialized),
+         )
+ 
+     @component.output_types(documents=List[Document])
+diff --git a/haystack/components/readers/extractive.py b/haystack/components/readers/extractive.py
+index dea016f7..2c3a2166 100644
+--- a/haystack/components/readers/extractive.py
++++ b/haystack/components/readers/extractive.py
+@@ -8,6 +8,7 @@ from haystack import component, default_to_dict, ComponentError, Document, Extra
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
+ 
++from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+ with LazyImport("Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+     from tokenizers import Encoding
+@@ -99,7 +100,9 @@ class ExtractiveReader:
+         self.answers_per_seq = answers_per_seq
+         self.no_answer = no_answer
+         self.calibration_factor = calibration_factor
+-        self.model_kwargs = model_kwargs or {}
++        # Store both serialized and deserialized versions
++        self._model_kwargs_serialized = model_kwargs or {}
++        self.model_kwargs = deserialize_model_kwargs(model_kwargs or {})
+         self.overlap_threshold = overlap_threshold
+ 
+     def _get_telemetry_data(self) -> Dict[str, Any]:
+@@ -125,7 +128,7 @@ class ExtractiveReader:
+             answers_per_seq=self.answers_per_seq,
+             no_answer=self.no_answer,
+             calibration_factor=self.calibration_factor,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self._model_kwargs_serialized),
+         )
+ 
+     def warm_up(self):
+@@ -527,3 +530,24 @@ class ExtractiveReader:
+         )
+ 
+         return {"answers": answers[0]}  # same temporary batching fix as above
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "ExtractiveReader":
++        """
++        Deserialize this component from a dictionary.
++
++        This method handles deserialization of model_kwargs that may contain string representations
++        of torch dtypes, converting them back to actual torch.dtype objects.
++        """
++        # Deserialize model_kwargs before creating the instance
++        init_params = data.get("init_parameters", {}).copy()
++        if "model_kwargs" in init_params:
++            # Store the serialized version for later use in to_dict
++            serialized_kwargs = init_params["model_kwargs"]
++            # Deserialize for internal use
++            init_params["model_kwargs"] = deserialize_model_kwargs(serialized_kwargs)
++
++        instance = cls(**init_params)
++        # Store the serialized version separately so it can be used in to_dict
++        instance._model_kwargs_serialized = serialized_kwargs if "model_kwargs" in init_params else {}
++        return instance
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 106, in _run_wrapper
+    status = _inner_run()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 97, in _inner_run
+    return self.run(options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/req_command.py", line 67, in wrapper
+    return func(self, options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/commands/install.py", line 386, in run
+    requirement_set = resolver.resolve(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 76, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 329, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 339, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 698, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 72, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+  File "/usr/local/lib/python3.8/functools.py", line 967, in __get__
+    val = self.func(instance)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 106, in _run_wrapper
+    status = _inner_run()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 97, in _inner_run
+    return self.run(options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/req_command.py", line 67, in wrapper
+    return func(self, options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/commands/install.py", line 386, in run
+    requirement_set = resolver.resolve(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 76, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 329, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 339, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 698, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 72, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+  File "/usr/local/lib/python3.8/functools.py", line 967, in __get__
+    val = self.func(instance)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ git checkout 1841aec11e479ed75d912bb01db7cc90dd2c4e47 test/components/generators/test_hugging_face_local_generator.py test/components/rankers/test_transformers_similarity.py test/components/readers/test_extractive.py
+Updated 0 paths from 8bd39103
++ git apply -v -
+Checking patch test/components/generators/test_hugging_face_local_generator.py...
+Checking patch test/components/rankers/test_transformers_similarity.py...
+Checking patch test/components/readers/test_extractive.py...
+Applied patch test/components/generators/test_hugging_face_local_generator.py cleanly.
+Applied patch test/components/rankers/test_transformers_similarity.py cleanly.
+Applied patch test/components/readers/test_extractive.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest --cov-report xml:coverage.xml --cov=haystack -m 'not integration' -rA test test/components/generators/test_hugging_face_local_generator.py test/components/rankers/test_transformers_similarity.py test/components/readers/test_extractive.py
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-7.4.4, pluggy-1.3.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-4.1.0, asyncio-0.23.3, anyio-4.2.0, custom-exit-code-0.3.0
+asyncio: mode=strict
+collected 863 items / 17 errors / 47 deselected / 1 skipped / 816 selected
+
+==================================== ERRORS ====================================
+__________ ERROR collecting test/components/generators/test_azure.py ___________
+ImportError while importing test module '/testbed/test/components/generators/test_azure.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_azure.py:6: in <module>
+    from haystack.components.generators import AzureOpenAIGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_________ ERROR collecting test/components/generators/test_hf_utils.py _________
+ImportError while importing test module '/testbed/test/components/generators/test_hf_utils.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_hf_utils.py:3: in <module>
+    from haystack.components.generators.hf_utils import check_generation_params
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_ ERROR collecting test/components/generators/test_hugging_face_local_generator.py _
+ImportError while importing test module '/testbed/test/components/generators/test_hugging_face_local_generator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_hugging_face_local_generator.py:7: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator, StopWordsCriteria
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_____ ERROR collecting test/components/generators/test_hugging_face_tgi.py _____
+ImportError while importing test module '/testbed/test/components/generators/test_hugging_face_tgi.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_hugging_face_tgi.py:7: in <module>
+    from haystack.components.generators import HuggingFaceTGIGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+__________ ERROR collecting test/components/generators/test_openai.py __________
+ImportError while importing test module '/testbed/test/components/generators/test_openai.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_openai.py:7: in <module>
+    from haystack.components.generators import OpenAIGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+__________ ERROR collecting test/components/generators/test_utils.py ___________
+ImportError while importing test module '/testbed/test/components/generators/test_utils.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_utils.py:3: in <module>
+    from haystack.components.generators.utils import default_streaming_callback
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+________ ERROR collecting test/components/generators/chat/test_azure.py ________
+ImportError while importing test module '/testbed/test/components/generators/chat/test_azure.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/chat/test_azure.py:6: in <module>
+    from haystack.components.generators.chat import AzureOpenAIChatGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+__ ERROR collecting test/components/generators/chat/test_hugging_face_tgi.py ___
+ImportError while importing test module '/testbed/test/components/generators/chat/test_hugging_face_tgi.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/chat/test_hugging_face_tgi.py:7: in <module>
+    from haystack.components.generators.chat import HuggingFaceTGIChatGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_______ ERROR collecting test/components/generators/chat/test_openai.py ________
+ImportError while importing test module '/testbed/test/components/generators/chat/test_openai.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/chat/test_openai.py:6: in <module>
+    from haystack.components.generators.chat import OpenAIChatGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+__________ ERROR collecting test/components/rankers/test_metafield.py __________
+ImportError while importing test module '/testbed/test/components/rankers/test_metafield.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/rankers/test_metafield.py:4: in <module>
+    from haystack.components.rankers.meta_field import MetaFieldRanker
+haystack/components/rankers/__init__.py:2: in <module>
+    from haystack.components.rankers.transformers_similarity import TransformersSimilarityRanker
+haystack/components/rankers/transformers_similarity.py:8: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+___ ERROR collecting test/components/rankers/test_transformers_similarity.py ___
+ImportError while importing test module '/testbed/test/components/rankers/test_transformers_similarity.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/rankers/test_transformers_similarity.py:7: in <module>
+    from haystack.components.rankers.transformers_similarity import TransformersSimilarityRanker
+haystack/components/rankers/__init__.py:2: in <module>
+    from haystack.components.rankers.transformers_similarity import TransformersSimilarityRanker
+haystack/components/rankers/transformers_similarity.py:8: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_________ ERROR collecting test/components/readers/test_extractive.py __________
+ImportError while importing test module '/testbed/test/components/readers/test_extractive.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/readers/test_extractive.py:9: in <module>
+    from haystack.components.readers import ExtractiveReader
+haystack/components/readers/__init__.py:1: in <module>
+    from haystack.components.readers.extractive import ExtractiveReader
+haystack/components/readers/extractive.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+__________ ERROR collecting test/pipelines/test_indexing_pipeline.py ___________
+ImportError while importing test module '/testbed/test/pipelines/test_indexing_pipeline.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/pipelines/test_indexing_pipeline.py:5: in <module>
+    from haystack.pipeline_utils.indexing import build_indexing_pipeline
+haystack/pipeline_utils/__init__.py:1: in <module>
+    from haystack.pipeline_utils.rag import build_rag_pipeline
+haystack/pipeline_utils/rag.py:11: in <module>
+    from haystack.components.generators import OpenAIGenerator, HuggingFaceTGIGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+____________ ERROR collecting test/pipelines/test_rag_pipelines.py _____________
+ImportError while importing test module '/testbed/test/pipelines/test_rag_pipelines.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/pipelines/test_rag_pipelines.py:7: in <module>
+    from haystack.pipeline_utils.rag import build_rag_pipeline
+haystack/pipeline_utils/__init__.py:1: in <module>
+    from haystack.pipeline_utils.rag import build_rag_pipeline
+haystack/pipeline_utils/rag.py:11: in <module>
+    from haystack.components.generators import OpenAIGenerator, HuggingFaceTGIGenerator
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_ ERROR collecting test/components/generators/test_hugging_face_local_generator.py _
+ImportError while importing test module '/testbed/test/components/generators/test_hugging_face_local_generator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/generators/test_hugging_face_local_generator.py:7: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator, StopWordsCriteria
+haystack/components/generators/__init__.py:1: in <module>
+    from haystack.components.generators.hugging_face_local import HuggingFaceLocalGenerator
+haystack/components/generators/hugging_face_local.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+___ ERROR collecting test/components/rankers/test_transformers_similarity.py ___
+ImportError while importing test module '/testbed/test/components/rankers/test_transformers_similarity.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/rankers/test_transformers_similarity.py:7: in <module>
+    from haystack.components.rankers.transformers_similarity import TransformersSimilarityRanker
+haystack/components/rankers/__init__.py:2: in <module>
+    from haystack.components.rankers.transformers_similarity import TransformersSimilarityRanker
+haystack/components/rankers/transformers_similarity.py:8: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+_________ ERROR collecting test/components/readers/test_extractive.py __________
+ImportError while importing test module '/testbed/test/components/readers/test_extractive.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/components/readers/test_extractive.py:9: in <module>
+    from haystack.components.readers import ExtractiveReader
+haystack/components/readers/__init__.py:1: in <module>
+    from haystack.components.readers.extractive import ExtractiveReader
+haystack/components/readers/extractive.py:11: in <module>
+    from haystack.utils.torch_utils import serialize_model_kwargs, deserialize_model_kwargs
+E   ModuleNotFoundError: No module named 'haystack.utils.torch_utils'
+=============================== warnings summary ===============================
+test/test_pipeline.py:9
+  /testbed/test/test_pipeline.py:9: PytestCollectionWarning: cannot collect test class 'TestComponent' because it has a __init__ constructor (from: test/test_pipeline.py)
+    class TestComponent:
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.8.20-final-0 -----------
+Coverage XML written to file coverage.xml
+
+=========================== short test summary info ============================
+SKIPPED [1] test/core/pipeline/test_draw_graphviz.py:14: could not import 'pygraphviz': No module named 'pygraphviz'
+ERROR test/components/generators/test_azure.py
+ERROR test/components/generators/test_hf_utils.py
+ERROR test/components/generators/test_hugging_face_local_generator.py
+ERROR test/components/generators/test_hugging_face_tgi.py
+ERROR test/components/generators/test_openai.py
+ERROR test/components/generators/test_utils.py
+ERROR test/components/generators/chat/test_azure.py
+ERROR test/components/generators/chat/test_hugging_face_tgi.py
+ERROR test/components/generators/chat/test_openai.py
+ERROR test/components/rankers/test_metafield.py
+ERROR test/components/rankers/test_transformers_similarity.py
+ERROR test/components/readers/test_extractive.py
+ERROR test/pipelines/test_indexing_pipeline.py
+ERROR test/pipelines/test_rag_pipelines.py
+ERROR test/components/generators/test_hugging_face_local_generator.py
+ERROR test/components/rankers/test_transformers_similarity.py
+ERROR test/components/readers/test_extractive.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 17 errors during collection !!!!!!!!!!!!!!!!!!!
+=========== 1 skipped, 47 deselected, 1 warning, 17 errors in 6.38s ============
++ : '>>>>> End Test Output'
++ git checkout 1841aec11e479ed75d912bb01db7cc90dd2c4e47 test/components/generators/test_hugging_face_local_generator.py test/components/rankers/test_transformers_similarity.py test/components/readers/test_extractive.py
+Updated 3 paths from 8bd39103

@@ -1,0 +1,87 @@
+diff --git a/sqllineage/core/parser/__init__.py b/sqllineage/core/parser/__init__.py
+index ddbd237..40ba610 100644
+--- a/sqllineage/core/parser/__init__.py
++++ b/sqllineage/core/parser/__init__.py
+@@ -10,6 +10,7 @@ class SourceHandlerMixin:
+     tables: List[Union[Path, SubQuery, Table]]
+     columns: List[Column]
+     union_barriers: List[Tuple[int, int]]
++    metadata_provider = None
+ 
+     def end_of_query_cleanup(self, holder: SubQueryLineageHolder) -> None:
+         for i, tbl in enumerate(self.tables):
+@@ -40,6 +41,15 @@ class SourceHandlerMixin:
+                             # for invalid query: create view test (col3, col4) select col1 as col2 from tab,
+                             # when the length doesn't match, we fall back to default behavior
+                             tgt_col_resolved = write_columns[idx]
++                        elif self.metadata_provider is not None:
++                            # Try to get target columns from metadata provider when no explicit columns specified
++                            try:
++                                metadata_cols = self.metadata_provider.get_table_columns(tgt_tbl)
++                                if len(metadata_cols) >= len(col_grp):
++                                    # Use metadata columns if available, but only up to the number of source columns
++                                    tgt_col_resolved = metadata_cols[idx]
++                            except:
++                                pass  # Fall back to default behavior if metadata lookup fails
+                         # lateral column alias handling
+                         lca_flag = False
+                         if SQLLineageConfig.LATERAL_COLUMN_ALIAS_REFERENCE:
+diff --git a/sqllineage/core/parser/sqlparse/analyzer.py b/sqllineage/core/parser/sqlparse/analyzer.py
+index d373954..a5f57c5 100644
+--- a/sqllineage/core/parser/sqlparse/analyzer.py
++++ b/sqllineage/core/parser/sqlparse/analyzer.py
+@@ -211,10 +211,10 @@ class SqlParseLineageAnalyzer(LineageAnalyzer):
+             for write in context.write:
+                 holder.add_write(write)
+         current_handlers = [
+-            handler_cls() for handler_cls in CurrentTokenBaseHandler.__subclasses__()
++            handler_cls(metadata_provider) for handler_cls in CurrentTokenBaseHandler.__subclasses__()
+         ]
+         next_handlers = [
+-            handler_cls() for handler_cls in NextTokenBaseHandler.__subclasses__()
++            handler_cls(metadata_provider) for handler_cls in NextTokenBaseHandler.__subclasses__()
+         ]
+ 
+         subqueries = []
+diff --git a/sqllineage/core/parser/sqlparse/handlers/base.py b/sqllineage/core/parser/sqlparse/handlers/base.py
+index c603065..a72bbff 100644
+--- a/sqllineage/core/parser/sqlparse/handlers/base.py
++++ b/sqllineage/core/parser/sqlparse/handlers/base.py
+@@ -8,8 +8,9 @@ class NextTokenBaseHandler:
+     This is to address an extract pattern when a specified token indicates we should extract something from next token.
+     """
+ 
+-    def __init__(self) -> None:
++    def __init__(self, metadata_provider=None) -> None:
+         self.indicator = False
++        self.metadata_provider = metadata_provider
+ 
+     def _indicate(self, token: Token) -> bool:
+         """
+@@ -49,5 +50,8 @@ class CurrentTokenBaseHandler:
+     This is to address an extract pattern when we should extract something from current token
+     """
+ 
++    def __init__(self, metadata_provider=None) -> None:
++        self.metadata_provider = metadata_provider
++
+     def handle(self, token: Token, holder: SubQueryLineageHolder) -> None:
+         raise NotImplementedError
+diff --git a/sqllineage/core/parser/sqlparse/handlers/source.py b/sqllineage/core/parser/sqlparse/handlers/source.py
+index f6c62b4..f72f962 100644
+--- a/sqllineage/core/parser/sqlparse/handlers/source.py
++++ b/sqllineage/core/parser/sqlparse/handlers/source.py
+@@ -39,11 +39,12 @@ class SourceHandler(SourceHandlerMixin, NextTokenBaseHandler):
+         r"((LEFT\s+|RIGHT\s+|FULL\s+)?(INNER\s+|OUTER\s+|STRAIGHT\s+)?|(CROSS\s+|NATURAL\s+)?)?JOIN",
+     )
+ 
+-    def __init__(self):
++    def __init__(self, metadata_provider=None):
+         self.column_flag = False
+         self.columns = []
+         self.tables = []
+         self.union_barriers = []
++        self.metadata_provider = metadata_provider
+         super().__init__()
+ 
+     def _indicate(self, token: Token) -> bool:

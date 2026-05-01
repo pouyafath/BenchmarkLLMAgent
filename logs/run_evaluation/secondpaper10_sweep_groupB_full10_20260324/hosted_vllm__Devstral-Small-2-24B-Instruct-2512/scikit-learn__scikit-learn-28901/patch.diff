@@ -1,0 +1,126 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..3dc25a70f 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -158,12 +158,14 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": ["boolean"],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=False):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -304,7 +306,7 @@ class Pipeline(_BaseComposition):
+             if ind.step not in (1, None):
+                 raise ValueError("Pipeline slicing only supports a step of 1")
+             return self.__class__(
+-                self.steps[ind], memory=self.memory, verbose=self.verbose
++                self.steps[ind], memory=self.memory, verbose=self.verbose, transform_input=self.transform_input
+             )
+         try:
+             name, est = self.steps[ind]
+@@ -374,6 +376,61 @@ class Pipeline(_BaseComposition):
+                 fit_params_steps[step]["fit_predict"][param] = pval
+             return fit_params_steps
+ 
++
++    def _transform_input_params(self, method, params):
++        """Transform input parameters through the pipeline steps.
++
++        Parameters
++        ----------
++        method : str
++            The method being called (e.g., "fit").
++
++        params : dict
++            Parameters that may contain input data to be transformed.
++
++        Returns
++        -------
++        dict
++            Parameters with transformed input data.
++        """
++        if not self.transform_input or not _routing_enabled():
++            return params
++
++        # Identify input parameters (those that are not regular parameters)
++        # These are parameters that should be transformed through the pipeline
++        input_params = {}
++        regular_params = {}
++
++        for key, value in params.items():
++            # Check if this looks like input data (not a regular parameter)
++            # Input data typically has names like X_val, y_val, etc.
++            if key.startswith(("X_", "y_")) and not key.endswith("_weight"):
++                input_params[key] = value
++            else:
++                regular_params[key] = value
++
++        if not input_params:
++            return params
++
++        # Transform input parameters through the pipeline
++        transformed_input_params = {}
++        Xt = params.get("X", None)  # Get the main X for transformation
++
++        for param_name, param_value in input_params.items():
++            # Transform the input data through the pipeline steps
++            # (excluding the final estimator)
++            X_transformed = Xt
++            for _, name, transformer in self._iter(with_final=False):
++                if hasattr(transformer, "transform"):
++                    X_transformed = transformer.transform(X_transformed)
++                else:
++                    # If transformer does not have transform, pass through
++                    X_transformed = X_transformed
++
++            transformed_input_params[param_name] = X_transformed
++
++        # Combine regular parameters with transformed input parameters
++        return {**regular_params, **transformed_input_params}
+     # Estimator interface
+ 
+     def _fit(self, X, y=None, routed_params=None):
+@@ -462,11 +519,12 @@ class Pipeline(_BaseComposition):
+             Pipeline with fitted steps.
+         """
+         routed_params = self._check_method_params(method="fit", props=params)
++        params = self._transform_input_params("fit", params)
+         Xt = self._fit(X, y, routed_params)
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+             if self._final_estimator != "passthrough":
+                 last_step_params = routed_params[self.steps[-1][0]]
+-                self._final_estimator.fit(Xt, y, **last_step_params["fit"])
++                self._final_estimator.fit(Xt, y, **{**last_step_params["fit"], **params})
+ 
+         return self
+ 
+@@ -526,6 +584,7 @@ class Pipeline(_BaseComposition):
+             Transformed samples.
+         """
+         routed_params = self._check_method_params(method="fit_transform", props=params)
++        params = self._transform_input_params("fit_transform", params)
+         Xt = self._fit(X, y, routed_params)
+ 
+         last_step = self._final_estimator
+@@ -535,10 +594,10 @@ class Pipeline(_BaseComposition):
+             last_step_params = routed_params[self.steps[-1][0]]
+             if hasattr(last_step, "fit_transform"):
+                 return last_step.fit_transform(
+-                    Xt, y, **last_step_params["fit_transform"]
++                    Xt, y, **{**last_step_params["fit_transform"], **params}
+                 )
+             else:
+-                return last_step.fit(Xt, y, **last_step_params["fit"]).transform(
++                return last_step.fit(Xt, y, **{**last_step_params["fit"], **params}).transform(
+                     Xt, **last_step_params["transform"]
+                 )
+ 

@@ -1,0 +1,777 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 49 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   haystack/components/embedders/azure_document_embedder.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit f6fceb1b568bf08f8244cf123b71cf32af8bec33
+Author: Stefano Fiorucci <stefanofiorucci@gmail.com>
+Date:   Tue Apr 8 08:09:54 2025 +0200
+
+    refactor: reorganize Tool serde utility functions (#9185)
+    
+    * refactor: reorganize Tool serde utility functions
+    
+    * license header
+    
+    * rm unused import
+    
+    * HF local update
+
+diff --git a/haystack/components/generators/chat/azure.py b/haystack/components/generators/chat/azure.py
+index 0fa93a08..26d3398c 100644
+--- a/haystack/components/generators/chat/azure.py
++++ b/haystack/components/generators/chat/azure.py
+@@ -10,10 +10,14 @@ from openai.lib.azure import AsyncAzureADTokenProvider, AsyncAzureOpenAI, AzureA
+ from haystack import component, default_from_dict, default_to_dict
+ from haystack.components.generators.chat import OpenAIChatGenerator
+ from haystack.dataclasses.streaming_chunk import StreamingCallbackT
+-from haystack.tools.tool import Tool, _check_duplicate_tool_names, deserialize_tools_inplace
+-from haystack.tools.toolset import Toolset
++from haystack.tools import (
++    Tool,
++    Toolset,
++    _check_duplicate_tool_names,
++    deserialize_tools_inplace,
++    serialize_tools_or_toolset,
++)
+ from haystack.utils import Secret, deserialize_callable, deserialize_secrets_inplace, serialize_callable
+-from haystack.utils.misc import serialize_tools_or_toolset
+ 
+ 
+ @component
+diff --git a/haystack/components/generators/chat/hugging_face_api.py b/haystack/components/generators/chat/hugging_face_api.py
+index 3889a522..779ff398 100644
+--- a/haystack/components/generators/chat/hugging_face_api.py
++++ b/haystack/components/generators/chat/hugging_face_api.py
+@@ -9,11 +9,15 @@ from haystack import component, default_from_dict, default_to_dict
+ from haystack.dataclasses import ChatMessage, StreamingChunk, ToolCall, select_streaming_callback
+ from haystack.dataclasses.streaming_chunk import StreamingCallbackT
+ from haystack.lazy_imports import LazyImport
+-from haystack.tools.tool import Tool, _check_duplicate_tool_names, deserialize_tools_inplace
+-from haystack.tools.toolset import Toolset
++from haystack.tools import (
++    Tool,
++    Toolset,
++    _check_duplicate_tool_names,
++    deserialize_tools_inplace,
++    serialize_tools_or_toolset,
++)
+ from haystack.utils import Secret, deserialize_callable, deserialize_secrets_inplace, serialize_callable
+ from haystack.utils.hf import HFGenerationAPIType, HFModelType, check_valid_model, convert_message_to_hf_format
+-from haystack.utils.misc import serialize_tools_or_toolset
+ from haystack.utils.url_validation import is_valid_http_url
+ 
+ with LazyImport(message="Run 'pip install \"huggingface_hub[inference]>=0.27.0\"'") as huggingface_hub_import:
+diff --git a/haystack/components/generators/chat/hugging_face_local.py b/haystack/components/generators/chat/hugging_face_local.py
+index d32f0396..87e67c53 100644
+--- a/haystack/components/generators/chat/hugging_face_local.py
++++ b/haystack/components/generators/chat/hugging_face_local.py
+@@ -12,8 +12,13 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union
+ from haystack import component, default_from_dict, default_to_dict, logging
+ from haystack.dataclasses import ChatMessage, StreamingChunk, ToolCall, select_streaming_callback
+ from haystack.lazy_imports import LazyImport
+-from haystack.tools import Tool, _check_duplicate_tool_names, deserialize_tools_inplace
+-from haystack.tools.toolset import Toolset
++from haystack.tools import (
++    Tool,
++    Toolset,
++    _check_duplicate_tool_names,
++    deserialize_tools_inplace,
++    serialize_tools_or_toolset,
++)
+ from haystack.utils import (
+     ComponentDevice,
+     Secret,
+@@ -21,7 +26,6 @@ from haystack.utils import (
+     deserialize_secrets_inplace,
+     serialize_callable,
+ )
+-from haystack.utils.misc import serialize_tools_or_toolset
+ 
+ logger = logging.getLogger(__name__)
+ 
+diff --git a/haystack/components/generators/chat/openai.py b/haystack/components/generators/chat/openai.py
+index fc70cc6c..074798bc 100644
+--- a/haystack/components/generators/chat/openai.py
++++ b/haystack/components/generators/chat/openai.py
+@@ -22,10 +22,14 @@ from haystack.dataclasses import (
+     ToolCall,
+     select_streaming_callback,
+ )
+-from haystack.tools.tool import Tool, _check_duplicate_tool_names, deserialize_tools_inplace
+-from haystack.tools.toolset import Toolset
++from haystack.tools import (
++    Tool,
++    Toolset,
++    _check_duplicate_tool_names,
++    deserialize_tools_inplace,
++    serialize_tools_or_toolset,
++)
+ from haystack.utils import Secret, deserialize_callable, deserialize_secrets_inplace, serialize_callable
+-from haystack.utils.misc import serialize_tools_or_toolset
+ 
+ logger = logging.getLogger(__name__)
+ 
+diff --git a/haystack/components/tools/tool_invoker.py b/haystack/components/tools/tool_invoker.py
+index dece392b..22af6455 100644
+--- a/haystack/components/tools/tool_invoker.py
++++ b/haystack/components/tools/tool_invoker.py
+@@ -9,10 +9,15 @@ from typing import Any, Dict, List, Optional, Union
+ from haystack import component, default_from_dict, default_to_dict, logging
+ from haystack.core.component.sockets import Sockets
+ from haystack.dataclasses import ChatMessage, State, ToolCall
+-from haystack.tools.component_tool import ComponentTool
+-from haystack.tools.tool import Tool, ToolInvocationError, _check_duplicate_tool_names, deserialize_tools_inplace
+-from haystack.tools.toolset import Toolset
+-from haystack.utils.misc import serialize_tools_or_toolset
++from haystack.tools import (
++    ComponentTool,
++    Tool,
++    Toolset,
++    _check_duplicate_tool_names,
++    deserialize_tools_inplace,
++    serialize_tools_or_toolset,
++)
++from haystack.tools.errors import ToolInvocationError
+ 
+ logger = logging.getLogger(__name__)
+ 
+diff --git a/haystack/tools/__init__.py b/haystack/tools/__init__.py
+index c1eeed3c..19306bde 100644
+--- a/haystack/tools/__init__.py
++++ b/haystack/tools/__init__.py
+@@ -6,17 +6,18 @@
+ 
+ # ruff: noqa: I001 (ignore import order as we need to import Tool before ComponentTool)
+ from .from_function import create_tool_from_function, tool
+-from .tool import Tool, _check_duplicate_tool_names, deserialize_tools_inplace
++from .tool import Tool, _check_duplicate_tool_names
+ from .component_tool import ComponentTool
++from .serde_utils import deserialize_tools_inplace, serialize_tools_or_toolset
+ from .toolset import Toolset
+ 
+-
+ __all__ = [
+-    "Tool",
+     "_check_duplicate_tool_names",
+-    "deserialize_tools_inplace",
+-    "create_tool_from_function",
+-    "tool",
+     "ComponentTool",
++    "create_tool_from_function",
++    "deserialize_tools_inplace",
++    "serialize_tools_or_toolset",
++    "Tool",
+     "Toolset",
++    "tool",
+ ]
+diff --git a/haystack/tools/serde_utils.py b/haystack/tools/serde_utils.py
+new file mode 100644
+index 00000000..5feb55e9
+--- /dev/null
++++ b/haystack/tools/serde_utils.py
+@@ -0,0 +1,73 @@
++# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
++#
++# SPDX-License-Identifier: Apache-2.0
++
++from typing import Any, Dict, List, Union
++
++from haystack.core.errors import DeserializationError
++from haystack.core.serialization import import_class_by_name
++from haystack.tools.tool import Tool
++from haystack.tools.toolset import Toolset
++
++
++def serialize_tools_or_toolset(
++    tools: Union[Toolset, List[Tool], None],
++) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
++    """
++    Serialize a Toolset or a list of Tools to a dictionary or a list of tool dictionaries.
++
++    :param tools: A Toolset, a list of Tools, or None
++    :returns: A dictionary, a list of tool dictionaries, or None if tools is None
++    """
++    if tools is None:
++        return None
++    if isinstance(tools, Toolset):
++        return tools.to_dict()
++    return [tool.to_dict() for tool in tools]
++
++
++def deserialize_tools_inplace(data: Dict[str, Any], key: str = "tools"):
++    """
++    Deserialize a list of Tools or a Toolset in a dictionary inplace.
++
++    :param data:
++        The dictionary with the serialized data.
++    :param key:
++        The key in the dictionary where the list of Tools or Toolset is stored.
++    """
++    if key in data:
++        serialized_tools = data[key]
++
++        if serialized_tools is None:
++            return
++
++        # Check if it's a serialized Toolset (a dict with "type" and "data" keys)
++        if isinstance(serialized_tools, dict) and all(k in serialized_tools for k in ["type", "data"]):
++            toolset_class_name = serialized_tools.get("type")
++            if not toolset_class_name:
++                raise DeserializationError("The 'type' key is missing or None in the serialized toolset data")
++
++            toolset_class = import_class_by_name(toolset_class_name)
++
++            if not issubclass(toolset_class, Toolset):
++                raise TypeError(f"Class '{toolset_class}' is not a subclass of Toolset")
++
++            data[key] = toolset_class.from_dict(serialized_tools)
++            return
++
++        if not isinstance(serialized_tools, list):
++            raise TypeError(f"The value of '{key}' is not a list or a dictionary")
++
++        deserialized_tools = []
++        for tool in serialized_tools:
++            if not isinstance(tool, dict):
++                raise TypeError(f"Serialized tool '{tool}' is not a dictionary")
++
++            # different classes are allowed: Tool, ComponentTool, etc.
++            tool_class = import_class_by_name(tool["type"])
++            if not issubclass(tool_class, Tool):
++                raise TypeError(f"Class '{tool_class}' is not a subclass of Tool")
++
++            deserialized_tools.append(tool_class.from_dict(tool))
++
++        data[key] = deserialized_tools
+diff --git a/haystack/tools/tool.py b/haystack/tools/tool.py
+index 9cde27f9..f07135a8 100644
+--- a/haystack/tools/tool.py
++++ b/haystack/tools/tool.py
+@@ -8,8 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
+ from jsonschema import Draft202012Validator
+ from jsonschema.exceptions import SchemaError
+ 
+-from haystack.core.errors import DeserializationError
+-from haystack.core.serialization import generate_qualified_class_name, import_class_by_name
++from haystack.core.serialization import generate_qualified_class_name
+ from haystack.tools.errors import ToolInvocationError
+ from haystack.utils import deserialize_callable, serialize_callable
+ 
+@@ -174,51 +173,3 @@ def _check_duplicate_tool_names(tools: Optional[List[Tool]]) -> None:
+     duplicate_tool_names = {name for name in tool_names if tool_names.count(name) > 1}
+     if duplicate_tool_names:
+         raise ValueError(f"Duplicate tool names found: {duplicate_tool_names}")
+-
+-
+-def deserialize_tools_inplace(data: Dict[str, Any], key: str = "tools"):
+-    """
+-    Deserialize Tools in a dictionary inplace.
+-
+-    :param data:
+-        The dictionary with the serialized data.
+-    :param key:
+-        The key in the dictionary where the Tools are stored.
+-    """
+-    if key in data:
+-        serialized_tools = data[key]
+-
+-        if serialized_tools is None:
+-            return
+-
+-        # Check if it's a serialized Toolset (a dict with "type" and "data" keys)
+-        if isinstance(serialized_tools, dict) and all(k in serialized_tools for k in ["type", "data"]):
+-            toolset_class_name = serialized_tools.get("type")
+-            if not toolset_class_name:
+-                raise DeserializationError("The 'type' key is missing or None in the serialized toolset data")
+-
+-            toolset_class = import_class_by_name(toolset_class_name)
+-            from haystack.tools.toolset import Toolset  # avoid circular import
+-
+-            if not issubclass(toolset_class, Toolset):
+-                raise TypeError(f"Class '{toolset_class}' is not a subclass of Toolset")
+-
+-            data[key] = toolset_class.from_dict(serialized_tools)
+-            return
+-
+-        if not isinstance(serialized_tools, list):
+-            raise TypeError(f"The value of '{key}' is not a list or a dictionary")
+-
+-        deserialized_tools = []
+-        for tool in serialized_tools:
+-            if not isinstance(tool, dict):
+-                raise TypeError(f"Serialized tool '{tool}' is not a dictionary")
+-
+-            # different classes are allowed: Tool, ComponentTool, etc.
+-            tool_class = import_class_by_name(tool["type"])
+-            if not issubclass(tool_class, Tool):
+-                raise TypeError(f"Class '{tool_class}' is not a subclass of Tool")
+-
+-            deserialized_tools.append(tool_class.from_dict(tool))
+-
+-        data[key] = deserialized_tools
+diff --git a/haystack/utils/misc.py b/haystack/utils/misc.py
+index 812de8ec..8320f7aa 100644
+--- a/haystack/utils/misc.py
++++ b/haystack/utils/misc.py
+@@ -2,12 +2,10 @@
+ #
+ # SPDX-License-Identifier: Apache-2.0
+ 
+-from typing import Any, Dict, List, Union
++from typing import List, Union
+ 
+ from numpy import exp
+ 
+-from haystack.tools import Tool, Toolset
+-
+ 
+ def expand_page_range(page_range: List[Union[str, int]]) -> List[int]:
+     """
+@@ -54,19 +52,3 @@ def expit(x) -> float:
+     :param x: input value. Can be a scalar or a numpy array.
+     """
+     return 1 / (1 + exp(-x))
+-
+-
+-def serialize_tools_or_toolset(
+-    tools: Union[Toolset, List[Tool], None],
+-) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
+-    """
+-    Serialize a Toolset or a list of Tools to a dictionary or a list of tool dictionaries.
+-
+-    :param tools: A Toolset, a list of Tools, or None
+-    :returns: A dictionary, a list of tool dictionaries, or None if tools is None
+-    """
+-    if tools is None:
+-        return None
+-    if isinstance(tools, Toolset):
+-        return tools.to_dict()
+-    return [tool.to_dict() for tool in tools]
+diff --git a/test/tools/test_serde_utils.py b/test/tools/test_serde_utils.py
+new file mode 100644
+index 00000000..d1876b33
+--- /dev/null
++++ b/test/tools/test_serde_utils.py
+@@ -0,0 +1,98 @@
++# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
++#
++# SPDX-License-Identifier: Apache-2.0
++
++import pytest
++
++from haystack.tools import Tool, deserialize_tools_inplace, Toolset, serialize_tools_or_toolset
++
++
++def get_weather_report(city: str) -> str:
++    return f"Weather report for {city}: 20°C, sunny"
++
++
++parameters = {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
++
++
++class TestToolSerdeUtils:
++    def test_serialize_toolset(self):
++        toolset = Toolset(
++            tools=[
++                Tool(
++                    name="weather", description="Get weather report", parameters=parameters, function=get_weather_report
++                )
++            ]
++        )
++
++        data = serialize_tools_or_toolset(toolset)
++        assert data == toolset.to_dict()
++
++    def test_serialize_tool(self):
++        tool = Tool(
++            name="weather", description="Get weather report", parameters=parameters, function=get_weather_report
++        )
++
++        data = serialize_tools_or_toolset([tool])
++        assert data == [tool.to_dict()]
++
++    def test_deserialize_tools_inplace(self):
++        tool = Tool(
++            name="weather", description="Get weather report", parameters=parameters, function=get_weather_report
++        )
++
++        data = {"tools": [tool.to_dict()]}
++        deserialize_tools_inplace(data)
++        assert data["tools"] == [tool]
++
++        data = {"mytools": [tool.to_dict()]}
++        deserialize_tools_inplace(data, key="mytools")
++        assert data["mytools"] == [tool]
++
++        data = {"no_tools": 123}
++        deserialize_tools_inplace(data)
++        assert data == {"no_tools": 123}
++
++    def test_deserialize_tools_inplace_failures(self):
++        data = {"key": "value"}
++        deserialize_tools_inplace(data)
++        assert data == {"key": "value"}
++
++        data = {"tools": None}
++        deserialize_tools_inplace(data)
++        assert data == {"tools": None}
++
++        data = {"tools": "not a list"}
++        with pytest.raises(TypeError):
++            deserialize_tools_inplace(data)
++
++        data = {"tools": ["not a dictionary"]}
++        with pytest.raises(TypeError):
++            deserialize_tools_inplace(data)
++
++        # not a subclass of Tool
++        data = {"tools": [{"type": "haystack.dataclasses.ChatMessage", "data": {"irrelevant": "irrelevant"}}]}
++        with pytest.raises(TypeError):
++            deserialize_tools_inplace(data)
++
++    def test_deserialize_toolset_inplace(self):
++        tool = Tool(
++            name="weather", description="Get weather report", parameters=parameters, function=get_weather_report
++        )
++        toolset = Toolset(tools=[tool])
++
++        data = {"tools": toolset.to_dict()}
++
++        deserialize_tools_inplace(data)
++
++        assert data["tools"] == toolset
++        assert isinstance(data["tools"], Toolset)
++        assert data["tools"][0] == tool
++
++    def test_deserialize_toolset_inplace_failures(self):
++        data = {"tools": {"key": "value"}}
++        with pytest.raises(TypeError):
++            deserialize_tools_inplace(data)
++
++        data = {"tools": {"type": "haystack.tools.Tool", "data": "some_data"}}
++        with pytest.raises(TypeError):
++            deserialize_tools_inplace(data)
+diff --git a/test/tools/test_tool.py b/test/tools/test_tool.py
+index bca737e5..49d01aa0 100644
+--- a/test/tools/test_tool.py
++++ b/test/tools/test_tool.py
+@@ -5,7 +5,8 @@
+ import re
+ import pytest
+ 
+-from haystack.tools.tool import Tool, ToolInvocationError, deserialize_tools_inplace, _check_duplicate_tool_names
++from haystack.tools import Tool, _check_duplicate_tool_names
++from haystack.tools.errors import ToolInvocationError
+ 
+ 
+ def get_weather_report(city: str) -> str:
+@@ -121,45 +122,6 @@ class TestTool:
+         assert tool.outputs_to_state["documents"]["handler"] == get_weather_report
+ 
+ 
+-def test_deserialize_tools_inplace():
+-    tool = Tool(name="weather", description="Get weather report", parameters=parameters, function=get_weather_report)
+-
+-    data = {"tools": [tool.to_dict()]}
+-    deserialize_tools_inplace(data)
+-    assert data["tools"] == [tool]
+-
+-    data = {"mytools": [tool.to_dict()]}
+-    deserialize_tools_inplace(data, key="mytools")
+-    assert data["mytools"] == [tool]
+-
+-    data = {"no_tools": 123}
+-    deserialize_tools_inplace(data)
+-    assert data == {"no_tools": 123}
+-
+-
+-def test_deserialize_tools_inplace_failures():
+-    data = {"key": "value"}
+-    deserialize_tools_inplace(data)
+-    assert data == {"key": "value"}
+-
+-    data = {"tools": None}
+-    deserialize_tools_inplace(data)
+-    assert data == {"tools": None}
+-
+-    data = {"tools": "not a list"}
+-    with pytest.raises(TypeError):
+-        deserialize_tools_inplace(data)
+-
+-    data = {"tools": ["not a dictionary"]}
+-    with pytest.raises(TypeError):
+-        deserialize_tools_inplace(data)
+-
+-    # not a subclass of Tool
+-    data = {"tools": [{"type": "haystack.dataclasses.ChatMessage", "data": {"irrelevant": "irrelevant"}}]}
+-    with pytest.raises(TypeError):
+-        deserialize_tools_inplace(data)
+-
+-
+ def test_check_duplicate_tool_names():
+     tools = [
+         Tool(name="weather", description="Get weather report", parameters=parameters, function=get_weather_report),
++ git -c core.fileMode=false diff f6fceb1b568bf08f8244cf123b71cf32af8bec33
+diff --git a/haystack/components/embedders/azure_document_embedder.py b/haystack/components/embedders/azure_document_embedder.py
+index 5f9eb647..ed606f69 100644
+--- a/haystack/components/embedders/azure_document_embedder.py
++++ b/haystack/components/embedders/azure_document_embedder.py
+@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
+ import httpx
+ from more_itertools import batched
+ from openai import APIError
+-from openai.lib.azure import AzureADTokenProvider, AzureOpenAI
++from openai.lib.azure import AsyncAzureADTokenProvider, AsyncAzureOpenAI, AzureADTokenProvider, AzureOpenAI
+ from tqdm import tqdm
++from tqdm.asyncio import tqdm as async_tqdm
+ 
+ from haystack import Document, component, default_from_dict, default_to_dict, logging
+ from haystack.utils import Secret, deserialize_callable, deserialize_secrets_inplace, serialize_callable
+@@ -150,6 +151,20 @@ class AzureOpenAIDocumentEmbedder:
+             http_client=self._init_http_client(),
+         )
+ 
++        self._async_client = AsyncAzureOpenAI(
++            api_version=api_version,
++            azure_endpoint=azure_endpoint,
++            azure_deployment=azure_deployment,
++            azure_ad_token_provider=azure_ad_token_provider,
++            api_key=api_key.resolve_value() if api_key is not None else None,
++            azure_ad_token=azure_ad_token.resolve_value() if azure_ad_token is not None else None,
++            organization=organization,
++            timeout=self.timeout,
++            max_retries=self.max_retries,
++            default_headers=self.default_headers,
++            http_client=self._init_async_http_client(),
++        )
++
+     def _init_http_client(self):
+         """Internal method to initialize the httpx.Client."""
+         if self.http_client_kwargs:
+@@ -158,6 +173,14 @@ class AzureOpenAIDocumentEmbedder:
+             return httpx.Client(**self.http_client_kwargs)
+         return None
+ 
++    def _init_async_http_client(self):
++        """Internal method to initialize the httpx.AsyncClient."""
++        if self.http_client_kwargs:
++            if not isinstance(self.http_client_kwargs, dict):
++                raise TypeError("The parameter 'http_client_kwargs' must be a dictionary.")
++            return httpx.AsyncClient(**self.http_client_kwargs)
++        return None
++
+     def _get_telemetry_data(self) -> Dict[str, Any]:
+         """
+         Data that is sent to Posthog for usage analytics.
+@@ -269,6 +292,48 @@ class AzureOpenAIDocumentEmbedder:
+ 
+         return all_embeddings, meta
+ 
++    async def _embed_batch_async(
++        self, texts_to_embed: Dict[str, str], batch_size: int
++    ) -> Tuple[List[List[float]], Dict[str, Any]]:
++        """
++        Embed a list of texts in batches asynchronously.
++        """
++
++        all_embeddings: List[List[float]] = []
++        meta: Dict[str, Any] = {"model": "", "usage": {"prompt_tokens": 0, "total_tokens": 0}}
++
++        batches = list(batched(texts_to_embed.items(), batch_size))
++        if self.progress_bar:
++            batches = async_tqdm(batches, desc="Calculating embeddings")
++
++        for batch in batches:
++            args: Dict[str, Any] = {"model": self.azure_deployment, "input": [b[1] for b in batch]}
++
++            if self.dimensions is not None:
++                args["dimensions"] = self.dimensions
++
++            try:
++                response = await self._async_client.embeddings.create(**args)
++            except APIError as e:
++                # Log the error but continue processing
++                ids = ", ".join(b[0] for b in batch)
++                logger.exception(f"Failed embedding of documents {ids} caused by {e}")
++                continue
++
++            embeddings = [el.embedding for el in response.data]
++            all_embeddings.extend(embeddings)
++
++            # Update the meta information only once if it is empty
++            if not meta["model"]:
++                meta["model"] = response.model
++                meta["usage"] = dict(response.usage)
++            else:
++                # Update the usage tokens
++                meta["usage"]["prompt_tokens"] += response.usage.prompt_tokens
++                meta["usage"]["total_tokens"] += response.usage.total_tokens
++
++        return all_embeddings, meta
++
+     @component.output_types(documents=List[Document], meta=Dict[str, Any])
+     def run(self, documents: List[Document]) -> Dict[str, Any]:
+         """
+@@ -293,3 +358,28 @@ class AzureOpenAIDocumentEmbedder:
+             doc.embedding = emb
+ 
+         return {"documents": documents, "meta": meta}
++
++    @component.output_types(documents=List[Document], meta=Dict[str, Any])
++    async def run_async(self, documents: List[Document]) -> Dict[str, Any]:
++        """
++        Embeds a list of documents asynchronously.
++
++        :param documents:
++            Documents to embed.
++
++        :returns:
++            A dictionary with the following keys:
++            - `documents`: A list of documents with embeddings.
++            - `meta`: Information about the usage of the model.
++        """
++        if not (isinstance(documents, list) and all(isinstance(doc, Document) for doc in documents)):
++            raise TypeError("Input must be a list of Document instances. For strings, use AzureOpenAITextEmbedder.")
++
++        texts_to_embed = self._prepare_texts_to_embed(documents=documents)
++        embeddings, meta = await self._embed_batch_async(texts_to_embed=texts_to_embed, batch_size=self.batch_size)
++
++        # Assign the corresponding embeddings to each document
++        for doc, emb in zip(documents, embeddings):
++            doc.embedding = emb
++
++        return {"documents": documents, "meta": meta}
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 195, in prepare_metadata_for_build_editable
+      hook = backend.prepare_metadata_for_build_editable
+  AttributeError: module 'hatchling.build' has no attribute 'prepare_metadata_for_build_editable'
+
+  During handling of the above exception, another exception occurred:
+
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 389, in <module>
+      main()
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 373, in main
+      json_out["return_val"] = hook(**hook_input["kwargs"])
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 204, in prepare_metadata_for_build_editable
+      whl_basename = build_hook(metadata_directory, config_settings)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/build.py", line 83, in build_editable
+      return os.path.basename(next(builder.build(directory=wheel_directory, versions=['editable'])))
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/plugin/interface.py", line 155, in build
+      artifact = version_api[version](directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 496, in build_editable
+      return self.build_editable_detection(directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 499, in build_editable_detection
+      from editables import EditableProject
+  ModuleNotFoundError: No module named 'editables'
+  error: subprocess-exited-with-error
+  
+  × Preparing editable metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  full command: /usr/local/bin/python /usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py prepare_metadata_for_build_editable /tmp/tmp7s2mzdp8
+  cwd: /testbed
+  Preparing editable metadata (pyproject.toml): finished with status 'error'
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> See above for output.
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 195, in prepare_metadata_for_build_editable
+      hook = backend.prepare_metadata_for_build_editable
+  AttributeError: module 'hatchling.build' has no attribute 'prepare_metadata_for_build_editable'
+
+  During handling of the above exception, another exception occurred:
+
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 389, in <module>
+      main()
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 373, in main
+      json_out["return_val"] = hook(**hook_input["kwargs"])
+    File "/usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 204, in prepare_metadata_for_build_editable
+      whl_basename = build_hook(metadata_directory, config_settings)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/build.py", line 83, in build_editable
+      return os.path.basename(next(builder.build(directory=wheel_directory, versions=['editable'])))
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/plugin/interface.py", line 155, in build
+      artifact = version_api[version](directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 496, in build_editable
+      return self.build_editable_detection(directory, **build_data)
+    File "/usr/local/lib/python3.9/site-packages/hatchling/builders/wheel.py", line 499, in build_editable_detection
+      from editables import EditableProject
+  ModuleNotFoundError: No module named 'editables'
+  error: subprocess-exited-with-error
+  
+  × Preparing editable metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  full command: /usr/local/bin/python /usr/local/lib/python3.9/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py prepare_metadata_for_build_editable /tmp/tmpnes393th
+  cwd: /testbed
+  Preparing editable metadata (pyproject.toml): finished with status 'error'
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> See above for output.
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
++ git checkout f6fceb1b568bf08f8244cf123b71cf32af8bec33 test/components/embedders/test_azure_document_embedder.py test/components/embedders/test_openai_document_embedder.py
+Updated 0 paths from 10e9c3c8
++ git apply -v -
+Checking patch test/components/embedders/test_azure_document_embedder.py...
+Checking patch test/components/embedders/test_openai_document_embedder.py...
+Applied patch test/components/embedders/test_azure_document_embedder.py cleanly.
+Applied patch test/components/embedders/test_openai_document_embedder.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest --cov-report xml:coverage.xml --cov=haystack -m 'not integration' -rA test test/components/embedders/test_azure_document_embedder.py test/components/embedders/test_openai_document_embedder.py
+/eval.sh: line 110: pytest: command not found
++ : '>>>>> End Test Output'
++ git checkout f6fceb1b568bf08f8244cf123b71cf32af8bec33 test/components/embedders/test_azure_document_embedder.py test/components/embedders/test_openai_document_embedder.py
+Updated 2 paths from 10e9c3c8

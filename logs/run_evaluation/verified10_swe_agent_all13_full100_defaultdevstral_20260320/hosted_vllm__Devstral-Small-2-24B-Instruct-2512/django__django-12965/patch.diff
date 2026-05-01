@@ -1,0 +1,51 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index 29e33c075f..8289e11267 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -1407,11 +1407,28 @@ class SQLInsertCompiler(SQLCompiler):
+ class SQLDeleteCompiler(SQLCompiler):
+     @cached_property
+     def single_alias(self):
+-        return sum(self.query.alias_refcount[t] > 0 for t in self.query.alias_map) == 1
++        # If alias_map is empty, check if this is a single-table query
++        if not self.query.alias_map:
++            # For DeleteQuery, if there are no aliases set up yet, assume single table
++            # This handles the case where delete_batch() hasn't set up aliases yet
++            return True
++        # Check if there's exactly one alias with reference count > 0
++        # But also handle the case where there's exactly one alias with reference count = 0
++        # (this can happen with cloned queries that haven't been used yet)
++        aliases_with_refs = sum(1 for t in self.query.alias_map if self.query.alias_refcount.get(t, 0) > 0)
++        if aliases_with_refs == 1:
++            return True
++        # If no aliases have references, check if there's exactly one alias total
++        # (this handles the case of a simple query that hasn't been executed yet)
++        if len(self.query.alias_map) == 1 and aliases_with_refs == 0:
++            return True
++        return False
+ 
+     def _as_sql(self, query):
++        # If base_table is None (alias_map not set up), use the model's db_table
++        table = query.base_table if query.base_table is not None else query.get_meta().db_table
+         result = [
+-            'DELETE FROM %s' % self.quote_name_unless_alias(query.base_table)
++            'DELETE FROM %s' % self.quote_name_unless_alias(table)
+         ]
+         where, params = self.compile(query.where)
+         if where:
+diff --git a/django/db/models/sql/subqueries.py b/django/db/models/sql/subqueries.py
+index 72b6712864..652b0a34fa 100644
+--- a/django/db/models/sql/subqueries.py
++++ b/django/db/models/sql/subqueries.py
+@@ -33,7 +33,10 @@ class DeleteQuery(Query):
+         More than one physical query may be executed if there are a
+         lot of values in pk_list.
+         """
+-        # number of objects deleted
++        # Ensure the alias map is set up before adding WHERE conditions
++        if not self.alias_map:
++            self.get_initial_alias()
++        
+         num_deleted = 0
+         field = self.get_meta().pk
+         for offset in range(0, len(pk_list), GET_ITERATOR_CHUNK_SIZE):

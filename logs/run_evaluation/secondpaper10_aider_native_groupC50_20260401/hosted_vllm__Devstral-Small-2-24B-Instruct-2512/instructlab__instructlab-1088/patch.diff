@@ -1,0 +1,39 @@
+diff --git a/src/instructlab/lab.py b/src/instructlab/lab.py
+index 2e56ac09..939a2c48 100644
+--- a/src/instructlab/lab.py
++++ b/src/instructlab/lab.py
+@@ -924,6 +924,21 @@ def train(
+             # generated input files reverse sorted by name (contains timestamp)
+             train_files = sorted(glob(input_dir + "/train_*"), reverse=True)
+             test_files = sorted(glob(input_dir + "/test_*"), reverse=True)
++
++            # Check if we found any training or test files
++            if not train_files:
++                click.secho(
++                    f"No training files found in {input_dir}. Please run `ilab generate` first.",
++                    fg="red",
++                )
++                raise click.exceptions.Exit(1)
++            if not test_files:
++                click.secho(
++                    f"No test files found in {input_dir}. Please run `ilab generate` first.",
++                    fg="red",
++                )
++                raise click.exceptions.Exit(1)
++
+             if len(train_files) > 1 or len(test_files) > 1:
+                 # pylint: disable=f-string-without-interpolation
+                 click.secho(
+diff --git a/tests/test_lab_train.py b/tests/test_lab_train.py
+index 4407e656..645785d5 100644
+--- a/tests/test_lab_train.py
++++ b/tests/test_lab_train.py
+@@ -158,7 +158,7 @@ class TestLabTrain(unittest.TestCase):
+             result = runner.invoke(lab.train, ["--input-dir", INPUT_DIR])
+             self.assertIsNotNone(result.exception)
+             self.assertIn(
+-                "Could not copy into data directory: list index out of range",
++                "No training files found in test_generated. Please run `ilab generate` first.",
+                 result.output,
+             )
+             self.assertEqual(result.exit_code, 1)

@@ -1,0 +1,62 @@
+diff --git a/conan/tools/scm/git.py b/conan/tools/scm/git.py
+index 77d0e6dbb..7de1b4040 100644
+--- a/conan/tools/scm/git.py
++++ b/conan/tools/scm/git.py
+@@ -4,6 +4,7 @@ import os
+ from conan.tools.files import chdir
+ from conan.errors import ConanException
+ from conans.model.conf import ConfDefinition
++from conan.tools.files import update_conandata
+ from conans.util.files import mkdir
+ from conans.util.runners import check_output_runner
+ 
+@@ -237,3 +238,49 @@ class Git:
+         files = self.run("ls-files --full-name --others --cached --exclude-standard")
+         files = files.splitlines()
+         return files
++
++    def coordinates_to_conandata(self, remote="origin", repository=False):
++        """
++        Stores the SCM coordinates (URL and commit) in the conandata.yml file.
++        This method should be called in the ``export()`` method.
++
++        :param remote: Name of the remote git repository ('origin' by default).
++        :param repository: By default gets the commit of the defined folder, use repo=True to get
++                         the commit of the repository instead.
++        """
++        url, commit = self.get_url_and_commit(remote=remote, repository=repository)
++        version = str(self._conanfile.version)
++        update_conandata(self._conanfile, {"scm": {version: {"commit": commit, "url": url}}})
++
++    def checkout_from_conandata_coordinates(self, target="."):
++        """
++        Checks out the repository from the SCM coordinates stored in conandata.yml.
++        This method should be called in the ``source()`` method.
++
++        :param target: Target folder to clone/checkout to.
++        """
++        from conan.tools.files import load
++        import yaml
++        import os
++
++        # Load conandata.yml
++        conandata_path = os.path.join(self._conanfile.export_folder or self._conanfile.recipe_folder, "conandata.yml")
++        if not os.path.exists(conandata_path):
++            raise ConanException("conandata.yml file doesn't exist")
++
++        conandata = load(self._conanfile, conandata_path)
++        conandata = yaml.safe_load(conandata)
++
++        # Get SCM coordinates
++        scm_data = conandata.get("scm", {})
++        version = str(self._conanfile.version)
++        version_data = scm_data.get(version, {})
++        url = version_data.get("url")
++        commit = version_data.get("commit")
++
++        if not url or not commit:
++            raise ConanException("SCM coordinates (url and commit) not found in conandata.yml")
++
++        # Clone and checkout
++        self.clone(url, target=target)
++        self.checkout(commit)

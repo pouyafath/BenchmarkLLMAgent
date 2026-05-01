@@ -1,0 +1,77 @@
+diff --git a/src/instructlab/model/evaluate.py b/src/instructlab/model/evaluate.py
+index 92ff92cc..73ed26d9 100644
+--- a/src/instructlab/model/evaluate.py
++++ b/src/instructlab/model/evaluate.py
+@@ -167,9 +167,9 @@ def display_error_rate(error_rate) -> None:
+ 
+ 
+ def display_branch_eval_summary(
+-    improvements: list[tuple[str, float]],
+-    regressions: list[tuple[str, float]],
+-    no_changes: list[str],
++    improvements: list[tuple[str, float, float]],
++    regressions: list[tuple[str, float, float]],
++    no_changes: list[tuple[str, float, float]],
+     new=None,
+ ):
+     """takes in results lists from mt_bench_branch benchmark evaluation
+@@ -179,20 +179,21 @@ def display_branch_eval_summary(
+         improvements.sort(key=sort_score, reverse=True)
+         print("\n### IMPROVEMENTS:")
+         for index, improvement in enumerate(improvements):
+-            task, delta = improvement
+-            print(f"{index+1}. {task} (+{delta})")
++            task, score, delta = improvement
++            print(f"{index+1}. {task} ({round(score, 2)} +{delta})")
+ 
+     if len(regressions) > 0:
+         regressions.sort(key=sort_score)
+         print("\n### REGRESSIONS:")
+         for index, regression in enumerate(regressions):
+-            task, delta = regression
+-            print(f"{index+1}. {task} ({delta})")
++            task, score, delta = regression
++            print(f"{index+1}. {task} ({round(score, 2)} {delta})")
+ 
+     if len(no_changes) > 0:
+         print("\n### NO CHANGE:")
+-        for index, task in enumerate(no_changes):
+-            print(f"{index+1}. {task}")
++        for index, no_change in enumerate(no_changes):
++            task, score, delta = no_change
++            print(f"{index+1}. {task} ({round(score, 2)})")
+ 
+     if new is not None and len(new) > 0:
+         print("\n### NEW:")
+@@ -688,12 +689,13 @@ def evaluate(
+             for qna, avg_score in qna_to_avg_scores.items():
+                 base_avg_score = base_qna_to_avg_scores.get(qna)
+                 if base_avg_score is not None:
++                    delta = round(avg_score - base_avg_score, 2)
+                     if avg_score > base_avg_score:
+-                        improvements.append((qna, round(avg_score - base_avg_score, 2)))
++                        improvements.append((qna, avg_score, delta))
+                     elif avg_score == base_avg_score:
+-                        no_changes.append(qna)
++                        no_changes.append((qna, avg_score, 0.0))
+                     else:
+-                        regressions.append((qna, round(avg_score - base_avg_score, 2)))
++                        regressions.append((qna, avg_score, delta))
+                 else:
+                     new_qnas.append((qna))
+ 
+@@ -809,11 +811,11 @@ def evaluate(
+                 b_s = base_score["score"]
+                 d = round(s - b_s, 2)
+                 if s > b_s:
+-                    improvements.append((task, d))
++                    improvements.append((task, s, d))
+                 elif b_s > s:
+-                    regressions.append((task, d))
++                    regressions.append((task, s, d))
+                 else:
+-                    no_changes.append(task)
++                    no_changes.append((task, s, 0.0))
+ 
+             # display summary of evaluation before exiting
+             display_branch_eval_summary(improvements, regressions, no_changes)

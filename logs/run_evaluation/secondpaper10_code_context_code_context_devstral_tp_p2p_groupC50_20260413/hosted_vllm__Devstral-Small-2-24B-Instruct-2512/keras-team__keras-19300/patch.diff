@@ -1,0 +1,69 @@
+diff --git a/keras/backend/common/keras_tensor.py b/keras/backend/common/keras_tensor.py
+index c741d5ce8..80e7eaf0e 100644
+--- a/keras/backend/common/keras_tensor.py
++++ b/keras/backend/common/keras_tensor.py
+@@ -296,6 +296,13 @@ def any_symbolic_tensors(args=None, kwargs=None):
+     for x in tree.flatten((args, kwargs)):
+         if isinstance(x, KerasTensor):
+             return True
++        # Also check for TensorFlow symbolic tensors when using TensorFlow backend
++        try:
++            import tensorflow as tf
++            if tf.is_tensor(x):
++                return True
++        except ImportError:
++            pass
+     return False
+ 
+ 
+diff --git a/keras/ops/nn.py b/keras/ops/nn.py
+index 6731d9980..531c886a6 100644
+--- a/keras/ops/nn.py
++++ b/keras/ops/nn.py
+@@ -504,7 +504,27 @@ class Softmax(Operation):
+         self.axis = axis
+ 
+     def call(self, x):
+-        return backend.nn.softmax(x, axis=self.axis)
++        if isinstance(self.axis, tuple):
++            original_shape = x.shape
++            new_shape = []
++            skip_dims = set(self.axis)
++            i = 0
++            while i < len(original_shape):
++                if i in skip_dims:
++                    size = 1
++                    while i in skip_dims:
++                        size *= original_shape[i]
++                        i += 1
++                    new_shape.append(size)
++                else:
++                    new_shape.append(original_shape[i])
++                    i += 1
++            x = backend.numpy.reshape(x, new_shape)
++            x = backend.nn.softmax(x, axis=-1)
++            x = backend.numpy.reshape(x, original_shape)
++            return x
++        else:
++            return backend.nn.softmax(x, axis=self.axis)
+ 
+     def compute_output_spec(self, x):
+         return KerasTensor(x.shape, dtype=x.dtype)
+@@ -538,6 +558,8 @@ def softmax(x, axis=-1):
+     array([0.09003057, 0.24472847, 0.66524096], shape=(3,), dtype=float64)
+ 
+     """
++    if any_symbolic_tensors((x,)):
++        return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, int) and backend.shape(x)[axis] == 1:
+         warnings.warn(
+             f"You are using a softmax over axis {axis} "
+@@ -546,8 +568,6 @@ def softmax(x, axis=-1):
+             "the value 1, which is likely not what you intended. "
+             "Did you mean to use a sigmoid instead?"
+         )
+-    if any_symbolic_tensors((x,)):
+-        return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, tuple):
+         original_shape = x.shape
+         new_shape = []

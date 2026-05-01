@@ -1,0 +1,59 @@
+diff --git a/src/cfnlint/rules/resources/iam/StatementResources.py b/src/cfnlint/rules/resources/iam/StatementResources.py
+index c64216d71..c862004c5 100644
+--- a/src/cfnlint/rules/resources/iam/StatementResources.py
++++ b/src/cfnlint/rules/resources/iam/StatementResources.py
+@@ -152,21 +152,44 @@ class StatementResources(CfnLintKeyword):
+                     if using_fn_arns:
+                         continue
+                     resources = ensure_list(resources)
++                    # Collect all expected ARN formats for this action
++                    expected_arns = []
+                     for resource in resources:
+                         arn_formats = self.service_map[service]["Resources"][
+                             resource
+-                        ].get("ARNFormats")
++                        ].get("ARNFormats", [])
+                         for arn_format in arn_formats:
+                             arn = _Arn(arn_format)
+-                            if arn not in all_resource_arns:
+-                                yield ValidationError(
+-                                    (
+-                                        f"action {action!r} requires "
+-                                        f"a resource of {arn_formats!r}"
+-                                    ),
+-                                    path=deque(["Resource"]),
+-                                    rule=self,
+-                                )
++                            expected_arns.append(arn)
++
++                    # Check if any user-provided resource matches any expected resource
++                    matches_found = False
++                    if expected_arns:
++                        for user_arn in all_resource_arns:
++                            for expected_arn in expected_arns:
++                                if user_arn == expected_arn:
++                                    matches_found = True
++                                    break
++                            if matches_found:
++                                break
++
++                    # Only report error if no matches found and there are expected resources
++                    if not matches_found and expected_arns:
++                        # Get all expected ARN format strings for the error message
++                        expected_arn_format_strings = []
++                        for resource in resources:
++                            arn_formats = self.service_map[service]["Resources"][
++                                resource
++                            ].get("ARNFormats", [])
++                            expected_arn_format_strings.extend(arn_formats)
++                        yield ValidationError(
++                            (
++                                f"action {action!r} requires "
++                                f"a resource of {expected_arn_format_strings!r}"
++                            ),
++                            path=deque(["Resource"]),
++                            rule=self,
++                        )
+                 else:
+                     LOGGER.debug(f"action {action!r} requires a resource of '*'")
+                     # yield ValidationError(

@@ -1,0 +1,23 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..9652b1b15 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -251,7 +251,17 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                # Instead of using 1., use the reference value for this dimension
++                # For FITS WCS, use the CRVAL from the underlying WCS
++                try:
++                    if hasattr(self._wcs, "wcs") and hasattr(self._wcs.wcs, "crval"):
++                        ref_val = self._wcs.wcs.crval[iworld]
++                    else:
++                        ref_val = 1.0  # Fallback to 1.0 if we can't get the reference value
++                except (IndexError, AttributeError):
++                    ref_val = 1.0  # Fallback to 1.0 if we can't get the reference value
++                
++                world_arrays_new.append(ref_val)
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

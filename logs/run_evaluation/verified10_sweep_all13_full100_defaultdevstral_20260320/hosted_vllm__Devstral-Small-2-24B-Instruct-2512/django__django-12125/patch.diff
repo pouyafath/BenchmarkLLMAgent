@@ -1,0 +1,62 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 7d226955d5..5d0291a8fe 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -90,14 +90,51 @@ class DeconstructableSerializer(BaseSerializer):
+ 
+     @staticmethod
+     def _serialize_path(path):
+-        module, name = path.rsplit(".", 1)
+-        if module == "django.db.models":
++        # Special case for Django models
++        if path.startswith("django.db.models."):
+             imports = {"from django.db import models"}
+-            name = "models.%s" % name
++            name = path.replace("django.db.models.", "models.")
++            return name, imports
++
++        # For other paths, find the module boundary
++        # We try to import progressively shorter prefixes
++        parts = path.split(".")
++        for i in range(len(parts) - 1, max(1, len(parts) - 3), -1):
++            module_candidate = ".".join(parts[:i])
++            class_candidate = ".".join(parts[i:])
++            try:
++                import importlib
++                importlib.import_module(module_candidate)
++                # If we can import it, check if the class exists
++                try:
++                    module = importlib.import_module(module_candidate)
++                    for part in class_candidate.split("."):
++                        module = getattr(module, part)
++                    # For inner classes, we need to use the full module path
++                    if "." in class_candidate:
++                        # Inner class: use full module path as name
++                        return path, {"import %s" % module_candidate}
++                    else:
++                        # Top-level class: use "from module import Class" format
++                        return class_candidate, {"from %s import %s" % (module_candidate, class_candidate)}
++                except AttributeError:
++                    continue
++            except ImportError:
++                continue
++
++        # Fallback: use the last two parts as the class name
++        if len(parts) >= 2:
++            module = ".".join(parts[:-2])
++            name = ".".join(parts[-2:])
++            if "." in name:
++                # Inner class: use full path and import the module
++                return path, {"import %s" % module}
++            else:
++                # Top-level class: use "from module import Class" format
++                return name, {"from %s import %s" % (module, name)}
+         else:
+-            imports = {"import %s" % module}
+-            name = path
+-        return name, imports
++            module, name = path.rsplit(".", 1)
++            return name, {"from %s import %s" % (module, name)}
+ 
+     def serialize(self):
+         return self.serialize_deconstructed(*self.value.deconstruct())

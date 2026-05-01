@@ -1,0 +1,80 @@
+diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py
+index 118bfced8..b46487deb 100644
+--- a/astropy/io/fits/card.py
++++ b/astropy/io/fits/card.py
+@@ -1299,13 +1299,22 @@ def _format_value(value):
+ 
+ def _format_float(value):
+     """Format a floating number to make sure it gets the decimal point."""
+-    value_str = f"{value:.16G}"
+-    if "." not in value_str and "E" not in value_str:
+-        value_str += ".0"
+-    elif "E" in value_str:
+-        # On some Windows builds of Python (and possibly other platforms?) the
+-        # exponent is zero-padded out to, it seems, three digits.  Normalize
+-        # the format to pad only to two digits.
++    # First try the Python string representation
++    value_str = str(value)
++
++    # Check if we need to add .0 or handle exponent formatting
++    has_decimal = "." in value_str
++    has_exponent = "E" in value_str
++
++    # If it's scientific notation without a decimal point, add .0
++    if has_exponent and not has_decimal:
++        # Find where to insert the decimal point (before the exponent)
++        exponent_pos = value_str.find("E")
++        # Insert .0 before the exponent
++        value_str = value_str[:exponent_pos] + ".0" + value_str[exponent_pos:]
++
++    # Handle exponent formatting (normalize to 2-digit exponent)
++    if has_exponent:
+         significand, exponent = value_str.split("E")
+         if exponent[0] in ("+", "-"):
+             sign = exponent[0]
+@@ -1314,20 +1323,35 @@ def _format_float(value):
+             sign = ""
+         value_str = f"{significand}E{sign}{int(exponent):02d}"
+ 
+-    # Limit the value string to at most 20 characters.
+-    str_len = len(value_str)
+-
+-    if str_len > 20:
+-        idx = value_str.find("E")
++    # If no decimal point and not scientific notation, add .0
++    if not has_decimal and not has_exponent:
++        value_str += ".0"
+ 
+-        if idx < 0:
+-            value_str = value_str[:20]
+-        else:
+-            value_str = value_str[: 20 - (str_len - idx)] + value_str[idx:]
++    # If the string is too long (unlikely with str()), fall back to .16G format
++    if len(value_str) > 20:
++        value_str = f"{value:.16G}"
++        if "." not in value_str and "E" not in value_str:
++            value_str += ".0"
++        elif "E" in value_str:
++            significand, exponent = value_str.split("E")
++            if exponent[0] in ("+", "-"):
++                sign = exponent[0]
++                exponent = exponent[1:]
++            else:
++                sign = ""
++            value_str = f"{significand}E{sign}{int(exponent):02d}"
++
++        # Limit the value string to at most 20 characters.
++        str_len = len(value_str)
++        if str_len > 20:
++            idx = value_str.find("E")
++            if idx < 0:
++                value_str = value_str[:20]
++            else:
++                value_str = value_str[: 20 - (str_len - idx)] + value_str[idx:]
+ 
+     return value_str
+ 
+-
+ def _pad(input):
+     """Pad blank space to the input string to be multiple of 80."""
+     _len = len(input)

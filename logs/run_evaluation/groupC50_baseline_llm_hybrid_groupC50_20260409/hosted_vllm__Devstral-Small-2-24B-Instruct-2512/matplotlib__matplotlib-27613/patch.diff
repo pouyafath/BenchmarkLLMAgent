@@ -1,0 +1,57 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..aac655dc24 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -209,6 +209,43 @@ validate_floatlist = _listify_validator(
+     validate_float, doc='return a list of floats')
+ 
+ 
++def validate_marker(s):
++    """
++    Validate a marker value, converting numeric markers to their string representations.
++    
++    Parameters
++    ----------
++    s : str or int
++        Marker specification. Can be a string marker like "+" or a numeric marker
++        like matplotlib.markers.CARETRIGHT (which is 5).
++        
++    Returns
++    -------
++    str
++        String representation of the marker.
++    """
++    # Import here to avoid circular imports
++    from matplotlib.markers import MarkerStyle
++    
++    if isinstance(s, str):
++        return validate_string(s)
++    elif isinstance(s, int):
++        # Check if this integer is a known numeric marker
++        if s in MarkerStyle.markers:
++            return MarkerStyle.markers[s]
++        else:
++            # If it's not a known marker, try to convert it as a string
++            # This handles cases like marker "123" which might be a custom marker
++            try:
++                return str(s)
++            except (TypeError, ValueError) as e:
++                raise ValueError(f"Could not convert marker {s!r} to string") from e
++    else:
++        raise ValueError(f"Marker {s!r} must be a string or integer, not {type(s).__name__}")
++
++validate_markerlist = _listify_validator(
++    validate_marker, doc='return a list of marker specifications')
++
+ def _validate_pathlike(s):
+     if isinstance(s, (str, os.PathLike)):
+         # Store value as str because savefig.directory needs to distinguish
+@@ -645,7 +682,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }

@@ -1,0 +1,45 @@
+diff --git a/supervisor/resolution/fixups/store_execute_remove.py b/supervisor/resolution/fixups/store_execute_remove.py
+index 40af37fb..866dcfaf 100644
+--- a/supervisor/resolution/fixups/store_execute_remove.py
++++ b/supervisor/resolution/fixups/store_execute_remove.py
+@@ -29,7 +29,7 @@ class FixupStoreExecuteRemove(FixupBase):
+ 
+         # Remove repository
+         try:
+-            await self.sys_store.remove_repository(repository)
++            await self.sys_store.remove_repository(repository, force=True)
+         except StoreError:
+             raise ResolutionFixupError() from None
+ 
+diff --git a/supervisor/store/__init__.py b/supervisor/store/__init__.py
+index 787e560d..af52b0aa 100644
+--- a/supervisor/store/__init__.py
++++ b/supervisor/store/__init__.py
+@@ -213,12 +213,15 @@ class StoreManager(CoreSysAttributes, FileConfiguration):
+             await self.data.update()
+             await self._read_addons()
+ 
+-    async def remove_repository(self, repository: Repository, *, persist: bool = True):
++    async def remove_repository(self, repository: Repository, *, persist: bool = True, force: bool = False):
+         """Remove a repository."""
+         if repository.source in BUILTIN_REPOSITORIES:
+-            raise StoreInvalidAddonRepo(
+-                "Can't remove built-in repositories!", logger=_LOGGER.error
+-            )
++            if force:
++                _LOGGER.warning("Forcing removal of built-in repository %s", repository.source)
++            else:
++                raise StoreInvalidAddonRepo(
++                    "Can't remove built-in repositories!", logger=_LOGGER.error
++                )
+ 
+         if repository.slug in (addon.repository for addon in self.sys_addons.installed):
+             raise StoreError(
+@@ -233,6 +236,7 @@ class StoreManager(CoreSysAttributes, FileConfiguration):
+             await self.data.update()
+             await self._read_addons()
+ 
++
+     @Job(name="store_manager_update_repositories")
+     async def update_repositories(
+         self,

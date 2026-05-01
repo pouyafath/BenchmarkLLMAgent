@@ -1,0 +1,31 @@
+diff --git a/sphinx/builders/linkcheck.py b/sphinx/builders/linkcheck.py
+index dd5317087..d768a7de9 100644
+--- a/sphinx/builders/linkcheck.py
++++ b/sphinx/builders/linkcheck.py
+@@ -213,7 +213,25 @@ class CheckExternalLinksBuilder(Builder):
+             if len(uri) == 0 or uri.startswith(('#', 'mailto:', 'ftp:')):
+                 return 'unchecked', '', 0
+             elif not uri.startswith(('http:', 'https:')):
+-                return 'local', '', 0
++                # Check if this is a valid local document
++                # Split off anchor if present
++                if '#' in uri:
++                    doc_uri, anchor = uri.split('#', 1)
++                else:
++                    doc_uri = uri
++                    anchor = None
++
++                # Check if the document part exists
++                if doc_uri in self.env.found_docs:
++                    # Document exists, check if anchor is specified
++                    if anchor and self.app.config.linkcheck_anchors:
++                        # For now, we'll treat anchor checks as working
++                        # since we can't easily check anchors in local docs
++                        return 'working', 'old', 0
++                    else:
++                        return 'working', 'old', 0
++                else:
++                    return 'broken', 'Local document does not exist', 0
+             elif uri in self.good:
+                 return 'working', 'old', 0
+             elif uri in self.broken:

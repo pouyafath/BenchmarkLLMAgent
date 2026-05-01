@@ -1,0 +1,78 @@
+diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py
+index b98abfafb..329121f69 100644
+--- a/astropy/units/quantity.py
++++ b/astropy/units/quantity.py
+@@ -640,7 +640,12 @@ class Quantity(np.ndarray):
+         # input to that expected (e.g., radian for np.sin), or to get
+         # consistent units between two inputs (e.g., in np.add) --
+         # and the unit of the result (or tuple of units for nout > 1).
+-        converters, unit = converters_and_unit(function, method, *inputs)
++        try:
++            converters, unit = converters_and_unit(function, method, *inputs)
++        except (TypeError, ValueError, UnitsError, UnitTypeError):
++            # For incompatible units or unsupported operations, return NotImplemented
++            # to allow proper fallback to reflected operators (__radd__, etc.)
++            return NotImplemented
+ 
+         out = kwargs.get("out", None)
+         # Avoid loop back by turning any Quantity output into array views.
+@@ -800,7 +805,7 @@ class Quantity(np.ndarray):
+         if obj is None:
+             obj = self.view(np.ndarray)
+         else:
+-            obj = np.array(obj, copy=False, subok=True)
++            obj = np.asarray(obj, subok=True)
+ 
+         # Take the view, set the unit, and update possible other properties
+         # such as ``info``, ``wrap_angle`` in `Longitude`, etc.
+diff --git a/astropy/units/quantity_helper/function_helpers.py b/astropy/units/quantity_helper/function_helpers.py
+index 2a8a287d9..51d6e6938 100644
+--- a/astropy/units/quantity_helper/function_helpers.py
++++ b/astropy/units/quantity_helper/function_helpers.py
+@@ -71,7 +71,7 @@ SUBCLASS_SAFE_FUNCTIONS |= {
+     np.split, np.array_split, np.hsplit, np.vsplit, np.dsplit,
+     np.stack, np.column_stack, np.hstack, np.vstack, np.dstack,
+     np.amax, np.amin, np.ptp, np.sum, np.cumsum,
+-    np.prod, np.product, np.cumprod, np.cumproduct,
++    np.prod, np.cumprod,
+     np.round, np.around,
+     np.fix, np.angle, np.i0, np.clip,
+     np.isposinf, np.isneginf, np.isreal, np.iscomplex,
+@@ -79,8 +79,8 @@ SUBCLASS_SAFE_FUNCTIONS |= {
+     np.nanmax, np.nanmin, np.nanargmin, np.nanargmax, np.nanmean,
+     np.nanmedian, np.nansum, np.nancumsum, np.nanstd, np.nanvar,
+     np.nanprod, np.nancumprod,
+-    np.einsum_path, np.trapz, np.linspace,
+-    np.sort, np.msort, np.partition, np.meshgrid,
++    np.einsum_path, np.trapezoid, np.linspace,
++    np.sort, np.sort, np.partition, np.meshgrid,
+     np.common_type, np.result_type, np.can_cast, np.min_scalar_type,
+     np.iscomplexobj, np.isrealobj,
+     np.shares_memory, np.may_share_memory,
+@@ -97,7 +97,7 @@ UNSUPPORTED_FUNCTIONS |= {
+     np.packbits, np.unpackbits, np.unravel_index,
+     np.ravel_multi_index, np.ix_, np.cov, np.corrcoef,
+     np.busday_count, np.busday_offset, np.datetime_as_string,
+-    np.is_busday, np.all, np.any, np.sometrue, np.alltrue,
++    np.is_busday, np.all, np.any, np.any, np.all,
+ }  # fmt: skip
+ 
+ # Could be supported if we had a natural logarithm unit.
+@@ -164,7 +164,7 @@ dispatched_function = FunctionAssigner(DISPATCHED_FUNCTIONS)
+ # fmt: off
+ @function_helper(
+     helps={
+-        np.copy, np.asfarray, np.real_if_close, np.sort_complex, np.resize,
++        np.copy, np.asarray, np.real_if_close, np.sort_complex, np.resize,
+         np.fft.fft, np.fft.ifft, np.fft.rfft, np.fft.irfft,
+         np.fft.fft2, np.fft.ifft2, np.fft.rfft2, np.fft.irfft2,
+         np.fft.fftn, np.fft.ifftn, np.fft.rfftn, np.fft.irfftn,
+@@ -872,7 +872,7 @@ def twosetop(ar1, ar2, *args, **kwargs):
+     return (ar1, ar2) + args, kwargs, unit, None
+ 
+ 
+-@function_helper(helps=(np.isin, np.in1d))
++@function_helper(helps=(np.isin, np.isin))
+ def setcheckop(ar1, ar2, *args, **kwargs):
+     # This tests whether ar1 is in ar2, so we should change the unit of
+     # a1 to that of a2.

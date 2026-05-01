@@ -1,0 +1,325 @@
+diff --git a/cli.py b/cli.py
+index ce9c0011..f28185ca 100644
+--- a/cli.py
++++ b/cli.py
+@@ -1,20 +1,18 @@
+-"""CLI for acitool."""
++"""CLI for ntc-templates development utilities."""
+ 
+ import click
+ 
+-from tests.test_development_scripts import (
++from ntc_templates.development_utils import (
+     build_parsed_data_from_dir,
+     build_parsed_data_from_output,
+     transform_file,
+     transform_glob,
+ )
+ 
+-
+ @click.group()
+ def base():
+     """Base entry for click."""
+ 
+-
+ @click.command()
+ @click.option(
+     "-f",
+@@ -27,7 +25,6 @@ def clean_yaml_file(file):
+     """Transform a yaml file to expected output."""
+     transform_file(file)
+ 
+-
+ @click.command()
+ @click.option(
+     "-f",
+@@ -40,7 +37,6 @@ def clean_yaml_folder(folder):
+     """Transform a yaml file to expected output to a folder."""
+     transform_glob(folder)
+ 
+-
+ @click.command()
+ @click.option(
+     "-f",
+@@ -53,7 +49,6 @@ def gen_yaml_file(file):
+     """Generate a yaml file from raw a data file."""
+     build_parsed_data_from_output(file, "./tests/")
+ 
+-
+ @click.command()
+ @click.option(
+     "-f",
+@@ -66,7 +61,6 @@ def gen_yaml_folder(folder):
+     """Generate a yaml file from folder of raw data files."""
+     build_parsed_data_from_dir(folder, "./tests/")
+ 
+-
+ base.add_command(clean_yaml_file)
+ base.add_command(clean_yaml_folder)
+ base.add_command(gen_yaml_file)
+diff --git a/ntc_templates/development_utils.py b/ntc_templates/development_utils.py
+new file mode 100644
+index 00000000..dd0ac316
+--- /dev/null
++++ b/ntc_templates/development_utils.py
+@@ -0,0 +1,260 @@
++"""Development utilities for ntc-templates."""
++
++import os
++import glob
++import numbers
++from copy import deepcopy
++
++from ruamel.yaml import YAML
++from ruamel.yaml.compat import StringIO
++from ruamel.yaml.comments import CommentedMap
++from ruamel.yaml.scalarstring import DoubleQuotedScalarString as DQ
++
++from ntc_templates.parse import parse_output
++
++YAML_OBJECT = YAML()
++YAML_OBJECT.explicit_start = True
++YAML_OBJECT.indent(sequence=4, offset=2)
++YAML_OBJECT.block_style = True
++
++def parse_test_filepath(filepath):
++    """
++    Parses fullpath of test file to obtain platform, command, and filename info.
++
++    Args:
++        filepath (str): The path to a test file from platform directory or earlier.
++
++    Returns:
++        tuple: Strings of platform, command, and the filename without the extension.
++
++    Example:
++        >>> filepath = "tests/cisco_ios/show_version/cisco_ios_show_version.raw"
++        >>> platform, command, filename = parse_test_filepath(filepath)
++        >>> print(platform)
++        cisco_ios
++        >>> print(command)
++        show version
++        >>> print(filename)
++        cisco_ios_show_version
++        >>>
++    """
++    command_dir, filename = os.path.split(filepath)
++    platform_dir, command = os.path.split(command_dir)
++    _, platform = os.path.split(platform_dir)
++
++    command_without_underscores = command.replace("_", " ")
++    filename_without_extension, _ = filename.rsplit(".", 1)
++
++    return platform, command_without_underscores, filename_without_extension
++
++def ensure_yaml_standards(parsed_object, output_path):
++    """
++    Ensures YAML files adhere to yamllint config as defined in this project.
++
++    Args:
++        parsed_object (dict): The TextFSM/CliTable data converted to a list of dicts.
++            The list of dicts must be the value of a dictionary key, ``parsed_sample``.
++        output_path (str): The filepath to write the ``parsed_object`` to.
++
++    Returns:
++        None: File I/O is performed to write ``parsed_object`` to ``output_path``.
++    """
++    sorted_entry = []
++    for entry in parsed_object["parsed_sample"]:
++        # TextFSM conversion will allways be a list of dicts
++        new_dict = CommentedMap()
++        for key, value in sorted(entry.items()):
++            # TextFSM capture groups always return strings or lists
++            # This also accounts for numbers incase the YAML was done by hand
++            if isinstance(value, (str, numbers.Number)):
++                new_dict[key] = DQ(value)
++            else:
++                new_dict[key] = [DQ(val) for val in value]
++        sorted_entry.append(new_dict)
++    parsed_object["parsed_sample"] = sorted_entry
++    try:
++        update_yaml_comments(parsed_object)
++    except AttributeError:
++        pass
++
++    with open(output_path, "w", encoding="utf-8") as parsed_file:
++        YAML_OBJECT.dump(parsed_object, parsed_file)
++
++def update_yaml_comments(yaml_object):
++    """
++    Ensures comments have a space after the "#" on itself and its entries.
++
++    Args:
++        yaml_object (ruamel.yaml.comments.CommentedMap | ruamel.yaml.comments.CommentedSeq): The list or dict object.
++
++    Returns:
++        None: Comments are updated in place.
++
++    Example:
++        >>> from ruamel.yaml import YAML
++        >>> yml = YAML()
++        >>> with open("test.yml", encoding="utf-8") as fh: # doctest: +SKIP
++        ...     print(fh.read())
++        ...     fh.seek(0)
++        ...     data = yml.load(fh)
++        ...
++        ---
++        a: 5 # comment 1
++        b: 6 #comment 2
++        c: 7 #comment 3
++        >>>
++        >>> update_yaml_comments(data)
++        >>> with open("test.yml", "w", encoding="utf-8") as fh: # doctest: +SKIP
++        ...     yml.dump(data, fh)
++        ...
++        ---
++        a: 5 # comment 1
++        b: 6 # comment 2
++        c: 7 # comment 3
++        >>>
++    """
++    import re
++    RE_MULTILINE_REMARK = re.compile(r"(.*\\n\\s*#)(.*)")
++
++    def ensure_spacing_for_multiline_comment(remark):
++        r"""
++        Finds all comments and ensures a single space after "#" symbol.
++
++        Args:
++            remark (str): The remark of a comment from a ``ruamel.yaml.token.CommentToken``.
++
++        Returns:
++            str: The ``remark`` formatted with a single space after comment start, "#"
++
++        Example:
++            >>> remark = "comment 11\\n#        comment 12\\n#comment 13\\n"
++            >>> remark_formatted = ensure_spacing_for_multiline_comment(remark)
++            >>> # Formatting has normalized each comment to have a single space after the "#"
++            >>> remark_formatted
++            'comment 11\\n# comment 12\\n# comment 13'
++            >>>
++        """
++        if remark is None:
++            return
++
++        remarks = re.findall(RE_MULTILINE_REMARK, remark)
++        # remarks that don't have a subsequent comment are not captured by regex
++        if not remarks:
++            remarks = (("", remark),)
++        # Example remarks: [('comment \\n#', '      comment2 '), ('\\n  #', 'comment3 # 9')]
++        for prefix, comment in remarks:
++            yaml_object.yaml_set_comment_before_after_key(
++                comment.strip(), before="", after=" " + comment.strip()
++            )
++
++    if hasattr(yaml_object, "ca") and yaml_object.ca.comment is not None:
++        ensure_spacing_for_multiline_comment(yaml_object.ca.comment)
++    if hasattr(yaml_object, "parsed_sample"):
++        for entry in yaml_object["parsed_sample"]:
++            if hasattr(entry, "ca") and entry.ca.comment is not None:
++                ensure_spacing_for_multiline_comment(entry.ca.comment)
++
++def build_parsed_data_from_output(filepath, test_dir="tests"):
++    """
++    Generates a YAML file from the file containing the raw command output.
++
++    The command output should be stored in a file in the appropriate directory;
++    for example, ``tests/cisco_ios/show_version/cisco_ios_show_version.raw``
++    This uses ``lib.ntc_templates.parse.parse_output``, so the template must
++    be in the ``templates/`` directory, and ``templates/index`` must be updated
++    with the correct entry for the template.
++
++    Args:
++        filepath (str): The path to the file containing sample command output.
++        test_dir (str): The root directory to story the resulting YAML file.
++
++    Returns
++        None: File I/O is performed to generate a YAML file pased on command output.
++
++    Example:
++        >>> root_dir = "tests/cisco_ios/dir"
++        >>> os.listdir(root_dir) # doctest: +SKIP
++        ['cisco_ios_dir.raw']
++        >>> filepath = "tests/cisco_ios/dir/cisco_ios_dir.raw"
++        >>> build_parsed_data_from_output(filepath) # doctest: +SKIP
++        >>> os.listdir(root_dir) # doctest: +SKIP
++        ['cisco_ios_dir.raw', 'cisco_ios_dir.yml']
++        >>>
++    """
++    platform, command, filename = parse_test_filepath(filepath)
++    with open(filepath, encoding="utf-8") as output_file:
++        output_data = output_file.read()
++
++    structured_data = parse_output(platform, command, output_data)
++
++    command_with_underscores = command.replace(" ", "_")
++    yaml_file = f"{test_dir}/{platform}/{command_with_underscores}/{filename}.yml"
++    ensure_yaml_standards({"parsed_sample": structured_data}, yaml_file)
++
++def build_parsed_data_from_dir(dirpath, test_dir="tests"):
++    """
++    Globs for files ending in ``.raw`` and generates YAML files based on TextFSM ouptut.
++
++    Every file in ``dirpath`` ending in ``.raw`` will be parsed with TextFSM and written
++    to a YAML file following the yamllint config standards. Since this is using glob, the
++    directory string passed in can also include glob syntax.
++
++    Args:
++        dirpath (str): The path to search for files with ``.raw`` extension.
++
++    Returns:
++        None: File I/O is performed to ensure YAML files exist for each test output file.
++
++    Example:
++        >>> dirpath = "tests/cisco_ios/show_mac-address-table"
++        >>> build_parsed_data_from_dir(dirpath) # doctest: +SKIP
++        # Each filename is printed to the terminal
++        >>>
++    """
++    for file in glob.iglob(f"{dirpath}/*.raw"):
++        print(file)
++        build_parsed_data_from_output(file, test_dir)
++
++def transform_file(filepath):
++    """
++    Loads YAML file and formats to adhere to yamllint config.
++
++    Args:
++        filepath (str): The full path to a YAML file.
++
++    Returns:
++        None: File I/O is performed to ensure YAML file adheres to yamllint config.
++
++    Example:
++        >>> filepath = "tests/cisco_ios/show_version/cisco_ios_show_version.yml"
++        >>> transform_file(filepath)
++        >>>
++    """
++    with open(filepath, encoding="utf-8") as parsed_file:
++        parsed_object = YAML_OBJECT.load(parsed_file)
++
++    ensure_yaml_standards(parsed_object, filepath)
++
++def transform_glob(dirpath):
++    """
++    Globs for YAML files and formats to adhere to yamllint config.
++
++    Every file in ``dirpath`` ending in ``.yml`` will be formatted according to
++    yamllint config. Since this is using glob, the directory string passed in can
++    also include glob syntax (see ``Example``)
++
++    Args:
++        dirpath (str): The path to search for files with ``.yml`` extension.
++
++    Returns:
++        None: File I/O is performed to ensure YAML files adhere to yamllint config.
++
++    Example:
++        >>> dirpath = "tests/*/*"
++        >>> transform_file(dirpath) # doctest: +SKIP
++        # Each filename is printed to the terminal
++        >>>
++    """
++    for file in glob.iglob(f"{dirpath}/*.yml"):
++        print(file)
++        transform_file(file)

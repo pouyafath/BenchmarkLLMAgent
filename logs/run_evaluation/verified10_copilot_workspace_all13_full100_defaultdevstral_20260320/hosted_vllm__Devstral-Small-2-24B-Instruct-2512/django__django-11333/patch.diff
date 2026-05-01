@@ -1,0 +1,37 @@
+diff --git a/django/urls/base.py b/django/urls/base.py
+index 0e1c3d909c..7858d442ee 100644
+--- a/django/urls/base.py
++++ b/django/urls/base.py
+@@ -92,7 +92,8 @@ reverse_lazy = lazy(reverse, str)
+ 
+ def clear_url_caches():
+     get_callable.cache_clear()
+-    get_resolver.cache_clear()
++    from django.urls.resolvers import _get_resolver_cached
++    _get_resolver_cached.cache_clear()
+     get_ns_resolver.cache_clear()
+ 
+ 
+diff --git a/django/urls/resolvers.py b/django/urls/resolvers.py
+index 247e3680c0..dc70d4f92a 100644
+--- a/django/urls/resolvers.py
++++ b/django/urls/resolvers.py
+@@ -64,10 +64,16 @@ class ResolverMatch:
+ 
+ 
+ @functools.lru_cache(maxsize=None)
++def _get_resolver_cached(urlconf):
++    return URLResolver(RegexPattern(r'^/'), urlconf)
++
+ def get_resolver(urlconf=None):
+     if urlconf is None:
+-        urlconf = settings.ROOT_URLCONF
+-    return URLResolver(RegexPattern(r'^/'), urlconf)
++        # Resolve URLconf at call time to respect thread-local overrides
++        from django.urls.base import get_urlconf
++        urlconf = get_urlconf()
++        return URLResolver(RegexPattern(r'^/'), urlconf)
++    return _get_resolver_cached(urlconf)
+ 
+ 
+ @functools.lru_cache(maxsize=None)

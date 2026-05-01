@@ -1,0 +1,38 @@
+diff --git a/sklearn/linear_model/ridge.py b/sklearn/linear_model/ridge.py
+index b36535ffa..6040cc840 100644
+--- a/sklearn/linear_model/ridge.py
++++ b/sklearn/linear_model/ridge.py
+@@ -80,12 +80,7 @@ def _solve_sparse_cg(X, y, alpha, max_iter=None, tol=1e-3, verbose=0,
+             # w = X.T * inv(X X^t + alpha*Id) y
+             C = sp_linalg.LinearOperator(
+                 (n_samples, n_samples), matvec=mv, dtype=X.dtype)
+-            # FIXME atol
+-            try:
+-                coef, info = sp_linalg.cg(C, y_column, tol=tol, atol='legacy')
+-            except TypeError:
+-                # old scipy
+-                coef, info = sp_linalg.cg(C, y_column, tol=tol)
++            coef, info = sp_linalg.cg(C, y_column, rtol=tol, atol=tol)
+             coefs[i] = X1.rmatvec(coef)
+         else:
+             # linear ridge
+@@ -93,18 +88,10 @@ def _solve_sparse_cg(X, y, alpha, max_iter=None, tol=1e-3, verbose=0,
+             y_column = X1.rmatvec(y_column)
+             C = sp_linalg.LinearOperator(
+                 (n_features, n_features), matvec=mv, dtype=X.dtype)
+-            # FIXME atol
+-            try:
+-                coefs[i], info = sp_linalg.cg(C, y_column, maxiter=max_iter,
+-                                              tol=tol, atol='legacy')
+-            except TypeError:
+-                # old scipy
+-                coefs[i], info = sp_linalg.cg(C, y_column, maxiter=max_iter,
+-                                              tol=tol)
++            coefs[i], info = sp_linalg.cg(C, y_column, maxiter=max_iter, rtol=tol, atol=tol)
+ 
+         if info < 0:
+             raise ValueError("Failed with error code %d" % info)
+-
+         if max_iter is None and info > 0 and verbose:
+             warnings.warn("sparse_cg did not converge after %d iterations." %
+                           info, ConvergenceWarning)

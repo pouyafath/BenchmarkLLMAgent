@@ -1,0 +1,63 @@
+diff --git a/src/helm/tokenizers/anthropic_tokenizer.py b/src/helm/tokenizers/anthropic_tokenizer.py
+index d34cd841..6308c6c7 100644
+--- a/src/helm/tokenizers/anthropic_tokenizer.py
++++ b/src/helm/tokenizers/anthropic_tokenizer.py
+@@ -1,5 +1,5 @@
+ from typing import Any, Dict
+-
++import os
+ import threading
+ 
+ from helm.common.cache import CacheConfig
+@@ -9,10 +9,10 @@ from transformers import PreTrainedTokenizerBase, PreTrainedTokenizerFast
+ 
+ try:
+     import anthropic
++    from tokenizers import Tokenizer as HFTokenizer
+ except ModuleNotFoundError as e:
+     handle_module_not_found_error(e, ["anthropic"])
+ 
+-
+ class AnthropicTokenizer(CachingTokenizer):
+     LOCK: threading.Lock = threading.Lock()
+     """Global lock for the Anthropic tokenizer.
+@@ -22,9 +22,36 @@ class AnthropicTokenizer(CachingTokenizer):
+     def __init__(self, cache_config: CacheConfig) -> None:
+         super().__init__(cache_config)
+         with AnthropicTokenizer.LOCK:
+-            self._tokenizer: PreTrainedTokenizerBase = PreTrainedTokenizerFast(
+-                tokenizer_object=anthropic.Anthropic().get_tokenizer()
+-            )
++            # Try to load the tokenizer from the Anthropic package directly
++            # This avoids using the deprecated get_tokenizer() method
++            try:
++                anthropic_path = os.path.dirname(anthropic.__file__)
++                tokenizer_path = os.path.join(anthropic_path, 'tokenizer.json')
++                if os.path.exists(tokenizer_path):
++                    # Load the tokenizer directly from the JSON file
++                    self._tokenizer: PreTrainedTokenizerBase = PreTrainedTokenizerFast(
++                        tokenizer_object=HFTokenizer.from_file(tokenizer_path)
++                    )
++                else:
++                    # Fallback to the old method if the file doesn't exist
++                    # This is for compatibility with older versions
++                    self._tokenizer: PreTrainedTokenizerBase = PreTrainedTokenizerFast(
++                        tokenizer_object=anthropic.Anthropic().get_tokenizer()
++                    )
++            except AttributeError:
++                # If get_tokenizer() is not available (version >= 0.39.0), try to load from file
++                try:
++                    anthropic_path = os.path.dirname(anthropic.__file__)
++                    tokenizer_path = os.path.join(anthropic_path, 'tokenizer.json')
++                    self._tokenizer: PreTrainedTokenizerBase = PreTrainedTokenizerFast(
++                        tokenizer_object=HFTokenizer.from_file(tokenizer_path)
++                    )
++                except Exception as e:
++                    raise RuntimeError(
++                        f"Could not initialize Anthropic tokenizer. "
++                        f"Please ensure you have anthropic>=0.39.0 installed. "
++                        f"Error: {e}"
++                    ) from e
+ 
+     def _tokenize_do_it(self, request: Dict[str, Any]) -> Dict[str, Any]:
+         if request["encode"]:

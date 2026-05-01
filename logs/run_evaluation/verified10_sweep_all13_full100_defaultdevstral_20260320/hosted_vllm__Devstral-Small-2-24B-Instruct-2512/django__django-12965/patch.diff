@@ -1,0 +1,22 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index 29e33c075f..8f28acd0cd 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -1425,6 +1425,17 @@ class SQLDeleteCompiler(SQLCompiler):
+         """
+         if self.single_alias:
+             return self._as_sql(self.query)
++        # If there are no aliases, it means we have a simple delete without
++        # any joins, so we can use the simple DELETE statement
++        if not self.query.alias_map:
++            # Use the model's db_table directly when there are no aliases
++            result = [
++                'DELETE FROM %s' % self.quote_name_unless_alias(self.query.model._meta.db_table)
++            ]
++            where, params = self.compile(self.query.where)
++            if where:
++                result.append('WHERE %s' % where)
++            return ' '.join(result), tuple(params)
+         innerq = self.query.clone()
+         innerq.__class__ = Query
+         innerq.clear_select_clause()

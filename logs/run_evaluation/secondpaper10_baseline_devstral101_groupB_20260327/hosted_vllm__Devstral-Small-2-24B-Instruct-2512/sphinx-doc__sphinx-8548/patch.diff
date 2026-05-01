@@ -1,0 +1,25 @@
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index ddfd2b365..0fdc222d5 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -746,7 +746,19 @@ class Documenter:
+                         keep = has_doc or self.options.undoc_members
+                 else:
+                     keep = False
+-            elif (namespace, membername) in attr_docs:
++            # Check current namespace and base class namespaces
++            found_in_attr_docs = False
++            if self.analyzer and hasattr(self.object, "__mro__"):
++                for base_cls in self.object.__mro__:
++                    # Get the class name as the namespace (matches how analyzer stores it)
++                    base_namespace = base_cls.__name__
++                    if (base_namespace, membername) in attr_docs:
++                        found_in_attr_docs = True
++                        break
++            if (namespace, membername) in attr_docs:
++                found_in_attr_docs = True
++
++            if found_in_attr_docs:
+                 if want_all and isprivate:
+                     if self.options.private_members is None:
+                         keep = False

@@ -1,0 +1,67 @@
+diff --git a/xarray/tests/test_dataset.py b/xarray/tests/test_dataset.py
+index 9ea47163..6a952527 100644
+--- a/xarray/tests/test_dataset.py
++++ b/xarray/tests/test_dataset.py
+@@ -2995,6 +2995,62 @@ class TestDataset:
+         assert isinstance(actual.variables["x"], Variable)
+         assert actual.xindexes["y"].equals(expected.xindexes["y"])
+ 
++    def test_swap_dims_does_not_mutate_original(self) -> None:
++        """Test that swap_dims does not mutate the original dataset.
++
++        This test addresses the issue described in the PR where swap_dims
++        could modify the original Dataset when a data variable becomes a
++        dimension coordinate.
++        """
++        # Test case 1: Basic swap
++        original1 = Dataset({"x": [1, 2, 3], "y": ("x", list("abc")), "z": 42})
++        original1_copy = original1.copy(deep=True)
++        result1 = original1.swap_dims({"x": "y"})
++        assert_identical(original1, original1_copy)
++
++        # Test case 2: Data variable becoming dimension coordinate (from PR)
++        original2 = Dataset(
++            data_vars={
++                "y": ("z", np.random.rand(11)),
++                "lev": ("z", np.arange(11) * 10),
++            },
++        )
++        original2_copy = original2.copy(deep=True)
++        result2 = original2.swap_dims(z="lev")
++        assert_identical(original2, original2_copy)
++
++        # Test case 3: Multiple swaps on the same original
++        original3 = Dataset(
++            data_vars={
++                "y": ("z", np.random.rand(11)),
++                "lev": ("z", np.arange(11) * 10),
++            },
++        )
++        original3_copy = original3.copy(deep=True)
++        result3a = original3.swap_dims(z="lev")
++        result3b = original3.swap_dims(z="lev")
++        assert_identical(original3, original3_copy)
++
++        # Test case 4: The full scenario from the PR
++        original4 = Dataset(
++            data_vars={
++                "y": ("z", np.random.rand(11)),
++                "lev": ("z", np.arange(11) * 10),
++            },
++        )
++        original4_copy = original4.copy(deep=True)
++
++        # Perform the operations from the PR
++        ds2 = (
++            original4.swap_dims(z="lev")
++            .rename_dims(lev="z")
++            .reset_index("lev")
++            .reset_coords()
++        )
++        result4 = ds2.swap_dims(z="lev")
++
++        # Check that original4 was not modified
++        assert_identical(original4, original4_copy)
+     def test_expand_dims_error(self) -> None:
+         original = Dataset(
+             {

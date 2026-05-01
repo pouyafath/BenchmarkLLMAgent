@@ -1,0 +1,42 @@
+diff --git a/astropy/table/table.py b/astropy/table/table.py
+index 5afe2127a..4da811a71 100644
+--- a/astropy/table/table.py
++++ b/astropy/table/table.py
+@@ -1243,6 +1243,10 @@ class Table:
+         # mixin class
+         if (not isinstance(data, Column) and not data_is_mixin
+                 and isinstance(data, np.ndarray) and len(data.dtype) > 1):
++            warnings.warn(
++                "Structured arrays will be converted to Column objects in a future version. "
++                "To avoid this warning, explicitly wrap the data in a Column object.",
++                FutureWarning, stacklevel=2)
+             data = data.view(NdarrayMixin)
+             data_is_mixin = True
+ 
+diff --git a/astropy/table/tests/test_mixin.py b/astropy/table/tests/test_mixin.py
+index 2fdcd20d8..c0097478a 100644
+--- a/astropy/table/tests/test_mixin.py
++++ b/astropy/table/tests/test_mixin.py
+@@ -698,6 +698,7 @@ def test_skycoord_representation():
+ 
+ 
+ def test_ndarray_mixin():
++    import warnings
+     """
+     Test directly adding a plain structured array into a table instead of the
+     view as an NdarrayMixin.  Once added as an NdarrayMixin then all the previous
+@@ -712,9 +713,11 @@ def test_ndarray_mixin():
+     d = np.arange(8, dtype='i8').reshape(4, 2).view(NdarrayMixin)
+ 
+     # Add one during initialization and the next as a new column.
+-    t = Table([a], names=['a'])
+-    t['b'] = b
+-    t['c'] = c
++    with warnings.catch_warnings():
++        warnings.simplefilter("ignore", FutureWarning)
++        t = Table([a], names=['a'])
++        t['b'] = b
++        t['c'] = c
+     t['d'] = d
+ 
+     assert isinstance(t['a'], NdarrayMixin)

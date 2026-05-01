@@ -1,0 +1,629 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch develop2
+Your branch is behind 'origin/develop2' by 923 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   conan/cli/commands/test.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 2c22ae5a2e9ae968148948dd416faa051c3964e3
+Author: James <james@conan.io>
+Date:   Mon Jan 22 11:25:35 2024 +0100
+
+    test-poc for cppstd compatibility exact (#15348)
+    
+    * test-poc for cppstd compatibility exact
+    
+    * use explicit attribute
+    
+    * testing conf_info
+    
+    * changed to extension_properties generic attr
+
+diff --git a/conans/client/graph/compatibility.py b/conans/client/graph/compatibility.py
+index eef1cadb1..c72c4377c 100644
+--- a/conans/client/graph/compatibility.py
++++ b/conans/client/graph/compatibility.py
+@@ -29,7 +29,9 @@ from conan.errors import ConanException
+ 
+ def cppstd_compat(conanfile):
+     # It will try to find packages with all the cppstd versions
+-
++    extension_properties = getattr(conanfile, "extension_properties", {})
++    if extension_properties.get("compatibility_cppstd") is False:
++        return []
+     compiler = conanfile.settings.get_safe("compiler")
+     compiler_version = conanfile.settings.get_safe("compiler.version")
+     cppstd = conanfile.settings.get_safe("compiler.cppstd")
+diff --git a/conans/test/integration/package_id/test_validate.py b/conans/test/integration/package_id/test_validate.py
+index 90fec33aa..52de8cdcf 100644
+--- a/conans/test/integration/package_id/test_validate.py
++++ b/conans/test/integration/package_id/test_validate.py
+@@ -661,6 +661,47 @@ class TestValidateCppstd:
+                    assert_error=True)
+         assert 'pkg/0.1: Invalid: I need at least cppstd=14 to be used' in client.out
+ 
++    @pytest.mark.parametrize("use_attribute", [True, False])
++    def test_exact_cppstd(self, use_attribute):
++        """ Using the default cppstd_compat sometimes is not desired, and a recipe can
++        explicitly opt-out this default cppstd_compat behavior, if it knows its binaries
++        won't be binary compatible among them for different cppstd values
++        """
++        client = TestClient()
++        if use_attribute:
++            conanfile = textwrap.dedent("""
++                from conan import ConanFile
++                class Pkg(ConanFile):
++                    settings = "compiler"
++                    extension_properties = {"compatibility_cppstd": False}
++            """)
++        else:
++            conanfile = textwrap.dedent("""
++                from conan import ConanFile
++                class Pkg(ConanFile):
++                    settings = "compiler"
++                    def compatibility(self):
++                        self.extension_properties = {"compatibility_cppstd": False}
++            """)
++
++        client.save({"conanfile.py": conanfile})
++
++        settings = "-s compiler=gcc -s compiler.version=9 -s compiler.libcxx=libstdc++"
++        client.run(f"create . --name=pkg --version=0.1 {settings} -s compiler.cppstd=17")
++        client.assert_listed_binary({"pkg/0.1": ("91faf062eb94767a31ff62a46767d3d5b41d1eff",
++                                                 "Build")})
++
++        # Install with cppstd=14 can NOT fallback to the previous one
++        client.run(f"install --requires=pkg/0.1 {settings} -s compiler.cppstd=14", assert_error=True)
++        assert "ERROR: Missing prebuilt package for 'pkg/0.1'" in client.out
++        assert "compiler.cppstd=14" in client.out
++        assert "compiler.cppstd=17" not in client.out
++        client.run(f"install --requires=pkg/0.1 {settings} -s compiler.cppstd=14 --build=missing")
++        client.assert_listed_binary({"pkg/0.1": ("36d978cbb4dc35906d0fd438732d5e17cd1e388d",
++                                                 "Build")})
++        assert "compiler.cppstd=14" in client.out
++        assert "compiler.cppstd=17" not in client.out
++
+ 
+ class TestCompatibleSettingsTarget(unittest.TestCase):
+     """ aims to be a very close to real use case of tool being used across different settings_target
++ git -c core.fileMode=false diff 2c22ae5a2e9ae968148948dd416faa051c3964e3
+diff --git a/conan/cli/commands/test.py b/conan/cli/commands/test.py
+index d8f2093fb..54c6a14e8 100644
+--- a/conan/cli/commands/test.py
++++ b/conan/cli/commands/test.py
+@@ -49,6 +49,22 @@ def test(conan_api, parser, *args):
+ 
+ def run_test(conan_api, path, ref, profile_host, profile_build, remotes, lockfile, update,
+              build_modes, tested_python_requires=None, build_modes_test=None, tested_graph=None):
++    # Check if the tested reference is a python_requires
++    if tested_python_requires is None:
++        from conan.internal.conan_app import ConanApp
++        import os
++        app = ConanApp(conan_api)
++        try:
++            conanfile_path = conan_api.cache.export_path(ref)
++            # Try to read the conanfile.py and check for package_type
++            with open(os.path.join(conanfile_path, "conanfile.py"), "r") as f:
++                conanfile_content = f.read()
++                if 'package_type = "python-require"' in conanfile_content:
++                    tested_python_requires = ref.repr_notime()
++        except Exception:
++            # If we can't read the conanfile, assume it's not a python_requires
++            pass
++
+     root_node = conan_api.graph.load_root_test_conanfile(path, ref,
+                                                          profile_host, profile_build,
+                                                          remotes=remotes,
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 21.3.1 from /usr/local/lib/python3.6/site-packages/pip (python 3.6)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command /usr/local/bin/python /usr/local/lib/python3.6/site-packages/pip/_vendor/pep517/in_process/_in_process.py _supported_features /tmp/tmpeenvbule
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Running command /usr/local/bin/python /usr/local/lib/python3.6/site-packages/pip/_vendor/pep517/in_process/_in_process.py prepare_metadata_for_build_wheel /tmp/tmptm68182y
+  running dist_info
+  creating /tmp/pip-modern-metadata-n1tx8yne/conan.egg-info
+  writing /tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.md'
+  writing manifest file '/tmp/pip-modern-metadata-n1tx8yne/conan.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-n1tx8yne/conan.dist-info'
+  adding license file "LICENSE.md" (matched pattern "LICEN[CS]E*")
+  /usr/local/lib/python3.6/site-packages/setuptools/dist.py:484: UserWarning: Normalizing '2.1.0-dev' to '2.1.0.dev0'
+    warnings.warn(tmpl.format(**locals()))
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: patch-ng<1.18,>=1.17.4 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (1.17.4)
+Requirement already satisfied: python-dateutil<3,>=2.8.0 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (2.8.2)
+Requirement already satisfied: Jinja2<4.0.0,>=3.0 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (3.0.3)
+Requirement already satisfied: distro<=1.8.0,>=1.4.0 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (1.8.0)
+Requirement already satisfied: fasteners>=0.15 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (0.19)
+Requirement already satisfied: PyYAML<7.0,>=6.0 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (6.0.1)
+Requirement already satisfied: requests<3.0.0,>=2.25 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (2.27.1)
+Requirement already satisfied: colorama<0.5.0,>=0.4.3 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (0.4.5)
+Requirement already satisfied: urllib3<1.27,>=1.26.6 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (1.26.18)
+Requirement already satisfied: WebTest<2.1.0,>=2.0.18 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (2.0.35)
+Requirement already satisfied: parameterized>=0.6.3 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (0.8.1)
+Requirement already satisfied: mock<1.4.0,>=1.3.0 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (1.3.0)
+Requirement already satisfied: pytest-xdist in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (3.0.2)
+Requirement already satisfied: bottle in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (0.12.25)
+Requirement already satisfied: pytest<7.0.0,>=6.1.1 in /usr/local/lib/python3.6/site-packages (from conan==2.1.0.dev0) (6.2.5)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.6/site-packages (from Jinja2<4.0.0,>=3.0->conan==2.1.0.dev0) (2.0.1)
+Requirement already satisfied: six>=1.7 in /usr/local/lib/python3.6/site-packages (from mock<1.4.0,>=1.3.0->conan==2.1.0.dev0) (1.16.0)
+Requirement already satisfied: pbr>=0.11 in /usr/local/lib/python3.6/site-packages (from mock<1.4.0,>=1.3.0->conan==2.1.0.dev0) (6.0.0)
+Requirement already satisfied: py>=1.8.2 in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (1.11.0)
+Requirement already satisfied: toml in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (0.10.2)
+Requirement already satisfied: pluggy<2.0,>=0.12 in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (1.0.0)
+Requirement already satisfied: iniconfig in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (1.1.1)
+Requirement already satisfied: attrs>=19.2.0 in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (22.2.0)
+Requirement already satisfied: importlib-metadata>=0.12 in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (4.8.3)
+Requirement already satisfied: packaging in /usr/local/lib/python3.6/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (21.3)
+Requirement already satisfied: charset-normalizer~=2.0.0 in /usr/local/lib/python3.6/site-packages (from requests<3.0.0,>=2.25->conan==2.1.0.dev0) (2.0.12)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.6/site-packages (from requests<3.0.0,>=2.25->conan==2.1.0.dev0) (2023.11.17)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.6/site-packages (from requests<3.0.0,>=2.25->conan==2.1.0.dev0) (3.6)
+Requirement already satisfied: WebOb>=1.2 in /usr/local/lib/python3.6/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (1.8.7)
+Requirement already satisfied: waitress>=0.8.5 in /usr/local/lib/python3.6/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (2.0.0)
+Requirement already satisfied: beautifulsoup4 in /usr/local/lib/python3.6/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (4.12.3)
+Requirement already satisfied: execnet>=1.1 in /usr/local/lib/python3.6/site-packages (from pytest-xdist->conan==2.1.0.dev0) (1.9.0)
+Requirement already satisfied: zipp>=0.5 in /usr/local/lib/python3.6/site-packages (from importlib-metadata>=0.12->pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (3.6.0)
+Requirement already satisfied: typing-extensions>=3.6.4 in /usr/local/lib/python3.6/site-packages (from importlib-metadata>=0.12->pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (4.1.1)
+Requirement already satisfied: soupsieve>1.2 in /usr/local/lib/python3.6/site-packages (from beautifulsoup4->WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (2.3.2.post1)
+Requirement already satisfied: pyparsing!=3.0.5,>=2.0.2 in /usr/local/lib/python3.6/site-packages (from packaging->pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (3.1.1)
+Installing collected packages: conan
+  Attempting uninstall: conan
+    Found existing installation: conan 2.1.0.dev0
+    Uninstalling conan-2.1.0.dev0:
+      Removing file or directory /usr/local/bin/conan
+      Removing file or directory /usr/local/lib/python3.6/site-packages/conan.egg-link
+      Removing pth entries from /usr/local/lib/python3.6/site-packages/easy-install.pth:
+      Removing entry: /testbed
+      Successfully uninstalled conan-2.1.0.dev0
+  Running setup.py develop for conan
+    Running command /usr/local/bin/python -c 'import io, os, sys, setuptools, tokenize; sys.argv[0] = '"'"'/testbed/setup.py'"'"'; __file__='"'"'/testbed/setup.py'"'"';f = getattr(tokenize, '"'"'open'"'"', open)(__file__) if os.path.exists(__file__) else io.StringIO('"'"'from setuptools import setup; setup()'"'"');code = f.read().replace('"'"'\r\n'"'"', '"'"'\n'"'"');f.close();exec(compile(code, __file__, '"'"'exec'"'"'))' develop --no-deps
+    running develop
+    running egg_info
+    writing conan.egg-info/PKG-INFO
+    writing dependency_links to conan.egg-info/dependency_links.txt
+    writing entry points to conan.egg-info/entry_points.txt
+    writing requirements to conan.egg-info/requires.txt
+    writing top-level names to conan.egg-info/top_level.txt
+    reading manifest file 'conan.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    adding license file 'LICENSE.md'
+    writing manifest file 'conan.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.6/site-packages/conan.egg-link (link to .)
+    Adding conan 2.1.0.dev0 to easy-install.pth file
+    Installing conan script to /usr/local/bin
+
+    Installed /testbed
+    /usr/local/lib/python3.6/site-packages/setuptools/dist.py:484: UserWarning: Normalizing '2.1.0-dev' to '2.1.0.dev0'
+      warnings.warn(tmpl.format(**locals()))
+Successfully installed conan-2.1.0.dev0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/9f/8b/a094f5da22d7abf5098205367b3296dd15b914f4232af5ca39ba6214d08c/pip-22.0-py3-none-any.whl#sha256=6cb1ea2bd7fda0668e26ae8c3e45188f301a7ef17ff22efe1f70f3643e56a822 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/4a/ca/e72b3b399d7a8cb34311aa8f52924108591c013b09f0268820afb4cd96fb/pip-22.0.tar.gz#sha256=d3fa5c3e42b33de52bddce89de40268c9a263cd6ef7c94c40774808dafb32c82 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/89/a1/2f4e58eda11e591fbfa518233378835679fc5ab766b690b3df85215014d5/pip-22.0.1-py3-none-any.whl#sha256=30739ac5fb973cfa4399b0afff0523d4fe6bed2f7a5229333f64d9c2ce0d1933 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/63/71/5686e51f06fa59da55f7e81c3101844e57434a30f4a0d7456674d1459841/pip-22.0.1.tar.gz#sha256=7fd7a92f2fb1d2ac2ae8c72fb10b1e640560a0361ed4427453509e2bcc18605b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/83/b5/df8640236faa5a3cb80bfafd68e9fb4b22578208b8398c032ccff803f9e0/pip-22.0.2-py3-none-any.whl#sha256=682eabc4716bfce606aca8dab488e9c7b58b0737e9001004eb858cdafcd8dbdd (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/d9/c1/146b24a7648fdf3f8b4dc6521ab0b26ac151ef903bac0b63a4e1450cb4d1/pip-22.0.2.tar.gz#sha256=27b4b70c34ec35f77947f777070d8331adbb1e444842e98e7150c288dc0caea4 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/6a/df/a6ef77a6574781a668791419ffe366c8acd1c3cf4709d210cb53cd5ce1c2/pip-22.0.3-py3-none-any.whl#sha256=c146f331f0805c77017c6bb9740cec4a49a0d4582d0c3cc8244b057f83eca359 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/88/d9/761f0b1e0551a3559afe4d34bd9bf68fc8de3292363b3775dda39b62ce84/pip-22.0.3.tar.gz#sha256=f29d589df8c8ab99c060e68ad294c4a9ed896624f6368c5349d70aa581b333d0 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/4d/16/0a14ca596f30316efd412a60bdfac02a7259bf8673d4d917dc60b9a21812/pip-22.0.4-py3-none-any.whl#sha256=c6aca0f2f081363f689f041d90dab2a07a9a07fb840284db2218117a52da800b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/33/c9/e2164122d365d8f823213a53970fa3005eb16218edcfc56ca24cb6deba2b/pip-22.0.4.tar.gz#sha256=b3a9de2c6ef801e9247d1527a4b16f92f2cc141cd1489f3fffaf6a9e96729764 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/79/3a/d341ae105c8b49eac912bee40739d496ae80f9441efa7df6c68f4997bbc8/pip-22.1b1-py3-none-any.whl#sha256=09e9e8f8e10f2515134b59600ad3630219430eabb734336079cbc6ffb2e01a0e (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/a7/c0/794f22836ef3202a7ad61f0872278ee7ac62e8c7617e4c9a08f01b5e82da/pip-22.1b1.tar.gz#sha256=f54ab61985754b56c5589178cfd7dfca5ed9f98d5c8f2de2eecb29f1341200f1 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/f3/77/23152f90de45957b59591c34dcb39b78194eb67d088d4f8799e9aa9726c4/pip-22.1-py3-none-any.whl#sha256=802e797fb741be1c2d475533d4ea951957e4940091422bd4a24848a7ac95609d (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/99/bb/696e256f4f445809f25efd4e4ce42ff99664dc089cafa1e097d5fec7fc33/pip-22.1.tar.gz#sha256=2debf847016cfe643fa1512e2d781d3ca9e5c878ba0652583842d50cc2bcc605 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/9b/e6/aa8149e048eda381f2a433599be9b1f5e5e3a189636cd6cf9614aa2ff5be/pip-22.1.1-py3-none-any.whl#sha256=e7bcf0b2cbdec2af84cc1b7b79b25fdbd7228fbdb61a4dca0b82810d0ba9d18b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/3e/0a/6125e67aa4d3245faeed476e4e26f190b5209f84f01efd733ac6372eb247/pip-22.1.1.tar.gz#sha256=8dfb15d8a1c3d3085a4cbe11f29e19527dfaf2ba99354326fd62cec013eaee81 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/96/2f/caec18213f6a67852f6997fb0673ae08d2e93d1b81573edb93ba4ef06970/pip-22.1.2-py3-none-any.whl#sha256=a3edacb89022ef5258bf61852728bf866632a394da837ca49eb4303635835f17 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/4b/b6/0fa7aa968a9fa4ef63a51b3ff0644e59f49dcd7235b3fd6cceb23f202e08/pip-22.1.2.tar.gz#sha256=6d55b27e10f506312894a87ccc59f280136bad9061719fac9101bdad5a6bce69 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/9b/9e/9e0610f25e65e2cdf90b1ee9c47ca710865401904038558ac0129ea23cbc/pip-22.2-py3-none-any.whl#sha256=9abf423d5d64f3289ab9d5bf31da9e6234f2e9c5d8dcf1423bcb46b809a02c2c (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/cd/b6/cf07132d631444dd7ce0ed199f2327eb34e2418f1675145e5b10e1ee65cd/pip-22.2.tar.gz#sha256=8d63fcd4ee293e30b644827268a0a973d080e5c7425ef26d427f5eb2126c7681 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/84/25/5734a44897751d8bac6822efb819acda2d969bcc1b915bbd7d48102952cb/pip-22.2.1-py3-none-any.whl#sha256=0bbbc87dfbe6eed217beff0021f8b7dea04c8f4a0baa9d31dc4cff281ffc5b2b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/46/28/addd7e66bb3af799d35a5dcbb79407b591a7ed674f4efd2bd8f930c40821/pip-22.2.1.tar.gz#sha256=50516e47a2b79e77446f0d05649f0d53772c192571486236b1905492bfc24bac (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/1f/2c/d9626f045e7b49a6225c6b09257861f24da78f4e5f23af2ddbdf852c99b8/pip-22.2.2-py3-none-any.whl#sha256=b61a374b5bc40a6e982426aede40c9b5a08ff20e640f5b56977f4f91fed1e39a (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/4b/30/e15b806597e67057e07a5acdc135216ccbf76a5f1681a324533b61066b0b/pip-22.2.2.tar.gz#sha256=3fd1929db052f056d7a998439176d3333fa1b3f6c1ad881de1885c0717608a4b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/47/ef/8b5470b5b94b36231ed9c0bde90caa71c0d4322d4a15f009b2b7f4287fe0/pip-22.3-py3-none-any.whl#sha256=1daab4b8d3b97d1d763caeb01a4640a2250a0ea899e257b1e44b9eded91e15ab (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/f8/08/7f92782ff571c7c7cb6c5eeb8ebbb1f68cb02bdb24e55c5de4dd9ce98bc3/pip-22.3.tar.gz#sha256=8182aec21dad6c0a49a2a3d121a87cd524b950e0b6092b181625f07ebdde7530 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/09/bd/2410905c76ee14c62baf69e3f4aa780226c1bbfc9485731ad018e35b0cb5/pip-22.3.1-py3-none-any.whl#sha256=908c78e6bc29b676ede1c4d57981d490cb892eb45cd8c214ab6298125119e077 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/a3/50/c4d2727b99052780aad92c7297465af5fe6eec2dbae490aa9763273ffdc1/pip-22.3.1.tar.gz#sha256=65fd48317359f3af8e593943e6ae1506b66325085ea64b706a998c6e83eeaf38 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/ab/43/508c403c38eeaa5fc86516eb13bb470ce77601b6d2bbcdb16e26328d0a15/pip-23.0-py3-none-any.whl#sha256=b5f88adff801f5ef052bcdef3daa31b55eb67b0fccd6d0106c206fa248e0463c (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/b5/16/5e24bf63cff51dcc169f43bd43b86b005c49941e09cc3482a5b370db239e/pip-23.0.tar.gz#sha256=aee438284e82c8def684b0bcc50b1f6ed5e941af97fa940e83e2e8ef1a59da9b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/07/51/2c0959c5adf988c44d9e1e0d940f5b074516ecc87e96b1af25f59de9ba38/pip-23.0.1-py3-none-any.whl#sha256=236bcb61156d76c4b8a05821b988c7b8c35bf0da28a4b614e8d6ab5212c25c6f (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/6b/8b/0b16094553ecc680e43ded8f920c3873b01b1da79a54274c98f08cb29fca/pip-23.0.1.tar.gz#sha256=cd015ea1bfb0fcef59d8a286c1f8bebcb983f6317719d415dc5351efb7cd7024 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/ae/db/a8821cdac455a1740580c92de3ed7b7f257cfdbad8b1ba8864e6abe58a08/pip-23.1-py3-none-any.whl#sha256=64b1d4528e491aa835ec6ece0c1ac40ce6ab6d886e60740f6519db44b2e9634d (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/da/bf/1bdbe62f5fbde085351693e3a8e387a59f8220932b911b1719fe65efa2d7/pip-23.1.tar.gz#sha256=408539897ee535dbfb83a153f7bc4d620f990d8bd44a52a986efc0b4d330d34a (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/f8/f8/17bd3f7c13515523d811ce4104410c16c03e3c6830f9276612e2f4b28382/pip-23.1.1-py3-none-any.whl#sha256=3d8d72fa0714e93c9d3c2a0ede91e898c64596e0fa7d4523f72dd95728efc418 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/43/7d/1f52f99a7f2eae870483b2c2a3064511487de87911bce146df8a154fbe81/pip-23.1.1.tar.gz#sha256=c95b53d309f903f33dfe5fd37e502a5c3a05ee3454d518e45df522a4f091b728 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/08/e3/57d4c24a050aa0bcca46b2920bff40847db79535dc78141eb83581a52eb8/pip-23.1.2-py3-none-any.whl#sha256=3ef6ac33239e4027d9a5598a381b9d30880a1477e50039db2eac6e8a8f6d1b18 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/fa/ee/74ff76da0ab649eec7581233daeb43d8aa35383d8f75317b2ab3b80c922f/pip-23.1.2.tar.gz#sha256=0e7c86f486935893c708287b30bd050a36ac827ec7fe5e43fe7cb198dd835fba (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/02/65/f15431ddee78562355ccb39097bf9160a1689f2db40dc418754be98806a1/pip-23.2-py3-none-any.whl#sha256=78e5353a9dda374b462f2054f83a7b63f3f065c98236a68361845c1b0ee7e35f (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/3d/ab/21fa8d1ecf5648559f056fda732b0f9fca0585eb2688252e67f70e74deaf/pip-23.2.tar.gz#sha256=a160a170f3331d9ca1a0247eb1cd79c758879f1f81158f9cd05bbb5df80bea5c (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/50/c2/e06851e8cc28dcad7c155f4753da8833ac06a5c704c109313b8d5a62968a/pip-23.2.1-py3-none-any.whl#sha256=7ccf472345f20d35bdc9d1841ff5f313260c2c33fe417f48c30ac46cccabf5be (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/ba/19/e63fb4e0d20e48bd2167bb7e857abc0e21679e24805ba921a224df8977c0/pip-23.2.1.tar.gz#sha256=fb0bd5435b3200c602b5bf61d2d43c2f13c02e29c1707567ae7fbc514eb9faf2 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/e0/63/b428aaca15fcd98c39b07ca7149e24bc14205ad0f1c80ba2b01835aedde1/pip-23.3-py3-none-any.whl#sha256=bc38bb52bc286514f8f7cb3a1ba5ed100b76aaef29b521d48574329331c5ae7b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/0d/f6/07ef4561bb911285c229fa46ed3df1877bd6c5325c4c67d516560d59a6e6/pip-23.3.tar.gz#sha256=bb7d4f69f488432e4e96394612f43ab43dd478d073ef7422604a570f7157561e (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/47/6a/453160888fab7c6a432a6e25f8afe6256d0d9f2cbd25971021da6491d899/pip-23.3.1-py3-none-any.whl#sha256=55eb67bb6171d37447e82213be585b75fe2b12b359e993773aca4de9247a052b (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/1f/7f/4da15e07ccd11c84c1ccc8f6e24288d5e76c99441bf80e315b33542db951/pip-23.3.1.tar.gz#sha256=1fcaa041308d01f14575f6d0d2ea4b75a3e2871fe4f9c694976f908768e14174 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/15/aa/3f4c7bcee2057a76562a5b33ecbd199be08cdb4443a02e26bd2c3cf6fc39/pip-23.3.2-py3-none-any.whl#sha256=5052d7889c1f9d05224cd41741acb7c5d6fa735ab34e339624a614eaaa7e7d76 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/b7/06/6b1ad0ae8f97d7a0d6f6ad640db10780578999e647a9593512ceb6f06469/pip-23.3.2.tar.gz#sha256=7fd9972f96db22c8077a1ee2691b172c8089b17a5652a44494a9ecb0d78f9149 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/8a/6a/19e9fe04fca059ccf770861c7d5721ab4c2aebc539889e97c7977528a53b/pip-24.0-py3-none-any.whl#sha256=ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.7'): https://files.pythonhosted.org/packages/94/59/6638090c25e9bc4ce0c42817b5a234e183872a1129735a9330c472cc2056/pip-24.0.tar.gz#sha256=ea9bd1a847e8c5774a5777bb398c19e80bcd4e2aa16a4b301b718fe6f593aba2 (from https://pypi.org/simple/pip/) (requires-python:>=3.7)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/1e/65/22725f8ba583376d0c300c3b9b52b9a67cfd93d786a80be73c167e45abc8/pip-24.1b1-py3-none-any.whl#sha256=752516cffafef5cf29d3fb2f06c978f27e98709654689cf277b2fce984c7a591 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/71/38/b0cb3d68b4776b6208a2f16b6d444a848a1fe465a78ce4b7dbbeb8a4fc58/pip-24.1b1.tar.gz#sha256=a9bd4c037d72325b4e903ec3f383263deea3eb73cd01db7a844edd026fc68afe (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/c1/64/0f1528ed3dfd75a56e084caab3c8dbed596bf87a1dfc40cbc57166bb0c25/pip-24.1b2-py3-none-any.whl#sha256=7b4ae01a2af4bfae0386860c5a12c035fcc228364ddef89192a1c31d48d263a1 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/0b/b2/1d1eac32a16fd9478fb9bc6eb6b899f91e6fecceba194fa097c35d385e9a/pip-24.1b2.tar.gz#sha256=926201900a0e26929387023907bf395c9a6c0d37bbea176942ca5e1b6b27e815 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/25/49/2255373efd193c6fbd97dc22399e9c830a6517a0f02ca77fbc0bd83ac5cc/pip-24.1-py3-none-any.whl#sha256=a775837439bf5da2c1a0c2fa43d5744854497c689ddbd9344cf3ea6d00598540 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/df/60/7538a9cd4d76829c2f585b73d6e400c833a1769408451c813354c58de6cc/pip-24.1.tar.gz#sha256=bdae551038c0ce6a83030b4aedef27fc95f0daa683593fea22fa05e55ed8e317 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/f4/ab/e3c039b5ddba9335bd8f82d599eb310de1d2a2db0411b8d804d507405c74/pip-24.1.1-py3-none-any.whl#sha256=efca15145a95e95c00608afeab66311d40bfb73bb2266a855befd705e6bb15a0 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/c0/d0/9641dc7b05877874c6418f8034ddefc809495e65caa14d38c7551cd114bb/pip-24.1.1.tar.gz#sha256=5aa64f65e1952733ee0a9a9b1f52496ebdb3f3077cc46f80a16d983b58d1180a (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/e7/54/0c1c068542cee73d8863336e974fc881e608d0170f3af15d0c0f28644531/pip-24.1.2-py3-none-any.whl#sha256=7cd207eed4c60b0f411b444cd1464198fe186671c323b6cd6d433ed80fc9d247 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/12/3d/d899257cace386bebb7bdf8a872d5fe3b935cc6381c3ddb76d3e5d99890d/pip-24.1.2.tar.gz#sha256=e5458a0b89f2755e0ee8c0c77613fe5273e05f337907874d64f13171a898a7ff (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/d4/55/90db48d85f7689ec6f81c0db0622d704306c5284850383c090e6c7195a5c/pip-24.2-py3-none-any.whl#sha256=2cd581cf58ab7fcfca4ce8efa6dcacd0de5bf8d0a3eb9ec927e07405f4d9e2a2 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/4d/87/fb90046e096a03aeab235e139436b3fe804cdd447ed2093b0d70eba3f7f8/pip-24.2.tar.gz#sha256=5b5e490b5e9cb275c879595064adce9ebd31b854e3e803740b72f9ccf34a45b8 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/ce/22/4bb91eb040e18eedaba1ba9db41ef909bc73d20023cea09024099909998a/pip-24.3-py3-none-any.whl#sha256=461877c364317128146d1eb33c62c2a80e33cb23b4cafdf4ad728bc74958e0dd (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/a3/63/dca2c8e2dbfbde322386caf6e674f97f46a6f11d496dc96b99594f8ecc33/pip-24.3.tar.gz#sha256=cd831345d9ce4f74ff7115203d3a0bd6730a1ba814f9327ede48910b1e30a447 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/ef/7d/500c9ad20238fcfcb4cb9243eede163594d7020ce87bd9610c9e02771876/pip-24.3.1-py3-none-any.whl#sha256=3790624780082365f47549d032f3770eeb2b1e8bd1f7b2e02dace1afa361b4ed (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/f4/b1/b422acd212ad7eedddaf7981eee6e5de085154ff726459cf2da7c5a184c1/pip-24.3.1.tar.gz#sha256=ebcb60557f2aefabc2e0f918751cd24ea0d56d8ec5445fe1807f1d2109660b99 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/85/8a/1ddf40be20103bcc605db840e9ade09c8e8c9f920a03e9cfe88eae97a058/pip-25.0-py3-none-any.whl#sha256=b6eb97a803356a52b2dd4bb73ba9e65b2ba16caa6bcb25a7497350a4e5859b65 (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/47/3e/68beeeeb306ea20ffd30b3ed993f531d16cd884ec4f60c9b1e238f69f2af/pip-25.0.tar.gz#sha256=8e0a97f7b4c47ae4a494560da84775e9e2f671d415d8d828e052efefb206b30b (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/c9/bc/b7db44f5f39f9d0494071bddae6880eb645970366d0a200022a1a93d57f5/pip-25.0.1-py3-none-any.whl#sha256=c46efd13b6aa8279f33f2864459c8ce587ea6a1a59ee20de055868d8f7688f7f (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.8'): https://files.pythonhosted.org/packages/70/53/b309b4a497b09655cb7e07088966881a57d082f48ac3cb54ea729fd2c6cf/pip-25.0.1.tar.gz#sha256=88f96547ea48b940a3a385494e181e29fb8637898f88d88737c5049780f196ea (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl#sha256=13b4aa0aaad055020a11bec8a1c2a70a2b2d080e12d89b962266029fff0a16ba (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz#sha256=272bdd1289f80165e9070a4f881e8f9e1001bbb50378561d1af20e49bf5a2200 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl#sha256=2913a38a2abf4ea6b64ab507bd9e967f3b53dc1ede74b01b0931e1ce548751af (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz#sha256=3de45d411d308d5054c2168185d8da7f9a2cd753dbac8acbfa88a8909ecd9077 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl#sha256=6d67a2b4e7f14d8b31b8b52648866fa717f45a1eb70e83002f4331d07e953717 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz#sha256=578283f006390f85bb6282dffb876454593d637f5d1be494b5202ce4877e71f2 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl#sha256=9655943313a94722b7774661c21049070f6bbb0a1516bf02f7c8d5d9201514cd (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz#sha256=8d0538dbbd7babbd207f261ed969c65de439f6bc9e5dbd3b3b9a77f25d95f343 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl#sha256=98436feffb9e31bc9339cf369fd55d3331b1580b6a6f1173bacacddcf9c34754 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz#sha256=3ce220a0a17915972fbf1ab451baae1521c4539e778b28127efa79b974aff0fa (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl#sha256=bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.6.15 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz#sha256=c4037d8a277c89b320abe636d59f91e6d0922d08a05b60e85e53b296613346d8 (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 2c22ae5a2e9ae968148948dd416faa051c3964e3 conan/cli/commands/test.py conans/test/integration/py_requires/python_requires_test.py
+Updated 1 path from c71deb562
++ git apply -v -
+Checking patch conan/cli/commands/test.py...
+Checking patch conans/test/integration/py_requires/python_requires_test.py...
+Applied patch conan/cli/commands/test.py cleanly.
+Applied patch conans/test/integration/py_requires/python_requires_test.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA conan/cli/commands/test.py conans/test/integration/py_requires/python_requires_test.py
+============================= test session starts ==============================
+platform linux -- Python 3.6.15, pytest-6.2.5, py-1.11.0, pluggy-1.0.0
+rootdir: /testbed, configfile: pytest.ini
+plugins: xdist-3.0.2
+collected 38 items
+
+conan/cli/commands/test.py E                                             [  2%]
+conans/test/integration/py_requires/python_requires_test.py ............ [ 34%]
+................FF.......                                                [100%]
+
+==================================== ERRORS ====================================
+________________________ ERROR at setup of test_package ________________________
+file /testbed/conan/cli/commands/create.py, line 127
+  def test_package(conan_api, deps_graph, test_conanfile_path, tested_python_requires=None):
+E       fixture 'conan_api' not found
+>       available fixtures: cache, capfd, capfdbinary, caplog, capsys, capsysbinary, doctest_namespace, monkeypatch, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, testrun_uid, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, worker_id
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/testbed/conan/cli/commands/create.py:127
+=================================== FAILURES ===================================
+________ TestTestPackagePythonRequire.test_test_package_python_requires ________
+
+self = <conans.test.integration.py_requires.python_requires_test.TestTestPackagePythonRequire object at 0x7f5ee509ec18>
+
+    def test_test_package_python_requires(self):
+        """ test how to test_package a python_require
+        """
+    
+        c = TestClient()
+        conanfile = textwrap.dedent("""
+            from conan import ConanFile
+            def mycommon():
+                return 42
+            class Common(ConanFile):
+                name = "common"
+                version = "0.1"
+                package_type = "python-require"
+            """)
+        test = textwrap.dedent("""
+            from conan import ConanFile
+    
+            class Tool(ConanFile):
+                python_requires = "tested_reference_str"
+                def test(self):
+                    self.output.info("{}!!!".format(self.python_requires["common"].module.mycommon()))
+            """)
+        c.save({"conanfile.py": conanfile,
+                "test_package/conanfile.py": test})
+>       c.run("create .")
+
+conans/test/integration/py_requires/python_requires_test.py:1022: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+conans/test/utils/tools.py:568: in run
+    return self._run_cli(command_line, assert_error=assert_error)
+conans/test/utils/tools.py:542: in _run_cli
+    self._handle_cli_result(command_line, assert_error=assert_error, error=error, trace=trace)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <conans.test.utils.tools.TestClient object at 0x7f5ee509e048>
+command = 'create .', assert_error = False, error = 1
+trace = 'Traceback (most recent call last):\n  File "/testbed/conans/test/utils/tools.py", line 531, in _run_cli\n    command....nanfile.py\' doesn\'t declare any requirement, use `self.tested_reference_str` to require the package being created.\n'
+
+    def _handle_cli_result(self, command, assert_error, error, trace=None):
+        if (assert_error and not error) or (not assert_error and error):
+            if assert_error:
+                msg = " Command succeeded (failure expected): "
+            else:
+                msg = " Command failed (unexpectedly): "
+            exc_message = "\n{header}\n{cmd}\n{output_header}\n{output}\n".format(
+                header='{:=^80}'.format(msg),
+                output_header='{:=^80}'.format(" Output: "),
+                cmd=command,
+                output=str(self.stderr) + str(self.stdout) + "\n" + str(self.out)
+            )
+            if trace:
+                exc_message += '{:=^80}'.format(" Traceback: ") + f"\n{trace}"
+>           raise Exception(exc_message)
+E           Exception: 
+E           ======================== Command failed (unexpectedly): ========================
+E           create .
+E           =================================== Output: ====================================
+E           
+E           ======== Exporting recipe to the cache ========
+E           common/0.1: Exporting package recipe: /tmp/tmppx7cy6ayconans/path with spaces/conanfile.py
+E           common/0.1: Copied 1 '.py' file: conanfile.py
+E           common/0.1: Exported to cache folder: /tmp/tmp2_asmgb6conans/path with spaces/.conan2/p/commoa6c77982d8195/e
+E           common/0.1: Exported: common/0.1#912322cfd9c73b0112e8e2ba54d7d8d3 (2026-04-02 12:55:12 UTC)
+E           
+E           ======== Input profiles ========
+E           Profile host:
+E           [settings]
+E           arch=x86_64
+E           build_type=Release
+E           compiler=gcc
+E           compiler.libcxx=libstdc++11
+E           compiler.version=8
+E           os=Linux
+E           
+E           Profile build:
+E           [settings]
+E           arch=x86_64
+E           build_type=Release
+E           compiler=gcc
+E           compiler.libcxx=libstdc++11
+E           compiler.version=8
+E           os=Linux
+E           
+E           
+E           ======== Computing dependency graph ========
+E           WARN: deprecated: test_package/conanfile.py should declare 'python_requires = "tested_reference_str"'
+E           
+E           ======== Launching test_package ========
+E           
+E           ======== Computing dependency graph ========
+E           Graph root
+E               common/0.1 (test package): /tmp/tmppx7cy6ayconans/path with spaces/test_package/conanfile.py
+E           Python requires
+E               common/0.1#912322cfd9c73b0112e8e2ba54d7d8d3 - Cache
+E           
+E           ======== Computing necessary packages ========
+E           
+E           ======== Installing packages ========
+E           
+E           ======== Testing the package ========
+E           ERROR: The conanfile at '/tmp/tmppx7cy6ayconans/path with spaces/test_package/conanfile.py' doesn't declare any requirement, use `self.tested_reference_str` to require the package being created.
+E           
+E           
+E           ================================== Traceback: ==================================
+E           Traceback (most recent call last):
+E             File "/testbed/conans/test/utils/tools.py", line 531, in _run_cli
+E               command.run(args)
+E             File "/testbed/conan/cli/cli.py", line 191, in run
+E               command.run(self._conan_api, args[0][1:])
+E             File "/testbed/conan/cli/command.py", line 140, in run
+E               info = self._method(conan_api, parser, *args)
+E             File "/testbed/conan/cli/commands/create.py", line 107, in create
+E               tested_python_requires=tested_python_requires, tested_graph=deps_graph)
+E             File "/testbed/conan/cli/commands/test.py", line 82, in run_test
+E               test_package(conan_api, deps_graph, path)
+E             File "/testbed/conan/cli/commands/create.py", line 134, in test_package
+E               "package being created.".format(test_conanfile_path))
+E           conans.errors.ConanException: The conanfile at '/tmp/tmppx7cy6ayconans/path with spaces/test_package/conanfile.py' doesn't declare any requirement, use `self.tested_reference_str` to require the package being created.
+
+conans/test/utils/tools.py:609: Exception
+____ TestTestPackagePythonRequire.test_test_package_python_requires_configs ____
+
+self = <conans.test.integration.py_requires.python_requires_test.TestTestPackagePythonRequire object at 0x7f5ee4e88470>
+
+    def test_test_package_python_requires_configs(self):
+        """ test how to test_package a python_require with various configurations
+        """
+    
+        c = TestClient()
+        conanfile = textwrap.dedent("""
+            from conan import ConanFile
+            def mycommon(build_type):
+                return str(build_type).upper() + "OK"
+            class Common(ConanFile):
+                name = "common"
+                version = "0.1"
+                package_type = "python-require"
+            """)
+        test = textwrap.dedent("""
+            from conan import ConanFile
+    
+            class Tool(ConanFile):
+                settings = "build_type"
+                def test(self):
+                    result = self.python_requires["common"].module.mycommon(self.settings.build_type)
+                    self.output.info("{}!!!".format(result))
+            """)
+        c.save({"conanfile.py": conanfile,
+                "test_package/conanfile.py": test})
+>       c.run("create . ")
+
+conans/test/integration/py_requires/python_requires_test.py:1053: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+conans/test/utils/tools.py:568: in run
+    return self._run_cli(command_line, assert_error=assert_error)
+conans/test/utils/tools.py:542: in _run_cli
+    self._handle_cli_result(command_line, assert_error=assert_error, error=error, trace=trace)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <conans.test.utils.tools.TestClient object at 0x7f5ee4e884e0>
+command = 'create . ', assert_error = False, error = 1
+trace = 'Traceback (most recent call last):\n  File "/testbed/conans/test/utils/tools.py", line 531, in _run_cli\n    command....nanfile.py\' doesn\'t declare any requirement, use `self.tested_reference_str` to require the package being created.\n'
+
+    def _handle_cli_result(self, command, assert_error, error, trace=None):
+        if (assert_error and not error) or (not assert_error and error):
+            if assert_error:
+                msg = " Command succeeded (failure expected): "
+            else:
+                msg = " Command failed (unexpectedly): "
+            exc_message = "\n{header}\n{cmd}\n{output_header}\n{output}\n".format(
+                header='{:=^80}'.format(msg),
+                output_header='{:=^80}'.format(" Output: "),
+                cmd=command,
+                output=str(self.stderr) + str(self.stdout) + "\n" + str(self.out)
+            )
+            if trace:
+                exc_message += '{:=^80}'.format(" Traceback: ") + f"\n{trace}"
+>           raise Exception(exc_message)
+E           Exception: 
+E           ======================== Command failed (unexpectedly): ========================
+E           create . 
+E           =================================== Output: ====================================
+E           
+E           ======== Exporting recipe to the cache ========
+E           common/0.1: Exporting package recipe: /tmp/tmpv4cc_56uconans/path with spaces/conanfile.py
+E           common/0.1: Copied 1 '.py' file: conanfile.py
+E           common/0.1: Exported to cache folder: /tmp/tmpxsni21frconans/path with spaces/.conan2/p/commo3287c70b56e5b/e
+E           common/0.1: Exported: common/0.1#766a42665d225a71e697cb822a575167 (2026-04-02 12:55:13 UTC)
+E           
+E           ======== Input profiles ========
+E           Profile host:
+E           [settings]
+E           arch=x86_64
+E           build_type=Release
+E           compiler=gcc
+E           compiler.libcxx=libstdc++11
+E           compiler.version=8
+E           os=Linux
+E           
+E           Profile build:
+E           [settings]
+E           arch=x86_64
+E           build_type=Release
+E           compiler=gcc
+E           compiler.libcxx=libstdc++11
+E           compiler.version=8
+E           os=Linux
+E           
+E           
+E           ======== Computing dependency graph ========
+E           WARN: deprecated: test_package/conanfile.py should declare 'python_requires = "tested_reference_str"'
+E           
+E           ======== Launching test_package ========
+E           
+E           ======== Computing dependency graph ========
+E           Graph root
+E               common/0.1 (test package): /tmp/tmpv4cc_56uconans/path with spaces/test_package/conanfile.py
+E           Python requires
+E               common/0.1#766a42665d225a71e697cb822a575167 - Cache
+E           
+E           ======== Computing necessary packages ========
+E           
+E           ======== Installing packages ========
+E           
+E           ======== Testing the package ========
+E           ERROR: The conanfile at '/tmp/tmpv4cc_56uconans/path with spaces/test_package/conanfile.py' doesn't declare any requirement, use `self.tested_reference_str` to require the package being created.
+E           
+E           
+E           ================================== Traceback: ==================================
+E           Traceback (most recent call last):
+E             File "/testbed/conans/test/utils/tools.py", line 531, in _run_cli
+E               command.run(args)
+E             File "/testbed/conan/cli/cli.py", line 191, in run
+E               command.run(self._conan_api, args[0][1:])
+E             File "/testbed/conan/cli/command.py", line 140, in run
+E               info = self._method(conan_api, parser, *args)
+E             File "/testbed/conan/cli/commands/create.py", line 107, in create
+E               tested_python_requires=tested_python_requires, tested_graph=deps_graph)
+E             File "/testbed/conan/cli/commands/test.py", line 82, in run_test
+E               test_package(conan_api, deps_graph, path)
+E             File "/testbed/conan/cli/commands/create.py", line 134, in test_package
+E               "package being created.".format(test_conanfile_path))
+E           conans.errors.ConanException: The conanfile at '/tmp/tmpv4cc_56uconans/path with spaces/test_package/conanfile.py' doesn't declare any requirement, use `self.tested_reference_str` to require the package being created.
+
+conans/test/utils/tools.py:609: Exception
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_build_id
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_duplicate_pyreq
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_failure_init_method
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_local_build
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_local_import
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_multiple_requires_error
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_multiple_reuse
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_options_errors
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_overwrite_class_members
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_class_members
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_dot
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_editable_exports
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_export_sources
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_name_version
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_super
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_system_requirements
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_reuse_version_ranges
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_transitive_access
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_transitive_imports_conflicts
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_update
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_update_ranges
+PASSED conans/test/integration/py_requires/python_requires_test.py::PyRequiresExtendTest::test_with_alias
+PASSED conans/test/integration/py_requires/python_requires_test.py::test_transitive_python_requires
+PASSED conans/test/integration/py_requires/python_requires_test.py::test_transitive_diamond_python_requires
+PASSED conans/test/integration/py_requires/python_requires_test.py::TestConflictPyRequires::test_diamond_conflict_fixed
+PASSED conans/test/integration/py_requires/python_requires_test.py::TestConflictPyRequires::test_diamond_conflict_ranges
+PASSED conans/test/integration/py_requires/python_requires_test.py::test_multiple_reuse
+PASSED conans/test/integration/py_requires/python_requires_test.py::TestResolveRemote::test_resolve_remote_export
+PASSED conans/test/integration/py_requires/python_requires_test.py::TestResolveRemote::test_missing_python_require_error
+PASSED conans/test/integration/py_requires/python_requires_test.py::TestTransitiveExtend::test_transitive_extend
+PASSED conans/test/integration/py_requires/python_requires_test.py::TestTransitiveExtend::test_transitive_extend2
+PASSED conans/test/integration/py_requires/python_requires_test.py::test_multi_top_missing_from_remote
+PASSED conans/test/integration/py_requires/python_requires_test.py::test_transitive_range_not_found_in_cache
+PASSED conans/test/integration/py_requires/python_requires_test.py::test_export_pkg
+ERROR conan/cli/commands/test.py::test_package
+FAILED conans/test/integration/py_requires/python_requires_test.py::TestTestPackagePythonRequire::test_test_package_python_requires
+FAILED conans/test/integration/py_requires/python_requires_test.py::TestTestPackagePythonRequire::test_test_package_python_requires_configs
+==================== 2 failed, 35 passed, 1 error in 6.21s =====================
++ : '>>>>> End Test Output'
++ git checkout 2c22ae5a2e9ae968148948dd416faa051c3964e3 conan/cli/commands/test.py conans/test/integration/py_requires/python_requires_test.py
+Updated 2 paths from c71deb562

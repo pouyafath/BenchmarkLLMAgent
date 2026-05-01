@@ -1,0 +1,63 @@
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index 37a15ff2..68161c9d 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -1018,20 +1018,32 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         for rule in rules
+     ]
+ 
+-    headers = ("Endpoint", "Methods", "Rule")
++    # Calculate domain for each rule
++    server_name = current_app.config.get("SERVER_NAME")
++    rule_domains = []
++    for rule in rules:
++        subdomain = rule.subdomain
++        if subdomain:
++            domain = f"{subdomain}.{server_name}" if server_name else subdomain
++        else:
++            domain = server_name or ""
++        rule_domains.append(domain)
++
++    headers = ("Domain", "Endpoint", "Methods", "Rule")
+     widths = (
++        max(len(domain) for domain in rule_domains) if rule_domains else 0,
+         max(len(rule.endpoint) for rule in rules),
+         max(len(methods) for methods in rule_methods),
+         max(len(rule.rule) for rule in rules),
+     )
+     widths = [max(len(h), w) for h, w in zip(headers, widths)]
+-    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}".format(*widths)
++    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}  {{3:<{3}}}".format(*widths)
+ 
+     click.echo(row.format(*headers).strip())
+     click.echo(row.format(*("-" * width for width in widths)))
+ 
+-    for rule, methods in zip(rules, rule_methods):
+-        click.echo(row.format(rule.endpoint, methods, rule.rule).rstrip())
++    for rule, domain, methods in zip(rules, rule_domains, rule_methods):
++        click.echo(row.format(domain, rule.endpoint, methods, rule.rule).rstrip())
+ 
+ 
+ cli = FlaskGroup(
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 0d9625b1..0b630569 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -463,9 +463,15 @@ class TestRoutes:
+ 
+     def expect_order(self, order, output):
+         # skip the header and match the start of each row
++        # The domain column is first, but may be empty. The endpoint is the first non-empty column.
+         for expect, line in zip(order, output.splitlines()[2:]):
+-            # do this instead of startswith for nicer pytest output
+-            assert line[: len(expect)] == expect
++            # Find the start of the endpoint (first non-whitespace sequence)
++            endpoint_start = len(line) - len(line.lstrip())
++            if endpoint_start < len(line):
++                # do this instead of startswith for nicer pytest output
++                assert line[endpoint_start:endpoint_start + len(expect)] == expect
++            else:
++                assert line[: len(expect)] == expect
+ 
+     def test_simple(self, invoke):
+         result = invoke(["routes"])

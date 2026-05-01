@@ -1,0 +1,52 @@
+diff --git a/pylint/checkers/refactoring/refactoring_checker.py b/pylint/checkers/refactoring/refactoring_checker.py
+index 97e509025..f9b7717bb 100644
+--- a/pylint/checkers/refactoring/refactoring_checker.py
++++ b/pylint/checkers/refactoring/refactoring_checker.py
+@@ -483,6 +483,11 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+             "value by index lookup. "
+             "The value can be accessed directly instead.",
+         ),
++        "R1737": (
++            "Use 'yield from' instead of looping and yielding items",
++            "consider-using-yield-from",
++            "Used when a for loop is used to iterate over a generator and yield items one by one. This can be simplified to use 'yield from' instead.",
++        ),
+     }
+     options = (
+         (
+@@ -1008,6 +1013,35 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+     def visit_raise(self, node: nodes.Raise) -> None:
+         self._check_stop_iteration_inside_generator(node)
+ 
++
++    @utils.only_required_for_messages("consider-using-yield-from")
++    def visit_yield(self, node: nodes.Yield) -> None:
++        """Check if yield can be replaced with yield from."""
++        # Only check if this is a simple yield of a variable
++        if not node.value or not isinstance(node.value, nodes.Name):
++            return
++
++        frame = node.frame()
++        if not isinstance(frame, nodes.FunctionDef) or not frame.is_generator():
++            return
++
++        # Look for a for loop in the same function that iterates over the same variable
++        for child in frame.body:
++            if isinstance(child, nodes.For):
++                # Check if the for loop iterates over a call that returns a generator
++                if isinstance(child.iter, nodes.Call):
++                    # Check if the for loop target is the same as the yield value
++                    for target in child.target.nodes_of_class(nodes.AssignName):
++                        if target.name == node.value.name:
++                            # Check if the for loop body contains only this yield statement
++                            # The body might contain an Expr node wrapping the Yield
++                            if (len(child.body) == 1 and
++                                isinstance(child.body[0], nodes.Expr) and
++                                isinstance(child.body[0].value, nodes.Yield)):
++                                if child.body[0].value is node:
++                                    self.add_message("consider-using-yield-from", node=node)
++                                    return
++
+     def _check_stop_iteration_inside_generator(self, node: nodes.Raise) -> None:
+         """Check if an exception of type StopIteration is raised inside a generator."""
+         frame = node.frame()

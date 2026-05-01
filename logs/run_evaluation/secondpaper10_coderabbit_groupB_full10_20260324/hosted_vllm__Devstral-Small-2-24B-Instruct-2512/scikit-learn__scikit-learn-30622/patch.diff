@@ -1,0 +1,88 @@
+diff --git a/sklearn/ensemble/_voting.py b/sklearn/ensemble/_voting.py
+index bcf2d7497..ba495b8e8 100644
+--- a/sklearn/ensemble/_voting.py
++++ b/sklearn/ensemble/_voting.py
+@@ -15,6 +15,7 @@ from numbers import Integral
+ import numpy as np
+ 
+ from ..base import (
++    BaseEstimator,
+     ClassifierMixin,
+     RegressorMixin,
+     TransformerMixin,
+@@ -43,6 +44,59 @@ from ..utils.validation import (
+     column_or_1d,
+ )
+ from ._base import _BaseHeterogeneousEnsemble, _fit_single_estimator
++def _validate_estimators_arg(estimators):
++    """Validate the estimators argument for VotingClassifier/VotingRegressor.
++
++    Parameters
++    ----------
++    estimators : list or tuple
++        The estimators to validate.
++
++    Raises
++    ------
++    ValueError
++        If estimators is not a list or tuple, or if any estimator is not
++        properly formatted as (str, estimator) tuple.
++    """
++    if not isinstance(estimators, (list, tuple)):
++        raise ValueError(
++            f"estimators must be a list or tuple of (str, estimator) pairs, "
++            f"got {type(estimators).__name__}"
++        )
++
++    if len(estimators) == 0:
++        raise ValueError(
++            "Invalid 'estimators' attribute, 'estimators' should be a non-empty list"
++        )
++
++    for i, estimator in enumerate(estimators):
++        if not isinstance(estimator, (list, tuple)):
++            raise ValueError(
++                f"All estimators should be tuples in the form "
++                f"(name, estimator), got {type(estimator).__name__} "
++                f"instead at position {i}"
++            )
++
++        if len(estimator) != 2:
++            raise ValueError(
++                f"All estimators should be tuples in the form "
++                f"(name, estimator), got {len(estimator)} elements at position {i}"
++            )
++
++        name, est = estimator
++        if not isinstance(name, str):
++            raise ValueError(
++                f"Estimator name must be a string, got {type(name).__name__} "
++                f"at position {i}"
++            )
++
++        # Allow 'drop' as a valid estimator value
++        if est != "drop" and not isinstance(est, BaseEstimator):
++            raise ValueError(
++                f"Estimator at position {i} must be a scikit-learn estimator, "
++                f"got {type(est).__name__}"
++            )
++
+ 
+ 
+ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
+@@ -341,6 +395,7 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
+         flatten_transform=True,
+         verbose=False,
+     ):
++        _validate_estimators_arg(estimators)
+         super().__init__(estimators=estimators)
+         self.voting = voting
+         self.weights = weights
+@@ -648,6 +703,7 @@ class VotingRegressor(RegressorMixin, _BaseVoting):
+     """
+ 
+     def __init__(self, estimators, *, weights=None, n_jobs=None, verbose=False):
++        _validate_estimators_arg(estimators)
+         super().__init__(estimators=estimators)
+         self.weights = weights
+         self.n_jobs = n_jobs

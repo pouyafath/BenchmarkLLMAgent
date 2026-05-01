@@ -1,0 +1,43 @@
+{
+  "issue_id": "DynamoRIO__dynamorio-7583",
+  "pr_number": 7583,
+  "pr_base_sha": "47d207c62cb24dad1fc1f12b4cc6bf947fcdbcbc",
+  "pr_files": [
+    {
+      "filename": "clients/drcachesim/CMakeLists.txt",
+      "status": "modified",
+      "additions": 9,
+      "deletions": 0,
+      "changes": 9
+    },
+    {
+      "filename": "clients/drcachesim/common/options.cpp",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 3,
+      "changes": 13
+    },
+    {
+      "filename": "clients/drcachesim/common/options.h",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0,
+      "changes": 1
+    },
+    {
+      "filename": "clients/drcachesim/tracer/tracer.cpp",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 4,
+      "changes": 9
+    },
+    {
+      "filename": "core/unix/signal.c",
+      "status": "modified",
+      "additions": 11,
+      "deletions": 3,
+      "changes": 14
+    }
+  ],
+  "patch": "diff --git a/clients/drcachesim/CMakeLists.txt b/clients/drcachesim/CMakeLists.txt\nindex 8a9a0c66f10..c9ef3436871 100644\n--- a/clients/drcachesim/CMakeLists.txt\n+++ b/clients/drcachesim/CMakeLists.txt\n@@ -1275,6 +1275,15 @@ if (BUILD_TESTS)\n       endif ()\n       add_win32_flags(tool.drcacheoff.burst_futex ON)\n       use_DynamoRIO_drmemtrace_tracer(tool.drcacheoff.burst_futex)\n+\n+      # -time_syscall_scale is Linux-only.\n+      add_executable(tool.drcacheoff.burst_sleep\n+        \"${CMAKE_CURRENT_SOURCE_DIR}/tests/burst_sleep.cpp\")\n+      configure_DynamoRIO_static(tool.drcacheoff.burst_sleep)\n+      use_DynamoRIO_static_client(tool.drcacheoff.burst_sleep drmemtrace_static)\n+      target_link_libraries(tool.drcacheoff.burst_sleep drmemtrace_raw2trace\n+        drmemtrace_analyzer test_helpers)\n+      use_DynamoRIO_drmemtrace_tracer(tool.drcacheoff.burst_sleep)\n     endif ()\n \n   endif ()\ndiff --git a/clients/drcachesim/common/options.cpp b/clients/drcachesim/common/options.cpp\nindex 8ba43627560..de740bfcf08 100644\n--- a/clients/drcachesim/common/options.cpp\n+++ b/clients/drcachesim/common/options.cpp\n@@ -1291,12 +1291,19 @@ droption_t<bool> op_pt2ir_best_effort(\n     \"seen in converted syscall traces).\");\n \n droption_t<int> op_scale_timers(\n-    DROPTION_SCOPE_ALL, \"scale_timers\", 0, 0, (std::numeric_limits<int>::max)(),\n-    \"If non-0, inflate application timer periods by this value\",\n-    \"If non-zero, application timer initial durations and periodic durations are \"\n+    DROPTION_SCOPE_ALL, \"scale_timers\", 1, 1, (std::numeric_limits<int>::max)(),\n+    \"If >1, inflate application timer periods by this value\",\n+    \"If >1, application timer initial durations and periodic durations are \"\n     \"inflated by this scale.  This can help preserve relative timing between timer-based \"\n     \"application work and other application work in the presence of \"\n     \"significant slowdowns from tracing.  Currently only supported on Linux.\");\n+droption_t<int> op_scale_timeouts(\n+    DROPTION_SCOPE_ALL, \"scale_timeouts\", 1, 1, (std::numeric_limits<int>::max)(),\n+    \"If >1, inflate syscall timeouts by this value\",\n+    \"If >1, time arguments to certain system calls (currently Linux-only \"\n+    \"sleeps) are multiplied by the specified value.  This can help preserve relative \"\n+    \"timing among application threads in the presence of significant slowdowns from \"\n+    \"tracing.\");\n \n } // namespace drmemtrace\n } // namespace dynamorio\ndiff --git a/clients/drcachesim/common/options.h b/clients/drcachesim/common/options.h\nindex bbcb76877f0..b14f2319d2e 100644\n--- a/clients/drcachesim/common/options.h\n+++ b/clients/drcachesim/common/options.h\n@@ -247,6 +247,7 @@ extern dynamorio::droption::droption_t<uint64_t> op_trim_after_instr;\n extern dynamorio::droption::droption_t<bool> op_abort_on_invariant_error;\n extern dynamorio::droption::droption_t<bool> op_pt2ir_best_effort;\n extern dynamorio::droption::droption_t<int> op_scale_timers;\n+extern dynamorio::droption::droption_t<int> op_scale_timeouts;\n \n } // namespace drmemtrace\n } // namespace dynamorio\ndiff --git a/clients/drcachesim/tracer/tracer.cpp b/clients/drcachesim/tracer/tracer.cpp\nindex 4359b804e61..c389c741239 100644\n--- a/clients/drcachesim/tracer/tracer.cpp\n+++ b/clients/drcachesim/tracer/tracer.cpp\n@@ -423,7 +423,7 @@ instrumentation_exit()\n         DR_ASSERT(false);\n #ifdef LINUX\n     // XXX i#7504: Time and timer scaling currently only supports Linux.\n-    if (op_scale_timers.get_value() > 0) {\n+    if (op_scale_timers.get_value() > 1 || op_scale_timeouts.get_value() > 1) {\n         bool ok = drx_unregister_time_scaling();\n         DR_ASSERT(ok);\n     }\n@@ -485,13 +485,14 @@ instrumentation_init()\n     DR_ASSERT(ok);\n #ifdef LINUX\n     // XXX i#7504: Time and timer scaling currently only supports Linux.\n-    if (op_scale_timers.get_value() > 0) {\n+    if (op_scale_timers.get_value() > 1 || op_scale_timeouts.get_value() > 1) {\n         drx_time_scale_t scale = {\n             sizeof(scale),\n         };\n         scale.timer_scale = op_scale_timers.get_value();\n-        scale.timeout_scale = 1;\n-        NOTIFY(1, \"Registering timer scaling %dx\\n\", scale.timer_scale);\n+        scale.timeout_scale = op_scale_timeouts.get_value();\n+        NOTIFY(1, \"Registering timer scaling %dx timeout scaling %dx\\n\",\n+               scale.timer_scale, scale.timeout_scale);\n         ok = drx_register_time_scaling(&scale);\n         DR_ASSERT(ok);\n     }\ndiff --git a/core/unix/signal.c b/core/unix/signal.c\nindex c5511fc2a17..3f15feff338 100644\n--- a/core/unix/signal.c\n+++ b/core/unix/signal.c\n@@ -140,6 +140,12 @@ sig_is_alarm_signal(int sig)\n     return (sig == SIGALRM || sig == SIGVTALRM || sig == SIGPROF);\n }\n \n+static inline bool\n+sig_is_real_time(int sig)\n+{\n+    return sig >= OFFS_RT;\n+}\n+\n /* We do not use SIGSTKSZ b/c for things like code modification\n  * we end up calling many core routines and so want more space.\n  * Also, SIGSTKSZ is now defined as sysconf(_SC_SIGSTKSZ) and we\n@@ -5230,10 +5236,12 @@ record_pending_signal(dcontext_t *dcontext, int sig, kernel_ucontext_t *ucxt,\n         if (!blocked || sig >= OFFS_RT || (blocked && info->sigpending[sig] == NULL)) {\n             /* only have 1 pending for blocked non-rt signals */\n \n-            /* to avoid accumulating signals if we're slow in presence of\n-             * a high-rate itimer we only keep 2 alarm signals (PR 596768)\n+            /* To avoid accumulating signals if we're slow in presence of\n+             * a high-rate itimer we only keep 2 alarm signals (PR 596768).\n+             * We extend this to any non-real-time signal (where POSIX says only\n+             * one has to be queued) to avoid lock issues.\n              */\n-            if (sig_is_alarm_signal(sig)) {\n+            if (!sig_is_real_time(sig)) {\n                 if (info->sigpending[sig] != NULL &&\n                     info->sigpending[sig]->next != NULL) {\n                     ASSERT(info->sigpending[sig]->next->next == NULL);\n"
+}

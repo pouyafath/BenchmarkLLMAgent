@@ -1,0 +1,56 @@
+diff --git a/haystack/marshal/yaml.py b/haystack/marshal/yaml.py
+index 5fca27fb..6043a2cb 100644
+--- a/haystack/marshal/yaml.py
++++ b/haystack/marshal/yaml.py
+@@ -1,11 +1,48 @@
+ from typing import Dict, Any, Union
+-
+ import yaml
+ 
++def _represent_torch_dtype(dumper, data):
++    """Custom YAML representer for torch.dtype objects."""
++    return dumper.represent_str(str(data))
++
++def _construct_torch_dtype(loader, node):
++    """Custom YAML constructor for torch.dtype objects."""
++    dtype_str = loader.construct_scalar(node)
++    # Check if this looks like a torch dtype string
++    if isinstance(dtype_str, str) and dtype_str.startswith('torch.'):
++        try:
++            import torch
++            return getattr(torch, dtype_str.split('.')[-1])
++        except (ImportError, AttributeError):
++            # If torch is not available or the attribute doesn't exist, return the string as-is
++            return dtype_str
++    return dtype_str
+ 
+ class YamlMarshaller:
++    def __init__(self):
++        # Create a custom YAML dumper class
++        class CustomDumper(yaml.Dumper):
++            pass
++
++        # Add torch.dtype representer if torch is available
++        try:
++            import torch
++            CustomDumper.add_representer(torch.dtype, _represent_torch_dtype)
++        except ImportError:
++            pass
++
++        # Create a custom YAML loader class
++        class CustomLoader(yaml.SafeLoader):
++            pass
++
++        # Add torch.dtype constructor
++        CustomLoader.add_constructor('tag:yaml.org,2002:str', _construct_torch_dtype)
++
++        self.dumper = CustomDumper
++        self.loader = CustomLoader
++
+     def marshal(self, dict_: Dict[str, Any]) -> str:
+-        return yaml.dump(dict_)
++        return yaml.dump(dict_, Dumper=self.dumper)
+ 
+     def unmarshal(self, data_: Union[str, bytes, bytearray]) -> Dict[str, Any]:
+-        return yaml.safe_load(data_)
++        return yaml.load(data_, Loader=self.loader)

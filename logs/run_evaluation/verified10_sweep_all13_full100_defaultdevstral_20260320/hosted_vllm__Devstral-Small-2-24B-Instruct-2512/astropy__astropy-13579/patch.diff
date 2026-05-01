@@ -1,0 +1,17 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..ecd530fb5 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -146,8 +146,11 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                                        for ip in range(self._wcs.pixel_n_dim)])[0]
+ 
+         # axis_correlation_matrix[world, pixel]
++        # Only keep world dimensions that are NOT coupled to any dropped pixel dimensions
++        # This ensures that when we have coupled dimensions, we properly handle the slicing
++        dropped_pixels = [ip for ip in range(self._wcs.pixel_n_dim) if ip not in self._pixel_keep]
+         self._world_keep = np.nonzero(
+-            self._wcs.axis_correlation_matrix[:, self._pixel_keep].any(axis=1))[0]
++            ~self._wcs.axis_correlation_matrix[:, dropped_pixels].any(axis=1))[0]
+ 
+         if len(self._pixel_keep) == 0 or len(self._world_keep) == 0:
+             raise ValueError("Cannot slice WCS: the resulting WCS should have "

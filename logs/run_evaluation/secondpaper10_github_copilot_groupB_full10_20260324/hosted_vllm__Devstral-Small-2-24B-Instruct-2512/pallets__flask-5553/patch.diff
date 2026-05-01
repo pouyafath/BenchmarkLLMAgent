@@ -1,0 +1,161 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..ca06fe9c 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -185,6 +185,8 @@ class Flask(App):
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
+             "APPLICATION_ROOT": "/",
++            "CANONICAL_URL": None,
++            "ROUTING_HOST": None,
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+             "SESSION_COOKIE_PATH": None,
+@@ -444,16 +446,42 @@ class Flask(App):
+             else:
+                 subdomain = None
+ 
++            # Use ROUTING_HOST for routing, fall back to SERVER_NAME
++            routing_host = self.config.get("ROUTING_HOST")
++            if routing_host is None:
++                routing_host = self.config.get("SERVER_NAME")
++                if routing_host is not None:
++                    import warnings
++                    warnings.warn(
++                        "The 'SERVER_NAME' configuration is deprecated and will be "
++                        "removed in Flask 3.0. Use 'ROUTING_HOST' for routing instead.",
++                        DeprecationWarning,
++                        stacklevel=2,
++                    )
++
+             return self.url_map.bind_to_environ(
+                 request.environ,
+-                server_name=self.config["SERVER_NAME"],
++                server_name=routing_host,
+                 subdomain=subdomain,
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        # Use ROUTING_HOST for routing, fall back to SERVER_NAME
++        routing_host = self.config.get("ROUTING_HOST")
++        if routing_host is None:
++            routing_host = self.config.get("SERVER_NAME")
++            if routing_host is not None:
++                import warnings
++                warnings.warn(
++                    "The 'SERVER_NAME' configuration is deprecated and will be "
++                    "removed in Flask 3.0. Use 'ROUTING_HOST' for routing instead.",
++                    DeprecationWarning,
++                    stacklevel=2,
++                )
++
++        if routing_host is not None:
+             return self.url_map.bind(
+-                self.config["SERVER_NAME"],
++                routing_host,
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )
+@@ -616,11 +644,23 @@ class Flask(App):
+         if debug is not None:
+             self.debug = bool(debug)
+ 
+-        server_name = self.config.get("SERVER_NAME")
++        # Use ROUTING_HOST for running, fall back to SERVER_NAME
++        routing_host = self.config.get("ROUTING_HOST")
++        if routing_host is None:
++            routing_host = self.config.get("SERVER_NAME")
++            if routing_host is not None:
++                import warnings
++                warnings.warn(
++                    "The 'SERVER_NAME' configuration is deprecated and will be "
++                    "removed in Flask 3.0. Use 'ROUTING_HOST' for routing instead.",
++                    DeprecationWarning,
++                    stacklevel=2,
++                )
++
+         sn_host = sn_port = None
+ 
+-        if server_name:
+-            sn_host, _, sn_port = server_name.partition(":")
++        if routing_host:
++            sn_host, _, sn_port = routing_host.partition(":")
+ 
+         if not host:
+             if sn_host:
+@@ -985,6 +1025,37 @@ class Flask(App):
+ 
+         return asgiref_async_to_sync(func)
+ 
++    def create_canonical_url_adapter(self) -> MapAdapter | None:
++        """Creates a URL adapter for generating canonical URLs outside
++        of request context. This uses CANONICAL_URL for URL generation.
++
++        .. versionadded:: 3.0
++        """
++        canonical_url = self.config.get("CANONICAL_URL")
++
++        if canonical_url is None:
++            # Fall back to ROUTING_HOST, then SERVER_NAME
++            canonical_url = self.config.get("ROUTING_HOST")
++            if canonical_url is None:
++                canonical_url = self.config.get("SERVER_NAME")
++                if canonical_url is not None:
++                    import warnings
++                    warnings.warn(
++                        "The 'SERVER_NAME' configuration is deprecated and will be "
++                        "removed in Flask 3.0. Use 'CANONICAL_URL' for URL generation instead.",
++                        DeprecationWarning,
++                        stacklevel=2,
++                    )
++
++        if canonical_url is not None:
++            return self.url_map.bind(
++                canonical_url,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=self.config["PREFERRED_URL_SCHEME"],
++            )
++
++        return None
++
+     def url_for(
+         self,
+         /,
+@@ -1072,18 +1143,30 @@ class Flask(App):
+                 url_adapter = self.create_url_adapter(None)
+ 
+             if url_adapter is None:
+-                raise RuntimeError(
+-                    "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
+-                    " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+-                    " needed."
+-                )
++                # Try to create a canonical URL adapter for external URLs
++                url_adapter = self.create_canonical_url_adapter()
++                if url_adapter is None:
++                    raise RuntimeError(
++                        "Unable to build URLs outside an active request"
++                        " without 'CANONICAL_URL', 'ROUTING_HOST', or 'SERVER_NAME' configured."
++                        " Also configure 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as needed."
++                    )
+ 
+             # When outside a request, generate a URL with scheme and
+             # domain by default.
+             if _external is None:
+                 _external = True
+ 
++            # When outside a request and building an external URL, prefer CANONICAL_URL
++            if url_adapter is not None and _external and not req_ctx:
++                canonical_url = self.config.get("CANONICAL_URL")
++                if canonical_url is not None:
++                    url_adapter = self.url_map.bind(
++                        canonical_url,
++                        script_name=self.config["APPLICATION_ROOT"],
++                        url_scheme=self.config["PREFERRED_URL_SCHEME"],
++                    )
++
+         # It is an error to set _scheme when _external=False, in order
+         # to avoid accidental insecure URLs.
+         if _scheme is not None and not _external:

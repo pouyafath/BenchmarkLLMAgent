@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#13779",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "Voting estimator will fail at fit if weights are passed and an estimator is None",
+  "original_body": "Voting estimator will fail at fit if weights are passed and an estimator is None\nBecause we don't check for an estimator to be `None` in `sample_weight` support, `fit` is failing`.\r\n\r\n```python\r\n    X, y = load_iris(return_X_y=True)\r\n    voter = VotingClassifier(\r\n        estimators=[('lr', LogisticRegression()),\r\n                    ('rf', RandomForestClassifier())]\r\n    )\r\n    voter.fit(X, y, sample_weight=np.ones(y.shape))\r\n    voter.set_params(lr=None)\r\n    voter.fit(X, y, sample_weight=np.ones(y.shape))\r\n```\r\n\r\n```\r\nAttributeError: 'NoneType' object has no attribute 'fit'\r\n```\n",
+  "enhanced_title": "VotingClassifier fails when None estimator is present with sample weights",
+  "enhanced_body": "## Problem Description\nThe `VotingClassifier` fails during the `fit` method when:\n1. Sample weights are provided\n2. One of the estimators is set to `None` (e.g., via `set_params`)\n\nThe error occurs because the code doesn't check for `None` estimators when processing sample weights.\n\n## Current Behavior\nWhen attempting to fit a `VotingClassifier` with a `None` estimator and sample weights, the following error occurs:\n```python\nAttributeError: 'NoneType' object has no attribute 'fit'\n```\n\n## Expected Behavior\nThe `VotingClassifier` should:\n1. Skip `None` estimators during fitting\n2. Handle sample weights gracefully when some estimators are `None`\n3. Either:\n   - Ignore the `None` estimator entirely, or\n   - Raise a more informative warning/error about the `None` estimator\n\n## Reproduction Steps\n1. Create a `VotingClassifier` with multiple estimators\n2. Fit it successfully with sample weights\n3. Set one estimator to `None` using `set_params`\n4. Attempt to fit again with sample weights\n5. Observe the `AttributeError`\n\n## Example Code\n```python\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.ensemble import RandomForestClassifier, VotingClassifier\nimport numpy as np\n\n# Load sample data\nX, y = load_iris(return_X_y=True)\n\n# Create and fit initial classifier\nvoter = VotingClassifier(\n    estimators=[('lr', LogisticRegression()),\n                ('rf', RandomForestClassifier())]\n)\nvoter.fit(X, y, sample_weight=np.ones(y.shape))\n\n# Set one estimator to None\nvoter.set_params(lr=None)\n\n# This will fail with AttributeError\nvoter.fit(X, y, sample_weight=np.ones(y.shape))\n```\n\n## Affected Components\nBased on the hints, the issue likely affects:\n- `sklearn/ensemble/_voting.py` (VotingClassifier implementation)\n- Sample weight handling in the `fit` method\n\n## Environment Details\n- scikit-learn version: Not specified (but issue exists in current codebase)\n- Python version: Not specified\n- Operating system: Not specified\n\n## Suggested Fix\nThe code should check for `None` estimators before attempting to call their `fit` method, particularly when processing sample weights. This check should be added in the `_fit_single` method or similar location in the VotingClassifier implementation.\n\n## Additional Notes\nThis issue highlights a potential gap in the error handling for dynamically modified estimators in the VotingClassifier. The behavior should be consistent whether estimators are initially `None` or set to `None` after creation.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmps43nrcds/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

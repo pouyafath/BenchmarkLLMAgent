@@ -1,0 +1,94 @@
+diff --git a/django/db/backends/postgresql/client.py b/django/db/backends/postgresql/client.py
+index cf4df76882..48d895c823 100644
+--- a/django/db/backends/postgresql/client.py
++++ b/django/db/backends/postgresql/client.py
+@@ -4,7 +4,6 @@ import subprocess
+ 
+ from django.db.backends.base.client import BaseDatabaseClient
+ 
+-
+ class DatabaseClient(BaseDatabaseClient):
+     executable_name = 'psql'
+ 
+@@ -24,6 +23,15 @@ class DatabaseClient(BaseDatabaseClient):
+             args += ['-h', host]
+         if port:
+             args += ['-p', str(port)]
++
++        # Add SSL certificate and key options if present
++        sslcert = conn_params.get('sslcert')
++        sslkey = conn_params.get('sslkey')
++        if sslcert:
++            args += ['--sslcert', sslcert]
++        if sslkey:
++            args += ['--sslkey', sslkey]
++
+         args += [dbname]
+ 
+         sigint_handler = signal.getsignal(signal.SIGINT)
+diff --git a/tests/dbshell/test_postgresql.py b/tests/dbshell/test_postgresql.py
+index a33e7f6482..0d3bcfae52 100644
+--- a/tests/dbshell/test_postgresql.py
++++ b/tests/dbshell/test_postgresql.py
+@@ -6,7 +6,6 @@ from unittest import mock
+ from django.db.backends.postgresql.client import DatabaseClient
+ from django.test import SimpleTestCase
+ 
+-
+ class PostgreSqlDbshellCommandTestCase(SimpleTestCase):
+ 
+     def _run_it(self, dbinfo):
+@@ -94,3 +93,53 @@ class PostgreSqlDbshellCommandTestCase(SimpleTestCase):
+             DatabaseClient.runshell_db({})
+         # dbshell restores the original handler.
+         self.assertEqual(sigint_handler, signal.getsignal(signal.SIGINT))
++
++    def test_ssl_certificate_support(self):
++        """Test that SSL certificate and key options are passed to psql."""
++        self.assertEqual(
++            self._run_it({
++                'database': 'dbname',
++                'user': 'someuser',
++                'password': 'somepassword',
++                'host': 'somehost',
++                'port': '444',
++                'sslcert': '/path/to/cert.pem',
++                'sslkey': '/path/to/key.pem',
++            }), (
++                ['psql', '-U', 'someuser', '-h', 'somehost', '-p', '444',
++                 '--sslcert', '/path/to/cert.pem', '--sslkey', '/path/to/key.pem', 'dbname'],
++                'somepassword',
++            )
++        )
++
++    def test_ssl_certificate_only(self):
++        """Test that only SSL certificate is passed when only that option is provided."""
++        self.assertEqual(
++            self._run_it({
++                'database': 'dbname',
++                'user': 'someuser',
++                'host': 'somehost',
++                'port': '444',
++                'sslcert': '/path/to/cert.pem',
++            }), (
++                ['psql', '-U', 'someuser', '-h', 'somehost', '-p', '444',
++                 '--sslcert', '/path/to/cert.pem', 'dbname'],
++                None,
++            )
++        )
++
++    def test_ssl_key_only(self):
++        """Test that only SSL key is passed when only that option is provided."""
++        self.assertEqual(
++            self._run_it({
++                'database': 'dbname',
++                'user': 'someuser',
++                'host': 'somehost',
++                'port': '444',
++                'sslkey': '/path/to/key.pem',
++            }), (
++                ['psql', '-U', 'someuser', '-h', 'somehost', '-p', '444',
++                 '--sslkey', '/path/to/key.pem', 'dbname'],
++                None,
++            )
++        )

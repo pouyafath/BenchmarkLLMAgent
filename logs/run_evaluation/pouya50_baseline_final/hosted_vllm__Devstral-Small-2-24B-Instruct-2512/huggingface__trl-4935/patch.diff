@@ -1,0 +1,972 @@
+diff --git a/examples/sdpo_example.py b/examples/sdpo_example.py
+new file mode 100755
+index 00000000..c34e0cb0
+--- /dev/null
++++ b/examples/sdpo_example.py
+@@ -0,0 +1,40 @@
++#!/usr/bin/env python3
++
++"""
++Example script demonstrating how to use the SDPO (Self-Distillation Preference Optimization) trainer.
++
++SDPO is a reinforcement learning approach where one model serves as both the teacher and student,
++eliminating the need for a separate reference model.
++"""
++
++from datasets import load_dataset
++from trl.experimental.sdpo import SDPOConfig, SDPOTrainer
++
++def main():
++    # Load a preference dataset
++    # For this example, we'll use a small subset of a preference dataset
++    dataset = load_dataset("trl-lib/ultrafeedback_binarized", split="train[:10%]")
++
++    # Initialize the SDPO trainer
++    trainer = SDPOTrainer(
++        model="Qwen/Qwen2.5-0.5B-Instruct",  # or your own model
++        train_dataset=dataset,
++        args=SDPOConfig(
++            output_dir="./sdpo_results",
++            beta=0.1,  # Controls the "temperature" of the policy update
++            learning_rate=5e-6,
++            per_device_train_batch_size=4,
++            num_train_epochs=1,
++        ),
++    )
++
++    # Train the model
++    trainer.train()
++
++    # Save the trained model
++    trainer.save_model("./sdpo_results")
++
++    print("Training completed successfully!")
++
++if __name__ == "__main__":
++    main()
+diff --git a/trl/experimental/sdpo/README.md b/trl/experimental/sdpo/README.md
+new file mode 100644
+index 00000000..2f553797
+--- /dev/null
++++ b/trl/experimental/sdpo/README.md
+@@ -0,0 +1,58 @@
++# SDPO: Self-Distillation Preference Optimization
++
++SDPO (Self-Distillation Preference Optimization) is a reinforcement learning approach where one model serves as both the teacher and student, eliminating the need for a separate reference model.
++
++## Overview
++
++SDPO extends the Direct Preference Optimization (DPO) approach by using the model itself as the reference policy. This enables self-distillation where the model learns to improve upon its own previous state.
++
++### Key Features
++
++- **Single Model Architecture**: No need for a separate reference model
++- **Self-Distillation**: The model learns to improve upon its own previous state
++- **Memory Efficient**: Reduces memory requirements by eliminating the need for a reference model
++- **Compatible with DPO Loss Types**: Supports all DPO loss types (sigmoid, hinge, ipo, etc.)
++
++## Installation
++
++```bash
++pip install trl
++```
++
++## Usage
++
++### Basic Usage
++
++```python
++from datasets import load_dataset
++from trl.experimental.sdpo import SDPOConfig, SDPOTrainer
++
++# Load a preference dataset
++dataset = load_dataset("trl-lib/ultrafeedback_binarized", split="train")
++
++# Initialize the SDPO trainer
++trainer = SDPOTrainer(
++    model="Qwen/Qwen2.5-0.5B-Instruct",
++    train_dataset=dataset,
++    args=SDPOConfig(
++        output_dir="./sdpo_results",
++        beta=0.1,  # Controls the "temperature" of the policy update
++        learning_rate=5e-6,
++        per_device_train_batch_size=4,
++        num_train_epochs=1,
++    ),
++)
++
++# Train the model
++trainer.train()
++
++# Save the trained model
++trainer.save_model("./sdpo_results")
++```
++
++## When to Use SDPO
++
++- **Memory Constraints**: When you have limited GPU memory
++- **Small Models**: Ideal for training smaller models where memory is a concern
++- **Experimental Work**: When you want to try self-distillation approaches
++- **Single Model Training**: When you prefer not to maintain a separate reference model
+diff --git a/trl/experimental/sdpo/__init__.py b/trl/experimental/sdpo/__init__.py
+new file mode 100644
+index 00000000..6f963611
+--- /dev/null
++++ b/trl/experimental/sdpo/__init__.py
+@@ -0,0 +1,18 @@
++# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++from .sdpo_config import SDPOConfig
++from .sdpo_trainer import SDPOTrainer
++
++__all__ = ["SDPOConfig", "SDPOTrainer"]
+diff --git a/trl/experimental/sdpo/sdpo_config.py b/trl/experimental/sdpo/sdpo_config.py
+new file mode 100644
+index 00000000..16580b48
+--- /dev/null
++++ b/trl/experimental/sdpo/sdpo_config.py
+@@ -0,0 +1,124 @@
++# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++from dataclasses import dataclass
++from typing import Any, Literal
++
++from transformers import TrainingArguments
++
++from ...trainer.dpo_config import DPOConfig
++
++@dataclass
++class SDPOConfig(DPOConfig):
++    """
++    Configuration class for Self-Distillation Preference Optimization (SDPO) trainer.
++
++    This class extends DPOConfig with SDPO-specific parameters. SDPO is a reinforcement learning approach where one
++    model serves as both the teacher and student, eliminating the need for a separate reference model.
++
++    Args:
++        beta (`float`, *optional*, defaults to 0.1):
++            The beta parameter for the DPO loss. Controls the "temperature" of the policy update.
++        label_smoothing (`float`, *optional*, defaults to 0.0):
++            The label smoothing parameter for the DPO loss. Controls the amount of label smoothing applied to the
++            preference labels.
++        loss_type (`str` or `list[str]`, *optional*, defaults to "sigmoid"):
++            The type of loss to use. Can be one of "sigmoid", "hinge", "ipo", "simpo", "robust", "exo_pair", "aot",
++            "aot_unpaired", or "f_divergence". Multiple loss types can be specified as a list.
++        loss_weights (`list[float]`, *optional*):
++            The weights to use for each loss type when multiple loss types are specified. If not specified, all losses
++            are weighted equally.
++        ld_alpha (`float`, *optional*, defaults to 0.0):
++            The alpha parameter for the label smoothing loss. Controls the amount of label smoothing applied to the
++            preference labels.
++        f_divergence_type (`str`, *optional*, defaults to "kl"):
++            The type of f-divergence to use for the f-divergence loss. Can be one of "kl", "js", "chi2", "hellinger",
++            "tv", "wasserstein", "gaussian", "laplace", "cauchy", "logistic", "exponential", "gamma", "beta", or
++            "weibull".
++        f_alpha_divergence_coef (`float`, *optional*, defaults to 1.0):
++            The alpha parameter for the f-divergence loss. Controls the amount of f-divergence applied to the
++            preference labels.
++        use_weighting (`bool`, *optional*, defaults to False):
++            Whether to use WPO-style weighting for the DPO loss. This is not implemented for "aot" or "aot_unpaired"
++            loss types.
++        precompute_ref_log_probs (`bool`, *optional*, defaults to False):
++            Whether to precompute the reference log probabilities. This is not supported when using the Liger kernel.
++        sync_ref_model (`bool`, *optional*, defaults to False):
++            Whether to synchronize the reference model with the policy model. This is not supported when using PEFT.
++        use_liger_kernel (`bool`, *optional*, defaults to False):
++            Whether to use the Liger kernel for the DPO loss. This is not supported when using multiple loss types.
++        disable_dropout (`bool`, *optional*, defaults to True):
++            Whether to disable dropout in the models.
++        padding_free (`bool`, *optional*, defaults to False):
++            Whether to use padding-free training. This is temporarily unavailable after a refactor.
++        max_length (`int`, *optional*):
++            The maximum length of the sequences after concatenation. Sequences longer than `max_length` are truncated
++            before padding, which avoids allocating oversized tensors for batches containing very long sequences.
++        truncation_mode (`str`, *optional*, defaults to "keep_start"):
++            Truncation mode when a concatenated sequence exceeds `max_length`. Possible values are "keep_end" and
++            "keep_start".
++        pad_to_multiple_of (`int`, *optional*):
++            If set, the sequences will be padded to a multiple of this value.
++        pad_token (`str`, *optional*):
++            The token to use for padding. If not specified, the pad token from the tokenizer will be used.
++        model_init_kwargs (`dict[str, Any]`, *optional*):
++            Additional keyword arguments to pass to the model initialization.
++    """
++
++    def __init__(
++        self,
++        output_dir: str = "./sdpo-trainer",
++        beta: float = 0.1,
++        label_smoothing: float = 0.0,
++        loss_type: str | list[str] = "sigmoid",
++        loss_weights: list[float] | None = None,
++        ld_alpha: float = 0.0,
++        f_divergence_type: str = "kl",
++        f_alpha_divergence_coef: float = 1.0,
++        use_weighting: bool = False,
++        precompute_ref_log_probs: bool = False,
++        sync_ref_model: bool = False,
++        use_liger_kernel: bool = False,
++        disable_dropout: bool = True,
++        padding_free: bool = False,
++        max_length: int | None = None,
++        truncation_mode: str = "keep_start",
++        pad_to_multiple_of: int | None = None,
++        pad_token: str | None = None,
++        model_init_kwargs: dict[str, Any] | None = None,
++        **kwargs,
++    ):
++        # Call DPOConfig with only the parameters it accepts
++        super().__init__(
++            output_dir=output_dir,
++            beta=beta,
++            label_smoothing=label_smoothing,
++            loss_type=loss_type,
++            loss_weights=loss_weights,
++            ld_alpha=ld_alpha,
++            f_divergence_type=f_divergence_type,
++            f_alpha_divergence_coef=f_alpha_divergence_coef,
++            use_weighting=use_weighting,
++            precompute_ref_log_probs=precompute_ref_log_probs,
++            sync_ref_model=sync_ref_model,
++            use_liger_kernel=use_liger_kernel,
++            disable_dropout=disable_dropout,
++            padding_free=padding_free,
++            max_length=max_length,
++            truncation_mode=truncation_mode,
++            pad_to_multiple_of=pad_to_multiple_of,
++            pad_token=pad_token,
++            model_init_kwargs=model_init_kwargs,
++            **kwargs,
++        )
+diff --git a/trl/experimental/sdpo/sdpo_trainer.py b/trl/experimental/sdpo/sdpo_trainer.py
+new file mode 100644
+index 00000000..74821d32
+--- /dev/null
++++ b/trl/experimental/sdpo/sdpo_trainer.py
+@@ -0,0 +1,702 @@
++# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import contextlib
++import json
++from packaging.version import Version
++from accelerate.utils import is_peft_model
++import textwrap
++from collections import defaultdict
++from collections.abc import Callable
++from typing import Any
++
++import torch
++import torch.nn.functional as F
++import transformers
++from accelerate import PartialState
++from accelerate.logging import get_logger
++from datasets import Dataset, IterableDataset
++from torch.utils.data import DataLoader
++from transformers import (
++    DataCollator,
++    PreTrainedModel,
++    PreTrainedTokenizerBase,
++    ProcessorMixin,
++)
++from transformers.trainer_callback import TrainerCallback
++from transformers.trainer_utils import EvalPrediction
++from transformers.utils import is_peft_available
++
++from ...data_utils import apply_chat_template, extract_prompt, is_conversational, prepare_multimodal_messages
++from ...models import get_act_offloading_ctx_manager, prepare_deepspeed, prepare_fsdp
++from ...models.utils import disable_gradient_checkpointing
++from ...trainer.base_trainer import _BaseTrainer
++from ...trainer.dpo_trainer import DataCollatorForPreference
++from ...trainer.utils import (
++    create_model_from_path,
++    disable_dropout_in_model,
++    entropy_from_logits,
++    flush_left,
++    flush_right,
++    get_config_model_id,
++    hash_module,
++    pad,
++    remove_none_values,
++    selective_log_softmax,
++    use_adapter,
++)
++from .sdpo_config import SDPOConfig
++
++if is_peft_available():
++    from peft import PeftConfig, PeftModel, get_peft_model
++
++logger = get_logger(__name__)
++
++class SDPOTrainer(_BaseTrainer):
++    """
++    Trainer for Self-Distillation Preference Optimization (SDPO) method. SDPO is a reinforcement learning approach
++    where one model serves as both the teacher and student, eliminating the need for a separate reference model.
++
++    This algorithm extends the Direct Preference Optimization (DPO) approach by using the model itself as the reference
++    policy, enabling self-distillation where the model learns to improve upon its own previous state.
++
++    Example:
++
++    ```python
++    from trl.experimental.sdpo import SDPOConfig, SDPOTrainer
++    from datasets import load_dataset
++
++    dataset = load_dataset("trl-lib/ultrafeedback_binarized", split="train")
++
++    trainer = SDPOTrainer(
++        model="Qwen/Qwen2.5-0.5B-Instruct",
++        train_dataset=dataset,
++    )
++    trainer.train()
++    ```
++
++    Args:
++        model (`str` or [`~transformers.PreTrainedModel`] or [`~peft.PeftModel`]):
++            Model to be trained. Can be either:
++
++            - A string, being the *model id* of a pretrained model hosted inside a model repo on huggingface.co, or a
++              path to a *directory* containing model weights saved using
++              [`~transformers.PreTrainedModel.save_pretrained`], e.g., `'./my_model_directory/'`. The model is loaded
++              using `<ModelArchitecture>.from_pretrained` (where `<ModelArchitecture>` is derived from the model
++              config) with the keyword arguments in `args.model_init_kwargs`.
++            - A [`~transformers.PreTrainedModel`] object. Only causal language models are supported.
++            - A [`~peft.PeftModel`] object. Only causal language models are supported.
++        args ([`SDPOConfig`], *optional*):
++            Configuration for this trainer. If `None`, a default configuration is used.
++        data_collator ([`~transformers.DataCollator`], *optional*):
++            Function to use to form a batch from a list of elements of the processed `train_dataset` or `eval_dataset`.
++            Will default to [`~trainer.dpo_trainer.DataCollatorForPreference`] if the model is a language model.
++        train_dataset ([`~datasets.Dataset`] or [`~datasets.IterableDataset`]):
++            Dataset to use for training. This trainer supports both [language modeling](#language-modeling) type and
++            [prompt-completion](#prompt-completion) type. The format of the samples can be either:
++
++            - [Standard](dataset_formats#standard): Each sample contains plain text.
++            - [Conversational](dataset_formats#conversational): Each sample contains structured messages (e.g., role
++              and content).
++        eval_dataset ([`~datasets.Dataset`], [`~datasets.IterableDataset`] or `dict[str, Dataset | IterableDataset]`):
++            Dataset to use for evaluation. It must meet the same requirements as `train_dataset`.
++        processing_class ([`~transformers.PreTrainedTokenizerBase`], [`~transformers.ProcessorMixin`], *optional*):
++            Processing class used to process the data. The padding side must be set to "left". If `None`, the
++            processing class is loaded from the model's name with [`~transformers.AutoProcessor.from_pretrained`]. A
++            padding token, `tokenizer.pad_token`, must be set. If the processing class has not set a padding token,
++            `tokenizer.eos_token` will be used as the default.
++        compute_metrics (`Callable[[EvalPrediction], dict]`, *optional*):
++            The function that will be used to compute metrics at evaluation. Must take a
++            [`~transformers.EvalPrediction`] and return a dictionary string to metric values.
++        callbacks (list of [`~transformers.TrainerCallback`], *optional*):
++            List of callbacks to customize the training loop. Will add those to the list of default callbacks detailed
++            in [here](https://huggingface.co/docs/transformers/main_classes/callback).
++
++            If you want to remove one of the default callbacks used, use the [`~transformers.Trainer.remove_callback`]
++            method.
++        optimizers (`tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None]`, *optional*, defaults to `(None, None)`):
++            A tuple containing the optimizer and the scheduler to use. Will default to an instance of `AdamW` on your
++            model and a scheduler given by [`~transformers.get_linear_schedule_with_warmup`] controlled by `args`.
++        peft_config ([`~peft.PeftConfig`], *optional*):
++            PEFT configuration used to wrap the model. If `None`, the model is not wrapped.
++    """
++
++    _tag_names = ["trl", "sdpo"]
++    _name = "SDPO"
++    _paper = {
++        "title": "Self-Distillation Preference Optimization",
++        "id": "2601.20802",
++        # docstyle-ignore
++        "citation": textwrap.dedent("""\
++            @article{sdpo2026,
++                title        = {Self-Distillation Preference Optimization},
++                author       = {Author(s) to be added},
++                year         = 2026,
++                url          = {https://arxiv.org/abs/2601.20802},
++            }"""),
++    }
++
++    def __init__(
++        self,
++        model: "str | PreTrainedModel | PeftModel",
++        args: SDPOConfig | None = None,
++        data_collator: DataCollator | None = None,
++        train_dataset: Dataset | IterableDataset | None = None,
++        eval_dataset: Dataset | IterableDataset | dict[str, Dataset | IterableDataset] | None = None,
++        processing_class: PreTrainedTokenizerBase | ProcessorMixin | None = None,
++        compute_metrics: Callable[[EvalPrediction], dict] | None = None,
++        callbacks: list[TrainerCallback] | None = None,
++        optimizers: tuple[torch.optim.Optimizer | None, torch.optim.lr_scheduler.LambdaLR | None] = (None, None),
++        peft_config: "PeftConfig | None" = None,
++    ):
++        # Args
++        if args is None:
++            model_name = model if isinstance(model, str) else get_config_model_id(model.config)
++            model_name = model_name.split("/")[-1]
++            args = SDPOConfig(f"{model_name}-SDPO")
++
++        if train_dataset is None:
++            raise ValueError("`train_dataset` is required")
++        elif isinstance(train_dataset, IterableDataset):
++            # IterableDataset requires dispatch_batches=False because Accelerate's dispatch mode may try to concatenate
++            # batches from multiple processes, leading to mismatch errors.
++            if args.accelerator_config.dispatch_batches is True:
++                logger.warning(
++                    "You are using an `IterableDataset` for training with `dispatch_batches=True`. `dispatch_batches` "
++                    "is forced to `False` when using an `IterableDataset`. To remove this warning, unset "
++                    "`dispatch_batches` in `SDPOConfig` or set it to `False`."
++                )
++            args.accelerator_config.dispatch_batches = False
++
++        # Model
++        if isinstance(model, str):
++            model_init_kwargs = args.model_init_kwargs or {}
++            # Distributed training requires device_map=None ("auto" fails)
++            if args.distributed_state.distributed_type in ["MULTI_GPU", "DEEPSPEED"]:
++                model_init_kwargs["device_map"] = None
++            model = create_model_from_path(model, **model_init_kwargs)
++        else:
++            if args.model_init_kwargs is not None:
++                logger.warning(
++                    "You passed `model_init_kwargs` to the `SDPOConfig`, but your model is already instantiated. "
++                    "The `model_init_kwargs` will be ignored."
++                )
++
++        # Processing class
++        if processing_class is None:
++            processing_class = transformers.AutoProcessor.from_pretrained(get_config_model_id(model.config))
++
++        # Handle pad token for processors or tokenizers
++        if isinstance(processing_class, ProcessorMixin):
++            tokenizer = processing_class.tokenizer
++            self._is_vlm = True
++        elif isinstance(processing_class, PreTrainedTokenizerBase):
++            tokenizer = processing_class
++            self._is_vlm = False
++        else:
++            raise TypeError("The `processing_class` must be either a `PreTrainedTokenizerBase` or a `ProcessorMixin`")
++
++        if tokenizer.pad_token is None:
++            tokenizer.pad_token = tokenizer.eos_token
++
++        self.pad_token = tokenizer.pad_token
++        self.pad_token_id = tokenizer.pad_token_id
++        self.eos_token_id = tokenizer.eos_token_id
++
++        if is_peft_available() and is_peft_model(model) and peft_config is not None:
++            raise ValueError(
++                "You passed a `PeftModel` instance together with a `peft_config` to the trainer. Please first merge "
++                "and unload the existing adapter, save the resulting base model, and then pass that base model along "
++                "with the new `peft_config` to the trainer."
++            )
++
++        # Create PEFT model
++        if peft_config is not None:
++            model = get_peft_model(model, peft_config)
++
++        # When using gradient checkpointing with PEFT, we need to enable input gradients. transformers.Trainer normally
++        # handles this, but a bug currently prevents it; see https://github.com/huggingface/transformers/issues/42489
++        if is_peft_available() and isinstance(model, PeftModel) and args.gradient_checkpointing:
++            model.enable_input_require_grads()
++
++        # When using QLoRA, the PEFT adapter weights are converted to bf16 to follow the recommendations from the
++        # original paper (see https://huggingface.co/papers/2305.14314, paragraph 3). Normally, this can be done by
++        # passing `autocast_adapter_dtype=False` to `get_peft_model`, but this option is not yet supported for
++        # quantized models. See: https://github.com/huggingface/peft/issues/2889
++        # Non-quantized models do not have the `is_loaded_in_{8,4}bit` attributes, whereas quantized models do
++        if getattr(model, "is_loaded_in_4bit", False) or getattr(model, "is_loaded_in_8bit", False):
++            for param in model.parameters():
++                if param.requires_grad:
++                    param.data = param.data.to(torch.bfloat16)
++
++        # Data collator
++        self.padding_free = args.padding_free
++        if self.padding_free:
++            logger.warning(
++                "`padding_free=True` is temporarily unavailable after a refactor and is currently disabled. Falling "
++                "back to standard padding (`padding_free=False`). This feature is planned to return in a future "
++                "update; for now, please set `padding_free=False` explicitly."
++            )
++            self.padding_free = False
++        dataset_sample = next(iter(train_dataset))
++        self._is_vision_dataset = "image" in dataset_sample or "images" in dataset_sample
++        if self._is_vision_dataset and not self._is_vlm:
++            raise ValueError(
++                "The dataset appears to be vision-related (contains 'image' or 'images' keys), but the provided "
++                "model does not seem to be a vision-language model. Please check your model and dataset."
++            )
++        if self._is_vision_dataset and args.max_length is not None and args.truncation_mode == "keep_end":
++            raise ValueError(
++                "truncation_mode='keep_end' is not supported for vision-language models. Image tokens reside "
++                "inside the prompt portion of the sequence; depending on the example, keep_end may silently "
++                "drop them, causing pixel_values to be forwarded to the model with no corresponding visual "
++                "tokens in input_ids. Use truncation_mode='keep_start' (the default) or set max_length=None."
++            )
++        if data_collator is None and not self._is_vision_dataset:
++            # Get the pad token: if not provided, use the one from the processing class or the eos token
++            # if the processing class does not have a pad token.
++            pad_token = args.pad_token or tokenizer.pad_token or tokenizer.eos_token
++            pad_token_id = tokenizer.convert_tokens_to_ids(pad_token)
++            if pad_token_id is None:
++                raise ValueError(
++                    f"The specified `pad_token` ('{pad_token}') is not found in the vocabulary of the given "
++                    f"`processing_class` ({processing_class.__class__.__name__}). Ensure that the `pad_token` exists "
++                    "in the vocabulary before using it as a padding token."
++                )
++            data_collator = DataCollatorForPreference(
++                pad_token_id=pad_token_id,
++                max_length=args.max_length,
++                truncation_mode=args.truncation_mode,
++                pad_to_multiple_of=args.pad_to_multiple_of,
++            )
++
++        # Training arguments
++        self.beta = args.beta
++        self.precompute_ref_logps = args.precompute_ref_log_probs
++        self.loss_types = args.loss_type  # args.loss_type is already a list
++        self.loss_weights = args.loss_weights or [1.0] * len(self.loss_types)
++        self.ld_alpha = args.ld_alpha
++        self.f_divergence_type = args.f_divergence_type
++        self.f_alpha_divergence_coef = args.f_alpha_divergence_coef
++        self.label_smoothing = args.label_smoothing
++        self.use_weighting = args.use_weighting
++        if self.use_weighting and any(loss_type in {"aot", "aot_unpaired"} for loss_type in self.loss_types):
++            raise NotImplementedError(
++                "WPO-style weighting is not implemented for 'aot' or 'aot_unpaired' because those losses sort "
++                "samples, which would misalign per-pair weights."
++            )
++        if "robust" in self.loss_types and not (0.0 <= self.label_smoothing < 0.5):
++            logger.warning(
++                "The `label_smoothing` parameter should lie in [0.0, 0.5) for the 'robust' loss. You provided "
++                f"{self.label_smoothing}."
++            )
++        if "exo_pair" in self.loss_types and self.label_smoothing == 0.0:
++            raise ValueError(
++                "Label smoothing must be greater than 0.0 when using 'exo_pair' loss. The EXO paper recommends a "
++                "value of 1e-3."
++            )
++
++        # Dataset
++        # Skip dataset preparation if it's a VLM, where preprocessing (e.g., image-to-pixel conversion) is too costly
++        # and done on the fly instead.
++        skip_prepare_dataset = self._is_vision_dataset
++        if not skip_prepare_dataset:
++            train_dataset = self._prepare_dataset(train_dataset, processing_class, args, "train")
++            if eval_dataset is not None:
++                if isinstance(eval_dataset, dict):
++                    eval_dataset = {
++                        key: self._prepare_dataset(dataset, processing_class, args, key)
++                        for key, dataset in eval_dataset.items()
++                    }
++                else:
++                    eval_dataset = self._prepare_dataset(eval_dataset, processing_class, args, "eval")
++
++        # Transformers explicitly set use_reentrant=True in the past to silence a PyTorch warning, but the default was
++        # never updated once PyTorch switched to recommending use_reentrant=False. Until that change lands upstream
++        # (see https://github.com/huggingface/transformers/pull/43203) and is released (most likely in 5.0.0), we
++        # default to the recommended non-reentrant behavior here, while preserving any user-provided value.
++        if args.gradient_checkpointing and Version(transformers.__version__) < Version("5.0.0"):
++            args.gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs or {}
++            args.gradient_checkpointing_kwargs.setdefault("use_reentrant", False)
++
++        super().__init__(
++            model=model,
++            args=args,
++            data_collator=data_collator,
++            train_dataset=train_dataset,
++            eval_dataset=eval_dataset,
++            processing_class=processing_class,
++            compute_metrics=compute_metrics,
++            callbacks=callbacks,
++            optimizers=optimizers,
++        )
++
++        # Initialize activation offloading context
++        if self.args.activation_offloading:
++            self.maybe_activation_offload_context = get_act_offloading_ctx_manager(model=self.model)
++        else:
++            self.maybe_activation_offload_context = contextlib.nullcontext()
++
++        # SDPO-specific: Store the initial model state as the reference
++        self._initial_model_state = None
++        if not is_peft_model(self.model):
++            # For non-PEFT models, we need to store the initial state
++            self._initial_model_state = {k: v.clone().detach() for k, v in self.model.named_parameters()}
++        else:
++            # For PEFT models, we can use the adapter mechanism
++            self._initial_model_state = None
++
++        # Disable dropout in the models
++        if args.disable_dropout:
++            disable_dropout_in_model(model)
++
++        # Initialize the metrics
++        self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
++        self._total_train_tokens = 0
++
++        # Add tags to the model
++        self.model.add_model_tags(self._tag_names)
++
++    def _prepare_dataset(
++        self,
++        dataset: Dataset | IterableDataset,
++        processing_class: PreTrainedTokenizerBase | ProcessorMixin,
++        args: SDPOConfig,
++        dataset_name: str,
++    ) -> Dataset | IterableDataset:
++        """
++        Prepare the dataset for training by tokenizing the prompts and completions.
++
++        Args:
++            dataset (`Dataset` or `IterableDataset`):
++                The dataset to prepare.
++            processing_class (`PreTrainedTokenizerBase` or `ProcessorMixin`):
++                The processing class used to tokenize the data.
++            args (`SDPOConfig`):
++                The training configuration.
++            dataset_name (`str`):
++                The dataset split ("train" or "eval").
++
++        Returns:
++            `Dataset` or `IterableDataset`:
++                The prepared dataset.
++        """
++        # Tabular backends like Arrow/Parquet insert `None` for mismatched keys in nested structures. Clean them from
++        # sampled data.
++        if isinstance(dataset, Dataset):  # IterableDataset does not support `with_transform`
++            dataset = dataset.with_transform(remove_none_values)
++
++        # Build the kwargs for the `map` function
++        map_kwargs = {}
++        if isinstance(dataset, Dataset):  # IterableDataset does not support num_proc
++            map_kwargs["num_proc"] = args.dataset_num_proc
++
++        with PartialState().main_process_first():
++            # Extract the prompt if needed
++            first_example = next(iter(dataset))
++            if "prompt" not in first_example:
++                if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
++                    map_kwargs["desc"] = f"Extracting prompt from {dataset_name} dataset"
++                dataset = dataset.map(extract_prompt, **map_kwargs)
++
++            # Apply the chat template if needed
++            first_example = next(iter(dataset))
++            if not is_conversational(first_example):
++                if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
++                    map_kwargs["desc"] = f"Adding EOS to {dataset_name} dataset"
++
++                def add_eos(example, eos_token):
++                    if not example["chosen"].endswith(eos_token):
++                        example["chosen"] = example["chosen"] + eos_token
++                    if not example["rejected"].endswith(eos_token):
++                        example["rejected"] = example["rejected"] + eos_token
++                    return example
++
++                eos_token = processing_class.tokenizer.eos_token if self._is_vlm else processing_class.eos_token
++                dataset = dataset.map(add_eos, fn_kwargs={"eos_token": eos_token}, **map_kwargs)
++
++            # Tokenize the dataset
++            if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
++                map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
++
++            def tokenize_fn(example, processing_class):
++                tools = example.get("tools")
++                tools = json.loads(tools) if isinstance(tools, str) else tools
++                output = {}
++                if is_conversational(example):
++                    if self._is_vlm:
++                        prompt = prepare_multimodal_messages(example["prompt"], images=[])
++                        chosen = prepare_multimodal_messages(example["chosen"], images=[])
++                        rejected = prepare_multimodal_messages(example["rejected"], images=[])
++                    else:
++                        prompt = example["prompt"]
++                        chosen = example["chosen"]
++                        rejected = example["rejected"]
++                    prompt_ids = processing_class.apply_chat_template(
++                        prompt,
++                        tools=tools,
++                        add_generation_prompt=True,
++                        tokenize=True,
++                        return_dict=False,
++                        **example.get("chat_template_kwargs", {}),
++                    )
++                    prompt_chosen_processed = processing_class.apply_chat_template(
++                        prompt + chosen,
++                        tools=tools,
++                        tokenize=True,
++                        return_dict=True,
++                        **example.get("chat_template_kwargs", {}),
++                    )
++                    prompt_rejected_processed = processing_class.apply_chat_template(
++                        prompt + rejected,
++                        tools=tools,
++                        tokenize=True,
++                        return_dict=True,
++                        **example.get("chat_template_kwargs", {}),
++                    )
++                    # Fix transformers inconsistency: for VLMs, apply_chat_template returns lists of lists
++                    # even for single examples, while for LLMs it returns lists of ints.
++                    prompt_ids = prompt_ids[0] if isinstance(prompt_ids[0], list) else prompt_ids
++                    prompt_chosen_processed = {
++                        k: v[0] if isinstance(v[0], list) else v for k, v in prompt_chosen_processed.items()
++                    }
++                    prompt_rejected_processed = {
++                        k: v[0] if isinstance(v[0], list) else v for k, v in prompt_rejected_processed.items()
++                    }
++                    prompt_chosen_ids = prompt_chosen_processed["input_ids"]
++                    prompt_rejected_ids = prompt_rejected_processed["input_ids"]
++                else:
++                    prompt_ids = processing_class(text=example["prompt"])["input_ids"]
++                    prompt_chosen_ids = processing_class(text=example["prompt"] + example["chosen"])["input_ids"]
++                    prompt_rejected_ids = processing_class(text=example["prompt"] + example["rejected"])["input_ids"]
++                    # Fix transformers inconsistency: for VLMs, processing_class returns lists of lists
++                    # even for single examples, while for LLMs it returns lists of ints.
++                    prompt_ids = prompt_ids[0] if isinstance(prompt_ids[0], list) else prompt_ids
++                    prompt_chosen_ids = (
++                        prompt_chosen_ids[0] if isinstance(prompt_chosen_ids[0], list) else prompt_chosen_ids
++                    )
++                    prompt_rejected_ids = (
++                        prompt_rejected_ids[0] if isinstance(prompt_rejected_ids[0], list) else prompt_rejected_ids
++                    )
++
++                # Check if the tokenized prompt starts with the tokenized prompt+completion
++                if not prompt_chosen_ids[: len(prompt_ids)] == prompt_ids:
++                    logger.warning(
++                        "Mismatch between tokenized prompt and the start of tokenized prompt+chosen. "
++                        "This may be due to unexpected tokenizer behavior, whitespace issues, or special "
++                        "token handling. Verify that the tokenizer is processing text consistently."
++                    )
++                if not prompt_rejected_ids[: len(prompt_ids)] == prompt_ids:
++                    logger.warning(
++                        "Mismatch between tokenized prompt and the start of tokenized prompt+rejected. "
++                        "This may be due to unexpected tokenizer behavior, whitespace issues, or special "
++                        "token handling. Verify that the tokenizer is processing text consistently."
++                    )
++
++                output["prompt_ids"] = prompt_ids
++                output["chosen_ids"] = prompt_chosen_ids[len(prompt_ids) :]
++                output["rejected_ids"] = prompt_rejected_ids[len(prompt_ids) :]
++                return output
++
++            dataset = dataset.map(tokenize_fn, fn_kwargs={"processing_class": processing_class}, **map_kwargs)
++
++        return dataset
++
++    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
++        """
++        Compute the SDPO loss for a batch of data.
++
++        SDPO uses the model itself as the reference policy, enabling self-distillation where the model learns to improve
++        upon its own previous state.
++
++        Args:
++            model (`torch.nn.Module`):
++                The model to compute the loss for.
++            inputs (`dict[str, torch.Tensor]`):
++                The batch of data.
++            return_outputs (`bool`, *optional*, defaults to `False`):
++                Whether to return the outputs.
++            num_items_in_batch (`int`, *optional*):
++                The number of items in the batch.
++
++        Returns:
++            `torch.Tensor` or `tuple[torch.Tensor, dict]`:
++                The computed loss, optionally with the outputs.
++        """
++        # Get the policy logits
++        policy_chosen_logits = model(
++            input_ids=inputs["input_ids"][0::2],
++            attention_mask=inputs["attention_mask"][0::2],
++            use_cache=False,
++        ).logits
++
++        policy_rejected_logits = model(
++            input_ids=inputs["input_ids"][1::2],
++            attention_mask=inputs["attention_mask"][1::2],
++            use_cache=False,
++        ).logits
++
++        # Get the reference logits using the initial model state
++        if self._initial_model_state is not None:
++            # Save current model state
++            current_state = {k: v.clone().detach() for k, v in model.named_parameters()}
++
++            # Load initial model state
++            for k, v in self._initial_model_state.items():
++                model.get_parameter(k).data.copy_(v)
++
++            # Compute reference logits
++            with torch.no_grad():
++                ref_chosen_logits = model(
++                    input_ids=inputs["input_ids"][0::2],
++                    attention_mask=inputs["attention_mask"][0::2],
++                    use_cache=False,
++                ).logits
++
++                ref_rejected_logits = model(
++                    input_ids=inputs["input_ids"][1::2],
++                    attention_mask=inputs["attention_mask"][1::2],
++                    use_cache=False,
++                ).logits
++
++            # Restore current model state
++            for k, v in current_state.items():
++                model.get_parameter(k).data.copy_(v)
++
++        else:
++            # For PEFT models, we can use the adapter mechanism to get reference logits
++            with torch.no_grad():
++                if is_peft_model(model):
++                    # Disable the adapter to get reference logits
++                    model.disable_adapter()
++                    ref_chosen_logits = model(
++                        input_ids=inputs["input_ids"][0::2],
++                        attention_mask=inputs["attention_mask"][0::2],
++                        use_cache=False,
++                    ).logits
++
++                    ref_rejected_logits = model(
++                        input_ids=inputs["input_ids"][1::2],
++                        attention_mask=inputs["attention_mask"][1::2],
++                        use_cache=False,
++                    ).logits
++                    model.enable_adapter()
++                else:
++                    # Fallback: use current model as reference (less ideal)
++                    ref_chosen_logits = policy_chosen_logits.detach()
++                    ref_rejected_logits = policy_rejected_logits.detach()
++
++        # Compute log probabilities
++        policy_chosen_logps = selective_log_softmax(policy_chosen_logits, inputs["completion_mask"][0::2])
++        policy_rejected_logps = selective_log_softmax(policy_rejected_logits, inputs["completion_mask"][1::2])
++
++        ref_chosen_logps = selective_log_softmax(ref_chosen_logits, inputs["completion_mask"][0::2])
++        ref_rejected_logps = selective_log_softmax(ref_rejected_logits, inputs["completion_mask"][1::2])
++
++        # Compute DPO loss
++        loss = self.dpo_loss(
++            policy_chosen_logps=policy_chosen_logps,
++            policy_rejected_logps=policy_rejected_logps,
++            ref_chosen_logps=ref_chosen_logps,
++            ref_rejected_logps=ref_rejected_logps,
++        )
++
++        # Store metrics
++        self._metrics["train"]["rewards/chosen_sum"].append((policy_chosen_logps - ref_chosen_logps).sum().item())
++        self._metrics["train"]["rewards/rejected_sum"].append((policy_rejected_logps - ref_rejected_logps).sum().item())
++        self._metrics["train"]["logps/chosen_sum"].append(policy_chosen_logps.sum().item())
++        self._metrics["train"]["logps/rejected_sum"].append(policy_rejected_logps.sum().item())
++        self._metrics["train"]["logits/chosen_sum"].append(policy_chosen_logits.sum().item())
++        self._metrics["train"]["logits/rejected_sum"].append(policy_rejected_logits.sum().item())
++        self._metrics["train"]["count/chosen"].append(inputs["input_ids"][0::2].shape[0])
++        self._metrics["train"]["count/rejected"].append(inputs["input_ids"][1::2].shape[0])
++
++        return loss, {"loss": loss}
++
++    def dpo_loss(
++        self,
++        policy_chosen_logps: torch.FloatTensor,
++        policy_rejected_logps: torch.FloatTensor,
++        ref_chosen_logps: torch.FloatTensor,
++        ref_rejected_logps: torch.FloatTensor,
++    ) -> torch.FloatTensor:
++        """
++        Compute the DPO loss for a batch of data.
++
++        Args:
++            policy_chosen_logps (`torch.FloatTensor`):
++                The log probabilities of the chosen responses from the policy model.
++            policy_rejected_logps (`torch.FloatTensor`):
++                The log probabilities of the rejected responses from the policy model.
++            ref_chosen_logps (`torch.FloatTensor`):
++                The log probabilities of the chosen responses from the reference model.
++            ref_rejected_logps (`torch.FloatTensor`):
++                The log probabilities of the rejected responses from the reference model.
++
++        Returns:
++            `torch.FloatTensor`:
++                The computed DPO loss.
++        """
++        # Compute the DPO loss using the standard formula
++        pi_logratios = policy_chosen_logps - policy_rejected_logps
++        ref_logratios = ref_chosen_logps - ref_rejected_logps
++
++        # Standard DPO loss
++        losses = -F.logsigmoid(self.beta * (pi_logratios - ref_logratios))
++
++        return losses.mean()
++
++    def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
++        """
++        Log `logs` on the various objects watching training, including stored metrics.
++
++        Args:
++            logs (`dict[str, float]`):
++                The values to log.
++            start_time (`float`, *optional*):
++                Start time of the training.
++        """
++        # logs either has 'loss' or 'eval_loss'
++        train_eval = "train" if "loss" in logs else "eval"
++        # train metrics should have no prefix, eval should have 'eval_'
++        prefix = "eval_" if train_eval == "eval" else ""
++        # accumulate average metrics from sums and lengths
++        for split in ["chosen", "rejected"]:
++            if f"count/{split}" in self._metrics[train_eval]:
++                count_sum = torch.Tensor(self._metrics[train_eval][f"count/{split}"]).sum().item()
++                for metric in ["rewards", "logps", "logits"]:
++                    logs[f"{prefix}{metric}/{split}"] = (
++                        torch.Tensor(self._metrics[train_eval][f"{metric}/{split}_sum"]).sum().item()
++                        / count_sum
++                    )
++                    # delete obsolete metric
++                    del self._metrics[train_eval][f"{metric}/{split}_sum"]
++                del self._metrics[train_eval][f"count/{split}"]
++        # calculate reward margin
++        if f"{prefix}rewards/chosen" in logs and f"{prefix}rewards/rejected" in logs:
++            logs[f"{prefix}rewards/margins"] = logs[f"{prefix}rewards/chosen"] - logs[f"{prefix}rewards/rejected"]
++        # Add averaged stored metrics to logs
++        for key, metrics in self._metrics[train_eval].items():
++            logs[f"{prefix}{key}"] = torch.Tensor(metrics).mean().item()
++        del self._metrics[train_eval]
++        return super().log(logs, start_time)
++
++    # Ensure the model card is saved along with the checkpoint
++    def _save_checkpoint(self, model, trial):
++        if self.args.hub_model_id is None:
++            model_name = Path(self.args.output_dir).name
++        else:
++            model_name = self.args.hub_model_id.split("/")[-1]
++        self.create_model_card(model_name=model_name)
++        super()._save_checkpoint(model, trial)

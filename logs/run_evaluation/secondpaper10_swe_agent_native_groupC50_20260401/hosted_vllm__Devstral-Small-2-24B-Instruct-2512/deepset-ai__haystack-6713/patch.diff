@@ -1,0 +1,92 @@
+diff --git a/haystack/marshal/yaml.py b/haystack/marshal/yaml.py
+index 5fca27fb..b916e690 100644
+--- a/haystack/marshal/yaml.py
++++ b/haystack/marshal/yaml.py
+@@ -1,11 +1,85 @@
++# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
++#
++# SPDX-License-Identifier: Apache-2.0
+ from typing import Dict, Any, Union
+-
+ import yaml
+ 
++def _resolve_torch_dtype(dtype_str: str):
++    """
++    Convert a string representation of a torch dtype back to the actual torch.dtype object.
++
++    :param dtype_str: String representation of the torch dtype (e.g., "float16", "float32", etc.)
++    :return: The corresponding torch.dtype object
++    :raises ValueError: If the dtype string is not recognized
++    """
++    try:
++        import torch
++        # Remove "torch." prefix if present
++        if dtype_str.startswith("torch."):
++            dtype_str = dtype_str[6:]
++        return getattr(torch, dtype_str)
++    except AttributeError:
++        raise ValueError(f"Unknown torch dtype: {dtype_str}")
++
++def _represent_torch_dtype(dumper, data):
++    """
++    Custom YAML representer for torch.dtype objects.
++
++    :param dumper: YAML dumper
++    :param data: torch.dtype object
++    :return: YAML node
++    """
++    # Convert torch.dtype to string representation
++    # Use a custom tag to identify this as a torch.dtype
++    return dumper.represent_scalar('!torch.dtype', str(data))
++
++def _construct_torch_dtype(loader, node):
++    """
++    Custom YAML constructor for torch.dtype objects.
++
++    :param loader: YAML loader
++    :param node: YAML node
++    :return: torch.dtype object
++    """
++    dtype_str = loader.construct_scalar(node)
++    return _resolve_torch_dtype(dtype_str)
+ 
+ class YamlMarshaller:
++    def __init__(self):
++        """
++        Initialize the YAML marshaller with custom representers and constructors for torch.dtype.
++        """
++        self._yaml_add_representers()
++        self._yaml_add_constructors()
++
++    def _yaml_add_representers(self):
++        """Add custom YAML representers."""
++        # Check if torch is available before adding the representer
++        try:
++            import torch
++            yaml.add_representer(torch.dtype, _represent_torch_dtype)
++        except ImportError:
++            pass  # torch is not available, skip the representer
++
++    def _yaml_add_constructors(self):
++        """Add custom YAML constructors."""
++        yaml.add_constructor('!torch.dtype', _construct_torch_dtype)
++
+     def marshal(self, dict_: Dict[str, Any]) -> str:
++        """
++        Serialize a dictionary to YAML string.
++
++        :param dict_: Dictionary to serialize
++        :return: YAML string representation
++        """
+         return yaml.dump(dict_)
+ 
+     def unmarshal(self, data_: Union[str, bytes, bytearray]) -> Dict[str, Any]:
+-        return yaml.safe_load(data_)
++        """
++        Deserialize a YAML string to dictionary.
++
++        :param data_: YAML string, bytes, or bytearray to deserialize
++        :return: Deserialized dictionary
++        """
++        # Use yaml.load instead of yaml.safe_load to support custom constructors
++        return yaml.load(data_, Loader=yaml.Loader)

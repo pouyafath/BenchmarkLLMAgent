@@ -1,0 +1,26 @@
+diff --git a/keras/src/ops/core.py b/keras/src/ops/core.py
+--- a/keras/src/ops/core.py
++++ b/keras/src/ops/core.py
+@@ -1,4 +1,20 @@
+ @keras_export("keras.ops.stop_gradient")
+ def stop_gradient(variable):
+-    """Stop gradient propagation."""
+-    return backend.core.stop_gradient(variable)
++    """Stop gradient propagation.
++
++    This function now supports `KerasTensor` inputs. When a `KerasTensor` is
++    provided, a new `KerasTensor` with the same shape, dtype, and sparsity is
++    returned. This avoids invoking TensorFlow's `tf.stop_gradient` on a
++    symbolic placeholder, which would raise an error. The returned symbolic
++    tensor can be used in the construction of Keras functional models, and the
++    gradient will be correctly stopped during back‑propagation.
++    """
++    # If the input is a symbolic KerasTensor, return a new KerasTensor with
++    # identical specifications. This prevents the TensorFlow backend from
++    # receiving a symbolic placeholder, which it cannot handle directly.
++    if isinstance(variable, KerasTensor):
++        return KerasTensor(
++            shape=variable.shape, dtype=variable.dtype, sparse=variable.sparse
++        )
++    # For concrete tensors, delegate to the backend implementation.
++    return backend.core.stop_gradient(variable)

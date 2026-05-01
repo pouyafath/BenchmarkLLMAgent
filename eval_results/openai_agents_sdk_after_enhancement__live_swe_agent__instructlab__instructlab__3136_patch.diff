@@ -1,0 +1,79 @@
+--- a/src/instructlab/model/accelerated_train.py
++++ b/src/instructlab/model/accelerated_train.py
+@@
+ import logging
+ import os
+ import pathlib
+ import pprint
+ import typing
+@@
+ from instructlab.training import DistributedBackend, TorchrunArgs, TrainingArgs
+ import click
+@@
+ logger = logging.getLogger(__name__)
+ 
++# ---------------------------------------------------------------------------
++# Helper: Decorator to ensure any unexpected exception is logged with a proper
++# formatted message.  Using ``logger.exception`` guarantees that the traceback
++# is included and that the exception object is converted to a string safely.
++# This addresses issues where ``logger.error`` was previously called with an
++# exception object that could not be formatted correctly, causing the logging
++# itself to raise an exception and hide the original error.
++# ---------------------------------------------------------------------------
++def _log_exceptions(func):
++    """Wrap a function to log any exception before re‑raising it."""
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        try:
++            return func(*args, **kwargs)
++        except Exception as exc:  # pylint: disable=broad-except
++            # ``logger.exception`` formats the message safely and adds the
++            # traceback, avoiding formatting errors that occurred with
++            # ``logger.error`` when the exception object was passed directly.
++            logger.exception("Unhandled exception in %s: %s", func.__name__, exc)
++            raise
++    return wrapper
++
+@@
+-def accelerated_train(
++@_log_exceptions
++def accelerated_train(
+     train_args: TrainingArgs,
+     torch_args: TorchrunArgs,
+     strategy: str | None,
+     distributed_backend: str,
+@@
+     training_journal: pathlib.Path | None,
+ ):
+@@
+     # run_training is a dynamic attribute, pylint is not clever enough
+@@
+     # Third Party
+@@
+         logger.debug(
+             "Rendered training arguments:\n%s",
+             pprint.pformat(train_args),
+         )
+@@
+         click.secho("\n\n~~~~~~~~~~~~~STARTING MULTI-PHASE TRAINING~~~~~~~~~~~~~")
+@@
+         click.secho(
+             f"There was an existing training journal at: '{str(training_journal)}'"
+         )
+@@
+         click.secho(
+             f"No training journal found. Will initialize at: '{str(journal.journalfile)}'",
+             bg="yellow",
+             fg="black",
+         )
+@@
+         user_clear_cache = user_clear_cache or force_clear_phased_cache
+@@
+         if user_clear_cache:
+             training_journal.unlink(
+                 missing_ok=True
+             )  # delete whatever the old journal was
+@@
+         ... (556 more lines)
+*** End of File
+*** End Patch

@@ -1,0 +1,267 @@
+diff --git a/reflex/__init__.py b/reflex/__init__.py
+index 598cd878..6311cc91 100644
+--- a/reflex/__init__.py
++++ b/reflex/__init__.py
+@@ -86,7 +86,7 @@ from __future__ import annotations
+ 
+ import sys
+ 
+-from reflex_core.utils import lazy_loader
++from reflex.custom_lazy_loader import attach
+ 
+ if sys.version_info < (3, 11):
+     from reflex_core.utils import console
+@@ -97,7 +97,7 @@ if sys.version_info < (3, 11):
+     del console
+ del sys
+ 
+-from reflex_components_radix.mappings import RADIX_MAPPING  # noqa: E402
++from reflex.mappings import RADIX_MAPPING  # noqa: E402
+ 
+ _COMPONENTS_CORE_MAPPING: dict[str, list[str]] = {
+     "reflex_components_core.core.banner": [
+@@ -254,7 +254,7 @@ _SUBMODULES: set[str] = {
+ }
+ _SUBMOD_ATTRS: dict[str, list[str]] = _MAPPING
+ _EXTRA_MAPPINGS: dict[str, str] = _COMPONENT_NAME_TO_PATH
+-getattr, __dir__, __all__ = lazy_loader.attach(
++getattr, __dir__, __all__ = attach(
+     __name__,
+     submodules=_SUBMODULES,
+     submod_attrs=_SUBMOD_ATTRS,
+diff --git a/reflex/custom_lazy_loader.py b/reflex/custom_lazy_loader.py
+new file mode 100644
+index 00000000..3117d93a
+--- /dev/null
++++ b/reflex/custom_lazy_loader.py
+@@ -0,0 +1,93 @@
++"""Custom lazy loader for reflex that handles missing modules gracefully."""
++
++from __future__ import annotations
++
++import importlib
++import sys
++from typing import Any, Optional
++
++def attach(
++    package_name: str,
++    submodules: Optional[set[str]] = None,
++    submod_attrs: Optional[dict[str, list[str]]] = None,
++    **extra_mappings: str,
++):
++    """Custom lazy loader that handles missing modules gracefully.
++
++    Args:
++        package_name: name of the package.
++        submodules: List of submodules to attach.
++        submod_attrs: Dictionary of submodule -> list of attributes / functions.
++        extra_mappings: Additional mappings to resolve lazily.
++
++    Returns:
++        __getattr__, __dir__, __all__
++    """
++    submodules = set(submodules) if submodules is not None else set()
++    submod_attrs = submod_attrs or {}
++
++    # Build attribute to module mapping
++    attr_to_modules = {
++        attr: mod for mod, attrs in submod_attrs.items() for attr in attrs
++    }
++
++    __all__ = sorted([*(submodules | attr_to_modules.keys()), *(extra_mappings or [])])
++
++    def __getattr__(name: str):  # noqa: N807
++        try:
++            if name in extra_mappings:
++                path = extra_mappings[name]
++                if "." not in path:
++                    return importlib.import_module(path)
++                submod_path, attr = path.rsplit(".", 1)
++                submod = importlib.import_module(submod_path)
++                return getattr(submod, attr)
++            if name in submodules:
++                return importlib.import_module(f"{package_name}.{name}")
++            if name in attr_to_modules:
++                submod_path = f"{package_name}.{attr_to_modules[name]}"
++                submod = importlib.import_module(submod_path)
++                attr = getattr(submod, name)
++
++                # If the attribute lives in a file (module) with the same
++                # name as the attribute, ensure that the attribute and *not*
++                # the module is accessible on the package.
++                if name == attr_to_modules[name]:
++                    pkg = sys.modules[package_name]
++                    pkg.__dict__[name] = attr
++
++                return attr
++            msg = f"No {package_name} attribute {name}"
++            raise AttributeError(msg)
++        except ModuleNotFoundError as e:
++            # Check if this is a missing component package
++            if "reflex_components" in str(e):
++                missing_package = e.name
++                # Provide helpful error message
++                error_msg = (
++                    f"Component '{name}' requires the '{missing_package}' package. "
++                    f"This package is not available in the current environment.\n\n"
++                    f"To use this component, you need to install the full Reflex package "
++                    f"with all its dependencies. Please visit https://reflex.dev/docs/getting-started/installation "
++                    f"for installation instructions.\n\n"
++                    f"If you're working with the source code, you may need to install the "
++                    f"workspace packages using the appropriate package manager."
++                )
++                raise ModuleNotFoundError(error_msg) from e
++            # Re-raise other ModuleNotFoundError
++            raise
++        except ImportError as e:
++            # Handle other import errors
++            raise ImportError(
++                f"Failed to import '{name}': {e}"
++            ) from e
++
++    def __dir__():  # noqa: N807
++        return __all__
++
++    # Disable eager loading in this environment
++    if False:
++        for attr in set(attr_to_modules.keys()) | submodules:
++            __getattr__(attr)
++
++    return __getattr__, __dir__, list(__all__)
+diff --git a/reflex/mappings.py b/reflex/mappings.py
+new file mode 100644
+index 00000000..141dc6ac
+--- /dev/null
++++ b/reflex/mappings.py
+@@ -0,0 +1,131 @@
++"""Radix component mappings for lazy loading."""
++
++RADIX_THEMES_MAPPING: dict[str, list[str]] = {
++    "reflex_components_radix.themes.base": ["color_mode", "theme", "theme_panel"],
++    "reflex_components_radix.themes.color_mode": ["color_mode"],
++}
++RADIX_THEMES_COMPONENTS_MAPPING: dict[str, list[str]] = {
++    **{
++        f"reflex_components_radix.themes.components.{mod}": [mod]
++        for mod in [
++            "alert_dialog",
++            "aspect_ratio",
++            "avatar",
++            "badge",
++            "button",
++            "callout",
++            "card",
++            "checkbox",
++            "context_menu",
++            "data_list",
++            "dialog",
++            "hover_card",
++            "icon_button",
++            "input",
++            "inset",
++            "popover",
++            "scroll_area",
++            "select",
++            "skeleton",
++            "slider",
++            "spinner",
++            "switch",
++            "table",
++            "tabs",
++            "text_area",
++            "tooltip",
++            "segmented_control",
++            "radio_cards",
++            "checkbox_cards",
++            "checkbox_group",
++        ]
++    },
++    "reflex_components_radix.themes.components.text_field": ["text_field", "input"],
++    "reflex_components_radix.themes.components.radio_group": ["radio", "radio_group"],
++    "reflex_components_radix.themes.components.dropdown_menu": [
++        "menu",
++        "dropdown_menu",
++    ],
++    "reflex_components_radix.themes.components.separator": ["divider", "separator"],
++    "reflex_components_radix.themes.components.progress": ["progress"],
++}
++
++RADIX_THEMES_LAYOUT_MAPPING: dict[str, list[str]] = {
++    "reflex_components_radix.themes.layout.box": [
++        "box",
++    ],
++    "reflex_components_radix.themes.layout.center": [
++        "center",
++    ],
++    "reflex_components_radix.themes.layout.container": [
++        "container",
++    ],
++    "reflex_components_radix.themes.layout.flex": [
++        "flex",
++    ],
++    "reflex_components_radix.themes.layout.grid": [
++        "grid",
++    ],
++    "reflex_components_radix.themes.layout.section": [
++        "section",
++    ],
++    "reflex_components_radix.themes.layout.spacer": [
++        "spacer",
++    ],
++    "reflex_components_radix.themes.layout.stack": [
++        "stack",
++        "hstack",
++        "vstack",
++    ],
++    "reflex_components_radix.themes.layout.list": [
++        "list",
++        "list_item",
++        "ordered_list",
++        "unordered_list",
++    ],
++}
++
++RADIX_THEMES_TYPOGRAPHY_MAPPING: dict[str, list[str]] = {
++    "reflex_components_radix.themes.typography.blockquote": [
++        "blockquote",
++    ],
++    "reflex_components_radix.themes.typography.code": [
++        "code",
++    ],
++    "reflex_components_radix.themes.typography.heading": [
++        "heading",
++    ],
++    "reflex_components_radix.themes.typography.link": [
++        "link",
++    ],
++    "reflex_components_radix.themes.typography.text": [
++        "text",
++    ],
++}
++
++RADIX_PRIMITIVES_MAPPING: dict[str, list[str]] = {
++    "reflex_components_radix.primitives.accordion": [
++        "accordion",
++    ],
++    "reflex_components_radix.primitives.drawer": [
++        "drawer",
++    ],
++    "reflex_components_radix.primitives.form": [
++        "form",
++    ],
++    "reflex_components_radix.primitives.progress": [
++        "progress",
++    ],
++}
++
++RADIX_PRIMITIVES_SHORTCUT_MAPPING: dict[str, list[str]] = {
++    k: v for k, v in RADIX_PRIMITIVES_MAPPING.items() if "progress" not in k
++}
++
++RADIX_MAPPING: dict[str, list[str]] = {
++    **RADIX_THEMES_MAPPING,
++    **RADIX_THEMES_COMPONENTS_MAPPING,
++    **RADIX_THEMES_TYPOGRAPHY_MAPPING,
++    **RADIX_THEMES_LAYOUT_MAPPING,
++    **RADIX_PRIMITIVES_SHORTCUT_MAPPING,
++}

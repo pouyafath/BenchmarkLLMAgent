@@ -1,0 +1,40 @@
+diff --git a/conan/tools/scm/git.py b/conan/tools/scm/git.py
+index 77d0e6dbb..d91453217 100644
+--- a/conan/tools/scm/git.py
++++ b/conan/tools/scm/git.py
+@@ -227,6 +227,35 @@ class Git:
+         self._conanfile.output.info("Checkout: {}".format(commit))
+         self.run('checkout {}'.format(commit))
+ 
++
++    def capture_scm_data(self, key="scm", remote="origin", repository=False):
++        """
++        Helper function to capture SCM (Source Control Management) data and update conandata.yml.
++
++        This function provides a one-liner solution to automatically detect SCM information (URL, commit hash)
++        and update conandata.yml with a standardized format. It simplifies the common pattern of:
++
++            git = Git(self, self.recipe_folder)
++            scm_url, scm_commit = git.get_url_and_commit()
++            update_conandata(self, {"scm": {"commit": scm_commit, "url": scm_url}})
++
++        into a single line:
++
++            git = Git(self, self.recipe_folder)
++            git.capture_scm_data()
++
++        :param key: Key to use in conandata.yml (default: "scm"). Can be used to store SCM data
++                   under different keys like "sources", "upstream", etc.
++        :param remote: Name of the remote git repository (default: "origin").
++        :param repository: By default gets the commit of the defined folder, use repo=True to get
++                   the commit of the repository instead.
++        :return: None
++        """
++        from conan.tools.files import update_conandata
++
++        scm_url, scm_commit = self.get_url_and_commit(remote=remote, repository=repository)
++        update_conandata(self._conanfile, {key: {"commit": scm_commit, "url": scm_url}})
++
+     def included_files(self):
+         """
+         Run ``git ls-files --full-name --others --cached --exclude-standard`` to the get the list

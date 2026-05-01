@@ -1,0 +1,45 @@
+{
+  "issue_id": "astropy/astropy#13033",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "TimeSeries: misleading exception when required column check fails.",
+  "original_body": "TimeSeries: misleading exception when required column check fails.\n<!-- This comments are hidden when you submit the issue,\r\nso you do not need to remove them! -->\r\n\r\n<!-- Please be sure to check out our contributing guidelines,\r\nhttps://github.com/astropy/astropy/blob/main/CONTRIBUTING.md .\r\nPlease be sure to check out our code of conduct,\r\nhttps://github.com/astropy/astropy/blob/main/CODE_OF_CONDUCT.md . -->\r\n\r\n<!-- Please have a search on our GitHub repository to see if a similar\r\nissue has already been posted.\r\nIf a similar issue is closed, have a quick look to see if you are satisfied\r\nby the resolution.\r\nIf not please go ahead and open an issue! -->\r\n\r\n<!-- Please check that the development version still produces the same bug.\r\nYou can install development version with\r\npip install git+https://github.com/astropy/astropy\r\ncommand. -->\r\n\r\n### Description\r\n<!-- Provide a general description of the bug. -->\r\n\r\nFor a `TimeSeries` object that has additional required columns (in addition to `time`), when codes mistakenly try to remove a required column, the exception it produces is misleading.\r\n\r\n### Expected behavior\r\n<!-- What did you expect to happen. -->\r\nAn exception that informs the users required columns are missing.\r\n\r\n### Actual behavior\r\nThe actual exception message is confusing:\r\n`ValueError: TimeSeries object is invalid - expected 'time' as the first columns but found 'time'`\r\n\r\n### Steps to Reproduce\r\n<!-- Ideally a code example could be provided so we can run it ourselves. -->\r\n<!-- If you are pasting code, use triple backticks (```) around\r\nyour code snippet. -->\r\n<!-- If necessary, sanitize your screen output to be pasted so you do not\r\nreveal secrets like tokens and passwords. -->\r\n\r\n```python\r\nfrom astropy.time import Time\r\nfrom astropy.timeseries import TimeSeries\r\n\r\ntime=Time(np.arange(100000, 100003), format='jd')\r\nts = TimeSeries(time=time, data = {\"flux\": [99.9, 99.8, 99.7]})\r\nts._required_columns = [\"time\", \"flux\"]                                   \r\nts.remove_column(\"flux\")\r\n\r\n```\r\n\r\n### System Details\r\n<!-- Even if you do not think this is necessary, it is useful information for the maintainers.\r\nPlease run the following snippet and paste the output below:\r\nimport platform; print(platform.platform())\r\nimport sys; print(\"Python\", sys.version)\r\nimport numpy; print(\"Numpy\", numpy.__version__)\r\nimport erfa; print(\"pyerfa\", erfa.__version__)\r\nimport astropy; print(\"astropy\", astropy.__version__)\r\nimport scipy; print(\"Scipy\", scipy.__version__)\r\nimport matplotlib; print(\"Matplotlib\", matplotlib.__version__)\r\n-->\r\n```\r\nWindows-10-10.0.22000-SP0\r\nPython 3.9.10 | packaged by conda-forge | (main, Feb  1 2022, 21:21:54) [MSC v.1929 64 bit (AMD64)]\r\nNumpy 1.22.3\r\npyerfa 2.0.0.1\r\nastropy 5.0.3\r\nScipy 1.8.0\r\nMatplotlib 3.5.1\r\n```\n",
+  "enhanced_title": "TimeSeries: Improve exception message for missing required columns",
+  "enhanced_body": "## Description\nWhen a `TimeSeries` object has additional required columns (beyond `time`), attempting to remove a required column results in a misleading exception message that doesn't clearly indicate which required columns are missing.\n\n## Expected Behavior\nThe exception should clearly inform users which required columns are missing from the `TimeSeries` object.\n\n## Actual Behavior\nThe current exception message is confusing:\n```\nValueError: TimeSeries object is invalid - expected 'time' as the first columns but found 'time'\n```\nThis message doesn't mention the missing required column (`flux` in the example) and could lead to confusion about what went wrong.\n\n## Steps to Reproduce\n1. Create a `TimeSeries` object with additional required columns\n2. Attempt to remove one of the required columns\n3. Observe the misleading exception message\n\n```python\nfrom astropy.time import Time\nfrom astropy.timeseries import TimeSeries\nimport numpy as np\n\n# Create TimeSeries with required columns\ntime = Time(np.arange(100000, 100003), format='jd')\nts = TimeSeries(time=time, data={\"flux\": [99.9, 99.8, 99.7]})\nts._required_columns = [\"time\", \"flux\"]\n\n# Attempt to remove required column\nts.remove_column(\"flux\")\n```\n\n## System Details\n- OS: Windows-10-10.0.22000-SP0\n- Python: 3.9.10\n- Numpy: 1.22.3\n- pyerfa: 2.0.0.1\n- astropy: 5.0.3\n- Scipy: 1.8.0\n- Matplotlib: 3.5.1\n\n## Affected Components\nBased on the hints, this issue likely affects:\n- `astropy/timeseries/core.py` (where `TimeSeries` class is implemented)\n- The `remove_column` method and related validation logic\n\n## Proposed Solution\nThe exception message should be updated to clearly indicate:\n1. Which columns were expected to be present\n2. Which required columns are missing\n3. The specific operation that caused the validation to fail\n\nThis would help users quickly identify and fix the issue in their code.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpkg12xcui/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

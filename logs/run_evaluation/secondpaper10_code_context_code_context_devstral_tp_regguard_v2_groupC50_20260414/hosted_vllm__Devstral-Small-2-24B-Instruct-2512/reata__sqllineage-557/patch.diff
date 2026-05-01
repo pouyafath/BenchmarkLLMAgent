@@ -1,0 +1,16 @@
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+index 7610bac..8f6f3f8 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+@@ -104,6 +104,11 @@ class CreateInsertExtractor(BaseExtractor):
+                 if segment.type in ["table_reference", "object_reference"]:
+                     write_obj = SqlFluffTable.of(segment)
+                     holder.add_write(write_obj)
++                    # If no explicit column list is provided, use MetaDataProvider to get target columns
++                    if not holder.write_columns and self.metadata_provider:
++                        target_columns = self.metadata_provider.get_table_columns(write_obj)
++                        if target_columns:
++                            holder.add_write_column(*target_columns)
+                 elif segment.type == "literal":
+                     if segment.raw.isnumeric():
+                         # Special Handling for Spark Bucket Table DDL

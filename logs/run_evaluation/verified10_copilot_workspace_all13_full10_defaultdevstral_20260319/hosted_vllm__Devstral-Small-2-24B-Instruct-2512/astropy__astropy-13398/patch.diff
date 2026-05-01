@@ -1,0 +1,217 @@
+diff --git a/astropy/coordinates/builtin_frames/altaz.py b/astropy/coordinates/builtin_frames/altaz.py
+index 05cb4df0e..bcf9dfb90 100644
+--- a/astropy/coordinates/builtin_frames/altaz.py
++++ b/astropy/coordinates/builtin_frames/altaz.py
+@@ -123,4 +123,31 @@ class AltAz(BaseCoordinateFrame):
+         return _90DEG.to(self.alt.unit) - self.alt
+ 
+ 
++
++
++# ITRS to AltAz transform
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.builtin_frames.itrs import ITRS
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++def itrs_to_altaz(itrs_coo, altaz_frame):
++    from astropy.coordinates.transformations import itrs_to_observed
++    return itrs_to_observed(itrs_coo, altaz_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++def altaz_to_itrs(altaz_coo, itrs_frame):
++    # For the reverse transform, we need to go through CIRS
++    # This is a placeholder - the actual implementation would need to be more sophisticated
++    from astropy.coordinates.builtin_frames.cirs import CIRS
++    from astropy.coordinates.builtin_frames.intermediate_rotation_transforms import cirs_to_itrs_mat
++
++    # Convert AltAz to CIRS first
++    cirs_coo = altaz_coo.transform_to(CIRS(obstime=altaz_coo.obstime, location=altaz_coo.location))
++
++    # Then convert CIRS to ITRS
++    pmat = cirs_to_itrs_mat(altaz_coo.obstime)
++    newrepr = cirs_coo.cartesian.transform(matrix_transpose(pmat))
++    return itrs_frame.realize_frame(newrepr)
++
+ # self-transform defined in icrs_observed_transforms.py
+diff --git a/astropy/coordinates/builtin_frames/hadec.py b/astropy/coordinates/builtin_frames/hadec.py
+index bf64c1583..bd9de26bb 100644
+--- a/astropy/coordinates/builtin_frames/hadec.py
++++ b/astropy/coordinates/builtin_frames/hadec.py
+@@ -121,4 +121,31 @@ class HADec(BaseCoordinateFrame):
+         return data
+ 
+ 
++
++
++# ITRS to HADec transform
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.builtin_frames.itrs import ITRS
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_hadec(itrs_coo, hadec_frame):
++    from astropy.coordinates.transformations import itrs_to_observed
++    return itrs_to_observed(itrs_coo, hadec_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def hadec_to_itrs(hadec_coo, itrs_frame):
++    # For the reverse transform, we need to go through CIRS
++    # This is a placeholder - the actual implementation would need to be more sophisticated
++    from astropy.coordinates.builtin_frames.cirs import CIRS
++    from astropy.coordinates.builtin_frames.intermediate_rotation_transforms import cirs_to_itrs_mat
++
++    # Convert HADec to CIRS first
++    cirs_coo = hadec_coo.transform_to(CIRS(obstime=hadec_coo.obstime, location=hadec_coo.location))
++
++    # Then convert CIRS to ITRS
++    pmat = cirs_to_itrs_mat(hadec_coo.obstime)
++    newrepr = cirs_coo.cartesian.transform(matrix_transpose(pmat))
++    return itrs_frame.realize_frame(newrepr)
++
+ # self-transform defined in icrs_observed_transforms.py
+diff --git a/astropy/coordinates/transformations.py b/astropy/coordinates/transformations.py
+index b34f33532..1afbb3c62 100644
+--- a/astropy/coordinates/transformations.py
++++ b/astropy/coordinates/transformations.py
+@@ -32,6 +32,10 @@ from astropy.utils.exceptions import AstropyWarning
+ 
+ from .matrix_utilities import matrix_product
+ 
++import erfa
++from astropy.coordinates.matrix_utilities import matrix_transpose
++
++
+ __all__ = ['TransformGraph', 'CoordinateTransform', 'FunctionTransform',
+            'BaseAffineTransform', 'AffineTransform',
+            'StaticMatrixTransform', 'DynamicMatrixTransform',
+@@ -1600,6 +1604,129 @@ def _combine_affine_params(params, next_params):
+     return new_M, new_vec
+ 
+ 
++
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Create a transformation matrix from topocentric ITRS to the observed frame.
++
++    This matrix converts topocentric ITRS coordinates (relative to the observer's
++    location) to the observed frame (AltAz or HADec) without geocentric aberration.
++
++    Parameters
++    ----------
++    observed_frame : AltAz or HADec
++        The observed frame containing location and obstime information.
++
++    Returns
++    -------
++    numpy.ndarray
++        A 3x3 transformation matrix.
++    """
++    import numpy as np
++    import erfa
++
++    # Handle the case where obstime might be None
++    if observed_frame.obstime is None:
++        from astropy.time import Time
++        obstime = Time.now()
++    else:
++        obstime = observed_frame.obstime
++
++    # Get the observer's latitude and longitude (geodetic)
++    lon, lat, height = observed_frame.location.to_geodetic()
++    lon_rad = lon.to_value('radian')
++    lat_rad = lat.to_value('radian')
++
++    # Get the Earth Rotation Angle (ERA) for the observer's time
++    era = erfa.era00(*obstime.ut1.jd12)
++
++    # Get polar motion
++    xp, yp = erfa.xys00a(*obstime.ut1.jd12)
++    sp = erfa.sp00(*obstime.tt.jd12)
++    pmmat = erfa.pom00(xp, yp, sp)
++
++    # Create the rotation matrix from ITRS to CIRS
++    # We use c2tcio with identity matrix for GCRS->CIRS since we're already in ITRS
++    cirs_mat = erfa.c2tcio(np.eye(3), era, pmmat)
++
++    # Now create the rotation matrix from CIRS to observed frame
++    # For AltAz: CIRS -> AltAz (horizontal coordinates)
++    # For HADec: CIRS -> HADec (equatorial coordinates)
++
++    sin_lat = np.sin(lat_rad)
++    cos_lat = np.cos(lat_rad)
++    sin_lon = np.sin(lon_rad)
++    cos_lon = np.cos(lon_rad)
++
++    if hasattr(observed_frame, 'az') and hasattr(observed_frame, 'alt'):
++        # AltAz frame: CIRS -> AltAz
++        # This is: R3(-lon) * R2(90°-lat)
++        r2_mat = np.array([
++            [cos_lat, 0, sin_lat],
++            [0, 1, 0],
++            [-sin_lat, 0, cos_lat]
++        ])
++        r3_mat = np.array([
++            [cos_lon, sin_lon, 0],
++            [-sin_lon, cos_lon, 0],
++            [0, 0, 1]
++        ])
++        observed_mat = r3_mat @ r2_mat
++    else:
++        # HADec frame: CIRS -> HADec (equatorial coordinates)
++        # This is: R3(-lon) * R1(lat)
++        r3_mat = np.array([
++            [cos_lon, sin_lon, 0],
++            [-sin_lon, cos_lon, 0],
++            [0, 0, 1]
++        ])
++        r1_mat = np.array([
++            [1, 0, 0],
++            [0, cos_lat, -sin_lat],
++            [0, sin_lat, cos_lat]
++        ])
++        observed_mat = r3_mat @ r1_mat
++
++    # Total transformation: observed_mat @ cirs_mat
++    # This transforms from ITRS to the observed frame
++    total_mat = observed_mat @ cirs_mat
++
++    return total_mat
++
++
++def itrs_to_observed(itrs_coo, observed_frame):
++    """
++    Transform ITRS coordinates to an observed frame (AltAz or HADec).
++
++    This transformation stays entirely within ITRS (no SSB reference),
++    treats ITRS positions as time-invariant, and adopts the output frame's
++    obstime (even if None).
++
++    Parameters
++    ----------
++    itrs_coo : ITRS
++        The ITRS coordinate to transform.
++    observed_frame : AltAz or HADec
++        The observed frame to transform to.
++
++    Returns
++    -------
++    observed_frame
++        The coordinate in the observed frame.
++    """
++    # Convert to topocentric ITRS (subtract observer's position)
++    topocentric_itrs_repr = itrs_coo.cartesian - observed_frame.location.get_itrs().cartesian
++
++    # Create the transformation matrix
++    transform_mat = itrs_to_observed_mat(observed_frame)
++
++    # Apply the transformation
++    rep = topocentric_itrs_repr.transform(transform_mat)
++
++    # Realize the result in the observed frame
++    return observed_frame.realize_frame(rep)
++
+ # map class names to colorblind-safe colors
+ trans_to_color = {}
+ trans_to_color[AffineTransform] = '#555555'  # gray

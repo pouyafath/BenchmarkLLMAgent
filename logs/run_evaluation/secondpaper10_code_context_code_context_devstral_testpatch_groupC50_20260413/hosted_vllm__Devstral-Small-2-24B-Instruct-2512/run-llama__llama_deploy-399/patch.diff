@@ -1,0 +1,55 @@
+diff --git a/llama_deploy/apiserver/config_parser.py b/llama_deploy/apiserver/config_parser.py
+index 774efa1..1f47e09 100644
+--- a/llama_deploy/apiserver/config_parser.py
++++ b/llama_deploy/apiserver/config_parser.py
+@@ -60,6 +60,7 @@ class Service(BaseModel):
+     port: int | None = None
+     python_dependencies: list[str] | None = Field(None, alias="python-dependencies")
+     ts_dependencies: dict[str, str] | None = Field(None, alias="ts-dependencies")
++    env: dict[str, str] | None = None
+ 
+ 
+ class Config(BaseModel):
+diff --git a/llama_deploy/apiserver/deployment.py b/llama_deploy/apiserver/deployment.py
+index 80243b0..f683a3c 100644
+--- a/llama_deploy/apiserver/deployment.py
++++ b/llama_deploy/apiserver/deployment.py
+@@ -1,6 +1,7 @@
+ import asyncio
+ import importlib
+ import subprocess
++import os
+ import sys
+ from multiprocessing.pool import ThreadPool
+ from pathlib import Path
+@@ -157,9 +158,30 @@ class Deployment:
+             # Search for a workflow instance in the service path
+             pythonpath = (destination / service_config.path).parent.resolve()
+             sys.path.append(str(pythonpath))
++
++            # Set environment variables if defined in the service config
++            if service_config.env:
++                # Save current environment variables
++                old_env = {}
++                for key in service_config.env:
++                    if key in os.environ:
++                        old_env[key] = os.environ[key]
++                    else:
++                        old_env[key] = None
++                # Set new environment variables
++                os.environ.update(service_config.env)
++
+             module_name, workflow_name = Path(service_config.path).name.split(":")
+             module = importlib.import_module(module_name)
+             workflow = getattr(module, workflow_name)
++
++            # Restore old environment variables
++            if service_config.env:
++                for key, value in old_env.items():
++                    if value is None:
++                        os.environ.pop(key, None)
++                    else:
++                        os.environ[key] = value
+             workflow_config = WorkflowServiceConfig(
+                 host=service_config.host,
+                 port=service_config.port,

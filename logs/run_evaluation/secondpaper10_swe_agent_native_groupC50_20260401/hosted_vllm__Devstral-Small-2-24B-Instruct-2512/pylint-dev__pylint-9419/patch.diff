@@ -1,0 +1,54 @@
+diff --git a/pylint/checkers/refactoring/refactoring_checker.py b/pylint/checkers/refactoring/refactoring_checker.py
+index 97e509025..ced2588c0 100644
+--- a/pylint/checkers/refactoring/refactoring_checker.py
++++ b/pylint/checkers/refactoring/refactoring_checker.py
+@@ -483,6 +483,12 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+             "value by index lookup. "
+             "The value can be accessed directly instead.",
+         ),
++        "R1737": (
++            "Consider using 'yield from' instead of iterating and yielding",
++            "consider-using-yield-from",
++            "Used when a for loop iterates over an iterable and yields each item individually. "
++            "This can be simplified using yield from.",
++        ),
+     }
+     options = (
+         (
+@@ -1858,6 +1864,36 @@ class RefactoringChecker(checkers.BaseTokenChecker):
+         condition, true_value = node.values[0].values
+         return condition, true_value, false_value
+ 
++    @utils.only_required_for_messages("consider-using-yield-from")
++    def visit_yield(self, node: nodes.Yield) -> None:
++        """Check if yield can be replaced with yield from."""
++        # Look for pattern: for item in generator: yield item
++        # The yield node is typically wrapped in an Expr node, so we need to check parent.parent
++        parent = node.parent
++        if isinstance(parent, nodes.Expr):
++            parent = parent.parent
++        if isinstance(parent, nodes.For):
++            # Check if we have a simple yield of the loop target
++            if isinstance(node.value, nodes.Name):
++                # Get the loop target name(s)
++                loop_targets = []
++                if isinstance(parent.target, nodes.AssignName):
++                    loop_targets = [parent.target.name]
++                elif isinstance(parent.target, nodes.Tuple):
++                    loop_targets = [elt.name for elt in parent.target.elts if isinstance(elt, nodes.AssignName)]
++                
++                # Check if the yielded value matches any loop target
++                if node.value.name in loop_targets:
++                    # Found the pattern: for item in generator: yield item
++                    # Get the iterable being looped over
++                    iterable = parent.iter
++                    if hasattr(iterable, "as_string"):
++                        self.add_message(
++                            "consider-using-yield-from",
++                            node=node,
++                            confidence=HIGH,
++                        )
++
+     def visit_functiondef(self, node: nodes.FunctionDef) -> None:
+         self._return_nodes[node.name] = list(
+             node.nodes_of_class(nodes.Return, skip_klass=nodes.FunctionDef)

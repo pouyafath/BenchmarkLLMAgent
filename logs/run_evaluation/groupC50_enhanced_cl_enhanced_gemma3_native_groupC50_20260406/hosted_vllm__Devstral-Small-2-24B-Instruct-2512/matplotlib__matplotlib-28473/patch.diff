@@ -1,0 +1,58 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..1bb9cef7fd 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,17 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
+-
+-        # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
++        # For module:// syntax, preserve case; for built-in backends, lowercase.
++        if backend.startswith("module://"):
++            # Preserve case for explicit module:// syntax
++            backend_module = backend[9:]
++        else:
++            # Lowercase built-in backend names
++            backend = backend.lower()
++            backend_module = self._name_to_module.get(backend, backend)
++            backend_module = f"matplotlib.backends.backend_{backend_module}"
+ 
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        return backend_module
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.
+@@ -342,7 +346,13 @@ class BackendRegistry:
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+         if isinstance(backend, str):
+-            backend = backend.lower()
++            # For module:// syntax, preserve case; for built-in backends, lowercase.
++            if backend.startswith("module://"):
++                # Preserve case for explicit module:// syntax
++                pass
++            else:
++                # Lowercase built-in backend names
++                backend = backend.lower()
+         else:  # Might be _auto_backend_sentinel or None
+             # Use whatever is already running...
+             from matplotlib import get_backend
+@@ -395,7 +405,13 @@ class BackendRegistry:
+         framework : str or None
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+-        gui_or_backend = gui_or_backend.lower()
++        # For module:// syntax, preserve case; for GUI/framework names, lowercase.
++        if gui_or_backend.startswith("module://"):
++            # Preserve case for explicit module:// syntax
++            pass
++        else:
++            # Lowercase GUI/framework names
++            gui_or_backend = gui_or_backend.lower()
+ 
+         # First check if it is a gui loop name.
+         backend = self.backend_for_gui_framework(gui_or_backend)

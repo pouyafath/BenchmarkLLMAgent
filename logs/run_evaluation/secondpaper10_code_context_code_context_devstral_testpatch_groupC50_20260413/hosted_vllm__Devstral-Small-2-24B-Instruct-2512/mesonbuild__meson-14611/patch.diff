@@ -1,0 +1,39 @@
+diff --git a/mesonbuild/options.py b/mesonbuild/options.py
+index ac90b2292..6b7d0f35a 100644
+--- a/mesonbuild/options.py
++++ b/mesonbuild/options.py
+@@ -1036,10 +1036,10 @@ class OptionStore:
+             return dirty
+ 
+         old_value = opt.value
++        if opt.readonly and old_value != new_value and not first_invocation:
++            return False
+         changed = opt.set_value(new_value)
+ 
+-        if opt.readonly and changed and not first_invocation:
+-            raise MesonException(f'Tried to modify read only option {str(key)!r}')
+ 
+         if key.name == 'prefix' and first_invocation and changed:
+             assert isinstance(old_value, str), 'for mypy'
+@@ -1304,6 +1304,13 @@ class OptionStore:
+                     self.set_option(proj_key, valstr, first_invocation)
+                 else:
+                     self.pending_options[key] = valstr
++
++        # Make options set by machine_file_options readonly to prevent them from being
++        # overridden by project_default_options
++        for key, valstr in machine_file_options.items():
++            if key in self.options:
++                self.options[key].readonly = True
++        first_invocation = False
+         for keystr, valstr in project_default_options.items():
+             # Ths is complicated by the fact that a string can have two meanings:
+             #
+@@ -1338,6 +1345,7 @@ class OptionStore:
+                     self.set_option(proj_key, valstr)
+                 else:
+                     self.pending_options[key] = valstr
++        first_invocation = True
+         for keystr, valstr in cmd_line_options.items():
+             if isinstance(keystr, str):
+                 key = OptionKey.from_string(keystr)

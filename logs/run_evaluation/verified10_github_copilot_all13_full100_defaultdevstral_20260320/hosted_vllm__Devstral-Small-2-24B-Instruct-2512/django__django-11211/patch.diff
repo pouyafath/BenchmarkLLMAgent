@@ -1,0 +1,38 @@
+diff --git a/django/contrib/contenttypes/fields.py b/django/contrib/contenttypes/fields.py
+index ed98ecb48c..611a07a6eb 100644
+--- a/django/contrib/contenttypes/fields.py
++++ b/django/contrib/contenttypes/fields.py
+@@ -191,7 +191,21 @@ class GenericForeignKey(FieldCacheMixin):
+         for ct_id, fkeys in fk_dict.items():
+             instance = instance_dict[ct_id]
+             ct = self.get_content_type(id=ct_id, using=instance._state.db)
+-            ret_val.extend(ct.get_all_objects_for_this_type(pk__in=fkeys))
++            # Get the model class to determine the proper PK type
++            model_class = ct.model_class()
++            if model_class:
++                # Convert fkeys to the proper PK type
++                pk_field = model_class._meta.pk
++                converted_fkeys = set()
++                for fk in fkeys:
++                    try:
++                        converted_fkeys.add(pk_field.to_python(fk))
++                    except Exception:
++                        # If conversion fails, keep the original value
++                        converted_fkeys.add(fk)
++                ret_val.extend(ct.get_all_objects_for_this_type(pk__in=converted_fkeys))
++            else:
++                ret_val.extend(ct.get_all_objects_for_this_type(pk__in=fkeys))
+ 
+         # For doing the join in Python, we have to match both the FK val and the
+         # content type, so we use a callable that returns a (fk, class) pair.
+@@ -202,7 +216,9 @@ class GenericForeignKey(FieldCacheMixin):
+             else:
+                 model = self.get_content_type(id=ct_id,
+                                               using=obj._state.db).model_class()
+-                return (model._meta.pk.get_prep_value(getattr(obj, self.fk_field)),
++                # Use to_python instead of get_prep_value to get the proper Python type
++                # (e.g., UUID instead of string) for matching
++                return (model._meta.pk.to_python(getattr(obj, self.fk_field)),
+                         model)
+ 
+         return (

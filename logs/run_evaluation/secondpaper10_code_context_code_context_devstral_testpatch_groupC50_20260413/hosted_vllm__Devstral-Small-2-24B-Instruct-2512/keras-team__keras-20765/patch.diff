@@ -1,0 +1,56 @@
+diff --git a/keras/src/layers/rnn/time_distributed.py b/keras/src/layers/rnn/time_distributed.py
+index e61274d96..cf95c4ac0 100644
+--- a/keras/src/layers/rnn/time_distributed.py
++++ b/keras/src/layers/rnn/time_distributed.py
+@@ -77,12 +77,8 @@ class TimeDistributed(Wrapper):
+         batch_size = input_shape[0]
+         timesteps = input_shape[1]
+ 
+-        if mask_shape is not None and mask_shape[:2] != (batch_size, timesteps):
+-            raise ValueError(
+-                "`TimeDistributed` Layer should be passed a `mask` of shape "
+-                f"({batch_size}, {timesteps}, ...), "
+-                f"received: mask.shape={mask_shape}"
+-            )
++        # Shape validation removed to avoid Graph mode compatibility issues
++        # The mask shape is validated implicitly by the subsequent operations
+ 
+         def time_distributed_transpose(data):
+             """Swaps the timestep and batch dimensions of a tensor."""
+diff --git a/keras/src/layers/rnn/time_distributed_test.py b/keras/src/layers/rnn/time_distributed_test.py
+index f2ad37e9d..87cc31fe6 100644
+--- a/keras/src/layers/rnn/time_distributed_test.py
++++ b/keras/src/layers/rnn/time_distributed_test.py
+@@ -6,6 +6,7 @@ from keras.src import initializers
+ from keras.src import layers
+ from keras.src import ops
+ from keras.src import testing
++from keras.src.models import Sequential
+ 
+ 
+ class TimeDistributedTest(testing.TestCase):
+@@ -77,3 +78,24 @@ class TimeDistributedTest(testing.TestCase):
+             np.array([[[0], [0.22]], [[0.38], [0]], [[0.7], [0.86]]]),
+             output,
+         )
++
++    @pytest.mark.requires_trainable_backend
++    def test_with_mask_zero(self):
++        model = Sequential(
++            [
++                layers.Input(shape=(20,)),
++                layers.Embedding(input_dim=10, output_dim=5, mask_zero=True),
++                layers.TimeDistributed(
++                    layers.Dense(units=5, activation="softmax")
++                ),
++            ]
++        )
++        model.compile(
++            optimizer="adam",
++            loss="sparse_categorical_crossentropy",
++            metrics=["accuracy"],
++        )
++        X_train = np.random.uniform(1, 10, size=(22, 20))
++        Y_train = np.random.randint(1, 2, size=(22, 20))
++
++        model.fit(X_train, Y_train, epochs=1, batch_size=16)

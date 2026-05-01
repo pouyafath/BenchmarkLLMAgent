@@ -1,0 +1,51 @@
+diff --git a/lib/matplotlib/_constrained_layout.py b/lib/matplotlib/_constrained_layout.py
+--- a/lib/matplotlib/_constrained_layout.py
++++ b/lib/matplotlib/_constrained_layout.py
+@@ -1,11 +1,17 @@
+         if compress:
+                 layoutgrids = compress_fixed_aspect(layoutgrids, fig)
+                 layoutgrids[fig].update_variables()
+-                if check_no_collapsed_axes(layoutgrids, fig):
+-                    reposition_axes(layoutgrids, fig, renderer, h_pad=h_pad,
+-                                    w_pad=w_pad, hspace=hspace, wspace=wspace)
+-                else:
+-                    _api.warn_external(warn_collapsed)
++                # After compression we need to recompute the suptitle margins,
++                # because the previous margins were calculated before the axes
++                # were shifted.  Without this step the suptitle can introduce an
++                # unwanted gap between itself and the compressed axes.
++                make_margin_suptitles(layoutgrids, fig, renderer,
++                                      h_pad=h_pad, w_pad=w_pad)
++                if check_no_collapsed_axes(layoutgrids, fig):
++                    reposition_axes(layoutgrids, fig, renderer, h_pad=h_pad,
++                                    w_pad=w_pad, hspace=hspace, wspace=wspace)
++                else:
++                    _api.warn_external(warn_collapsed)
+         else:
+                 _api.warn_external(warn_collapsed)
+         reset_margins(layoutgrids, fig)
+diff --git a/doc/api/next_api_changes/behavior/28734-REC.rst b/doc/api/next_api_changes/behavior/28734-REC.rst
+--- a/doc/api/next_api_changes/behavior/28734-REC.rst
++++ b/doc/api/next_api_changes/behavior/28734-REC.rst
+@@ -1,12 +1,13 @@
+ 
+ ``Figure.suptitle`` handling with ``layout="compressed"``
+ -----------------------------------------------------------------
+ 
+-Previously, adding a suptitle to a figure that used the *compressed* layout
+-could introduce an unexpected vertical gap between the suptitle and the
+-subplots.  This was due to the suptitle margin being calculated before the
+-axes were shifted during compression.
+-
+-The layout engine now recomputes the suptitle margins after the compression
+-step, ensuring that any extra space is placed below the subplots rather than
+-between the suptitle and the axes.
++Previously, adding a suptitle to a figure that used the *compressed* layout
++could introduce an unexpected vertical gap between the suptitle and the
++subplots.  This was due to the suptitle margin being calculated before the
++axes were shifted during compression.
++
++The layout engine now recomputes the suptitle margins after the compression
++step, ensuring that any extra space is placed below the subplots rather than
++between the suptitle and the axes.  This change restores the expected
++behaviour where the suptitle sits directly above the compressed axes.

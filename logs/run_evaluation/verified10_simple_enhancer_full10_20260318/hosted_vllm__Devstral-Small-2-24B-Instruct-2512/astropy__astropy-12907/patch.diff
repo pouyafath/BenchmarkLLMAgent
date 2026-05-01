@@ -1,0 +1,40 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..c29ae6e1e 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -199,7 +199,16 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = m
+         return mat
+-    if not model.separable:
++    elif isinstance(model, CompoundModel):
++        # For CompoundModels, get the separability matrix and place it correctly
++        sep_matrix = _separable(model)
++        mat = np.zeros((noutp, model.n_inputs))
++        if pos == 'left':
++            mat[:model.n_outputs, :model.n_inputs] = sep_matrix
++        else:
++            mat[-model.n_outputs:, -model.n_inputs:] = sep_matrix
++        return mat
++    elif not model.separable:
+         # this does not work for more than 2 coordinates
+         mat = np.zeros((noutp, model.n_inputs))
+         if pos == 'left':
+@@ -214,8 +223,6 @@ def _coord_matrix(model, pos, noutp):
+         if pos == 'right':
+             mat = np.roll(mat, (noutp - model.n_outputs))
+     return mat
+-
+-
+ def _cstack(left, right):
+     """
+     Function corresponding to '&' operation.
+@@ -242,7 +249,7 @@ def _cstack(left, right):
+         cright = _coord_matrix(right, 'right', noutp)
+     else:
+         cright = np.zeros((noutp, right.shape[1]))
+-        cright[-right.shape[0]:, -right.shape[1]:] = 1
++        cright[-right.shape[0]:, -right.shape[1]:] = right  # FIXED: preserve the array values
+ 
+     return np.hstack([cleft, cright])
+ 

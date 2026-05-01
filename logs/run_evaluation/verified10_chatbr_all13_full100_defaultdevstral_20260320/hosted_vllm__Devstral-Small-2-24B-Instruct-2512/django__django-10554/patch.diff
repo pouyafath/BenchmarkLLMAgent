@@ -1,0 +1,16 @@
+diff --git a/django/db/models/query.py b/django/db/models/query.py
+index 1544beb613..a11aa43038 100644
+--- a/django/db/models/query.py
++++ b/django/db/models/query.py
+@@ -1069,6 +1069,11 @@ class QuerySet:
+             "Cannot reorder a query once a slice has been taken."
+         obj = self._chain()
+         obj.query.clear_ordering(force_empty=False)
++        # Clear ordering from combined queries as well to avoid issues
++        # when the queryset is re-evaluated after calling order_by() with no args
++        if hasattr(obj.query, "combined_queries") and obj.query.combined_queries:
++            for combined_query in obj.query.combined_queries:
++                combined_query.clear_ordering(force_empty=False)
+         obj.query.add_ordering(*field_names)
+         return obj
+ 

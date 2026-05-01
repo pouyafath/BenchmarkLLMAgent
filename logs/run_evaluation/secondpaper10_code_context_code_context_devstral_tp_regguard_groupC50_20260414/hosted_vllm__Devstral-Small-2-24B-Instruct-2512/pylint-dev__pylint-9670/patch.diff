@@ -1,0 +1,25 @@
+diff --git a/pylint/checkers/base/basic_error_checker.py b/pylint/checkers/base/basic_error_checker.py
+index e58be2309..48a427fbe 100644
+--- a/pylint/checkers/base/basic_error_checker.py
++++ b/pylint/checkers/base/basic_error_checker.py
+@@ -285,7 +285,19 @@ class BasicErrorChecker(_BasicChecker):
+                     self.add_message("return-in-init", node=node)
+         # Check for duplicate names by clustering args with same name for detailed report
+         arg_clusters = {}
+-        arguments: Iterator[Any] = filter(None, [node.args.args, node.args.kwonlyargs])
++        # Include all argument types: positional-only, positional-or-keyword, *varargs, keyword-only, **kwargs
++        arguments = []
++        if node.args.posonlyargs:
++            arguments.append(node.args.posonlyargs)
++        if node.args.args:
++            arguments.append(node.args.args)
++        if node.args.vararg_node:
++            arguments.append([node.args.vararg_node])
++        if node.args.kwonlyargs:
++            arguments.append(node.args.kwonlyargs)
++        if node.args.kwarg_node:
++            arguments.append([node.args.kwarg_node])
++
+         for arg in itertools.chain.from_iterable(arguments):
+             if arg.name in arg_clusters:
+                 self.add_message(

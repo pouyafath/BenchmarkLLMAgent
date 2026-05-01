@@ -1,0 +1,91 @@
+diff --git a/sentence_transformers/SentenceTransformer.py b/sentence_transformers/SentenceTransformer.py
+index 9ed610d..e89a557 100644
+--- a/sentence_transformers/SentenceTransformer.py
++++ b/sentence_transformers/SentenceTransformer.py
+@@ -1013,7 +1013,7 @@ class SentenceTransformer(nn.Sequential, FitMixin, PeftAdapterMixin):
+ 
+         all_embeddings = []
+         length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
+-        sentences_sorted = [sentences[idx] for idx in length_sorted_idx]
++        sentences_sorted = [sentences[int(idx)] for idx in length_sorted_idx]
+ 
+         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
+             sentences_batch = sentences_sorted[start_index : start_index + batch_size]
+diff --git a/sentence_transformers/models/Router.py b/sentence_transformers/models/Router.py
+index 56f1513..c4d7e3a 100644
+--- a/sentence_transformers/models/Router.py
++++ b/sentence_transformers/models/Router.py
+@@ -2,7 +2,6 @@ from __future__ import annotations
+ 
+ import json
+ import os
+-from collections import OrderedDict
+ from pathlib import Path
+ 
+ try:
+@@ -20,14 +19,14 @@ from sentence_transformers.util import import_from_string, load_dir_path
+ logger = logging.get_logger(__name__)
+ 
+ 
+-class Router(InputModule, nn.Sequential):
++class Router(InputModule):
+     forward_kwargs = {"task"}
+     config_keys: list[str] = ["default_route", "allow_empty_key"]
+     config_file_name = "router_config.json"
+ 
+     def __init__(
+         self, sub_modules: dict[str, list[Module]], default_route: str | None = None, allow_empty_key: bool = True
+-    ):
++    ) -> None:
+         r"""
+         This model allows to create asymmetric SentenceTransformer models that apply different modules depending on the specified route,
+         such as "query" or "document". Especially useful for models that have different encoders for queries and documents.
+@@ -169,29 +168,22 @@ class Router(InputModule, nn.Sequential):
+             allow_empty_key: If True, allows the default route to be set to the first key in `sub_modules` if
+                 ``default_route`` is None. Defaults to True.
+         """
+-        self.sub_modules = sub_modules
+-        if self.sub_modules is None or len(self.sub_modules) == 0:
++        super().__init__()
++        if sub_modules is None or len(sub_modules) == 0:
+             raise ValueError("The routes dictionary cannot be empty.")
+-
+         if default_route is not None and default_route not in sub_modules:
+             raise ValueError(f"Default route '{default_route}' not found in route keys: {list(sub_modules.keys())}")
+ 
++        self.sub_modules = nn.ModuleDict(
++            {route_name: nn.Sequential(*modules) for route_name, modules in sub_modules.items()}
++        )
++
+         # If allow_empty_key is True, we can set a default route to the first key in sub_modules.
+         if allow_empty_key and default_route is None:
+             default_route = next(iter(sub_modules.keys()))
+         self.default_route = default_route
+         self.allow_empty_key = allow_empty_key
+ 
+-        ordered_dict = OrderedDict()
+-        for name, models in sub_modules.items():
+-            if not isinstance(models, list):
+-                models = [models]
+-
+-            for idx, model in enumerate(models):
+-                ordered_dict[f"{name}_{idx}_{type(model).__name__}"] = model
+-
+-        super().__init__(ordered_dict)
+-
+     @classmethod
+     def for_query_document(
+         cls,
+diff --git a/sentence_transformers/sparse_encoder/SparseEncoder.py b/sentence_transformers/sparse_encoder/SparseEncoder.py
+index d59cc6a..40c7b86 100644
+--- a/sentence_transformers/sparse_encoder/SparseEncoder.py
++++ b/sentence_transformers/sparse_encoder/SparseEncoder.py
+@@ -572,7 +572,7 @@ class SparseEncoder(SentenceTransformer):
+ 
+         all_embeddings = []
+         length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
+-        sentences_sorted = [sentences[idx] for idx in length_sorted_idx]
++        sentences_sorted = [sentences[int(idx)] for idx in length_sorted_idx]
+ 
+         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
+             sentences_batch = sentences_sorted[start_index : start_index + batch_size]

@@ -1,0 +1,33 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 844c01e95e..e50b6ef3d5 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -573,6 +573,18 @@ class Model(metaclass=ModelBase):
+ 
+     pk = property(_get_pk_val, _set_pk_val)
+ 
++    def _pk_was_explicitly_set_to_none(self):
++        """Check if the primary key was explicitly set to None by the user."""
++        # Only check for already-saved instances (not new ones)
++        if self._state.adding:
++            return False
++        # For models with multi-table inheritance, check if the link field was set to None
++        if self._meta.parents:
++            for field in self._meta.parents.values():
++                if field and getattr(self, field.attname) is None:
++                    return True
++        # For simple models, check if the pk field itself was set to None
++        return getattr(self, self._meta.pk.attname) is None
+     def get_deferred_fields(self):
+         """
+         Return a set containing names of deferred fields for this instance.
+@@ -816,7 +828,8 @@ class Model(metaclass=ModelBase):
+                 inserted = True
+             # Set the parent's PK value to self.
+             if field:
+-                setattr(self, field.attname, self._get_pk_val(parent._meta))
++                if not self._pk_was_explicitly_set_to_none():
++                    setattr(self, field.attname, self._get_pk_val(parent._meta))
+                 # Since we didn't have an instance of the parent handy set
+                 # attname directly, bypassing the descriptor. Invalidate
+                 # the related object cache, in case it's been accidentally

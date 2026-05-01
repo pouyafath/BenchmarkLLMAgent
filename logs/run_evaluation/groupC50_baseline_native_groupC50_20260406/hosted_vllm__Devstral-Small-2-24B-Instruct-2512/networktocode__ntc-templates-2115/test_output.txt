@@ -1,0 +1,198 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch master
+Your branch is behind 'origin/master' by 23 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit cc77dcc4de32cb58c8bdff4cf3bae3fa6458b685
+Author: Michael Bear <38406045+mjbear@users.noreply.github.com>
+Date:   Thu May 8 17:15:03 2025 -0400
+
+    Support IOS pwr inline faulty oper state (#2101)
+    
+    * Change operational status regex
+    
+    * Add power inline test data with faulty oper state
+    
+    * Update tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.raw
+    
+    ---------
+    
+    Co-authored-by: Jacob McGill <9847006+jmcgill298@users.noreply.github.com>
+
+diff --git a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+index 466534fe..a260a445 100644
+--- a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
++++ b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+@@ -1,6 +1,6 @@
+ Value INTERFACE (\S+)
+ Value ADMIN_STATUS (\S+)
+-Value OPERATIONAL_STATUS (on|off)
++Value OPERATIONAL_STATUS (\S+)
+ Value POWER (\d+\.\d+)
+ Value DEVICE (\S+(\s\S+)*)
+ Value CLASS (\d|n/a)
+diff --git a/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.raw b/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.raw
+new file mode 100644
+index 00000000..09f923ea
+--- /dev/null
++++ b/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.raw
+@@ -0,0 +1,12 @@
++Module   Available     Used     Remaining
++          (Watts)     (Watts)    (Watts) 
++------   ---------   --------   ---------
++2          1440.0       75.8      1364.2
++Interface Admin  Oper       Power   Device              Class Max
++                            (Watts)                            
++--------- ------ ---------- ------- ------------------- ----- ----
++Gi2/0/21  auto   on         3.8     Ieee PD             1     30.0 
++Gi2/0/35  auto   on         6.0     Ieee PD             2     30.0 
++Gi2/0/36  auto   off        0.0     n/a                 n/a   30.0 
++Gi2/0/37  auto   off        0.0     n/a                 n/a   30.0 
++Gi2/0/38  auto   faulty     0.0     n/a                 n/a   30.0 
+diff --git a/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.yml b/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.yml
+new file mode 100644
+index 00000000..8f5d0949
+--- /dev/null
++++ b/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_faulty.yml
+@@ -0,0 +1,37 @@
++---
++parsed_sample:
++  - admin_status: "auto"
++    class: "1"
++    device: "Ieee PD"
++    interface: "Gi2/0/21"
++    max: "30.0"
++    operational_status: "on"
++    power: "3.8"
++  - admin_status: "auto"
++    class: "2"
++    device: "Ieee PD"
++    interface: "Gi2/0/35"
++    max: "30.0"
++    operational_status: "on"
++    power: "6.0"
++  - admin_status: "auto"
++    class: "n/a"
++    device: "n/a"
++    interface: "Gi2/0/36"
++    max: "30.0"
++    operational_status: "off"
++    power: "0.0"
++  - admin_status: "auto"
++    class: "n/a"
++    device: "n/a"
++    interface: "Gi2/0/37"
++    max: "30.0"
++    operational_status: "off"
++    power: "0.0"
++  - admin_status: "auto"
++    class: "n/a"
++    device: "n/a"
++    interface: "Gi2/0/38"
++    max: "30.0"
++    operational_status: "faulty"
++    power: "0.0"
++ git -c core.fileMode=false diff cc77dcc4de32cb58c8bdff4cf3bae3fa6458b685
+diff --git a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+index a260a445..d8ba711b 100644
+--- a/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
++++ b/ntc_templates/templates/cisco_ios_show_power_inline.textfsm
+@@ -7,8 +7,10 @@ Value CLASS (\d|n/a)
+ Value MAX (\d+\.\d+)
+ 
+ Start
++  ^%No inline power card on switch -> Record
+   ^Interface\s+Admin\s+Oper\s+Power\s+Device\s+Class\s+Max\s*$$ -> Interfaces
+   ^Interface\s+Admin\s+Oper\s+Power\(Watts\)\s+Device\s+Class\s*$$ -> Interfaces45xx
++  ^Interface\s+Admin\s+Priority\s+Oper\s+Power\(Watts\)\s+Device\s+Class\s+Police.*$$ -> Interfaces6880
+   ^Available:
+   ^Module
+   ^\d+
+@@ -32,3 +34,11 @@ Interfaces45xx
+   ^\s*$$
+   ^Totals:.*
+   ^. -> Error
++
++Interfaces6880
++  ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+\S+\s+${OPERATIONAL_STATUS}\s+${POWER}\s+${DEVICE}\s+${CLASS}.*$$ -> Record
++  ^\s+From\s+PS\s+To\s+Device\s*$$
++  ^-+
++  ^\s*$$
++  ^Totals:.*
++  ^. -> Error
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ poetry install --with dev
+The "poetry.dev-dependencies" section is deprecated and will be removed in a future version. Use "poetry.group.dev.dependencies" instead.
+Installing dependencies from lock file
+
+No dependencies to install or update
+
+Installing the current project: ntc_templates (7.8.0)
++ git checkout cc77dcc4de32cb58c8bdff4cf3bae3fa6458b685 tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.raw tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.yml
+Updated 0 paths from 62dce3c3
++ git apply -v -
+<stdin>:9: trailing whitespace.
+Gi1/0/4   auto   off        0.0    
+Checking patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.raw...
+Checking patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.yml...
+Checking patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6807-XL.raw...
+Checking patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6807-XL.yml...
+Checking patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6880-X.raw...
+Checking patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6880-X.yml...
+Applied patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.raw cleanly.
+Applied patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.yml cleanly.
+Applied patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6807-XL.raw cleanly.
+Applied patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6807-XL.yml cleanly.
+Applied patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6880-X.raw cleanly.
+Applied patch tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6880-X.yml cleanly.
+warning: 1 line adds whitespace errors.
++ : '>>>>> Start Test Output'
++ poetry run invoke pytest --help
+The "poetry.dev-dependencies" section is deprecated and will be removed in a future version. Use "poetry.group.dev.dependencies" instead.
+Usage: inv[oke] [--core-opts] pytest [--options] [other tasks here ...]
+
+Docstring:
+  Run pytest test cases.
+
+Options:
+  -l, --local   Run locally or within the Docker container
+
++ poetry run pytest -rA tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.raw tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6807-XL.raw tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6880-X.raw
+The "poetry.dev-dependencies" section is deprecated and will be removed in a future version. Use "poetry.group.dev.dependencies" instead.
+============================= test session starts ==============================
+platform linux -- Python 3.11.13, pytest-8.3.4, pluggy-1.5.0 -- /root/.cache/pypoetry/virtualenvs/ntc-templates-QnKYwBMZ-py3.11/bin/python
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+collecting ... ERROR: not found: /testbed/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.raw
+(no match in any of [<Dir show_power_inline>])
+
+ERROR: not found: /testbed/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6807-XL.raw
+(no match in any of [<Dir show_power_inline>])
+
+ERROR: not found: /testbed/tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline_6880-X.raw
+(no match in any of [<Dir show_power_inline>])
+
+collected 0 items
+
+============================ no tests ran in 0.04s =============================
++ : '>>>>> End Test Output'
++ git checkout cc77dcc4de32cb58c8bdff4cf3bae3fa6458b685 tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.raw tests/cisco_ios/show_power_inline/cisco_ios_show_power_inline.yml
+Updated 2 paths from 62dce3c3

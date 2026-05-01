@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#26194",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "Thresholds can exceed 1 in `roc_curve` while providing probability estimate",
+  "original_body": "Thresholds can exceed 1 in `roc_curve` while providing probability estimate\nWhile working on https://github.com/scikit-learn/scikit-learn/pull/26120, I found out that something was odd with `roc_curve` that returns a threshold greater than 1. A non-regression test (that could be part of `sklearn/metrics/tests/test_ranking.py`) could be as follow:\r\n\r\n```python\r\ndef test_roc_curve_with_probablity_estimates():\r\n    rng = np.random.RandomState(42)\r\n    y_true = rng.randint(0, 2, size=10)\r\n    y_score = rng.rand(10)\r\n    _, _, thresholds = roc_curve(y_true, y_score)\r\n    assert np.logical_or(thresholds <= 1, thresholds >= 0).all()\r\n```\r\n\r\nThe reason is due to the following:\r\n\r\nhttps://github.com/scikit-learn/scikit-learn/blob/e886ce4e1444c61b865e7839c9cff5464ee20ace/sklearn/metrics/_ranking.py#L1086\r\n\r\nBasically, this is to add a point for `fpr=0` and `tpr=0`. However, the `+ 1` rule does not make sense in the case `y_score` is a probability estimate.\r\n\r\nI am not sure what would be the best fix here. A potential workaround would be to check `thresholds.max() <= 1` in which case we should clip `thresholds` to not be above 1.\n",
+  "enhanced_title": "roc_curve` returns thresholds > 1 when using probability estimates",
+  "enhanced_body": "## Summary\nThe `roc_curve` function in scikit-learn can return thresholds greater than 1 when provided with probability estimates, which is incorrect since probabilities are bounded between 0 and 1.\n\n## Steps to Reproduce\n1. Import necessary modules:\n   ```python\n   from sklearn.metrics import roc_curve\n   import numpy as np\n   ```\n2. Generate random binary labels and probability scores:\n   ```python\n   rng = np.random.RandomState(42)\n   y_true = rng.randint(0, 2, size=10)\n   y_score = rng.rand(10)  # Probability estimates between 0 and 1\n   ```\n3. Compute ROC curve:\n   ```python\n   fpr, tpr, thresholds = roc_curve(y_true, y_score)\n   ```\n4. Observe that some thresholds exceed 1:\n   ```python\n   print(thresholds)  # May contain values > 1\n   ```\n\n## Expected Behavior\nAll thresholds returned by `roc_curve` should satisfy `0 <= threshold <= 1` when `y_score` contains probability estimates.\n\n## Actual Behavior\nThresholds can exceed 1 due to the current implementation that adds 1 to the maximum score to include a point at (fpr=0, tpr=0). This is problematic when `y_score` represents probabilities.\n\n## Affected Component\n- File: `sklearn/metrics/_ranking.py` (line 1086 in the referenced commit)\n\n## Environment\n- scikit-learn version: Any version (issue exists in current implementation)\n- Python version: Any (not version-specific)\n- OS: Any (not OS-specific)\n\n## Proposed Fix\nAdd a check to ensure thresholds do not exceed 1 when working with probability estimates. One potential approach:\n```python\nif thresholds.max() > 1:\n    thresholds = np.clip(thresholds, 0, 1)\n```\n\n## Additional Notes\nThis issue was discovered while working on PR #26120. A non-regression test could be added to `sklearn/metrics/tests/test_ranking.py` to prevent future occurrences:\n```python\ndef test_roc_curve_with_probability_estimates():\n    rng = np.random.RandomState(42)\n    y_true = rng.randint(0, 2, size=10)\n    y_score = rng.rand(10)\n    _, _, thresholds = roc_curve(y_true, y_score)\n    assert np.logical_or(thresholds <= 1, thresholds >= 0).all()\n`\" > enhanced_issue.md\n```",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpl98jqm27/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

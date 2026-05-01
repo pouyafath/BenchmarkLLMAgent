@@ -1,0 +1,99 @@
+diff --git a/reflex/constants/base.py b/reflex/constants/base.py
+index d0d9a124..400ec35c 100644
+--- a/reflex/constants/base.py
++++ b/reflex/constants/base.py
+@@ -13,6 +13,21 @@ from platformdirs import PlatformDirs
+ IS_WINDOWS = platform.system() == "Windows"
+ 
+ 
++
++
++
++class _ReflexDirDescriptor:
++    """Descriptor that returns the Reflex directory, respecting the REFLEX_DIR environment variable."""
++
++    def __get__(self, obj, objtype=None):
++        return os.environ.get("REFLEX_DIR", PlatformDirs("reflex", False).user_data_dir)
++
++    def __set__(self, obj, value):
++        raise AttributeError("Reflex.DIR is read-only")
++
++    def __delete__(self, obj):
++        raise AttributeError("Reflex.DIR cannot be deleted")
++
+ class Dirs(SimpleNamespace):
+     """Various directories/paths used by Reflex."""
+ 
+@@ -61,12 +76,7 @@ class Reflex(SimpleNamespace):
+ 
+     # Files and directories used to init a new project.
+     # The directory to store reflex dependencies.
+-    DIR = (
+-        # on windows, we use C:/Users/<username>/AppData/Local/reflex.
+-        # on macOS, we use ~/Library/Application Support/reflex.
+-        # on linux, we use ~/.local/share/reflex.
+-        PlatformDirs(MODULE_NAME, False).user_data_dir
+-    )
++    DIR = _ReflexDirDescriptor()
+     # The root directory of the reflex library.
+ 
+     ROOT_DIR = os.path.dirname(
+diff --git a/tests/test_config.py b/tests/test_config.py
+index bc353141..7633f872 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -200,3 +200,54 @@ def test_replace_defaults(
+     c._set_persistent(**set_persistent_vars)
+     for key, value in exp_config_values.items():
+         assert getattr(c, key) == value
++
++@pytest.mark.parametrize(
++    "env_var_value, expected_dir",
++    [
++        ("/custom/reflex/path", "/custom/reflex/path"),
++        ("/another/custom/path", "/another/custom/path"),
++    ],
++)
++def test_reflex_dir_env_var(monkeypatch, env_var_value, expected_dir):
++    """Test that the REFLEX_DIR environment variable overrides the default directory.
++
++    Args:
++        monkeypatch: The pytest monkeypatch object.
++        env_var_value: The value to set for REFLEX_DIR.
++        expected_dir: The expected directory value.
++    """
++    # Store original value if it exists
++    original_value = os.environ.get("REFLEX_DIR")
++    try:
++        # Set the environment variable
++        monkeypatch.setenv("REFLEX_DIR", env_var_value)
++
++        # Import after setting the environment variable
++        from reflex.constants.base import Reflex
++
++        # Check that the DIR is set to the environment variable value
++        assert Reflex.DIR == expected_dir
++    finally:
++        # Restore original value if it existed
++        if original_value is not None:
++            monkeypatch.setenv("REFLEX_DIR", original_value)
++        elif "REFLEX_DIR" in os.environ:
++            monkeypatch.delenv("REFLEX_DIR")
++
++def test_reflex_dir_default():
++    """Test that Reflex.DIR uses the default PlatformDirs value when REFLEX_DIR is not set."""
++    from reflex.constants.base import Reflex
++    from platformdirs import PlatformDirs
++
++    # Make sure REFLEX_DIR is not set
++    import os
++    original_value = os.environ.get("REFLEX_DIR")
++    try:
++        if original_value:
++            del os.environ["REFLEX_DIR"]
++
++        expected_default = PlatformDirs("reflex", False).user_data_dir
++        assert Reflex.DIR == expected_default
++    finally:
++        if original_value is not None:
++            os.environ["REFLEX_DIR"] = original_value

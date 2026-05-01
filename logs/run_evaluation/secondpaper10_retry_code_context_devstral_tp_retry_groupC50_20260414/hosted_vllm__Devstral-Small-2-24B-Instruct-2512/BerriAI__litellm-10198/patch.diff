@@ -1,0 +1,52 @@
+diff --git a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+index d4c74f491..01793b3da 100644
+--- a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
++++ b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+@@ -47,6 +47,7 @@ from litellm.types.llms.openai import (
+ )
+ from litellm.types.llms.vertex_ai import (
+     VERTEX_CREDENTIALS_TYPES,
++    UsageMetadata,
+     Candidates,
+     ContentType,
+     FunctionCallingConfig,
+@@ -692,9 +693,7 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+             prompt_tokens=completion_response["usageMetadata"].get(
+                 "promptTokenCount", 0
+             ),
+-            completion_tokens=completion_response["usageMetadata"].get(
+-                "candidatesTokenCount", 0
+-            ),
++            completion_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0) - completion_response["usageMetadata"].get("promptTokenCount", 0),
+             total_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0),
+         )
+ 
+@@ -740,6 +739,17 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+ 
+         return model_response
+ 
++    def is_candidate_token_count_inclusive(
++        self, usage_metadata: UsageMetadata
++    ) -> bool:
++        """
++        Check if candidatesTokenCount includes thoughtsTokenCount.
++        Returns True if candidatesTokenCount >= thoughtsTokenCount.
++        """
++        candidates_token_count = usage_metadata.get("candidatesTokenCount", 0)
++        thoughts_token_count = usage_metadata.get("thoughtsTokenCount", 0)
++        return candidates_token_count > thoughts_token_count
++
+     def _calculate_usage(
+         self,
+         completion_response: GenerateContentResponseBody,
+@@ -773,9 +783,7 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+             prompt_tokens=completion_response["usageMetadata"].get(
+                 "promptTokenCount", 0
+             ),
+-            completion_tokens=completion_response["usageMetadata"].get(
+-                "candidatesTokenCount", 0
+-            ),
++            completion_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0) - completion_response["usageMetadata"].get("promptTokenCount", 0),
+             total_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0),
+             prompt_tokens_details=prompt_tokens_details,
+             reasoning_tokens=reasoning_tokens,

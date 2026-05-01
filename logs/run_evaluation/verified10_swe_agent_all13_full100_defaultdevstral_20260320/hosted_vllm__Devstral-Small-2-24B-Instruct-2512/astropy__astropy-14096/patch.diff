@@ -1,0 +1,96 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..16b761aa4 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -165,6 +165,31 @@ class SkyCoordInfo(MixinInfo):
+         return out
+ 
+ 
++
++class _PropertyWithContext(property):
++    """A property subclass that tracks when it's being accessed.
++
++    When used as a decorator for properties in SkyCoord subclasses, this ensures
++    that AttributeError messages correctly identify the missing attribute rather
++    than the property name.
++
++    Example:
++        class CustomCoord(SkyCoord):
++            @_PropertyWithContext
++            def my_property(self):
++                return self.nonexistent_attr
++    """
++
++    def __get__(self, obj, objtype=None):
++        # Set a flag to indicate we're in property access
++        if obj is not None:
++            obj.__dict__['_in_property_access'] = True
++        try:
++            return super().__get__(obj, objtype)
++        finally:
++            if obj is not None:
++                obj.__dict__['_in_property_access'] = False
++
+ class SkyCoord(ShapedLikeNDArray):
+     """High-level object providing a flexible interface for celestial coordinate
+     representation, manipulation, and transformation between systems.
+@@ -290,6 +315,32 @@ class SkyCoord(ShapedLikeNDArray):
+     # info property.
+     info = SkyCoordInfo()
+ 
++
++    # Thread-local storage for preserving AttributeErrors from nested property access
++    _error_preservation = None
++
++    def _get_preserved_error(self):
++        """Get any preserved AttributeError."""
++        import threading
++        if not hasattr(self, '_error_preservation'):
++            self._error_preservation = threading.local()
++        if not hasattr(self._error_preservation, 'error'):
++            return None
++        return self._error_preservation.error
++
++    def _preserve_error(self, error):
++        """Preserve an AttributeError for later re-raising."""
++        import threading
++        if not hasattr(self, '_error_preservation'):
++            self._error_preservation = threading.local()
++        self._error_preservation.error = error
++
++    def _clear_preserved_error(self):
++        """Clear any preserved error."""
++        import threading
++        if hasattr(self, '_error_preservation') and hasattr(self._error_preservation, 'error'):
++            del self._error_preservation.error
++
+     def __init__(self, *args, copy=True, **kwargs):
+         # these are frame attributes set on this SkyCoord but *not* a part of
+         # the frame object this SkyCoord contains
+@@ -895,9 +946,23 @@ class SkyCoord(ShapedLikeNDArray):
+                 return self.transform_to(attr)
+ 
+         # Fail
+-        raise AttributeError(
+-            f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+-        )
++        # Check if we have a preserved error from a nested access
++        preserved_error = self._get_preserved_error()
++        if preserved_error is not None:
++            # We have a preserved AttributeError, re-raise it
++            raise preserved_error
++        elif self.__dict__.get('_in_property_access', False):
++            # We're in a property access but no preserved error,
++            # so this is the first error - preserve it
++            error = AttributeError(
++                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
++            )
++            self._preserve_error(error)
++            raise error
++        else:
++            raise AttributeError(
++                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
++            )
+ 
+     def __setattr__(self, attr, val):
+         # This is to make anything available through __getattr__ immutable

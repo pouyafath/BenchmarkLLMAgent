@@ -1,0 +1,45 @@
+diff --git a/xarray/core/nanops.py b/xarray/core/nanops.py
+index 41c8d258..d9333235 100644
+--- a/xarray/core/nanops.py
++++ b/xarray/core/nanops.py
+@@ -26,17 +26,31 @@ def _maybe_null_out(result, axis, mask, min_count=1):
+     """
+     xarray version of pandas.core.nanops._maybe_null_out
+     """
++    # Handle multi-dimensional reductions
+     if hasattr(axis, "__len__"):  # if tuple or list
+-        raise ValueError(
+-            "min_count is not available for reduction with more than one dimensions."
+-        )
+-
+-    if axis is not None and getattr(result, "ndim", False):
+-        null_mask = (mask.shape[axis] - mask.sum(axis) - min_count) < 0
++        # For multiple dimensions, we need to calculate the total number of elements
++        # across all reduced dimensions
++        axis_tuple = tuple(axis)
++    else:
++        axis_tuple = (axis,) if axis is not None else ()
++
++    if axis is not None and getattr(result, "ndim", None) is not None:
++        # Calculate total number of elements across all reduced dimensions
++        if hasattr(axis, "__len__"):
++            # For multiple dimensions, calculate product of shapes
++            total_elements = 1
++            for ax in axis_tuple:
++                total_elements *= mask.shape[ax]
++        else:
++            total_elements = mask.shape[axis_tuple[0]] if axis_tuple else mask.size
++        null_mask = (total_elements - mask.sum(axis) - min_count) < 0
+         if null_mask.any():
+-            dtype, fill_value = dtypes.maybe_promote(result.dtype)
+-            result = result.astype(dtype)
+-            result[null_mask] = fill_value
++            if result.ndim == 0:  # scalar case
++                result = np.nan
++            else:
++                dtype, fill_value = dtypes.maybe_promote(result.dtype)
++                result = result.astype(dtype)
++                result[null_mask] = fill_value
+ 
+     elif getattr(result, "dtype", None) not in dtypes.NAT_TYPES:
+         null_mask = mask.size - mask.sum()

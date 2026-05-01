@@ -1,0 +1,69 @@
+diff --git a/conan/tools/microsoft/msbuild.py b/conan/tools/microsoft/msbuild.py
+index a2ec898ca..611f4a998 100644
+--- a/conan/tools/microsoft/msbuild.py
++++ b/conan/tools/microsoft/msbuild.py
+@@ -1,5 +1,5 @@
+ from conan.errors import ConanException
+-
++import os
+ 
+ def msbuild_verbosity_cmd_line_arg(conanfile):
+     """
+@@ -16,14 +16,12 @@ def msbuild_verbosity_cmd_line_arg(conanfile):
+         return f'/verbosity:{verbosity}'
+     return ""
+ 
+-
+ def msbuild_arch(arch):
+     return {'x86': 'x86',
+             'x86_64': 'x64',
+             'armv7': 'ARM',
+             'armv8': 'ARM64'}.get(str(arch))
+ 
+-
+ class MSBuild(object):
+     """
+     MSBuild build helper class
+@@ -62,10 +60,38 @@ class MSBuild(object):
+         if verbosity:
+             cmd += " {}".format(verbosity)
+ 
+-        maxcpucount = self._conanfile.conf.get("tools.microsoft.msbuild:max_cpu_count",
+-                                               check_type=int)
+-        if maxcpucount:
+-            cmd += " /m:{}".format(maxcpucount)
++        # Handle max_cpu_count configuration
++        maxcpucount = self._conanfile.conf.get("tools.microsoft.msbuild:max_cpu_count")
++        if maxcpucount is not None:
++            # If it's a string, check for special values
++            if isinstance(maxcpucount, str):
++                maxcpucount_str = maxcpucount.strip().lower()
++                if maxcpucount_str in ("all", "max", ""):
++                    # Use /m without arguments to use all available CPUs
++                    cmd += " /m"
++                else:
++                    try:
++                        # Try to parse as integer
++                        maxcpucount_int = int(maxcpucount)
++                        cmd += " /m:{}".format(maxcpucount_int)
++                    except ValueError:
++                        raise ConanException("tools.microsoft.msbuild:max_cpu_count must be an integer or one of: 'all', 'max'")
++            else:
++                # It's already an integer or can be converted to one
++                cmd += " /m:{}".format(int(maxcpucount))
++        else:
++            # Check environment variable as fallback
++            env_max_cpu_count = os.environ.get("CONAN_MSBUILD_MAX_CPU_COUNT")
++            if env_max_cpu_count:
++                env_max_cpu_count = env_max_cpu_count.strip().lower()
++                if env_max_cpu_count in ("all", "max", ""):
++                    cmd += " /m"
++                else:
++                    try:
++                        maxcpucount_int = int(env_max_cpu_count)
++                        cmd += " /m:{}".format(maxcpucount_int)
++                    except ValueError:
++                        raise ConanException("CONAN_MSBUILD_MAX_CPU_COUNT environment variable must be an integer or one of: 'all', 'max'")
+ 
+         if targets:
+             if not isinstance(targets, list):

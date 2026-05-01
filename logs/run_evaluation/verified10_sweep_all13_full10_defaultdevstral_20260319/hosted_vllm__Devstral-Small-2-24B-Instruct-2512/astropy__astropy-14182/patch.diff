@@ -1,0 +1,36 @@
+diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py
+index abdeba8ef..f697d49c2 100644
+--- a/astropy/io/ascii/rst.py
++++ b/astropy/io/ascii/rst.py
+@@ -27,7 +27,7 @@ class SimpleRSTHeader(FixedWidthHeader):
+ 
+ 
+ class SimpleRSTData(FixedWidthData):
+-    start_line = 3
++    # start_line will be set dynamically based on header_rows
+     end_line = -1
+     splitter_class = FixedWidthTwoLineDataSplitter
+ 
+@@ -57,10 +57,19 @@ class RST(FixedWidth):
+     data_class = SimpleRSTData
+     header_class = SimpleRSTHeader
+ 
+-    def __init__(self):
+-        super().__init__(delimiter_pad=None, bookend=False)
++    def __init__(self, header_rows=None):
++        if header_rows is None:
++            header_rows = ["name"]
++        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
++        # Set the start_line for data based on number of header rows
++        # Format: [header_rows...][position_line][data...]
++        # So data starts at len(header_rows) + 1
++        self.data.start_line = len(self.header.header_rows) + 1
+ 
+     def write(self, lines):
+         lines = super().write(lines)
+-        lines = [lines[1]] + lines + [lines[1]]
++        # For RST format, we need a position line at the beginning and end
++        # The position line is at index (data.start_line - 1)
++        position_line = lines[self.data.start_line - 1]
++        lines = [position_line] + lines + [position_line]
+         return lines

@@ -1,0 +1,148 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..17b524478 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -48,6 +48,7 @@ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
++from . import itrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+ 
+
+New file: astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+"""
+Contains the transformation functions for getting to "observed" systems from ITRS.
+"""
+import erfa
+
+from astropy import units as u
+from astropy.coordinates.baseframe import frame_transform_graph
+from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
+from astropy.coordinates.representation import (SphericalRepresentation,
+                                                CartesianRepresentation,
+                                                UnitSphericalRepresentation)
+
+from .itrs import ITRS
+from .altaz import AltAz
+from .hadec import HADec
+from .utils import PIOVER2, get_jd12
+from ..erfa_astrom import erfa_astrom
+from ..matrix_utilities import matrix_transpose
+
+def itrs_to_observed_mat(observed_frame):
+    """
+    Compute the matrix for transforming from topocentric ITRS to observed coordinates.
+
+    This function creates a transformation matrix that converts from topocentric
+    ITRS coordinates to observed coordinates (AltAz or HADec) without geocentric
+    aberration corrections.
+
+    Parameters
+    ----------
+    observed_frame : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
+        The observed frame to transform to.
+
+    Returns
+    -------
+    matrix : numpy.ndarray
+        The 3x3 transformation matrix.
+    """
+    import numpy as np
+
+    # Get the Earth Rotation Angle (ERA) for the observer's time
+    ujd1, ujd2 = get_jd12(observed_frame.obstime, 'ut1')
+    era = erfa.era00(ujd1, ujd2)
+
+    # Get polar motion
+    xp, yp = erfa.xys00a(*get_jd12(observed_frame.obstime, 'tt'))
+    sp = erfa.sp00(*get_jd12(observed_frame.obstime, 'tt'))
+    pmmat = erfa.pom00(xp, yp, sp)
+
+    # Create the rotation matrix
+    # This follows the same pattern as cirs_to_itrs_mat but adapted for observed frames
+    rot_mat = erfa.c2tcio(np.eye(3), era, pmmat)
+
+    return rot_mat
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
+def itrs_to_observed(itrs_coo, observed_frame):
+    """
+    Transform from ITRS to observed coordinates (AltAz or HADec) without geocentric aberration.
+
+    This function implements a direct transformation from ITRS to observed coordinates
+    that stays entirely within ITRS, converting between ITRS, AltAz, and HADec coordinates.
+    It treats ITRS positions as time-invariant and adopts the output frame's obstime.
+
+    Parameters
+    ----------
+    itrs_coo : `~astropy.coordinates.ITRS`
+        The ITRS coordinate to transform.
+    observed_frame : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
+        The observed frame to transform to.
+
+    Returns
+    -------
+    observed_coo : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
+        The coordinate in the observed frame.
+    """
+    # Get the observer's location in ITRS
+    observer_itrs = observed_frame.location.get_itrs(observed_frame.obstime)
+
+    # Convert ITRS coordinate to topocentric ITRS representation
+    # This is the key step: we subtract the observer's position from the ITRS position
+    topocentric_itrs_repr = itrs_coo.cartesian - observer_itrs.cartesian
+
+    # Get the transformation matrix
+    transform_mat = itrs_to_observed_mat(observed_frame)
+
+    # Apply the transformation
+    rep = topocentric_itrs_repr.transform(transform_mat)
+
+    # Realize the frame with the transformed representation
+    return observed_frame.realize_frame(rep)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
+def observed_to_itrs(observed_coo, itrs_frame):
+    """
+    Transform from observed coordinates (AltAz or HADec) to ITRS.
+
+    This is the reverse transformation of `itrs_to_observed`.
+
+    Parameters
+    ----------
+    observed_coo : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
+        The observed coordinate to transform.
+    itrs_frame : `~astropy.coordinates.ITRS`
+        The ITRS frame to transform to.
+
+    Returns
+    -------
+    itrs_coo : `~astropy.coordinates.ITRS`
+        The coordinate in the ITRS frame.
+    """
+    # Get the transformation matrix
+    transform_mat = itrs_to_observed_mat(observed_coo)
+
+    # Apply the inverse transformation (transpose of the matrix)
+    inv_transform_mat = matrix_transpose(transform_mat)
+
+    # Transform the coordinate
+    newrepr = observed_coo.cartesian.transform(inv_transform_mat)
+
+    # Get the observer's location in ITRS
+    observer_itrs = observed_coo.location.get_itrs(observed_coo.obstime)
+
+    # Convert back to geocentric ITRS by adding the observer's position
+    geocentric_repr = newrepr + observer_itrs.cartesian
+
+    # Realize the frame with the transformed representation
+    return itrs_frame.realize_frame(geocentric_repr)
+
+# Create loopback transformations
+frame_transform_graph._add_merged_transform(AltAz, ITRS, AltAz)
+frame_transform_graph._add_merged_transform(HADec, ITRS, HADec)

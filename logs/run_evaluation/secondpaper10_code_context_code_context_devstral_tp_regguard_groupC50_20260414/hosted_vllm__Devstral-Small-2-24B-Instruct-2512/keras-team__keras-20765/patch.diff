@@ -1,0 +1,55 @@
+diff --git a/keras/src/layers/rnn/time_distributed.py b/keras/src/layers/rnn/time_distributed.py
+index e61274d96..2b15ba320 100644
+--- a/keras/src/layers/rnn/time_distributed.py
++++ b/keras/src/layers/rnn/time_distributed.py
+@@ -73,16 +73,26 @@ class TimeDistributed(Wrapper):
+ 
+     def call(self, inputs, training=None, mask=None):
+         input_shape = ops.shape(inputs)
+-        mask_shape = None if mask is None else ops.shape(mask)
++        mask_shape = ops.shape(mask) if mask is not None else None
+         batch_size = input_shape[0]
+         timesteps = input_shape[1]
+ 
+-        if mask_shape is not None and mask_shape[:2] != (batch_size, timesteps):
+-            raise ValueError(
+-                "`TimeDistributed` Layer should be passed a `mask` of shape "
+-                f"({batch_size}, {timesteps}, ...), "
+-                f"received: mask.shape={mask_shape}"
+-            )
++        # Skip mask shape validation when time axis is dynamic (None)
++        # to avoid issues with symbolic tensors in graph mode
++        if (mask_shape is not None and
++            timesteps is not None and
++            batch_size is not None):
++            # Only validate when all dimensions are static
++            try:
++                if mask_shape[:2] != (batch_size, timesteps):
++                    raise ValueError(
++                        "`TimeDistributed` Layer should be passed a `mask` of shape "
++                        f"({batch_size}, {timesteps}, ...), "
++                        f"received: mask.shape={mask_shape}"
++                    )
++            except (TypeError, ValueError):
++                # If we can't validate due to dynamic shapes, skip validation
++                pass
+ 
+         def time_distributed_transpose(data):
+             """Swaps the timestep and batch dimensions of a tensor."""
+@@ -90,12 +100,14 @@ class TimeDistributed(Wrapper):
+             return ops.transpose(data, axes=axes)
+ 
+         inputs = time_distributed_transpose(inputs)
+-        if mask is not None:
++        # Check if mask is not None at Python level before using it
++        mask_is_not_none = mask is not None
++        if mask_is_not_none:
+             mask = time_distributed_transpose(mask)
+ 
+         def step_function(i):
+             kwargs = {}
+-            if self.layer._call_has_mask_arg and mask is not None:
++            if self.layer._call_has_mask_arg and mask_is_not_none:
+                 kwargs["mask"] = mask[i]
+             if self.layer._call_has_training_arg:
+                 kwargs["training"] = training

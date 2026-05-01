@@ -1,0 +1,548 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 2785 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   cli/lab.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit faaf98858135cd8279caede18906d4b36a4b78a9
+Author: Maciej Szulik <maszulik@redhat.com>
+Date:   Thu Mar 14 17:39:45 2024 +0100
+
+    Add a test ensuring flags are using only hyphens (#612)
+    
+    Signed-off-by: Maciej Szulik <maszulik@redhat.com>
+
+diff --git a/cli/lab.py b/cli/lab.py
+index b7ffb67e..fae3867a 100755
+--- a/cli/lab.py
++++ b/cli/lab.py
+@@ -44,7 +44,7 @@ class Lab:
+ def configure(ctx, param, filename):
+     """Configure is responsible for reading the config file, initiating Lab object and CLI context."""
+     # skip configuration reading when invoked command is `init`
+-    if len(sys.argv) > 0 and sys.argv[1] == "init":
++    if len(sys.argv) > 0 and sys.argv[1] in ("init", "--help"):
+         return
+ 
+     if not exists(filename):
+@@ -110,7 +110,7 @@ def cli(ctx, config):
+     help="Taxonomy repository location.",
+ )
+ @click.option(
+-    "--min_taxonomy",
++    "--min-taxonomy",
+     is_flag=True,
+     help="Shallow clone the taxonomy repository with minimum size. "
+     "Please do not use this option if you are planning to contribute back "
+diff --git a/tests/test_lab.py b/tests/test_lab.py
+new file mode 100644
+index 00000000..1f088f2d
+--- /dev/null
++++ b/tests/test_lab.py
+@@ -0,0 +1,25 @@
++# Standard
++import re
++import unittest
++
++# Third Party
++import click
++
++# First Party
++from cli import lab
++
++
++class TestConfig(unittest.TestCase):
++    def test_cli_params_hyphenated(self):
++        flag_pattern = re.compile("-{1,2}[a-z-]+")
++        invalid_flags = []
++        for name, cmd in lab.cli.commands.items():
++            for param in cmd.params:
++                if not isinstance(param, click.Option):
++                    continue
++                for opt in param.opts:
++                    if not flag_pattern.fullmatch(opt):
++                        invalid_flags.append(f"{name} {opt}")
++        self.assertFalse(
++            invalid_flags, "<- these commands are using non-hyphenated params"
++        )
+diff --git a/tests/test_lab_download.py b/tests/test_lab_download.py
+index 0c644f5e..5d5e7f64 100644
+--- a/tests/test_lab_download.py
++++ b/tests/test_lab_download.py
+@@ -17,9 +17,6 @@ def mock_download_raise_exception(repo_id, revision, filename, local_dir):
+ 
+ 
+ class TestLabDownload(unittest.TestCase):
+-    def __init__(self, *args, **kwargs):
+-        super().__init__(*args, **kwargs)
+-
+     @patch("huggingface_hub.hf_hub_download")
+     def test_download(self, _):
+         runner = CliRunner()
+diff --git a/tests/test_lab_init.py b/tests/test_lab_init.py
+index 62e9f467..7e172d73 100644
+--- a/tests/test_lab_init.py
++++ b/tests/test_lab_init.py
+@@ -15,9 +15,6 @@ from tests.schema import Config
+ 
+ 
+ class TestLabInit(unittest.TestCase):
+-    def __init__(self, *args, **kwargs):
+-        super().__init__(*args, **kwargs)
+-
+     @patch("git.Repo.clone_from", MagicMock())
+     def test_init(self):
+         runner = CliRunner()
++ git -c core.fileMode=false diff faaf98858135cd8279caede18906d4b36a4b78a9
+diff --git a/cli/lab.py b/cli/lab.py
+index fae3867a..868f0ca4 100755
+--- a/cli/lab.py
++++ b/cli/lab.py
+@@ -839,3 +839,4 @@ def convert(model_dir, adapter_file, skip_de_quantize, skip_quantize):
+         script = os.path.join(cli_dir, "llamacpp/quantize")
+         cmd = f"{script} {gguf_model_dir} {gguf_model_q_dir} Q4_K_M"
+         os.system("{}".format(cmd))
++        click.secho("Please manually clone the repository if you encounter issues.", fg="yellow")
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  running dist_info
+  creating /tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info
+  writing /tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-x7ivh9qz/cli.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-x7ivh9qz/cli-0.0.1.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: click<9.0.0,>=8.1.7 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (8.1.7)
+Requirement already satisfied: click-didyoumean<0.4.0,>=0.3.0 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.3.0)
+Requirement already satisfied: llama-cpp-python<0.3.0,>=0.2.55 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (0.2.56)
+Requirement already satisfied: rouge-score<0.2.0,>=0.1.2 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.1.2)
+Requirement already satisfied: openai<2.0.0,>=1.13.3 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (1.14.0)
+Requirement already satisfied: prompt-toolkit<4.0.0,>=3.0.38 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (3.0.43)
+Requirement already satisfied: PyYAML<7.0.0,>=6.0.1 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (6.0.1)
+Requirement already satisfied: rich<14.0.0,>=13.3.1 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (13.7.1)
+Requirement already satisfied: toml<0.11.0,>=0.10.2 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.10.2)
+Requirement already satisfied: tqdm<5.0.0,>=4.66.2 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (4.66.2)
+Requirement already satisfied: sentencepiece<0.3.0,>=0.2.0 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.2.0)
+Requirement already satisfied: tokenizers<0.16.0,>=0.15.2 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.15.2)
+Requirement already satisfied: wandb<0.17.0,>=0.16.4 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.16.4)
+Requirement already satisfied: GitPython<4.0.0,>=3.1.42 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (3.1.42)
+Requirement already satisfied: gguf<0.7.0,>=0.6.0 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.6.0)
+Requirement already satisfied: transformers<5.0.0,>=4.38.2 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (4.38.2)
+Requirement already satisfied: numpy<2.0.0,>=1.26.4 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (1.26.4)
+Requirement already satisfied: torch<3.0.0,>=2.2.1 in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (2.2.1)
+Requirement already satisfied: peft in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.9.0)
+Requirement already satisfied: datasets in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (2.18.0)
+Requirement already satisfied: trl in /usr/local/lib/python3.11/site-packages (from cli==0.0.1) (0.7.11)
+WARNING: cli 0.0.1 does not provide the extra 'test'
+Requirement already satisfied: gitdb<5,>=4.0.1 in /usr/local/lib/python3.11/site-packages (from GitPython<4.0.0,>=3.1.42->cli==0.0.1) (4.0.11)
+Requirement already satisfied: typing-extensions>=4.5.0 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python<0.3.0,>=0.2.55->llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (4.10.0)
+Requirement already satisfied: diskcache>=5.6.1 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python<0.3.0,>=0.2.55->llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (5.6.3)
+Requirement already satisfied: jinja2>=2.11.3 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python<0.3.0,>=0.2.55->llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (3.1.3)
+Requirement already satisfied: uvicorn>=0.22.0 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (0.28.0)
+Requirement already satisfied: fastapi>=0.100.0 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (0.110.0)
+Requirement already satisfied: pydantic-settings>=2.0.1 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (2.2.1)
+Requirement already satisfied: sse-starlette>=1.6.1 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (2.0.0)
+Requirement already satisfied: starlette-context<0.4,>=0.3.6 in /usr/local/lib/python3.11/site-packages (from llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (0.3.6)
+Requirement already satisfied: anyio<5,>=3.5.0 in /usr/local/lib/python3.11/site-packages (from openai<2.0.0,>=1.13.3->cli==0.0.1) (4.3.0)
+Requirement already satisfied: distro<2,>=1.7.0 in /usr/local/lib/python3.11/site-packages (from openai<2.0.0,>=1.13.3->cli==0.0.1) (1.9.0)
+Requirement already satisfied: httpx<1,>=0.23.0 in /usr/local/lib/python3.11/site-packages (from openai<2.0.0,>=1.13.3->cli==0.0.1) (0.27.0)
+Requirement already satisfied: pydantic<3,>=1.9.0 in /usr/local/lib/python3.11/site-packages (from openai<2.0.0,>=1.13.3->cli==0.0.1) (2.6.4)
+Requirement already satisfied: sniffio in /usr/local/lib/python3.11/site-packages (from openai<2.0.0,>=1.13.3->cli==0.0.1) (1.3.1)
+Requirement already satisfied: wcwidth in /usr/local/lib/python3.11/site-packages (from prompt-toolkit<4.0.0,>=3.0.38->cli==0.0.1) (0.2.13)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.11/site-packages (from rich<14.0.0,>=13.3.1->cli==0.0.1) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/site-packages (from rich<14.0.0,>=13.3.1->cli==0.0.1) (2.17.2)
+Requirement already satisfied: absl-py in /usr/local/lib/python3.11/site-packages (from rouge-score<0.2.0,>=0.1.2->cli==0.0.1) (2.1.0)
+Requirement already satisfied: nltk in /usr/local/lib/python3.11/site-packages (from rouge-score<0.2.0,>=0.1.2->cli==0.0.1) (3.8.1)
+Requirement already satisfied: six>=1.14.0 in /usr/local/lib/python3.11/site-packages (from rouge-score<0.2.0,>=0.1.2->cli==0.0.1) (1.16.0)
+Requirement already satisfied: huggingface_hub<1.0,>=0.16.4 in /usr/local/lib/python3.11/site-packages (from tokenizers<0.16.0,>=0.15.2->cli==0.0.1) (0.21.4)
+Requirement already satisfied: filelock in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (3.13.1)
+Requirement already satisfied: sympy in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (1.12)
+Requirement already satisfied: networkx in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (3.2.1)
+Requirement already satisfied: fsspec in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (2024.2.0)
+Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (12.1.105)
+Requirement already satisfied: nvidia-cuda-runtime-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (12.1.105)
+Requirement already satisfied: nvidia-cuda-cupti-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (12.1.105)
+Requirement already satisfied: nvidia-cudnn-cu12==8.9.2.26 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (8.9.2.26)
+Requirement already satisfied: nvidia-cublas-cu12==12.1.3.1 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (12.1.3.1)
+Requirement already satisfied: nvidia-cufft-cu12==11.0.2.54 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (11.0.2.54)
+Requirement already satisfied: nvidia-curand-cu12==10.3.2.106 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (10.3.2.106)
+Requirement already satisfied: nvidia-cusolver-cu12==11.4.5.107 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (11.4.5.107)
+Requirement already satisfied: nvidia-cusparse-cu12==12.1.0.106 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (12.1.0.106)
+Requirement already satisfied: nvidia-nccl-cu12==2.19.3 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (2.19.3)
+Requirement already satisfied: nvidia-nvtx-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (12.1.105)
+Requirement already satisfied: triton==2.2.0 in /usr/local/lib/python3.11/site-packages (from torch<3.0.0,>=2.2.1->cli==0.0.1) (2.2.0)
+Requirement already satisfied: nvidia-nvjitlink-cu12 in /usr/local/lib/python3.11/site-packages (from nvidia-cusolver-cu12==11.4.5.107->torch<3.0.0,>=2.2.1->cli==0.0.1) (12.4.99)
+Requirement already satisfied: packaging>=20.0 in /usr/local/lib/python3.11/site-packages (from transformers<5.0.0,>=4.38.2->cli==0.0.1) (24.0)
+Requirement already satisfied: regex!=2019.12.17 in /usr/local/lib/python3.11/site-packages (from transformers<5.0.0,>=4.38.2->cli==0.0.1) (2023.12.25)
+Requirement already satisfied: requests in /usr/local/lib/python3.11/site-packages (from transformers<5.0.0,>=4.38.2->cli==0.0.1) (2.31.0)
+Requirement already satisfied: safetensors>=0.4.1 in /usr/local/lib/python3.11/site-packages (from transformers<5.0.0,>=4.38.2->cli==0.0.1) (0.4.2)
+Requirement already satisfied: psutil>=5.0.0 in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (5.9.8)
+Requirement already satisfied: sentry-sdk>=1.0.0 in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (1.42.0)
+Requirement already satisfied: docker-pycreds>=0.4.0 in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (0.4.0)
+Requirement already satisfied: setproctitle in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (1.3.3)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (65.5.1)
+Requirement already satisfied: appdirs>=1.4.3 in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (1.4.4)
+Requirement already satisfied: protobuf!=4.21.0,<5,>=3.19.0 in /usr/local/lib/python3.11/site-packages (from wandb<0.17.0,>=0.16.4->cli==0.0.1) (4.25.3)
+Requirement already satisfied: pyarrow>=12.0.0 in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (15.0.1)
+Requirement already satisfied: pyarrow-hotfix in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (0.6)
+Requirement already satisfied: dill<0.3.9,>=0.3.0 in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (0.3.8)
+Requirement already satisfied: pandas in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (2.2.1)
+Requirement already satisfied: xxhash in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (3.4.1)
+Requirement already satisfied: multiprocess in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (0.70.16)
+Requirement already satisfied: aiohttp in /usr/local/lib/python3.11/site-packages (from datasets->cli==0.0.1) (3.9.3)
+Requirement already satisfied: accelerate>=0.21.0 in /usr/local/lib/python3.11/site-packages (from peft->cli==0.0.1) (0.28.0)
+Requirement already satisfied: tyro>=0.5.11 in /usr/local/lib/python3.11/site-packages (from trl->cli==0.0.1) (0.7.3)
+Requirement already satisfied: idna>=2.8 in /usr/local/lib/python3.11/site-packages (from anyio<5,>=3.5.0->openai<2.0.0,>=1.13.3->cli==0.0.1) (3.6)
+Requirement already satisfied: starlette<0.37.0,>=0.36.3 in /usr/local/lib/python3.11/site-packages (from fastapi>=0.100.0->llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (0.36.3)
+Requirement already satisfied: aiosignal>=1.1.2 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->cli==0.0.1) (1.3.1)
+Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->cli==0.0.1) (23.2.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->cli==0.0.1) (1.4.1)
+Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->cli==0.0.1) (6.0.5)
+Requirement already satisfied: yarl<2.0,>=1.0 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->cli==0.0.1) (1.9.4)
+Requirement already satisfied: smmap<6,>=3.0.1 in /usr/local/lib/python3.11/site-packages (from gitdb<5,>=4.0.1->GitPython<4.0.0,>=3.1.42->cli==0.0.1) (5.0.1)
+Requirement already satisfied: certifi in /usr/local/lib/python3.11/site-packages (from httpx<1,>=0.23.0->openai<2.0.0,>=1.13.3->cli==0.0.1) (2024.2.2)
+Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.11/site-packages (from httpx<1,>=0.23.0->openai<2.0.0,>=1.13.3->cli==0.0.1) (1.0.4)
+Requirement already satisfied: h11<0.15,>=0.13 in /usr/local/lib/python3.11/site-packages (from httpcore==1.*->httpx<1,>=0.23.0->openai<2.0.0,>=1.13.3->cli==0.0.1) (0.14.0)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.11/site-packages (from jinja2>=2.11.3->llama-cpp-python<0.3.0,>=0.2.55->llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (2.1.5)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.11/site-packages (from markdown-it-py>=2.2.0->rich<14.0.0,>=13.3.1->cli==0.0.1) (0.1.2)
+Requirement already satisfied: annotated-types>=0.4.0 in /usr/local/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai<2.0.0,>=1.13.3->cli==0.0.1) (0.6.0)
+Requirement already satisfied: pydantic-core==2.16.3 in /usr/local/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai<2.0.0,>=1.13.3->cli==0.0.1) (2.16.3)
+Requirement already satisfied: python-dotenv>=0.21.0 in /usr/local/lib/python3.11/site-packages (from pydantic-settings>=2.0.1->llama-cpp-python[server]<0.3.0,>=0.2.55->cli==0.0.1) (1.0.1)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/site-packages (from requests->transformers<5.0.0,>=4.38.2->cli==0.0.1) (3.3.2)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/site-packages (from requests->transformers<5.0.0,>=4.38.2->cli==0.0.1) (2.2.1)
+Requirement already satisfied: docstring-parser>=0.14.1 in /usr/local/lib/python3.11/site-packages (from tyro>=0.5.11->trl->cli==0.0.1) (0.15)
+Requirement already satisfied: shtab>=1.5.6 in /usr/local/lib/python3.11/site-packages (from tyro>=0.5.11->trl->cli==0.0.1) (1.7.1)
+Requirement already satisfied: joblib in /usr/local/lib/python3.11/site-packages (from nltk->rouge-score<0.2.0,>=0.1.2->cli==0.0.1) (1.3.2)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/site-packages (from pandas->datasets->cli==0.0.1) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/site-packages (from pandas->datasets->cli==0.0.1) (2024.1)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/site-packages (from pandas->datasets->cli==0.0.1) (2024.1)
+Requirement already satisfied: mpmath>=0.19 in /usr/local/lib/python3.11/site-packages (from sympy->torch<3.0.0,>=2.2.1->cli==0.0.1) (1.3.0)
+Building wheels for collected packages: cli
+  Building editable for cli (pyproject.toml): started
+  Running command Building editable for cli (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  running editable_wheel
+  creating /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info
+  writing /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli-0.0.1.dist-info'
+  creating /tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli-0.0.1.dist-info/WHEEL
+  running build_py
+  running egg_info
+  creating /tmp/tmp7vc83pp0.build-temp/cli.egg-info
+  writing /tmp/tmp7vc83pp0.build-temp/cli.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmp7vc83pp0.build-temp/cli.egg-info/dependency_links.txt
+  writing entry points to /tmp/tmp7vc83pp0.build-temp/cli.egg-info/entry_points.txt
+  writing requirements to /tmp/tmp7vc83pp0.build-temp/cli.egg-info/requires.txt
+  writing top-level names to /tmp/tmp7vc83pp0.build-temp/cli.egg-info/top_level.txt
+  writing manifest file '/tmp/tmp7vc83pp0.build-temp/cli.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmp7vc83pp0.build-temp/cli.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/tmp7vc83pp0.build-temp/cli.egg-info/SOURCES.txt'
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable___cli_0_0_1_finder.py'
+  adding '__editable__.cli-0.0.1.pth'
+  creating '/tmp/pip-wheel-z9e1ll7a/tmpj08m_1je/cli-0.0.1-0.editable-py3-none-any.whl' and adding '/tmp/tmp2rhi7x86cli-0.0.1-0.editable-py3-none-any.whl' to it
+  adding 'cli-0.0.1.dist-info/LICENSE'
+  adding 'cli-0.0.1.dist-info/METADATA'
+  adding 'cli-0.0.1.dist-info/WHEEL'
+  adding 'cli-0.0.1.dist-info/entry_points.txt'
+  adding 'cli-0.0.1.dist-info/top_level.txt'
+  adding 'cli-0.0.1.dist-info/RECORD'
+  /usr/local/lib/python3.11/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for cli (pyproject.toml): finished with status 'done'
+  Created wheel for cli: filename=cli-0.0.1-0.editable-py3-none-any.whl size=11843 sha256=1ef0a7ca66975aaa42013e7accef7426efeed10538fdc7517379ef21155fe2f9
+  Stored in directory: /tmp/pip-ephem-wheel-cache-61tx8n5a/wheels/49/5f/4f/01b7d31ea6ddac9643da788242d33e5fd3467d95d17b032c6b
+Successfully built cli
+Installing collected packages: cli
+  Attempting uninstall: cli
+    Found existing installation: cli 0.0.1
+    Uninstalling cli-0.0.1:
+      Removing file or directory /usr/local/bin/lab
+      Removing file or directory /usr/local/lib/python3.11/site-packages/__editable__.cli-0.0.1.pth
+      Removing file or directory /usr/local/lib/python3.11/site-packages/__editable___cli_0_0_1_finder.py
+      Removing file or directory /usr/local/lib/python3.11/site-packages/__pycache__/__editable___cli_0_0_1_finder.cpython-311.pyc
+      Removing file or directory /usr/local/lib/python3.11/site-packages/cli-0.0.1.dist-info/
+      Successfully uninstalled cli-0.0.1
+  changing mode of /usr/local/bin/lab to 755
+Successfully installed cli-0.0.1
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ python -m pip install 'trl>=0.12.2'
+Collecting trl>=0.12.2
+  Downloading trl-1.1.0-py3-none-any.whl.metadata (11 kB)
+Collecting accelerate>=1.4.0 (from trl>=0.12.2)
+  Downloading accelerate-1.13.0-py3-none-any.whl.metadata (19 kB)
+Collecting datasets>=4.7.0 (from trl>=0.12.2)
+  Downloading datasets-4.8.4-py3-none-any.whl.metadata (19 kB)
+Requirement already satisfied: jinja2 in /usr/local/lib/python3.11/site-packages (from trl>=0.12.2) (3.1.3)
+Requirement already satisfied: packaging>20.0 in /usr/local/lib/python3.11/site-packages (from trl>=0.12.2) (24.0)
+Collecting transformers>=4.56.2 (from trl>=0.12.2)
+  Downloading transformers-5.5.3-py3-none-any.whl.metadata (32 kB)
+Requirement already satisfied: numpy>=1.17 in /usr/local/lib/python3.11/site-packages (from accelerate>=1.4.0->trl>=0.12.2) (1.26.4)
+Requirement already satisfied: psutil in /usr/local/lib/python3.11/site-packages (from accelerate>=1.4.0->trl>=0.12.2) (5.9.8)
+Requirement already satisfied: pyyaml in /usr/local/lib/python3.11/site-packages (from accelerate>=1.4.0->trl>=0.12.2) (6.0.1)
+Requirement already satisfied: torch>=2.0.0 in /usr/local/lib/python3.11/site-packages (from accelerate>=1.4.0->trl>=0.12.2) (2.2.1)
+Requirement already satisfied: huggingface_hub>=0.21.0 in /usr/local/lib/python3.11/site-packages (from accelerate>=1.4.0->trl>=0.12.2) (0.21.4)
+Collecting safetensors>=0.4.3 (from accelerate>=1.4.0->trl>=0.12.2)
+  Downloading safetensors-0.7.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+Requirement already satisfied: filelock in /usr/local/lib/python3.11/site-packages (from datasets>=4.7.0->trl>=0.12.2) (3.13.1)
+Collecting pyarrow>=21.0.0 (from datasets>=4.7.0->trl>=0.12.2)
+  Downloading pyarrow-23.0.1-cp311-cp311-manylinux_2_28_x86_64.whl.metadata (3.1 kB)
+Requirement already satisfied: dill<0.4.2,>=0.3.0 in /usr/local/lib/python3.11/site-packages (from datasets>=4.7.0->trl>=0.12.2) (0.3.8)
+Requirement already satisfied: pandas in /usr/local/lib/python3.11/site-packages (from datasets>=4.7.0->trl>=0.12.2) (2.2.1)
+Collecting requests>=2.32.2 (from datasets>=4.7.0->trl>=0.12.2)
+  Downloading requests-2.33.1-py3-none-any.whl.metadata (4.8 kB)
+Requirement already satisfied: httpx<1.0.0 in /usr/local/lib/python3.11/site-packages (from datasets>=4.7.0->trl>=0.12.2) (0.27.0)
+Collecting tqdm>=4.66.3 (from datasets>=4.7.0->trl>=0.12.2)
+  Downloading tqdm-4.67.3-py3-none-any.whl.metadata (57 kB)
+Requirement already satisfied: xxhash in /usr/local/lib/python3.11/site-packages (from datasets>=4.7.0->trl>=0.12.2) (3.4.1)
+Requirement already satisfied: multiprocess<0.70.20 in /usr/local/lib/python3.11/site-packages (from datasets>=4.7.0->trl>=0.12.2) (0.70.16)
+Requirement already satisfied: fsspec<=2026.2.0,>=2023.1.0 in /usr/local/lib/python3.11/site-packages (from fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (2024.2.0)
+Collecting huggingface_hub>=0.21.0 (from accelerate>=1.4.0->trl>=0.12.2)
+  Downloading huggingface_hub-1.10.1-py3-none-any.whl.metadata (14 kB)
+Collecting regex>=2025.10.22 (from transformers>=4.56.2->trl>=0.12.2)
+  Downloading regex-2026.4.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+Collecting tokenizers<=0.23.0,>=0.22.0 (from transformers>=4.56.2->trl>=0.12.2)
+  Downloading tokenizers-0.22.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (7.3 kB)
+Collecting typer (from transformers>=4.56.2->trl>=0.12.2)
+  Downloading typer-0.24.1-py3-none-any.whl.metadata (16 kB)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.11/site-packages (from jinja2->trl>=0.12.2) (2.1.5)
+Requirement already satisfied: aiohttp!=4.0.0a0,!=4.0.0a1 in /usr/local/lib/python3.11/site-packages (from fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (3.9.3)
+Requirement already satisfied: anyio in /usr/local/lib/python3.11/site-packages (from httpx<1.0.0->datasets>=4.7.0->trl>=0.12.2) (4.3.0)
+Requirement already satisfied: certifi in /usr/local/lib/python3.11/site-packages (from httpx<1.0.0->datasets>=4.7.0->trl>=0.12.2) (2024.2.2)
+Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.11/site-packages (from httpx<1.0.0->datasets>=4.7.0->trl>=0.12.2) (1.0.4)
+Requirement already satisfied: idna in /usr/local/lib/python3.11/site-packages (from httpx<1.0.0->datasets>=4.7.0->trl>=0.12.2) (3.6)
+Requirement already satisfied: sniffio in /usr/local/lib/python3.11/site-packages (from httpx<1.0.0->datasets>=4.7.0->trl>=0.12.2) (1.3.1)
+Requirement already satisfied: h11<0.15,>=0.13 in /usr/local/lib/python3.11/site-packages (from httpcore==1.*->httpx<1.0.0->datasets>=4.7.0->trl>=0.12.2) (0.14.0)
+Collecting hf-xet<2.0.0,>=1.4.3 (from huggingface_hub>=0.21.0->accelerate>=1.4.0->trl>=0.12.2)
+  Downloading hf_xet-1.4.3-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (4.9 kB)
+Requirement already satisfied: typing-extensions>=4.1.0 in /usr/local/lib/python3.11/site-packages (from huggingface_hub>=0.21.0->accelerate>=1.4.0->trl>=0.12.2) (4.10.0)
+Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.11/site-packages (from requests>=2.32.2->datasets>=4.7.0->trl>=0.12.2) (3.3.2)
+Requirement already satisfied: urllib3<3,>=1.26 in /usr/local/lib/python3.11/site-packages (from requests>=2.32.2->datasets>=4.7.0->trl>=0.12.2) (2.2.1)
+Requirement already satisfied: sympy in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (1.12)
+Requirement already satisfied: networkx in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (3.2.1)
+Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.1.105)
+Requirement already satisfied: nvidia-cuda-runtime-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.1.105)
+Requirement already satisfied: nvidia-cuda-cupti-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.1.105)
+Requirement already satisfied: nvidia-cudnn-cu12==8.9.2.26 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (8.9.2.26)
+Requirement already satisfied: nvidia-cublas-cu12==12.1.3.1 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.1.3.1)
+Requirement already satisfied: nvidia-cufft-cu12==11.0.2.54 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (11.0.2.54)
+Requirement already satisfied: nvidia-curand-cu12==10.3.2.106 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (10.3.2.106)
+Requirement already satisfied: nvidia-cusolver-cu12==11.4.5.107 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (11.4.5.107)
+Requirement already satisfied: nvidia-cusparse-cu12==12.1.0.106 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.1.0.106)
+Requirement already satisfied: nvidia-nccl-cu12==2.19.3 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (2.19.3)
+Requirement already satisfied: nvidia-nvtx-cu12==12.1.105 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.1.105)
+Requirement already satisfied: triton==2.2.0 in /usr/local/lib/python3.11/site-packages (from torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (2.2.0)
+Requirement already satisfied: nvidia-nvjitlink-cu12 in /usr/local/lib/python3.11/site-packages (from nvidia-cusolver-cu12==11.4.5.107->torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (12.4.99)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/site-packages (from pandas->datasets>=4.7.0->trl>=0.12.2) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/site-packages (from pandas->datasets>=4.7.0->trl>=0.12.2) (2024.1)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/site-packages (from pandas->datasets>=4.7.0->trl>=0.12.2) (2024.1)
+Collecting click>=8.2.1 (from typer->transformers>=4.56.2->trl>=0.12.2)
+  Downloading click-8.3.2-py3-none-any.whl.metadata (2.6 kB)
+Collecting shellingham>=1.3.0 (from typer->transformers>=4.56.2->trl>=0.12.2)
+  Downloading shellingham-1.5.4-py2.py3-none-any.whl.metadata (3.5 kB)
+Requirement already satisfied: rich>=12.3.0 in /usr/local/lib/python3.11/site-packages (from typer->transformers>=4.56.2->trl>=0.12.2) (13.7.1)
+Collecting annotated-doc>=0.0.2 (from typer->transformers>=4.56.2->trl>=0.12.2)
+  Downloading annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+Requirement already satisfied: aiosignal>=1.1.2 in /usr/local/lib/python3.11/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (1.3.1)
+Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.11/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (23.2.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.11/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (1.4.1)
+Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.11/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (6.0.5)
+Requirement already satisfied: yarl<2.0,>=1.0 in /usr/local/lib/python3.11/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2026.2.0,>=2023.1.0->datasets>=4.7.0->trl>=0.12.2) (1.9.4)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.11/site-packages (from python-dateutil>=2.8.2->pandas->datasets>=4.7.0->trl>=0.12.2) (1.16.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.11/site-packages (from rich>=12.3.0->typer->transformers>=4.56.2->trl>=0.12.2) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/site-packages (from rich>=12.3.0->typer->transformers>=4.56.2->trl>=0.12.2) (2.17.2)
+Requirement already satisfied: mpmath>=0.19 in /usr/local/lib/python3.11/site-packages (from sympy->torch>=2.0.0->accelerate>=1.4.0->trl>=0.12.2) (1.3.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.11/site-packages (from markdown-it-py>=2.2.0->rich>=12.3.0->typer->transformers>=4.56.2->trl>=0.12.2) (0.1.2)
+Downloading trl-1.1.0-py3-none-any.whl (677 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 678.0/678.0 kB 53.6 MB/s eta 0:00:00
+Downloading accelerate-1.13.0-py3-none-any.whl (383 kB)
+Downloading datasets-4.8.4-py3-none-any.whl (526 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 527.0/527.0 kB 62.1 MB/s eta 0:00:00
+Downloading transformers-5.5.3-py3-none-any.whl (10.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.2/10.2 MB 74.3 MB/s eta 0:00:00
+Downloading huggingface_hub-1.10.1-py3-none-any.whl (642 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 642.6/642.6 kB 34.8 MB/s eta 0:00:00
+Downloading pyarrow-23.0.1-cp311-cp311-manylinux_2_28_x86_64.whl (47.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 47.6/47.6 MB 54.5 MB/s eta 0:00:00
+Downloading regex-2026.4.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (799 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 799.8/799.8 kB 55.5 MB/s eta 0:00:00
+Downloading requests-2.33.1-py3-none-any.whl (64 kB)
+Downloading safetensors-0.7.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (507 kB)
+Downloading tokenizers-0.22.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (3.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.3/3.3 MB 71.9 MB/s eta 0:00:00
+Downloading tqdm-4.67.3-py3-none-any.whl (78 kB)
+Downloading typer-0.24.1-py3-none-any.whl (56 kB)
+Downloading annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+Downloading click-8.3.2-py3-none-any.whl (108 kB)
+Downloading hf_xet-1.4.3-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (4.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.2/4.2 MB 66.6 MB/s eta 0:00:00
+Downloading shellingham-1.5.4-py2.py3-none-any.whl (9.8 kB)
+Installing collected packages: tqdm, shellingham, safetensors, requests, regex, pyarrow, hf-xet, click, annotated-doc, typer, huggingface_hub, tokenizers, datasets, accelerate, transformers, trl
+  Attempting uninstall: tqdm
+    Found existing installation: tqdm 4.66.2
+    Uninstalling tqdm-4.66.2:
+      Successfully uninstalled tqdm-4.66.2
+  Attempting uninstall: safetensors
+    Found existing installation: safetensors 0.4.2
+    Uninstalling safetensors-0.4.2:
+      Successfully uninstalled safetensors-0.4.2
+  Attempting uninstall: requests
+    Found existing installation: requests 2.31.0
+    Uninstalling requests-2.31.0:
+      Successfully uninstalled requests-2.31.0
+  Attempting uninstall: regex
+    Found existing installation: regex 2023.12.25
+    Uninstalling regex-2023.12.25:
+      Successfully uninstalled regex-2023.12.25
+  Attempting uninstall: pyarrow
+    Found existing installation: pyarrow 15.0.1
+    Uninstalling pyarrow-15.0.1:
+      Successfully uninstalled pyarrow-15.0.1
+  Attempting uninstall: click
+    Found existing installation: click 8.1.7
+    Uninstalling click-8.1.7:
+      Successfully uninstalled click-8.1.7
+  Attempting uninstall: huggingface_hub
+    Found existing installation: huggingface-hub 0.21.4
+    Uninstalling huggingface-hub-0.21.4:
+      Successfully uninstalled huggingface-hub-0.21.4
+  Attempting uninstall: tokenizers
+    Found existing installation: tokenizers 0.15.2
+    Uninstalling tokenizers-0.15.2:
+      Successfully uninstalled tokenizers-0.15.2
+  Attempting uninstall: datasets
+    Found existing installation: datasets 2.18.0
+    Uninstalling datasets-2.18.0:
+      Successfully uninstalled datasets-2.18.0
+  Attempting uninstall: accelerate
+    Found existing installation: accelerate 0.28.0
+    Uninstalling accelerate-0.28.0:
+      Successfully uninstalled accelerate-0.28.0
+  Attempting uninstall: transformers
+    Found existing installation: transformers 4.38.2
+    Uninstalling transformers-4.38.2:
+      Successfully uninstalled transformers-4.38.2
+  Attempting uninstall: trl
+    Found existing installation: trl 0.7.11
+    Uninstalling trl-0.7.11:
+      Successfully uninstalled trl-0.7.11
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+cli 0.0.1 requires tokenizers<0.16.0,>=0.15.2, but you have tokenizers 0.22.2 which is incompatible.
+cli 0.0.1 requires transformers<5.0.0,>=4.38.2, but you have transformers 5.5.3 which is incompatible.
+Successfully installed accelerate-1.13.0 annotated-doc-0.0.4 click-8.3.2 datasets-4.8.4 hf-xet-1.4.3 huggingface_hub-1.10.1 pyarrow-23.0.1 regex-2026.4.4 requests-2.33.1 safetensors-0.7.0 shellingham-1.5.4 tokenizers-0.22.2 tqdm-4.67.3 transformers-5.5.3 trl-1.1.0 typer-0.24.1
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout faaf98858135cd8279caede18906d4b36a4b78a9 tests/test_lab_init.py
+Updated 0 paths from 43ee1a27
++ git apply -v -
+Checking patch tests/test_lab_init.py...
+Applied patch tests/test_lab_init.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA tests/test_lab_init.py
+============================= test session starts ==============================
+platform linux -- Python 3.11.12, pytest-8.1.1, pluggy-1.4.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: anyio-4.3.0
+collected 7 items
+
+tests/test_lab_init.py ...F...                                           [100%]
+
+=================================== FAILURES ===================================
+_________________ TestLabInit.test_init_interactive_git_error __________________
+
+self = <tests.test_lab_init.TestLabInit testMethod=test_init_interactive_git_error>
+
+    @patch(
+        "cli.lab.Repo.clone_from",
+        MagicMock(side_effect=GitError("Authentication failed")),
+    )
+    def test_init_interactive_git_error(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            result = runner.invoke(lab.init, input="\ny")
+            self.assertEqual(
+                result.exit_code, 1, "command finished with an unexpected exit code"
+            )
+            self.assertIn(
+                "Failed to clone taxonomy repo: Authentication failed", result.output
+            )
+>           self.assertIn("manually run", result.output)
+E           AssertionError: 'manually run' not found in 'Welcome to InstructLab CLI. This guide will help you to setup your environment.\nPlease provide the following values to initiate the environment:\nPath to taxonomy repo [taxonomy]: \n`taxonomy` seems to not exists or is empty. Should I clone git@github.com:instruct-lab/taxonomy.git for you? [y/N]: y\nCloning git@github.com:instruct-lab/taxonomy.git...\nFailed to clone taxonomy repo: Authentication failed\n'
+
+tests/test_lab_init.py:71: AssertionError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151: UserWarning: Field "model_path" has conflict with protected namespace "model_".
+  
+  You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_lab_init.py::TestLabInit::test_init_config
+PASSED tests/test_lab_init.py::TestLabInit::test_init_interactive
+PASSED tests/test_lab_init.py::TestLabInit::test_init_interactive_clone
+PASSED tests/test_lab_init.py::TestLabInit::test_init_interactive_with_preexisting_config
+PASSED tests/test_lab_init.py::TestLabInit::test_init_interactive_with_preexisting_nonempty_taxonomy
+PASSED tests/test_lab_init.py::TestLabInit::test_init_noninteractive
+FAILED tests/test_lab_init.py::TestLabInit::test_init_interactive_git_error
+==================== 1 failed, 6 passed, 1 warning in 1.42s ====================
++ : '>>>>> End Test Output'
++ git checkout faaf98858135cd8279caede18906d4b36a4b78a9 tests/test_lab_init.py
+Updated 1 path from 43ee1a27

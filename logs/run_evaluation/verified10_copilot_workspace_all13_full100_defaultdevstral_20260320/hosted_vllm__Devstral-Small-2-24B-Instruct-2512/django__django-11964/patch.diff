@@ -1,0 +1,98 @@
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index d610dc86f0..21aceb8502 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -1,3 +1,4 @@
++import enum
+ import collections.abc
+ import copy
+ import datetime
+@@ -761,7 +762,13 @@ class Field(RegisterLookupMixin):
+             # if you have a classmethod and a field with the same name, then
+             # such fields can't be deferred (we don't have a check for this).
+             if not getattr(cls, self.attname, None):
+-                setattr(cls, self.attname, self.descriptor_class(self))
++                # Use EnumAwareDeferredAttribute for fields with choices
++                if self.choices is not None:
++                    from django.db.models.query_utils import EnumAwareDeferredAttribute
++                    descriptor_class = EnumAwareDeferredAttribute
++                else:
++                    descriptor_class = self.descriptor_class
++                setattr(cls, self.attname, descriptor_class(self))
+         if self.choices is not None:
+             setattr(cls, 'get_%s_display' % self.name,
+                     partialmethod(cls._get_FIELD_display, field=self))
+@@ -874,6 +881,8 @@ class Field(RegisterLookupMixin):
+     flatchoices = property(_get_flatchoices)
+ 
+     def save_form_data(self, instance, data):
++        if data is not None and isinstance(data, enum.Enum):
++            data = data.value
+         setattr(instance, self.name, data)
+ 
+     def formfield(self, form_class=None, choices_form_class=None, **kwargs):
+@@ -1010,6 +1019,8 @@ class CharField(Field):
+     def to_python(self, value):
+         if isinstance(value, str) or value is None:
+             return value
++        if isinstance(value, enum.Enum):
++            return value.value
+         return str(value)
+ 
+     def get_prep_value(self, value):
+@@ -1767,6 +1778,8 @@ class IntegerField(Field):
+         return "IntegerField"
+ 
+     def to_python(self, value):
++        if isinstance(value, enum.Enum):
++            return value.value
+         if value is None:
+             return value
+         try:
+diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py
+index 189fb4fa44..9938189b3e 100644
+--- a/django/db/models/query_utils.py
++++ b/django/db/models/query_utils.py
+@@ -1,3 +1,4 @@
++import enum
+ """
+ Various data structures used in query construction.
+ 
+@@ -151,6 +152,37 @@ class DeferredAttribute:
+         return None
+ 
+ 
++class EnumAwareDeferredAttribute(DeferredAttribute):
++    """
++    A DeferredAttribute that handles enum values correctly by converting them
++    to their underlying values when accessed.
++    """
++
++    def __get__(self, instance, cls=None):
++        if instance is None:
++            return self
++        data = instance.__dict__
++        field_name = self.field.attname
++        if data.get(field_name, self) is self:
++            # Let's see if the field is part of the parent chain. If so we
++            # might be able to reuse the already loaded value. Refs #18343.
++            val = self._check_parent_chain(instance)
++            if val is None:
++                instance.refresh_from_db(fields=[field_name])
++                val = getattr(instance, field_name)
++            data[field_name] = val
++        val = data[field_name]
++        # Convert enum values to their underlying values
++        if val is not self and hasattr(self.field, 'to_python'):
++            val = self.field.to_python(val)
++        return val
++
++    def __set__(self, instance, value):
++        # Convert enum values to their underlying values before storing
++        if value is not None and isinstance(value, enum.Enum):
++            value = value.value
++        instance.__dict__[self.field.attname] = value
++
+ class RegisterLookupMixin:
+ 
+     @classmethod

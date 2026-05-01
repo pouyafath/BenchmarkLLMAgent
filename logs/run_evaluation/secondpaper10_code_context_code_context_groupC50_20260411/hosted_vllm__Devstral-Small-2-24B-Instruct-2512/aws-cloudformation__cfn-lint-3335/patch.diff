@@ -1,0 +1,70 @@
+diff --git a/src/cfnlint/rules/functions/DynamicReference.py b/src/cfnlint/rules/functions/DynamicReference.py
+index 745e3c6bc..962c9aa6e 100644
+--- a/src/cfnlint/rules/functions/DynamicReference.py
++++ b/src/cfnlint/rules/functions/DynamicReference.py
+@@ -4,7 +4,7 @@ SPDX-License-Identifier: MIT-0
+ """
+ 
+ from collections import deque
+-from typing import Any
++from typing import Any, List
+ 
+ from cfnlint.helpers import REGEX_DYN_REF
+ from cfnlint.jsonschema import ValidationError, Validator
+@@ -65,6 +65,47 @@ _secrets_manager_arn = {
+     "type": "array",
+ }
+ 
++def _split_dynamic_ref_parts(dynamic_ref: str) -> List[str]:
++    """
++    Split a dynamic reference string into parts, preserving colons inside ${...} blocks.
++
++    This function mimics the behavior of str.split(':') but preserves colons inside ${...} blocks.
++
++    Example:
++    Input: "resolve:ssm:${AWS::AccountId}/${AWS::Region}/ac"
++    Output: ["resolve", "ssm", "${AWS::AccountId}/${AWS::Region}/ac"]
++    """
++    parts = []
++    current_part = ""
++    i = 0
++    n = len(dynamic_ref)
++
++    while i < n:
++        if i < n - 1 and dynamic_ref[i] == '$' and dynamic_ref[i+1] == '{':
++            # Start of ${...} block - find the closing }
++            current_part += '${'
++            i += 2
++            brace_depth = 1
++            while i < n and brace_depth > 0:
++                if dynamic_ref[i] == '{':
++                    brace_depth += 1
++                elif dynamic_ref[i] == '}':
++                    brace_depth -= 1
++                current_part += dynamic_ref[i]
++                i += 1
++        elif dynamic_ref[i] == ':':
++            # Colon outside of ${...} block - split here
++            parts.append(current_part)
++            current_part = ""
++            i += 1
++        else:
++            current_part += dynamic_ref[i]
++            i += 1
++
++    # Add the last part (even if empty, to match str.split(':') behavior)
++    parts.append(current_part)
++
++    return parts
+ 
+ class DynamicReference(BaseFn):
+     id = "E1050"
+@@ -97,7 +138,7 @@ class DynamicReference(BaseFn):
+         # Secrets manager can be used only in resource properties
+ 
+         for v in REGEX_DYN_REF.findall(instance):
+-            parts = v.split(":")
++            parts = _split_dynamic_ref_parts(v)
+ 
+             evolved = validator.evolve(schema=_all)
+             found = False

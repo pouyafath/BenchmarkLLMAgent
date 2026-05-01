@@ -1,0 +1,75 @@
+diff --git a/sphinx/directives/other.py b/sphinx/directives/other.py
+index 19f7c0a8d..2d44ee250 100644
+--- a/sphinx/directives/other.py
++++ b/sphinx/directives/other.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++from docutils.io import FileInput, error_string
+ import re
+ from typing import TYPE_CHECKING, Any, cast
+ 
+@@ -378,6 +379,63 @@ class Include(BaseInclude, SphinxDirective):
+         self.env.note_included(filename)
+         return super().run()
+ 
++    def read_file(self, path: StrPath) -> str:
++        """Read text file at `path`, emit source-read event, and return content.
++
++        This overrides the docutils Include.read_file method to emit the
++        source-read event for included files, allowing extensions to modify
++        their content.
++        """
++        encoding = self.options.get('encoding', self.settings.input_encoding)
++        error_handler = self.settings.input_encoding_error_handler
++        try:
++            include_file = FileInput(source_path=path,
++                                        encoding=encoding,
++                                        error_handler=error_handler)
++        except UnicodeEncodeError:
++            raise self.severe(f'Problems with "{self.name}" directive path:\n'
++                              f'Cannot encode input file path "{path}" '
++                              '(wrong locale?).')
++        except OSError as error:
++            raise self.severe(f'Problems with "{self.name}" directive path:\n'
++                              f'{error_string(error)}.')
++        else:
++            self.settings.record_dependencies.add(path)
++        try:
++            text = include_file.read()
++        except UnicodeError as error:
++            raise self.severe(f'Problem with "{self.name}" directive:\n'
++                              + error_string(error))
++
++        # Emit source-read event for the included file
++        arg = [text]
++        self.env.events.emit('source-read', self.env.docname, arg)
++        text = arg[0]
++
++        # Clip to-be-included content
++        startline, endline, starttext, endtext = self.clip_options
++        if startline or (endline is not None):
++            lines = text.splitlines()
++            text = '\n'.join(lines[startline:endline])
++        # start-after/end-before: no restrictions on newlines in match-text,
++        # and no restrictions on matching inside lines vs. line boundaries
++        if starttext:
++            # skip content in text before *and incl.* a matching text
++            after_index = text.find(starttext)
++            if after_index < 0:
++                raise self.severe('Problem with "start-after" option of '
++                                  f'"{self.name}" directive:\nText not found.')
++            text = text[after_index + len(starttext):]
++        if endtext:
++            # skip content in text after *and incl.* a matching text
++            before_index = text.find(endtext)
++            if before_index < 0:
++                raise self.severe('Problem with "end-before" option of '
++                                  f'"{self.name}" directive:\nText not found.')
++            text = text[:before_index]
++        return text
++
++
+ 
+ def setup(app: Sphinx) -> dict[str, Any]:
+     directives.register_directive('toctree', TocTree)

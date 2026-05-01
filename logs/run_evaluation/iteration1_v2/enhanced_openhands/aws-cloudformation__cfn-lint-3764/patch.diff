@@ -1,0 +1,64 @@
+diff --git a/src/cfnlint/template/transforms/_language_extensions.py b/src/cfnlint/template/transforms/_language_extensions.py
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@ -1,8 +1,18 @@
+                 if re.match(FUNCTION_FOR_EACH, k):
+                     # only translate the foreach if its valid
+                     foreach = _ForEach(k, v, self._collections)
+                     # get the values will flatten the foreach
+-                    for collection_value in foreach.items(cfn):
++                    # ``foreach.items`` now returns an empty iterator when the
++                    # supplied values list is empty.  Previously it raised a
++                    # ``_ResolveError`` which caused the whole template
++                    # transformation to fail with the message
++                    # “Fn::ForEach could not be resolved”.  An empty list should
++                    # simply result in no resources being generated, which is
++                    # the expected behaviour for a ``Fn::ForEach`` with no
++                    # items.  By iterating over the (potentially empty)
++                    # iterator we naturally skip the body without raising an
++                    # error.
++                    for collection_value in foreach.items(cfn):
+                         flattened = self._walk(
+                             v[2], {**params, **{v[0]: collection_value}}, cfn
+                         )
+@@ -109,12 +119,28 @@
+-    def items(self, cfn: Any) -> Iterator[Any]:
+-        """
+-        Resolve the values for the foreach and return an iterator over them.
+-        """
+-        # Resolve the values list (second element of the foreach definition)
+-        values = self._resolve_values(cfn)
+-        if not isinstance(values, list):
+-            raise _ValueError(
+-                f"Fn::ForEach values must be a list, got {type(values)}", self.key
+-            )
+-        for v in values:
+-            yield v
++    def items(self, cfn: Any) -> Iterator[Any]:
++        """
++        Resolve the values for the ``Fn::ForEach`` and return an iterator over them.
++
++        Historically this method raised a ``_ResolveError`` when the supplied
++        values resolved to an empty list.  An empty list is a valid input – it
++        simply means that the ``Fn::ForEach`` should not emit any resources.
++        The transformation logic expects an *iterator* that may be empty, so
++        we now return an empty iterator in that case instead of raising an
++        exception.
++        """
++        # Resolve the values list (second element of the foreach definition)
++        values = self._resolve_values(cfn)
++
++        # ``values`` must be a list (or a scalar that can be iterated as a single
++        # element).  If it is not a list we keep the original behaviour and raise
++        # a ``_ValueError`` to surface the problem to the caller.
++        if not isinstance(values, list):
++            raise _ValueError(
++                f"Fn::ForEach values must be a list, got {type(values)}", self.key
++            )
++
++        # If the list is empty simply return without yielding any items.
++        if len(values) == 0:
++            return iter(())
++
++        for v in values:
++            yield v

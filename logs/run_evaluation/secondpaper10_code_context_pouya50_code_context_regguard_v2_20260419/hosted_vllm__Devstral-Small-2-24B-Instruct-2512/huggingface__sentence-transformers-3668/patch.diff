@@ -1,0 +1,706 @@
+diff --git a/sentence_transformers/sampler.py b/sentence_transformers/sampler.py
+index 502f3139..c1635c1a 100644
+--- a/sentence_transformers/sampler.py
++++ b/sentence_transformers/sampler.py
+@@ -194,6 +194,656 @@ def _hash_batch(
+     return {"__hashes": hashes}
+ 
+ 
++
++    """
++    This sampler creates batches with a balanced number of samples from different labels.
++    It ensures that each batch contains samples from multiple classes with at least 2 examples per class,
++    which is required for proper training with ``Batch...TripletLoss`` classes.
++    The sampler uses a P × K strategy, where:
++    - P = min(num_labels, batch_size // 2) - number of labels per batch
++    - K = batch_size // P - number of samples per label per batch
++    This ensures that:
++    1. Each batch contains multiple classes (P >= 2)
++    2. Each class has at least 2 samples in the batch (K >= 2)
++    3. All samples in the batch are used for triplet mining
++    Recommended for:
++        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
++    Args:
++        dataset (Dataset): The dataset to sample from.
++        batch_size (int): Number of samples per batch. Must be divisible by 2.
++        drop_last (bool): If True, drop the last incomplete batch if the dataset size
++            is not divisible by the batch size.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
++            The first column name from ``valid_label_columns`` found in the dataset will
++            be used as the label column.
++        generator (torch.Generator, optional): Optional random number generator for shuffling
++            the indices.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
++    def __init__(
++        self,
++        dataset: Dataset,
++        batch_size: int,
++        drop_last: bool,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
++    ) -> None:
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
++        self.dataset = dataset
++        if self.batch_size % 2 == 1:
++            raise ValueError("The batch size for `BalancedLabelBatchSampler` must be divisible by 2.")
++        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
++        groups = defaultdict(list)
++        for sample_idx, label in enumerate(labels):
++            groups[label].append(sample_idx)
++        # Filter out labels with less than 2 samples
++        self.groups = {label: samples for label, samples in groups.items() if len(samples) >= 2}
++        self.unique_labels = list(self.groups.keys())
++        self.num_labels = len(self.unique_labels)
++        if self.num_labels < 2:
++            raise ValueError(
++                f"Dataset must contain at least 2 labels with 2+ samples each for `BalancedLabelBatchSampler`, "
++                f"but found only {self.num_labels} valid labels."
++            )
++    def __iter__(self) -> Iterator[list[int]]:
++        if self.generator and self.seed is not None:
++            self.generator.manual_seed(self.seed + self.epoch)
++        # Calculate P and K for P × K sampling strategy
++        # P = min(num_labels, batch_size // 2) - number of labels per batch
++        # K = batch_size // P - number of samples per label per batch
++        P = min(self.num_labels, self.batch_size // 2)
++        K = self.batch_size // P
++        # Ensure we have at least 2 samples per label and at least 2 labels per batch
++        if K < 2 or P < 2:
++            raise ValueError(
++                f"Cannot create balanced batches with batch_size={self.batch_size} and "
++                f"{self.num_labels} labels. Requires batch_size >= 4 and at least 2 labels with 2+ samples each."
++            )
++        # Create a list of (label, sample_indices) pairs for sampling
++        label_sample_pairs = [(label, self.groups[label].copy()) for label in self.unique_labels]
++        # Shuffle the order of labels for each epoch
++        label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++        while True:
++            # Create batches by selecting P labels and K samples from each
++            batch = []
++            labels_used = set()
++            for label_idx in label_order:
++                if len(labels_used) >= P:
++                    break
++                label = self.unique_labels[label_idx]
++                samples = label_sample_pairs[label_idx][1]
++                if len(samples) < K:
++                    # Not enough samples for this label, skip it
++                    continue
++                # Take K samples from this label
++                selected_samples = samples[:K]
++                batch.extend(selected_samples)
++                labels_used.add(label)
++                # Remove the selected samples from the pool
++                label_sample_pairs[label_idx] = (label, samples[K:])
++                if len(batch) == self.batch_size:
++                    yield batch
++                    batch = []
++                    labels_used = set()
++                    # If we've used all labels, reshuffle and restart
++                    if len(labels_used) == P:
++                        label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++                        # Rebuild label_sample_pairs with remaining samples
++                        label_sample_pairs = [
++                            (label, self.groups[label].copy())
++                            for label in self.unique_labels
++                            if self.groups[label]
++                        ]
++                        break
++            if not batch:
++                # No more samples to create batches
++                break
++            # If we have a partial batch and not dropping last, yield it
++            if not self.drop_last and batch:
++                yield batch
++    def __len__(self) -> int:
++        if self.drop_last:
++            return len(self.dataset) // self.batch_size
++        else:
++            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
++
++    """
++    This sampler creates batches with a balanced number of samples from different labels.
++    It ensures that each batch contains samples from multiple classes with at least 2 examples per class,
++    which is required for proper training with ``Batch...TripletLoss`` classes.
++    The sampler uses a P × K strategy, where:
++    - P = min(num_labels, batch_size // 2) - number of labels per batch
++    - K = batch_size // P - number of samples per label per batch
++    This ensures that:
++    1. Each batch contains multiple classes (P >= 2)
++    2. Each class has at least 2 samples in the batch (K >= 2)
++    3. All samples in the batch are used for triplet mining
++    Recommended for:
++        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
++    Args:
++        dataset (Dataset): The dataset to sample from.
++        batch_size (int): Number of samples per batch. Must be divisible by 2.
++        drop_last (bool): If True, drop the last incomplete batch if the dataset size
++            is not divisible by the batch size.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
++            The first column name from ``valid_label_columns`` found in the dataset will
++            be used as the label column.
++        generator (torch.Generator, optional): Optional random number generator for shuffling
++            the indices.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
++    def __init__(
++        self,
++        dataset: Dataset,
++        batch_size: int,
++        drop_last: bool,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
++    ) -> None:
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
++        self.dataset = dataset
++        if self.batch_size % 2 == 1:
++            raise ValueError("The batch size for `BalancedLabelBatchSampler` must be divisible by 2.")
++        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
++        groups = defaultdict(list)
++        for sample_idx, label in enumerate(labels):
++            groups[label].append(sample_idx)
++        # Filter out labels with less than 2 samples
++        self.groups = {label: samples for label, samples in groups.items() if len(samples) >= 2}
++        self.unique_labels = list(self.groups.keys())
++        self.num_labels = len(self.unique_labels)
++        if self.num_labels < 2:
++            raise ValueError(
++                f"Dataset must contain at least 2 labels with 2+ samples each for `BalancedLabelBatchSampler`, "
++                f"but found only {self.num_labels} valid labels."
++            )
++    @staticmethod
++    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[object]:
++        for column_name in valid_label_columns or []:
++            if column_name in dataset.column_names:
++                return dataset[column_name]
++        raise ValueError(
++            f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
++            f"which only has these columns: {dataset.column_names}."
++        )
++    def __iter__(self) -> Iterator[list[int]]:
++        if self.generator and self.seed is not None:
++            self.generator.manual_seed(self.seed + self.epoch)
++        # Calculate P and K for P × K sampling strategy
++        # P = min(num_labels, batch_size // 2) - number of labels per batch
++        # K = batch_size // P - number of samples per label per batch
++        P = min(self.num_labels, self.batch_size // 2)
++        K = self.batch_size // P
++        # Ensure we have at least 2 samples per label and at least 2 labels per batch
++        if K < 2 or P < 2:
++            raise ValueError(
++                f"Cannot create balanced batches with batch_size={self.batch_size} and "
++                f"{self.num_labels} labels. Requires batch_size >= 4 and at least 2 labels with 2+ samples each."
++            )
++        # Create a list of (label, sample_indices) pairs for sampling
++        label_sample_pairs = [(label, self.groups[label].copy()) for label in self.unique_labels]
++        # Shuffle the order of labels for each epoch
++        label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++        while True:
++            # Create batches by selecting P labels and K samples from each
++            batch = []
++            labels_used = set()
++            for label_idx in label_order:
++                if len(labels_used) >= P:
++                    break
++                label = self.unique_labels[label_idx]
++                samples = label_sample_pairs[label_idx][1]
++                if len(samples) < K:
++                    # Not enough samples for this label, skip it
++                    continue
++                # Take K samples from this label
++                selected_samples = samples[:K]
++                batch.extend(selected_samples)
++                labels_used.add(label)
++                # Remove the selected samples from the pool
++                label_sample_pairs[label_idx] = (label, samples[K:])
++                if len(batch) == self.batch_size:
++                    yield batch
++                    batch = []
++                    labels_used = set()
++                    # If we've used all labels, reshuffle and restart
++                    if len(labels_used) == P:
++                        label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++                        # Rebuild label_sample_pairs with remaining samples
++                        label_sample_pairs = [
++                            (label, self.groups[label].copy())
++                            for label in self.unique_labels
++                            if self.groups[label]
++                        ]
++                        break
++            if not batch:
++                # No more samples to create batches
++                break
++            # If we have a partial batch and not dropping last, yield it
++            if not self.drop_last and batch:
++                yield batch
++    def __len__(self) -> int:
++        if self.drop_last:
++            return len(self.dataset) // self.batch_size
++        else:
++            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
++
++    """
++    This sampler creates batches with a balanced number of samples from different labels.
++    It ensures that each batch contains samples from multiple classes with at least 2 examples per class,
++    which is required for proper training with ``Batch...TripletLoss`` classes.
++    The sampler uses a P × K strategy, where:
++    - P = min(num_labels, batch_size // 2) - number of labels per batch
++    - K = batch_size // P - number of samples per label per batch
++    This ensures that:
++    1. Each batch contains multiple classes (P >= 2)
++    2. Each class has at least 2 samples in the batch (K >= 2)
++    3. All samples in the batch are used for triplet mining
++    Recommended for:
++        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
++    Args:
++        dataset (Dataset): The dataset to sample from.
++        batch_size (int): Number of samples per batch. Must be divisible by 2.
++        drop_last (bool): If True, drop the last incomplete batch if the dataset size
++            is not divisible by the batch size.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
++            The first column name from ``valid_label_columns`` found in the dataset will
++            be used as the label column.
++        generator (torch.Generator, optional): Optional random number generator for shuffling
++            the indices.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
++    def __init__(
++        self,
++        dataset: Dataset,
++        batch_size: int,
++        drop_last: bool,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
++    ) -> None:
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
++        self.dataset = dataset
++        if self.batch_size % 2 == 1:
++            raise ValueError("The batch size for `BalancedLabelBatchSampler` must be divisible by 2.")
++        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
++        groups = defaultdict(list)
++        for sample_idx, label in enumerate(labels):
++            groups[label].append(sample_idx)
++        # Filter out labels with less than 2 samples
++        self.groups = {label: samples for label, samples in groups.items() if len(samples) >= 2}
++        self.unique_labels = list(self.groups.keys())
++        self.num_labels = len(self.unique_labels)
++        if self.num_labels < 2:
++            raise ValueError(
++                f"Dataset must contain at least 2 labels with 2+ samples each for `BalancedLabelBatchSampler`, "
++                f"but found only {self.num_labels} valid labels."
++            )
++    @staticmethod
++    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[object]:
++        for column_name in valid_label_columns or []:
++            if column_name in dataset.column_names:
++                return dataset[column_name]
++        raise ValueError(
++            f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
++            f"which only has these columns: {dataset.column_names}."
++        )
++    def __iter__(self) -> Iterator[list[int]]:
++        if self.generator and self.seed is not None:
++            self.generator.manual_seed(self.seed + self.epoch)
++        # Calculate P and K for P × K sampling strategy
++        # P = min(num_labels, batch_size // 2) - number of labels per batch
++        # K = batch_size // P - number of samples per label per batch
++        P = min(self.num_labels, self.batch_size // 2)
++        K = self.batch_size // P
++        # Ensure we have at least 2 samples per label and at least 2 labels per batch
++        if K < 2 or P < 2:
++            raise ValueError(
++                f"Cannot create balanced batches with batch_size={self.batch_size} and "
++                f"{self.num_labels} labels. Requires batch_size >= 4 and at least 2 labels with 2+ samples each."
++            )
++        # Create a list of (label, sample_indices) pairs for sampling
++        label_sample_pairs = [(label, self.groups[label].copy()) for label in self.unique_labels]
++        while True:
++            # Shuffle the order of labels for each batch
++            label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++            batch = []
++            labels_used = set()
++            # Try to create a batch with P labels
++            for label_idx in label_order:
++                if len(labels_used) >= P:
++                    break
++                label = self.unique_labels[label_idx]
++                samples = label_sample_pairs[label_idx][1]
++                if len(samples) < K:
++                    # Not enough samples for this label, skip it
++                    continue
++                # Take K samples from this label
++                selected_samples = samples[:K]
++                batch.extend(selected_samples)
++                labels_used.add(label)
++                # Remove the selected samples from the pool
++                label_sample_pairs[label_idx] = (label, samples[K:])
++            # If we couldn't get enough labels, break
++            if len(labels_used) < P:
++                break
++            yield batch
++            # Check if we have any samples left
++            if all(len(samples) == 0 for _, samples in label_sample_pairs):
++                break
++    def __len__(self) -> int:
++        if self.drop_last:
++            return len(self.dataset) // self.batch_size
++        else:
++            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
++
++    """
++    This sampler creates batches with a balanced number of samples from different labels.
++    It ensures that each batch contains samples from multiple classes with at least 2 examples per class,
++    which is required for proper training with ``Batch...TripletLoss`` classes.
++    The sampler uses a P × K strategy, where:
++    - P = min(num_labels, batch_size // 2) - number of labels per batch
++    - K = batch_size // P - number of samples per label per batch
++    This ensures that:
++    1. Each batch contains multiple classes (P >= 2)
++    2. Each class has at least 2 samples in the batch (K >= 2)
++    3. All samples in the batch are used for triplet mining
++    Recommended for:
++        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
++    Args:
++        dataset (Dataset): The dataset to sample from.
++        batch_size (int): Number of samples per batch. Must be divisible by 2.
++        drop_last (bool): If True, drop the last incomplete batch if the dataset size
++            is not divisible by the batch size.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
++            The first column name from ``valid_label_columns`` found in the dataset will
++            be used as the label column.
++        generator (torch.Generator, optional): Optional random number generator for shuffling
++            the indices.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
++    def __init__(
++        self,
++        dataset: Dataset,
++        batch_size: int,
++        drop_last: bool,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
++    ) -> None:
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
++        self.dataset = dataset
++        if self.batch_size % 2 == 1:
++            raise ValueError("The batch size for `BalancedLabelBatchSampler` must be divisible by 2.")
++        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
++        groups = defaultdict(list)
++        for sample_idx, label in enumerate(labels):
++            groups[label].append(sample_idx)
++        # Filter out labels with less than 2 samples
++        self.groups = {label: samples for label, samples in groups.items() if len(samples) >= 2}
++        self.unique_labels = list(self.groups.keys())
++        self.num_labels = len(self.unique_labels)
++        if self.num_labels < 2:
++            raise ValueError(
++                f"Dataset must contain at least 2 labels with 2+ samples each for `BalancedLabelBatchSampler`, "
++                f"but found only {self.num_labels} valid labels."
++            )
++    @staticmethod
++    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[object]:
++        for column_name in valid_label_columns or []:
++            if column_name in dataset.column_names:
++                return dataset[column_name]
++        raise ValueError(
++            f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
++            f"which only has these columns: {dataset.column_names}."
++        )
++    def __iter__(self) -> Iterator[list[int]]:
++        if self.generator and self.seed is not None:
++            self.generator.manual_seed(self.seed + self.epoch)
++        # Calculate P and K for P × K sampling strategy
++        # P = min(num_labels, batch_size // 2) - number of labels per batch
++        # K = batch_size // P - number of samples per label per batch
++        P = min(self.num_labels, self.batch_size // 2)
++        K = self.batch_size // P
++        # Ensure we have at least 2 samples per label and at least 2 labels per batch
++        if K < 2 or P < 2:
++            raise ValueError(
++                f"Cannot create balanced batches with batch_size={self.batch_size} and "
++                f"{self.num_labels} labels. Requires batch_size >= 4 and at least 2 labels with 2+ samples each."
++            )
++        # Create a list of (label, sample_indices) pairs for sampling
++        label_sample_pairs = [(label, self.groups[label].copy()) for label in self.unique_labels]
++        while True:
++            # Shuffle the order of labels for each batch
++            label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++            batch = []
++            labels_used = set()
++            # Try to create a batch with P labels
++            for label_idx in label_order:
++                if len(labels_used) >= P:
++                    break
++                label = self.unique_labels[label_idx]
++                samples = label_sample_pairs[label_idx][1]
++                if len(samples) < K:
++                    # Not enough samples for this label, skip it
++                    continue
++                # Take K samples from this label
++                selected_samples = samples[:K]
++                batch.extend(selected_samples)
++                labels_used.add(label)
++                # Remove the selected samples from the pool
++                label_sample_pairs[label_idx] = (label, samples[K:])
++            # If we couldn't get enough labels or samples, break
++            if len(labels_used) < P or len(batch) < self.batch_size:
++                break
++            yield batch
++            # Check if we have any samples left
++            if all(len(samples) == 0 for _, samples in label_sample_pairs):
++                break
++    def __len__(self) -> int:
++        if self.drop_last:
++            return len(self.dataset) // self.batch_size
++        else:
++            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
++
++class BalancedLabelBatchSampler(DefaultBatchSampler):
++    """
++    This sampler creates batches with a balanced number of samples from different labels.
++    It ensures that each batch contains samples from multiple classes with at least 2 examples per class,
++    which is required for proper training with ``Batch...TripletLoss`` classes.
++
++    The sampler uses a P × K strategy, where:
++    - P = min(num_labels, batch_size // 2) - number of labels per batch
++    - K = batch_size // P - number of samples per label per batch
++
++    This ensures that:
++    1. Each batch contains multiple classes (P >= 2)
++    2. Each class has at least 2 samples in the batch (K >= 2)
++    3. All samples in the batch are used for triplet mining
++
++    Recommended for:
++        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
++
++    Args:
++        dataset (Dataset): The dataset to sample from.
++        batch_size (int): Number of samples per batch. Must be divisible by 2.
++        drop_last (bool): If True, drop the last incomplete batch if the dataset size
++            is not divisible by the batch size.
++        valid_label_columns (List[str], optional): List of column names to check for labels.
++            The first column name from ``valid_label_columns`` found in the dataset will
++            be used as the label column.
++        generator (torch.Generator, optional): Optional random number generator for shuffling
++            the indices.
++        seed (int): Seed for the random number generator to ensure reproducibility. Defaults to 0.
++    """
++
++    def __init__(
++        self,
++        dataset: Dataset,
++        batch_size: int,
++        drop_last: bool,
++        valid_label_columns: list[str] | None = None,
++        generator: torch.Generator | None = None,
++        seed: int = 0,
++    ) -> None:
++        super().__init__(
++            dataset,
++            batch_size=batch_size,
++            drop_last=drop_last,
++            valid_label_columns=valid_label_columns,
++            generator=generator,
++            seed=seed,
++        )
++        self.dataset = dataset
++
++        if self.batch_size % 2 == 1:
++            raise ValueError("The batch size for `BalancedLabelBatchSampler` must be divisible by 2.")
++
++        labels = self._determine_labels_to_use(dataset, self.valid_label_columns)
++        groups = defaultdict(list)
++        for sample_idx, label in enumerate(labels):
++            groups[label].append(sample_idx)
++
++        # Filter out labels with less than 2 samples
++        self.groups = {label: samples for label, samples in groups.items() if len(samples) >= 2}
++        self.unique_labels = list(self.groups.keys())
++        self.num_labels = len(self.unique_labels)
++
++        if self.num_labels < 2:
++            raise ValueError(
++                f"Dataset must contain at least 2 labels with 2+ samples each for `BalancedLabelBatchSampler`, "
++                f"but found only {self.num_labels} valid labels."
++            )
++
++    @staticmethod
++    def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[object]:
++        for column_name in valid_label_columns or []:
++            if column_name in dataset.column_names:
++                return dataset[column_name]
++        raise ValueError(
++            f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
++            f"which only has these columns: {dataset.column_names}."
++        )
++
++    def __iter__(self) -> Iterator[list[int]]:
++        if self.generator and self.seed is not None:
++            self.generator.manual_seed(self.seed + self.epoch)
++
++        # Calculate P and K for P × K sampling strategy
++        # P = min(num_labels, batch_size // 2) - number of labels per batch
++        # K = batch_size // P - number of samples per label per batch
++        P = min(self.num_labels, self.batch_size // 2)
++        K = self.batch_size // P
++
++        # Ensure we have at least 2 samples per label and at least 2 labels per batch
++        if K < 2 or P < 2:
++            raise ValueError(
++                f"Cannot create balanced batches with batch_size={self.batch_size} and "
++                f"{self.num_labels} labels. Requires batch_size >= 4 and at least 2 labels with 2+ samples each."
++            )
++
++        # Create a list of (label, sample_indices) pairs for sampling
++        label_sample_pairs = [(label, self.groups[label].copy()) for label in self.unique_labels]
++
++        while True:
++            # Shuffle the order of labels for each batch
++            label_order = torch.randperm(len(label_sample_pairs), generator=self.generator).tolist()
++
++            batch = []
++            labels_used = set()
++
++            # Try to create a batch with P labels
++            for label_idx in label_order:
++                if len(labels_used) >= P:
++                    break
++
++                label = self.unique_labels[label_idx]
++                samples = label_sample_pairs[label_idx][1]
++
++                if len(samples) < K:
++                    # Not enough samples for this label, skip it
++                    continue
++
++                # Take K samples from this label
++                selected_samples = samples[:K]
++                batch.extend(selected_samples)
++                labels_used.add(label)
++
++                # Remove the selected samples from the pool
++                label_sample_pairs[label_idx] = (label, samples[K:])
++
++            # If we couldn't get enough labels, break
++            if len(labels_used) < P:
++                break
++
++            # If we have a complete batch (P labels × K samples), yield it
++            if len(batch) == P * K:
++                yield batch
++                continue
++
++            # If we have a partial batch and not dropping last, yield it
++            if not self.drop_last and batch:
++                yield batch
++                break
++
++            # If we have a partial batch and dropping last, skip it
++            break
++
++            # Check if we have any samples left
++            if all(len(samples) == 0 for _, samples in label_sample_pairs):
++                break
++
++    def __len__(self) -> int:
++        if self.drop_last:
++            return len(self.dataset) // self.batch_size
++        else:
++            return (len(self.dataset) + self.batch_size - 1) // self.batch_size
++
+ class NoDuplicatesBatchSampler(DefaultBatchSampler):
+     def __init__(
+         self,
+diff --git a/sentence_transformers/trainer.py b/sentence_transformers/trainer.py
+index 6e12c234..9bef3713 100644
+--- a/sentence_transformers/trainer.py
++++ b/sentence_transformers/trainer.py
+@@ -694,6 +694,9 @@ class SentenceTransformerTrainer(Trainer):
+         if self.args.batch_sampler == BatchSamplers.GROUP_BY_LABEL:
+             return GroupByLabelBatchSampler(dataset, **batch_sampler_kwargs)
+ 
++        if self.args.batch_sampler == BatchSamplers.BALANCED_LABELS:
++            return BalancedLabelBatchSampler(dataset, **batch_sampler_kwargs)
++
+         if self.args.batch_sampler == BatchSamplers.BATCH_SAMPLER:
+             return DefaultBatchSampler(RandomSampler(dataset, generator=generator), **batch_sampler_kwargs)
+ 
+diff --git a/sentence_transformers/training_args.py b/sentence_transformers/training_args.py
+index f0edc358..2b1558a9 100644
+--- a/sentence_transformers/training_args.py
++++ b/sentence_transformers/training_args.py
+@@ -49,6 +49,18 @@ class BatchSamplers(ExplicitEnum):
+         - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
+         - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
+ 
++    - ``BatchSamplers.BALANCED_LABELS``: **[recommended for triplet losses]** Uses :class:`~sentence_transformers.sampler.BalancedLabelBatchSampler`, 
++      ensuring that each batch contains samples from multiple classes with at least 2 examples per class. 
++      This is the recommended sampler for ``Batch...TripletLoss`` classes as it guarantees proper triplet mining 
++      by ensuring diverse batches with multiple labels. 
++
++      Recommended for:
++
++        - :class:`~sentence_transformers.losses.BatchAllTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardSoftMarginTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchHardTripletLoss`
++        - :class:`~sentence_transformers.losses.BatchSemiHardTripletLoss`
++
+     If you want to use a custom batch sampler, then you can subclass
+     :class:`~sentence_transformers.sampler.DefaultBatchSampler` and pass the class (not an instance) to the
+     ``batch_sampler`` argument in :class:`~sentence_transformers.training_args.SentenceTransformerTrainingArguments`
+@@ -88,6 +100,7 @@ class BatchSamplers(ExplicitEnum):
+     NO_DUPLICATES = "no_duplicates"
+     NO_DUPLICATES_HASHED = "no_duplicates_hashed"
+     GROUP_BY_LABEL = "group_by_label"
++    BALANCED_LABELS = "balanced_labels"
+ 
+ 
+ class MultiDatasetBatchSamplers(ExplicitEnum):

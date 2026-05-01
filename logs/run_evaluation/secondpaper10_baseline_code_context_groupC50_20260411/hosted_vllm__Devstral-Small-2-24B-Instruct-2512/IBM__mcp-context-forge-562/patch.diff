@@ -1,0 +1,109 @@
+diff --git a/mcpgateway/config.py b/mcpgateway/config.py
+index 297a97fa..399856d2 100644
+--- a/mcpgateway/config.py
++++ b/mcpgateway/config.py
+@@ -107,6 +107,8 @@ class Settings(BaseSettings):
+ 
+     # Protocol
+     protocol_version: str = "2025-03-26"
++    # Gateway protocol for URL generation
++    gateway_protocol: str = "auto"
+ 
+     # Authentication
+     basic_auth_user: str = "admin"
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..4d44ce96 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -78,6 +78,7 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
+ 
+ # First-Party
+ from mcpgateway import __version__
++from mcpgateway.utils.protocol_detection import get_protocol_from_request
+ from mcpgateway.config import settings
+ from mcpgateway.models import ServerCapabilities
+ 
+@@ -136,6 +137,25 @@ class DiscoveredPeer:
+ 
+ 
+ class LocalDiscoveryService:
++    
++    def _get_gateway_protocol(self) -> str:
++        """Get the gateway protocol for URL generation.
++
++        Determines the protocol (http/https) to use for generating URLs
++        based on the gateway_protocol setting.
++
++        Returns:
++            str: "http" or "https"
++        
++        Examples:
++            >>> service = LocalDiscoveryService()
++            >>> protocol in service._get_gateway_protocol()
++            True
++        """
++        if settings.gateway_protocol == "auto":
++            # Default to http for auto mode when no request context is available
++            return "http"
++        return settings.gateway_protocol
+     """Base class for local network discovery using DNS-SD.
+ 
+     Provides functionality for advertising the local gateway on the network
+@@ -583,7 +603,7 @@ class DiscoveryService(LocalDiscoveryService):
+                     addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
+                     if addresses:
+                         port = info.port
+-                        url = f"http://{addresses[0]}:{port}"
++                        url = f"{self._get_gateway_protocol()}://{addresses[0]}:{port}"
+                         name = info.properties.get(b"name", b"").decode()
+ 
+                         # Add peer
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..29e4807b 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -23,6 +23,7 @@ from sse_starlette.sse import EventSourceResponse
+ 
+ # First-Party
+ from mcpgateway.config import settings
++from mcpgateway.utils.protocol_detection import get_protocol_from_request, get_base_url_from_request
+ from mcpgateway.transports.base import Transport
+ 
+ logger = logging.getLogger(__name__)
+@@ -76,7 +77,7 @@ class SSETransport(Transport):
+         True
+     """
+ 
+-    def __init__(self, base_url: str = None):
++    def __init__(self, base_url: str = None, request: Request = None):
+         """Initialize SSE transport.
+ 
+         Args:
+@@ -105,7 +106,14 @@ class SSETransport(Transport):
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        if base_url:
++            self._base_url = base_url
++        elif request:
++            self._base_url = get_base_url_from_request(request)
++        else:
++            # Fallback to configuration-based protocol
++            protocol = settings.gateway_protocol if settings.gateway_protocol != "auto" else "http"
++            self._base_url = f"{protocol}://{settings.host}:{settings.port}"
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()
+diff --git a/tests/unit/mcpgateway/federation/test_discovery.py b/tests/unit/mcpgateway/federation/test_discovery.py
+index 9723ee0b..541f45fa 100644
+--- a/tests/unit/mcpgateway/federation/test_discovery.py
++++ b/tests/unit/mcpgateway/federation/test_discovery.py
+@@ -29,6 +29,7 @@ class DummySettings:
+     federation_peers = []
+     basic_auth_user = "user"
+     basic_auth_password = "pass"
++    gateway_protocol = "auto"
+ 
+ 
+ @patch("mcpgateway.federation.discovery.settings", new=DummySettings)

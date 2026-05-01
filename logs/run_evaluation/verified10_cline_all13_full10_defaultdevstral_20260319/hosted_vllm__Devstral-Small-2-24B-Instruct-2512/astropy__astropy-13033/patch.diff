@@ -1,0 +1,40 @@
+diff --git a/astropy/timeseries/core.py b/astropy/timeseries/core.py
+index c279f35f8..67d0feb1f 100644
+--- a/astropy/timeseries/core.py
++++ b/astropy/timeseries/core.py
+@@ -76,9 +76,32 @@ class BaseTimeSeries(QTable):
+ 
+             elif self.colnames[:len(required_columns)] != required_columns:
+ 
+-                raise ValueError("{} object is invalid - expected '{}' "
+-                                 "as the first column{} but found '{}'"
+-                                 .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))
++                # Find which required columns are missing
++                missing_columns = []
++                for i, req_col in enumerate(required_columns):
++                    if i >= len(self.colnames) or self.colnames[i] != req_col:
++                        missing_columns.append(req_col)
++
++                if missing_columns:
++                    if len(missing_columns) == 1:
++                        # Find the position where this column should be
++                        position = required_columns.index(missing_columns[0]) + 1
++                        suffix = 'th'
++                        if position == 1:
++                            suffix = 'st'
++                        elif position == 2:
++                            suffix = 'nd'
++                        elif position == 3:
++                            suffix = 'rd'
++                        raise ValueError("{} object is invalid - missing required column '{}' "
++                                         "(expected as the {} column)"
++                                         .format(self.__class__.__name__, missing_columns[0], str(position) + suffix))
++                    else:
++                        # Format multiple missing columns
++                        missing_str = "', '".join(missing_columns)
++                        raise ValueError("{} object is invalid - missing required columns: '{}' "
++                                         "(expected as the first {} columns)"
++                                         .format(self.__class__.__name__, missing_str, len(missing_columns)))
+ 
+             if (self._required_columns_relax
+                     and self._required_columns == self.colnames[:len(self._required_columns)]):

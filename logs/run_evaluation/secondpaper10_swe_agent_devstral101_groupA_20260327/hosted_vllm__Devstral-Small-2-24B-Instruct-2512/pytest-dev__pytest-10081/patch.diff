@@ -1,0 +1,33 @@
+diff --git a/src/_pytest/unittest.py b/src/_pytest/unittest.py
+index 851e4943b..b6542cc37 100644
+--- a/src/_pytest/unittest.py
++++ b/src/_pytest/unittest.py
+@@ -316,7 +316,7 @@ class TestCaseFunction(Function):
+             # Arguably we could always postpone tearDown(), but this changes the moment where the
+             # TestCase instance interacts with the results object, so better to only do it
+             # when absolutely needed.
+-            if self.config.getoption("usepdb") and not _is_skipped(self.obj):
++            if self.config.getoption("usepdb") and not _is_test_skipped(self._testcase):
+                 self._explicit_tearDown = self._testcase.tearDown
+                 setattr(self._testcase, "tearDown", lambda *args: None)
+ 
+@@ -409,6 +409,19 @@ def check_testcase_implements_trial_reporter(done: List[int] = []) -> None:
+     done.append(1)
+ 
+ 
++
++def _is_test_skipped(testcase) -> bool:
++    """Return True if the test case or its test method has been marked with @unittest.skip."""
++    # Check if the test case class is skipped
++    if getattr(testcase.__class__, "__unittest_skip__", False):
++        return True
++    # Check if the specific test method is skipped
++    test_method = getattr(testcase, testcase._testMethodName)
++    if getattr(test_method, "__unittest_skip__", False):
++        return True
++    return False
++
++
+ def _is_skipped(obj) -> bool:
+     """Return True if the given object has been marked with @unittest.skip."""
+     return bool(getattr(obj, "__unittest_skip__", False))

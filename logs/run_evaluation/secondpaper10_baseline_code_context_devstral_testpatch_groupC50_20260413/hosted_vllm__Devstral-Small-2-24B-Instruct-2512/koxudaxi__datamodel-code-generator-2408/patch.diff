@@ -1,0 +1,74 @@
+diff --git a/src/datamodel_code_generator/model/dataclass.py b/src/datamodel_code_generator/model/dataclass.py
+index 190c6f63..cf75041e 100644
+--- a/src/datamodel_code_generator/model/dataclass.py
++++ b/src/datamodel_code_generator/model/dataclass.py
+@@ -1,6 +1,6 @@
+ from __future__ import annotations
+ 
+-from typing import TYPE_CHECKING, Any, ClassVar, Optional
++from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Optional
+ 
+ from datamodel_code_generator import DatetimeClassType, PythonVersion, PythonVersionMin
+ from datamodel_code_generator.imports import (
+@@ -26,16 +26,23 @@ if TYPE_CHECKING:
+ 
+ from datamodel_code_generator.model.pydantic.base_model import Constraints  # noqa: TC001
+ 
+-
+ def _has_field_assignment(field: DataModelFieldBase) -> bool:
+     return bool(field.field) or not (
+         field.required or (field.represented_default == "None" and field.strip_default_none)
+     )
+ 
++class ConfigAttribute(NamedTuple):
++    from_: str
++    to: str
++    invert: bool
+ 
+ class DataClass(DataModel):
+     TEMPLATE_FILE_PATH: ClassVar[str] = "dataclass.jinja2"
+     DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_DATACLASS,)
++    CONFIG_ATTRIBUTES: ClassVar[list[ConfigAttribute]] = [
++        ConfigAttribute("allow_mutation", "frozen", True),  # noqa: FBT003
++        ConfigAttribute("frozen", "frozen", False),  # noqa: FBT003
++    ]
+ 
+     def __init__(  # noqa: PLR0913
+         self,
+@@ -72,6 +79,15 @@ class DataClass(DataModel):
+             treat_dot_as_module=treat_dot_as_module,
+         )
+ 
++        # Handle frozen/dataclass immutability
++        frozen = False
++        for from_, to, invert in self.CONFIG_ATTRIBUTES:
++            if from_ in self.extra_template_data:
++                frozen = not self.extra_template_data[from_] if invert else self.extra_template_data[from_]
++                break
++
++        if frozen:
++            self.extra_template_data["frozen"] = True
+ 
+ class DataModelField(DataModelFieldBase):
+     _FIELD_KEYS: ClassVar[set[str]] = {
+@@ -134,7 +150,6 @@ class DataModelField(DataModelFieldBase):
+         kwargs = [f"{k}={v if k == 'default_factory' else repr(v)}" for k, v in data.items()]
+         return f"field({', '.join(kwargs)})"
+ 
+-
+ class DataTypeManager(_DataTypeManager):
+     def __init__(  # noqa: PLR0913, PLR0917
+         self,
+diff --git a/src/datamodel_code_generator/model/template/dataclass.jinja2 b/src/datamodel_code_generator/model/template/dataclass.jinja2
+index 632026b5..1be5bc7d 100644
+--- a/src/datamodel_code_generator/model/template/dataclass.jinja2
++++ b/src/datamodel_code_generator/model/template/dataclass.jinja2
+@@ -1,7 +1,7 @@
+ {% for decorator in decorators -%}
+ {{ decorator }}
+ {% endfor -%}
+-@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}
++@dataclass{%- if keyword_only or frozen -%}({%- if keyword_only -%}kw_only=True{%- endif %}{%- if keyword_only and frozen -%}, {%- endif %}{%- if frozen -%}frozen=True{%- endif %}){%- endif %}
+ {%- if base_class %}
+ class {{ class_name }}({{ base_class }}):
+ {%- else %}

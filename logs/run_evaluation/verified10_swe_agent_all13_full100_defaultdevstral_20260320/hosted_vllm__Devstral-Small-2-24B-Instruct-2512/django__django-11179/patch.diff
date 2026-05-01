@@ -1,0 +1,41 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 92fe4affb9..d69eb244dd 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -272,12 +272,16 @@ class Collector:
+         deleted_counter = Counter()
+ 
+         # Optimize for the case with a single obj and no dependencies
+-        if len(self.data) == 1 and len(instances) == 1:
+-            instance = list(instances)[0]
+-            if self.can_fast_delete(instance):
+-                with transaction.mark_for_rollback_on_error():
+-                    count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+-                return count, {model._meta.label: count}
++        if len(self.data) == 1:
++            model, instances = next(iter(self.data.items()))
++            if len(instances) == 1:
++                instance = list(instances)[0]
++                if self.can_fast_delete(instance):
++                    with transaction.mark_for_rollback_on_error():
++                        count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
++                    # Clear PK for the deleted instance
++                    setattr(instance, model._meta.pk.attname, None)
++                    return count, {model._meta.label: count}
+ 
+         with transaction.atomic(using=self.using, savepoint=False):
+             # send pre_delete signals
+@@ -289,8 +293,13 @@ class Collector:
+ 
+             # fast deletes
+             for qs in self.fast_deletes:
++                # Get instances to clear their PKs later
++                instances = list(qs)
+                 count = qs._raw_delete(using=self.using)
+                 deleted_counter[qs.model._meta.label] += count
++                # Clear PKs for the instances
++                for instance in instances:
++                    setattr(instance, qs.model._meta.pk.attname, None)
+ 
+             # update fields
+             for model, instances_for_fieldvalues in self.field_updates.items():

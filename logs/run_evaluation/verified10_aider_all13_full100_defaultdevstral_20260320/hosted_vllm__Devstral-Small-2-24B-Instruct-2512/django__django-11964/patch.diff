@@ -1,0 +1,99 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 0a5e5ff673..1ad6ea3262 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -630,7 +630,10 @@ class Model(metaclass=ModelBase):
+             if field.attname in non_loaded_fields:
+                 # This field wasn't refreshed - skip ahead.
+                 continue
+-            setattr(self, field.attname, getattr(db_instance, field.attname))
++            # Convert the value using the field's get_prep_value method
++            value = getattr(db_instance, field.attname)
++            converted_value = field.get_prep_value(value)
++            setattr(self, field.attname, converted_value)
+             # Clear cached foreign keys.
+             if field.is_relation and field.is_cached(self):
+                 field.delete_cached_value(self)
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index d610dc86f0..a0b8b20f0d 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -786,7 +786,8 @@ class Field(RegisterLookupMixin):
+ 
+     def pre_save(self, model_instance, add):
+         """Return field's value just before saving."""
+-        return getattr(model_instance, self.attname)
++        value = getattr(model_instance, self.attname)
++        return self.get_prep_value(value)
+ 
+     def get_prep_value(self, value):
+         """Perform preliminary non-db specific value checks and conversions."""
+@@ -1006,12 +1007,17 @@ class CharField(Field):
+ 
+     def get_internal_type(self):
+         return "CharField"
+-
+     def to_python(self, value):
+-        if isinstance(value, str) or value is None:
++        if value is None:
++            return value
++        # Handle enum members by extracting their value first
++        if hasattr(value, "__class__") and hasattr(value.__class__, "__mro__"):
++            import enum
++            if any(base in value.__class__.__mro__ for base in (enum.Enum,)):
++                return value.value
++        if isinstance(value, str):
+             return value
+         return str(value)
+-
+     def get_prep_value(self, value):
+         value = super().get_prep_value(value)
+         return self.to_python(value)
+@@ -1769,6 +1775,11 @@ class IntegerField(Field):
+     def to_python(self, value):
+         if value is None:
+             return value
++        # Handle enum members by extracting their value first
++        if hasattr(value, "__class__") and hasattr(value.__class__, "__mro__"):
++            import enum
++            if any(base in value.__class__.__mro__ for base in (enum.Enum,)):
++                return int(value.value)
+         try:
+             return int(value)
+         except (TypeError, ValueError):
+diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py
+index 189fb4fa44..5528a9a67d 100644
+--- a/django/db/models/query_utils.py
++++ b/django/db/models/query_utils.py
+@@ -136,8 +136,31 @@ class DeferredAttribute:
+                 instance.refresh_from_db(fields=[field_name])
+                 val = getattr(instance, field_name)
+             data[field_name] = val
++        else:
++            # Convert enum values to their actual values when retrieved
++            val = data[field_name]
++            if hasattr(val, "__class__") and hasattr(val.__class__, "__mro__"):
++                import enum
++                if any(base in val.__class__.__mro__ for base in (enum.Enum,)):
++                    # Convert enum value using the field's to_python method
++                    val = self.field.to_python(val)
++                    data[field_name] = val
+         return data[field_name]
+ 
++    def __set__(self, instance, value):
++        """
++        Set the value, converting it through the field's prep_value method.
++        """
++        data = instance.__dict__
++        field_name = self.field.attname
++        # Only convert non-None values to avoid issues with nullable fields
++        if value is not None:
++            # Convert the value using the field's get_prep_value method
++            converted_value = self.field.get_prep_value(value)
++            data[field_name] = converted_value
++        else:
++            data[field_name] = value
++
+     def _check_parent_chain(self, instance):
+         """
+         Check if the field value can be fetched from a parent field already

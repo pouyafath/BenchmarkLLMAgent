@@ -1,0 +1,261 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index ae82d26340..095fa1ce31 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -4,21 +4,20 @@ from operator import attrgetter
+ 
+ from django.db import IntegrityError, connections, transaction
+ from django.db.models import signals, sql
+-
++from django.db.models.query_utils import Q
++from django.db.models.sql.constants import GET_ITERATOR_CHUNK_SIZE
+ 
+ class ProtectedError(IntegrityError):
+     def __init__(self, msg, protected_objects):
+         self.protected_objects = protected_objects
+         super().__init__(msg, protected_objects)
+ 
+-
+ def CASCADE(collector, field, sub_objs, using):
+     collector.collect(sub_objs, source=field.remote_field.model,
+                       source_attr=field.name, nullable=field.null)
+     if field.null and not connections[using].features.can_defer_constraint_checks:
+         collector.add_field_update(field, None, sub_objs)
+ 
+-
+ def PROTECT(collector, field, sub_objs, using):
+     raise ProtectedError(
+         "Cannot delete some instances of model '%s' because they are "
+@@ -28,7 +27,6 @@ def PROTECT(collector, field, sub_objs, using):
+         sub_objs
+     )
+ 
+-
+ def SET(value):
+     if callable(value):
+         def set_on_delete(collector, field, sub_objs, using):
+@@ -39,19 +37,15 @@ def SET(value):
+     set_on_delete.deconstruct = lambda: ('django.db.models.SET', (value,), {})
+     return set_on_delete
+ 
+-
+ def SET_NULL(collector, field, sub_objs, using):
+     collector.add_field_update(field, None, sub_objs)
+ 
+-
+ def SET_DEFAULT(collector, field, sub_objs, using):
+     collector.add_field_update(field, field.get_default(), sub_objs)
+ 
+-
+ def DO_NOTHING(collector, field, sub_objs, using):
+     pass
+ 
+-
+ def get_candidate_relations_to_delete(opts):
+     # The candidate relations are the ones that come from N-1 and 1-1 relations.
+     # N-N  (i.e., many-to-many) relations aren't candidates for deletion.
+@@ -60,12 +54,13 @@ def get_candidate_relations_to_delete(opts):
+         if f.auto_created and not f.concrete and (f.one_to_one or f.one_to_many)
+     )
+ 
+-
+ class Collector:
+     def __init__(self, using):
+         self.using = using
+         # Initially, {model: {instances}}, later values become lists.
+         self.data = {}
++        # Track deletion sources: {model: {source_model: {source_attr: {instances}}}}
++        self.deletion_sources = {}
+         self.field_updates = {}  # {model: {(field, value): {instances}}}
+         # fast_deletes is a list of queryset-likes that can be deleted without
+         # fetching the objects into memory.
+@@ -78,7 +73,7 @@ class Collector:
+         # parent.
+         self.dependencies = {}  # {model: {models}}
+ 
+-    def add(self, objs, source=None, nullable=False, reverse_dependency=False):
++    def add(self, objs, source=None, nullable=False, reverse_dependency=False, source_attr=None):
+         """
+         Add 'objs' to the collection of objects to be deleted.  If the call is
+         the result of a cascade, 'source' should be the model that caused it,
+@@ -95,6 +90,17 @@ class Collector:
+             if obj not in instances:
+                 new_objs.append(obj)
+         instances.update(new_objs)
++
++        # Track deletion sources for optimization
++        if source is not None and source_attr is not None:
++            source_model = source._meta.concrete_model
++            model_concrete = model._meta.concrete_model
++            if source_model != model_concrete:  # Only track cross-model cascades
++                source_info = self.deletion_sources.setdefault(model, {})
++                source_info.setdefault(source_model, {})
++                # Track which attribute (field name) caused this deletion
++                source_info[source_model][source_attr] = instances
++
+         # Nullable relationships can be ignored -- they are nulled out before
+         # deleting, and therefore do not affect the order in which objects have
+         # to be deleted.
+@@ -130,46 +136,18 @@ class Collector:
+         parents and no signal listeners for the object class.
+ 
+         The 'from_field' tells where we are coming from - we need this to
+-        determine if the objects are in fact to be deleted. Allow also
+-        skipping parent -> child -> parent chain preventing fast delete of
+-        the child.
++        determine if the
+         """
+-        if from_field and from_field.remote_field.on_delete is not CASCADE:
++        if not objs:
++            return True
++        model = objs[0].__class__
++        if self._has_signal_listeners(model):
+             return False
+-        if hasattr(objs, '_meta'):
+-            model = type(objs)
+-        elif hasattr(objs, 'model') and hasattr(objs, '_raw_delete'):
+-            model = objs.model
+-        else:
++        if from_field is not None and from_field.remote_field.on_delete == CASCADE:
+             return False
+-        if self._has_signal_listeners(model):
++        if model._meta.auto_created:
+             return False
+-        # The use of from_field comes from the need to avoid cascade back to
+-        # parent when parent delete is cascading to child.
+-        opts = model._meta
+-        return (
+-            all(link == from_field for link in opts.concrete_model._meta.parents.values()) and
+-            # Foreign keys pointing to this model.
+-            all(
+-                related.field.remote_field.on_delete is DO_NOTHING
+-                for related in get_candidate_relations_to_delete(opts)
+-            ) and (
+-                # Something like generic foreign key.
+-                not any(hasattr(field, 'bulk_related_objects') for field in opts.private_fields)
+-            )
+-        )
+-
+-    def get_del_batches(self, objs, field):
+-        """
+-        Return the objs in suitably sized batches for the used connection.
+-        """
+-        conn_batch_size = max(
+-            connections[self.using].ops.bulk_batch_size([field.name], objs), 1)
+-        if len(objs) > conn_batch_size:
+-            return [objs[i:i + conn_batch_size]
+-                    for i in range(0, len(objs), conn_batch_size)]
+-        else:
+-            return [objs]
++        return not get_candidate_relations_to_delete(model._meta)
+ 
+     def collect(self, objs, source=None, nullable=False, collect_related=True,
+                 source_attr=None, reverse_dependency=False, keep_parents=False):
+@@ -194,7 +172,7 @@ class Collector:
+             self.fast_deletes.append(objs)
+             return
+         new_objs = self.add(objs, source, nullable,
+-                            reverse_dependency=reverse_dependency)
++                            reverse_dependency=reverse_dependency, source_attr=source_attr)
+         if not new_objs:
+             return
+ 
+@@ -293,13 +271,16 @@ class Collector:
+         deleted_counter = Counter()
+ 
+         # Optimize for the case with a single obj and no dependencies
+-        if len(self.data) == 1 and len(instances) == 1:
+-            instance = list(instances)[0]
+-            if self.can_fast_delete(instance):
+-                with transaction.mark_for_rollback_on_error():
+-                    count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+-                setattr(instance, model._meta.pk.attname, None)
+-                return count, {model._meta.label: count}
++        if len(self.data) == 1:
++            instances = list(self.data.values())[0]
++            model = list(self.data.keys())[0]
++            if len(instances) == 1:
++                instance = instances[0]
++                if self.can_fast_delete(instance):
++                    with transaction.mark_for_rollback_on_error():
++                        count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
++                    setattr(instance, model._meta.pk.attname, None)
++                    return count, {model._meta.label: count}
+ 
+         with transaction.atomic(using=self.using, savepoint=False):
+             # send pre_delete signals
+@@ -327,10 +308,15 @@ class Collector:
+ 
+             # delete instances
+             for model, instances in self.data.items():
+-                query = sql.DeleteQuery(model)
+-                pk_list = [obj.pk for obj in instances]
+-                count = query.delete_batch(pk_list, self.using)
+-                deleted_counter[model._meta.label] += count
++                # Check if this model has multiple deletion sources that can be combined
++                if model in self.deletion_sources:
++                    self._delete_with_optimization(model, instances, deleted_counter)
++                else:
++                    # Standard deletion for models without optimization opportunities
++                    query = sql.DeleteQuery(model)
++                    pk_list = [obj.pk for obj in instances]
++                    count = query.delete_batch(pk_list, self.using)
++                    deleted_counter[model._meta.label] += count
+ 
+                 if not model._meta.auto_created:
+                     for obj in instances:
+@@ -347,3 +333,54 @@ class Collector:
+             for instance in instances:
+                 setattr(instance, model._meta.pk.attname, None)
+         return sum(deleted_counter.values()), dict(deleted_counter)
++
++    def _delete_with_optimization(self, model, instances, deleted_counter):
++        """
++        Delete instances of a model that has multiple deletion sources.
++        Combine deletions that can use OR conditions to reduce the number of queries.
++        """
++        source_info = self.deletion_sources[model]
++        pk_list = [obj.pk for obj in instances]
++
++        # Group sources by the source model
++        for source_model, field_info in source_info.items():
++            # If there are multiple fields from the same source model, combine them
++            if len(field_info) > 1:
++                # Create a combined query using OR conditions
++                query = sql.DeleteQuery(model)
++                or_conditions = []
++
++                for field_name, field_instances in field_info.items():
++                    # Get the field object from the model
++                    try:
++                        field = model._meta.get_field(field_name)
++                        if hasattr(field, 'attname'):
++                            or_conditions.append(Q(**{field.attname + '__in': pk_list}))
++                    except Exception:
++                        # If we can't find the field, fall back to standard deletion
++                        continue
++
++                if or_conditions:
++                    # Combine conditions with OR
++                    combined_q = or_conditions[0]
++                    for condition in or_conditions[1:]:
++                        combined_q |= condition
++
++                    query.where = query.where_class()
++                    query.add_q(combined_q)
++                    count = query.do_query(model._meta.db_table, query.where, self.using)
++                    deleted_counter[model._meta.label] += count
++                    return
++
++        # Fall back to standard deletion if optimization couldn't be applied
++        query = sql.DeleteQuery(model)
++        count = query.delete_batch(pk_list, self.using)
++        deleted_counter[model._meta.label] += count
++
++    def get_del_batches(self, objs, field):
++        """
++        Yield batches of objects for deletion, respecting database limits.
++        """
++        pk_list = [obj.pk for obj in objs]
++        for offset in range(0, len(pk_list), GET_ITERATOR_CHUNK_SIZE):
++            yield [obj for obj in objs[offset:offset + GET_ITERATOR_CHUNK_SIZE]]

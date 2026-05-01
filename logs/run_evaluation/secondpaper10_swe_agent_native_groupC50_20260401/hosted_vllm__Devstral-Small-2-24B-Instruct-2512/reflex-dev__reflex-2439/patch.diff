@@ -1,0 +1,50 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..2393edc0 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -245,17 +245,34 @@ class Match(MemoizationLeaf):
+ 
+     def _get_imports(self):
+         merged_imports = super()._get_imports()
+-        # Obtain the imports of all components the in match case.
++
++        def get_component_imports_recursive(component):
++            """Recursively get imports from a component and its children."""
++            if not isinstance(component, BaseComponent):
++                return {}
++
++            component_imports = component.get_imports()
++
++            # If the component has children, recursively get their imports too
++            if hasattr(component, 'children') and component.children:
++                children_imports = {}
++                for child in component.children:
++                    child_imports = get_component_imports_recursive(child)
++                    children_imports = imports.merge_imports(children_imports, child_imports)
++                component_imports = imports.merge_imports(component_imports, children_imports)
++
++            return component_imports
++
++        # Obtain the imports of all components in each match case
+         for case in self.match_cases:
+-            if isinstance(case[-1], BaseComponent):
+-                merged_imports = imports.merge_imports(
+-                    merged_imports,
+-                    case[-1].get_imports(),
+-                )
+-        # Get the import of the default case component.
++            for element in case:
++                if isinstance(element, BaseComponent):
++                    element_imports = get_component_imports_recursive(element)
++                    merged_imports = imports.merge_imports(merged_imports, element_imports)
++
++        # Get the import of the default case component
+         if isinstance(self.default, BaseComponent):
+-            merged_imports = imports.merge_imports(
+-                merged_imports,
+-                self.default.get_imports(),
+-            )
++            default_imports = get_component_imports_recursive(self.default)
++            merged_imports = imports.merge_imports(merged_imports, default_imports)
++
+         return merged_imports

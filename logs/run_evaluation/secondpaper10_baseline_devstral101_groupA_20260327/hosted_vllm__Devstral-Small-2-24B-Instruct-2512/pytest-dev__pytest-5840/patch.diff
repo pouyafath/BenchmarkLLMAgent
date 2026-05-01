@@ -1,0 +1,44 @@
+diff --git a/src/_pytest/config/__init__.py b/src/_pytest/config/__init__.py
+index 3a0eca546..b41856a5b 100644
+--- a/src/_pytest/config/__init__.py
++++ b/src/_pytest/config/__init__.py
+@@ -435,27 +435,31 @@ class PytestPluginManager(PluginManager):
+         # Use realpath to avoid loading the same conftest twice
+         # with build systems that create build directories containing
+         # symlinks to actual files.
+-        conftestpath = unique_path(conftestpath)
++        conftestpath_normalized = unique_path(conftestpath)
+         try:
+-            return self._conftestpath2mod[conftestpath]
++            return self._conftestpath2mod[conftestpath_normalized]
+         except KeyError:
+-            pkgpath = conftestpath.pypkgpath()
++            pkgpath = conftestpath_normalized.pypkgpath()
+             if pkgpath is None:
+-                _ensure_removed_sysmodule(conftestpath.purebasename)
++                _ensure_removed_sysmodule(conftestpath_normalized.purebasename)
+             try:
++                # Use the original conftestpath for importing to avoid
++                # issues with case normalization on Windows where directory
++                # names like "Python" might be normalized to "python" and
++                # cause import conflicts
+                 mod = conftestpath.pyimport()
+                 if (
+                     hasattr(mod, "pytest_plugins")
+                     and self._configured
+                     and not self._using_pyargs
+                 ):
+-                    _fail_on_non_top_pytest_plugins(conftestpath, self._confcutdir)
++                    _fail_on_non_top_pytest_plugins(conftestpath_normalized, self._confcutdir)
+             except Exception:
+-                raise ConftestImportFailure(conftestpath, sys.exc_info())
++                raise ConftestImportFailure(conftestpath_normalized, sys.exc_info())
+ 
+             self._conftest_plugins.add(mod)
+-            self._conftestpath2mod[conftestpath] = mod
+-            dirpath = conftestpath.dirpath()
++            self._conftestpath2mod[conftestpath_normalized] = mod
++            dirpath = conftestpath_normalized.dirpath()
+             if dirpath in self._dirpath2confmods:
+                 for path, mods in self._dirpath2confmods.items():
+                     if path and path.relto(dirpath) or path == dirpath:

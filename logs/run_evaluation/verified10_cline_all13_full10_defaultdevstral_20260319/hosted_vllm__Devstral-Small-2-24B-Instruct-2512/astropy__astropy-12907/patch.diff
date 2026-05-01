@@ -1,0 +1,47 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..6df63bc9c 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -199,6 +199,15 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = m
+         return mat
++    if isinstance(model, CompoundModel):
++        # For CompoundModels, recursively compute the coordinate matrix
++        coord_mat = _separable(model)
++        mat = np.zeros((noutp, model.n_inputs))
++        if pos == 'left':
++            mat[:model.n_outputs, :model.n_inputs] = coord_mat
++        else:
++            mat[-model.n_outputs:, -model.n_inputs:] = coord_mat
++        return mat
+     if not model.separable:
+         # this does not work for more than 2 coordinates
+         mat = np.zeros((noutp, model.n_inputs))
+@@ -208,11 +217,12 @@ def _coord_matrix(model, pos, noutp):
+             mat[-model.n_outputs:, -model.n_inputs:] = 1
+     else:
+         mat = np.zeros((noutp, model.n_inputs))
+-
+-        for i in range(model.n_inputs):
+-            mat[i, i] = 1
+-        if pos == 'right':
+-            mat = np.roll(mat, (noutp - model.n_outputs))
++        if pos == 'left':
++            for i in range(model.n_inputs):
++                mat[i, i] = 1
++        else:
++            for i in range(model.n_inputs):
++                mat[noutp - model.n_outputs + i, i] = 1
+     return mat
+ 
+ 
+@@ -242,7 +252,7 @@ def _cstack(left, right):
+         cright = _coord_matrix(right, 'right', noutp)
+     else:
+         cright = np.zeros((noutp, right.shape[1]))
+-        cright[-right.shape[0]:, -right.shape[1]:] = 1
++        cright[-right.shape[0]:, -right.shape[1]:] = right
+ 
+     return np.hstack([cleft, cright])
+ 

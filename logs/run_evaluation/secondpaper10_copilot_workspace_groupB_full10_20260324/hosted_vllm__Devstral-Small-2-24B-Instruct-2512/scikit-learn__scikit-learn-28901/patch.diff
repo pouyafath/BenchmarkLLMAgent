@@ -1,0 +1,120 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..4a55bfd13 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -103,6 +103,15 @@ class Pipeline(_BaseComposition):
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
++    transform_input : list of str, default=None
++        Enables transforming input arguments to fit (other than X) through pipeline steps
++        up to the step requiring them. Requires metadata routing.
++        When specified, input parameters listed in this parameter will be transformed
++        through the pipeline steps and passed to the final estimator.
++        For example, if transform_input=["X_val"], then X_val will be transformed
++        through the pipeline and passed to the final estimator as X_val.
++        This supports tuple-based metadata passing (e.g., X_val=(X_val0, X_val1)).
++
+     Attributes
+     ----------
+     named_steps : :class:`~sklearn.utils.Bunch`
+@@ -155,6 +164,7 @@ class Pipeline(_BaseComposition):
+     _required_parameters = ["steps"]
+ 
+     _parameter_constraints: dict = {
++        "transform_input": [None, list],
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
+@@ -164,6 +174,7 @@ class Pipeline(_BaseComposition):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -345,6 +356,73 @@ class Pipeline(_BaseComposition):
+ 
+         return "(step %d of %d) Processing %s" % (step_idx + 1, len(self.steps), name)
+ 
++    def _transform_input_params(self, props, routed_params):
++        """Transform input parameters through pipeline steps.
++
++        Parameters
++        ----------
++        props : dict
++            Input parameters passed to fit method.
++        routed_params : dict
++            Already routed parameters.
++
++        Returns
++        -------
++        dict
++            Updated routed parameters with transformed input params.
++        """
++        if self.transform_input is None or not self.transform_input:
++            return routed_params
++
++        # Get the current transformed data by running through pipeline steps
++        X_transformed = None
++        for step_idx, name, transformer in self._iter(
++            with_final=False, filter_passthrough=False
++        ):
++            if transformer is None or transformer == "passthrough":
++                continue
++
++            if X_transformed is None:
++                # First step - use original X
++                X_step = props.get('X', None)
++            else:
++                # Subsequent steps - use transformed data
++                X_step = X_transformed
++
++            if X_step is None:
++                break
++
++            # Clone the transformer and transform the data
++            cloned_transformer = clone(transformer)
++            if hasattr(cloned_transformer, 'transform'):
++                X_transformed = cloned_transformer.transform(X_step)
++            else:
++                break
++
++        # Transform the input parameters
++        for param_name in self.transform_input:
++            if param_name in props:
++                param_value = props[param_name]
++                if X_transformed is not None and hasattr(param_value, '__iter__') and not isinstance(param_value, (str, bytes)):
++                    # Transform the parameter value using the transformed data
++                    # This handles cases like X_val=(X_val0, X_val1)
++                    try:
++                        if hasattr(param_value, 'transform'):
++                            # If it's a transformer, use its transform method
++                            routed_params[self.steps[-1][0]]["fit"][param_name] = param_value.transform(X_transformed)
++                        elif hasattr(X_transformed, 'shape') and hasattr(param_value, 'shape'):
++                            # If both are arrays, apply the same transformation
++                            routed_params[self.steps[-1][0]]["fit"][param_name] = param_value
++                        else:
++                            routed_params[self.steps[-1][0]]["fit"][param_name] = param_value
++                    except Exception:
++                        # If transformation fails, pass the original value
++                        routed_params[self.steps[-1][0]]["fit"][param_name] = param_value
++                else:
++                    routed_params[self.steps[-1][0]]["fit"][param_name] = param_value
++
++        return routed_params
++
+     def _check_method_params(self, method, props, **kwargs):
+         if _routing_enabled():
+             routed_params = process_routing(self, method, **props, **kwargs)
+@@ -372,6 +450,9 @@ class Pipeline(_BaseComposition):
+                 # get all the same params and pass it to the last fit.
+                 fit_params_steps[step]["fit_transform"][param] = pval
+                 fit_params_steps[step]["fit_predict"][param] = pval
++
++            # Handle transform_input parameters
++            fit_params_steps = self._transform_input_params(props, fit_params_steps)
+             return fit_params_steps
+ 
+     # Estimator interface

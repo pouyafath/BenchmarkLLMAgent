@@ -1,0 +1,117 @@
+diff --git a/haystack/marshal/yaml.py b/haystack/marshal/yaml.py
+index 5fca27fb..de043542 100644
+--- a/haystack/marshal/yaml.py
++++ b/haystack/marshal/yaml.py
+@@ -1,11 +1,109 @@
+ from typing import Dict, Any, Union
+-
+ import yaml
++import torch
++from enum import Enum
++import importlib
++
++class _TorchDtypeEncoder(yaml.Dumper):
++    """
++    Custom YAML dumper that can handle torch.dtype objects.
++    """
++    def represent_torch_dtype(self, data):
++        # Get the name of the dtype without the "torch." prefix
++        dtype_name = str(data).replace("torch.", "")
++        return self.represent_scalar('!torch_dtype', dtype_name)
++
++    def represent_enum(self, data):
++        return self.represent_scalar('!enum', f"{data.__module__}.{data.__class__.__name__}.{data.name}")
++
++def _torch_dtype_constructor(loader, node):
++    """
++    Custom YAML constructor for torch.dtype objects.
++    """
++    value = loader.construct_scalar(node)
++    return getattr(torch, value)
++
++def _enum_constructor(loader, node):
++    """
++    Custom YAML constructor for enum objects.
++    """
++    value = loader.construct_scalar(node)
++    parts = value.split(".")
++    if len(parts) == 3:  # module.class.name
++        module_name, class_name, enum_name = parts
++        module = __import__(module_name, fromlist=[class_name])
++        enum_class = getattr(module, class_name)
++        return enum_class[enum_name]
++    return value
++
++def _python_object_apply_constructor(loader, node):
++    """
++    Custom YAML constructor for !!python/object/apply tags.
++    This handles cases where PyYAML uses its default object serialization.
++    """
++    # Check if this is a SequenceNode with a python/object/apply tag
++    if not isinstance(node, yaml.SequenceNode) or not node.tag.startswith('tag:yaml.org,2002:python/object/apply'):
++        return loader.construct_sequence(node)
++
++    # The node value should be a list where:
++    # - node.value[0] is the function/class name (ScalarNode)
++    # - node.value[1] is the arguments (SequenceNode)
++    if len(node.value) < 2:
++        return loader.construct_sequence(node)
++
++    func_name_node = node.value[0]
++    args_node = node.value[1]
++
++    # Get the function/class name
++    func_name = loader.construct_scalar(func_name_node)
+ 
++    # Handle enum deserialization
++    if "Enum" in func_name:
++        # func_name looks like "module.ClassName"
++        # args_node should contain the enum value name
++        args = loader.construct_sequence(args_node)
++        if args:
++            enum_name = args[0]
++
++            # Import the enum class
++            parts = func_name.split(".")
++            module_name = ".".join(parts[:-1])
++            class_name = parts[-1]
++
++            module = importlib.import_module(module_name)
++            enum_class = getattr(module, class_name)
++
++            return enum_class[enum_name]
++
++    # For other cases, fall back to the default constructor
++    return loader.construct_object(node)
+ 
+ class YamlMarshaller:
+     def marshal(self, dict_: Dict[str, Any]) -> str:
+-        return yaml.dump(dict_)
++        """
++        Serialize a dictionary to YAML, handling special types like torch.dtype.
++
++        :param dict_: The dictionary to serialize.
++        :return: The YAML string representation.
++        """
++        # Create a custom dumper that can handle torch.dtype
++        dumper = _TorchDtypeEncoder
++        dumper.add_representer(torch.dtype, _TorchDtypeEncoder.represent_torch_dtype)
++        dumper.add_representer(Enum, _TorchDtypeEncoder.represent_enum)
++
++        return yaml.dump(dict_, Dumper=dumper)
+ 
+     def unmarshal(self, data_: Union[str, bytes, bytearray]) -> Dict[str, Any]:
+-        return yaml.safe_load(data_)
++        """
++        Deserialize a YAML string to a dictionary, handling special types like torch.dtype.
++
++        :param data_: The YAML string to deserialize.
++        :return: The deserialized dictionary.
++        """
++        # Create a custom loader that can handle torch.dtype and enums
++        loader = yaml.SafeLoader
++        loader.add_constructor('!torch_dtype', _torch_dtype_constructor)
++        loader.add_constructor('!enum', _enum_constructor)
++        loader.add_constructor(yaml.SequenceNode, _python_object_apply_constructor)
++
++        return yaml.load(data_, Loader=loader)

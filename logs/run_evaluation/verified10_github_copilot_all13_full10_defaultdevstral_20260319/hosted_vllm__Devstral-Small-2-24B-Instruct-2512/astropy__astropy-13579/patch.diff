@@ -1,0 +1,65 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..7f21f3747 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -246,12 +246,51 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+         world_arrays = tuple(map(np.asanyarray, world_arrays))
+         world_arrays_new = []
+         iworld_curr = -1
++
++        # First, identify dropped world dimensions that are correlated with kept pixel dimensions
++        # We consider a world dimension correlated if it's used in any transformation for kept pixel dimensions
++        pc_matrix = self._wcs.axis_correlation_matrix
++        dropped_world_dims = [iworld for iworld in range(self._wcs.world_n_dim) if iworld not in self._world_keep]
++        correlated_dropped_dims = []
++        for iworld in dropped_world_dims:
++            # Check if this dropped world dimension is used in any transformation for kept pixel dimensions
++            for ipixel in self._pixel_keep:
++                if pc_matrix[ipixel, iworld]:
++                    correlated_dropped_dims.append(iworld)
++                    break
++
++        # Get world coordinate values at sliced pixel positions for correlated dropped dimensions
++        dropped_world_values = []
++        if correlated_dropped_dims:
++            # Create pixel array with sliced positions for dropped dimensions
++            pixel_for_dropped = []
++            for ipixel in range(self._wcs.pixel_n_dim):
++                if ipixel in self._pixel_keep:
++                    pixel_for_dropped.append(0)  # We'll use 0 as a placeholder
++                else:
++                    pixel_for_dropped.append(self._slices_pixel[ipixel])
++
++            # Call pixel_to_world_values to get world coordinates at sliced positions
++            world_at_sliced = self._wcs.pixel_to_world_values(*pixel_for_dropped)
++
++            # Extract values for correlated dropped dimensions
++            for iworld in correlated_dropped_dims:
++                dropped_world_values.append(world_at_sliced[iworld])
++
++        # Now build the full world array
++        iworld_curr = -1
+         for iworld in range(self._wcs.world_n_dim):
+             if iworld in self._world_keep:
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                if iworld in correlated_dropped_dims:
++                    # Use the world coordinate value at the sliced position
++                    idx = correlated_dropped_dims.index(iworld)
++                    world_arrays_new.append(dropped_world_values[idx])
++                else:
++                    # Use 1. for uncorrelated dropped dimensions
++                    world_arrays_new.append(1.)
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))
+@@ -267,7 +306,6 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+         if self.pixel_n_dim == 1 and self._wcs.pixel_n_dim > 1:
+             pixel = pixel[0]
+         return pixel
+-
+     @property
+     def world_axis_object_components(self):
+         return [self._wcs.world_axis_object_components[idx] for idx in self._world_keep]

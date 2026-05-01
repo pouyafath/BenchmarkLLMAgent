@@ -1,0 +1,34 @@
+diff --git a/django/db/backends/base/schema.py b/django/db/backends/base/schema.py
+index 61f88401ab..780c12197f 100644
+--- a/django/db/backends/base/schema.py
++++ b/django/db/backends/base/schema.py
+@@ -403,6 +403,16 @@ class BaseDatabaseSchemaEditor:
+         meta_constraint_names = {constraint.name for constraint in model._meta.constraints}
+         meta_index_names = {constraint.name for constraint in model._meta.indexes}
+         columns = [model._meta.get_field(field).column for field in fields]
++
++        # When deleting an index (not a unique constraint), we need to distinguish
++        # between unique constraints and regular indexes. Unique constraints also
++        # have index=True but should not be deleted when removing index_together.
++        # The key difference is that regular indexes have type='idx' while unique
++        # constraints don't have a type or have type='uniq'.
++        if constraint_kwargs.get('index') and not constraint_kwargs.get('unique'):
++            constraint_kwargs = constraint_kwargs.copy()
++            constraint_kwargs['type_'] = 'idx'
++
+         constraint_names = self._constraint_names(
+             model, columns, exclude=meta_constraint_names | meta_index_names,
+             **constraint_kwargs
+@@ -1163,8 +1173,10 @@ class BaseDatabaseSchemaEditor:
+                     continue
+                 if foreign_key is not None and not infodict['foreign_key']:
+                     continue
+-                if type_ is not None and infodict['type'] != type_:
+-                    continue
++                if type_ is not None:
++                    # Some constraints (like unique constraints) may not have a 'type' key
++                    if 'type' not in infodict or infodict['type'] != type_:
++                        continue
+                 if not exclude or name not in exclude:
+                     result.append(name)
+         return result

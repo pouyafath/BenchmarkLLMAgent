@@ -1,0 +1,22 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..8326f888b 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -199,6 +199,17 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = m
+         return mat
++    if isinstance(model, CompoundModel):
++        # For compound models with & operator, delegate to _cstack
++        # to properly preserve the separability of individual components
++        if model.op == '&':
++            # Create coordinate matrices for left and right components
++            left_coord = _coord_matrix(model.left, 'left', noutp)
++            right_coord = _coord_matrix(model.right, 'right', noutp)
++            # Use _cstack to combine them properly
++            return _cstack(left_coord, right_coord)
++        # For other operators or non-compound models, fall back to original behavior
++        pass
+     if not model.separable:
+         # this does not work for more than 2 coordinates
+         mat = np.zeros((noutp, model.n_inputs))

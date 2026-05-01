@@ -1,0 +1,36 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..4e3e3470c 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -251,7 +251,30 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                # For dropped world dimensions, we need to determine the appropriate value
++                # that corresponds to the sliced pixel coordinate, rather than using 1.0
++                # This is crucial for coupled dimensions where setting to 1.0 would
++                # incorrectly affect the transformation
++
++                # Find which pixel dimension is sliced and corresponds to this world dimension
++                for ipixel in range(self._wcs.pixel_n_dim):
++                    if isinstance(self._slices_pixel[ipixel], int) and self._wcs.axis_correlation_matrix[iworld, ipixel]:
++                        # This world dimension is coupled to a sliced pixel dimension
++                        # Create pixel coordinates with the sliced value
++                        pixel_coords = []
++                        for i in range(self._wcs.pixel_n_dim):
++                            if i == ipixel:
++                                pixel_coords.append(float(self._slices_pixel[ipixel]))
++                            else:
++                                pixel_coords.append(0.0)  # arbitrary value for other dimensions
++
++                        # Convert to world coordinates to get the correct value for this world dimension
++                        world_coords = self._wcs.pixel_to_world_values(*pixel_coords)
++                        world_arrays_new.append(world_coords[iworld])
++                        break
++                else:
++                    # No coupled sliced pixel dimension found, use default value
++                    world_arrays_new.append(1.)
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

@@ -1,0 +1,57 @@
+diff --git a/geopandas/geoseries.py b/geopandas/geoseries.py
+index a9523d9d..dc131510 100644
+--- a/geopandas/geoseries.py
++++ b/geopandas/geoseries.py
+@@ -1190,18 +1190,38 @@ class GeoSeries(GeoPandasBase, Series):
+         """
+         return self.values.estimate_utm_crs(datum_name)
+ 
+-    def to_json(self, **kwargs) -> str:
++    def to_json(self, na="null", show_bbox=False, drop_id=False, **kwargs) -> str:
+         """
+         Returns a GeoJSON string representation of the GeoSeries.
+ 
+         Parameters
+         ----------
+-        *kwargs* that will be passed to json.dumps().
++        na : {'null', 'drop', 'keep'}, default 'null'
++            Indicates how to output missing (NaN) values in the GeoSeries.
++            See below.
++        show_bbox : bool, optional, default: False
++            Include bbox (bounds) in the geojson
++        drop_id : bool, default: False
++            Whether to retain the index of the GeoSeries as the id property
++            in the generated GeoJSON. Default is False, but may want True
++            if the index is just arbitrary row numbers.
++        **kwargs* that will be passed to json.dumps().
+ 
+         Returns
+         -------
+         JSON string
+ 
++        Notes
++        -----
++        The remaining *kwargs* are passed to json.dumps().
++
++        Missing (NaN) values in the GeoSeries can be represented as follows:
++
++        - ``null``: output the missing entries as JSON null.
++        - ``drop``: remove the property from the feature. This applies to each
++          feature individually so that features may have different properties.
++        - ``keep``: output the missing entries as NaN.
++
+         Examples
+         --------
+         >>> from shapely.geometry import Point
+@@ -1224,7 +1244,10 @@ e": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [3
+         --------
+         GeoSeries.to_file : write GeoSeries to file
+         """
+-        return json.dumps(self.__geo_interface__, **kwargs)
++        from geopandas import GeoDataFrame
++
++        geo = GeoDataFrame({"geometry": self}).to_geo_dict(na=na, show_bbox=show_bbox, drop_id=drop_id)
++        return json.dumps(geo, **kwargs)
+ 
+     def to_wkb(self, hex: bool = False, **kwargs) -> Series:
+         """

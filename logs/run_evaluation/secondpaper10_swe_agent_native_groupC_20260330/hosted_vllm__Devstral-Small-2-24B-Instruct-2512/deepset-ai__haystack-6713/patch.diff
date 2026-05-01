@@ -1,0 +1,128 @@
+diff --git a/haystack/marshal/yaml.py b/haystack/marshal/yaml.py
+index 5fca27fb..8b29bbff 100644
+--- a/haystack/marshal/yaml.py
++++ b/haystack/marshal/yaml.py
+@@ -1,11 +1,120 @@
+ from typing import Dict, Any, Union
+-
+ import yaml
++import logging
++import re
++
++logger = logging.getLogger(__name__)
++
++def _resolve_torch_dtype(dtype_str: str):
++    """
++    Resolve a string representation of a torch dtype back to the actual dtype object.
++
++    Args:
++        dtype_str: String representation of the torch dtype (e.g., "torch.float16")
++
++    Returns:
++        The corresponding torch.dtype object
++    """
++    try:
++        import torch
++        return getattr(torch, dtype_str.split('.')[-1])
++    except (ImportError, AttributeError) as e:
++        logger.warning(f"Could not resolve torch dtype '{dtype_str}': {e}")
++        return dtype_str
++
++def _represent_torch_dtype(dumper, data):
++    """
++    Custom YAML representer for torch.dtype objects.
++
++    Args:
++        dumper: YAML dumper instance
++        data: torch.dtype object to represent
++
++    Returns:
++        YAML node representing the dtype as a string
++    """
++    return dumper.represent_str(f"{data}")
++
++def _represent_torch_tensor(dumper, data):
++    """
++    Custom YAML representer for torch.Tensor objects.
++
++    Args:
++        dumper: YAML dumper instance
++        data: torch.Tensor object to represent
++
++    Returns:
++        YAML node representing the tensor as a string
++    """
++    return dumper.represent_str(f"torch.tensor({list(data.tolist())})")
++
++def _represent_generic(dumper, data):
++    """
++    Fallback representer for objects that have a string representation.
+ 
++    Args:
++        dumper: YAML dumper instance
++        data: Object to represent
++
++    Returns:
++        YAML node representing the object as a string
++    """
++    return dumper.represent_str(str(data))
+ 
+ class YamlMarshaller:
++    def __init__(self):
++        """
++        Initialize the YAML marshaller with custom representers and constructors.
++        """
++        # Create custom dumper class
++        class CustomDumper(yaml.SafeDumper):
++            pass
++
++        # Create custom loader class
++        class CustomLoader(yaml.SafeLoader):
++            pass
++
++        # Add fallback representer for other non-serializable types first
++        CustomDumper.add_representer(object, _represent_generic)
++
++        # Add custom representers to dumper
++        try:
++            import torch
++            if hasattr(torch, 'dtype') and hasattr(torch, 'float16'):
++                CustomDumper.add_representer(torch.dtype, _represent_torch_dtype)
++            if hasattr(torch, 'Tensor'):
++                CustomDumper.add_representer(torch.Tensor, _represent_torch_tensor)
++        except ImportError:
++            pass
++
++        # Add custom constructors to loader
++        torch_dtype_pattern = re.compile(r"^torch\.\w+$")
++        CustomLoader.add_implicit_resolver("!torch_dtype", torch_dtype_pattern, None)
++        CustomLoader.add_constructor("!torch_dtype", lambda loader, node: _resolve_torch_dtype(loader.construct_scalar(node)))
++
++        self._dumper = CustomDumper
++        self._loader = CustomLoader
++
+     def marshal(self, dict_: Dict[str, Any]) -> str:
+-        return yaml.dump(dict_)
++        """
++        Serialize a dictionary to YAML string.
++
++        Args:
++            dict_: Dictionary to serialize
++
++        Returns:
++            YAML string representation
++        """
++        return yaml.dump(dict_, Dumper=self._dumper)
+ 
+     def unmarshal(self, data_: Union[str, bytes, bytearray]) -> Dict[str, Any]:
+-        return yaml.safe_load(data_)
++        """
++        Deserialize a YAML string to dictionary.
++
++        Args:
++            data_: YAML string, bytes, or bytearray to deserialize
++
++        Returns:
++            Deserialized dictionary
++        """
++        return yaml.load(data_, Loader=self._loader)

@@ -1,0 +1,297 @@
+diff --git a/src/cfnlint/rules/resources/UniqueResourceNames.py b/src/cfnlint/rules/resources/UniqueResourceNames.py
+new file mode 100644
+index 000000000..e4aece8a0
+--- /dev/null
++++ b/src/cfnlint/rules/resources/UniqueResourceNames.py
+@@ -0,0 +1,155 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from copy import copy
++from dataclasses import dataclass, field
++from typing import Any, Dict, Set
++
++from cfnlint._typing import RuleMatches
++from cfnlint.jsonschema._utils import equal
++from cfnlint.rules import CloudFormationLintRule, RuleMatch
++from cfnlint.schema import PROVIDER_SCHEMA_MANAGER, ResourceNotFoundError
++from cfnlint.template import Template
++
++
++@dataclass
++class _Seen:
++    conditions: Dict[str, Set[bool]] = field(init=True, default_factory=dict)
++    resources: Set[str] = field(init=True, default_factory=set)
++    instance: Dict[str, Any] = field(init=True, default_factory=dict)
++
++
++class UniqueResourceNames(CloudFormationLintRule):
++    id = "E3059"
++    shortdesc = "Validate that all resources have unique Name properties"
++    description = (
++        "Use the Name property in a resource schema to validate that "
++        "resources inside the template have unique names"
++    )
++    source_url = "https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html"
++    tags = ["parameters", "resources"]
++
++    def _merge_conditions(
++        self, conditions1: Dict[str, Set[bool]], conditions2: Dict[str, Set[bool]]
++    ):
++        for k2, v2 in conditions2.items():
++            if k2 in conditions1:
++                if v2 != conditions1[k2]:
++                    raise ValueError("Condition mismatch")
++            conditions1[k2] = v2
++
++        return conditions1
++
++    def _validate_resource_type_name_uniqueness(self, cfn, resource_type):
++        matches = []
++        seens = []
++        for resource_name, resource_attributes in cfn.get_resources(
++            resource_type
++        ).items():
++            condition = resource_attributes.get("Condition")
++            properties = resource_attributes.get("Properties", {})
++            path = ["Resources", resource_name, "Properties"]
++            for scenario in cfn.get_object_without_conditions(properties):
++                object = scenario.get("Object")
++                conditions = scenario.get("Scenario")
++                if conditions is None:
++                    conditions = {}
++                # we need to change this to a set for implies to work
++                conditions = {k: set([v]) for k, v in conditions.items()}
++
++                # if there is a resource level condition lets see if its valid
++                # and add it to the scenario as needed
++                if condition:
++                    if scenario:
++                        if not cfn.conditions.check_implies(scenario, condition):
++                            continue
++                    conditions[condition] = set([True])
++
++                # validate object is an object just in case it was emptied out
++                # from the condition (Ref: AWS::NoValue)
++                if not isinstance(object, dict):
++                    continue
++
++                # get the Name property
++                name = object.get("Name")
++                # if Name is None that means the service will define it and we can skip this test
++                if name is None:
++                    continue
++
++                # build the element
++                element = _Seen(conditions, set([resource_name]), {"Name": name})
++
++                found = False
++                for seen in seens:
++                    if equal(seen.instance, element.instance):
++                        try:
++                            merged_conditions = self._merge_conditions(
++                                copy(seen.conditions), copy(element.conditions)
++                            )
++                            # if conditions are empty we found it
++                            if not merged_conditions:
++                                found = True
++                                seen.resources.add(resource_name)
++                            for _ in cfn.conditions.build_scenarios(merged_conditions):
++                                seen.resources.add(resource_name)
++                                # because the conditions could be unique
++                                # we will validate conditions being equal
++                                # and only say found if they match
++                                if equal(element.conditions, seen.conditions):
++                                    found = True
++                                break
++
++                        except ValueError:
++                            continue
++
++                # add anything not already Found to the seens element
++                if not found:
++                    seens.append(element)
++
++        for seen in seens:
++            # build errors for any seen items with more than 1 resource
++            if len(seen.resources) > 1:
++                for resource in seen.resources:
++                    path = ["Resources", resource, "Properties", "Name"]
++                    message = (
++                        f"Name {seen.instance!r} should "
++                        "have unique values across the resources "
++                        f"{seen.resources!r}"
++                    )
++
++                    matches.append(RuleMatch(path, message))
++
++        return matches
++
++    def match(self, cfn: Template) -> RuleMatches:
++        tS = set()
++        for _, resource_properties in cfn.get_resources().items():
++            t = resource_properties.get("Type")
++            if isinstance(t, str):
++                tS.add(t)
++
++        matches = []
++        for t in tS:
++            try:
++                schema = PROVIDER_SCHEMA_MANAGER.get_resource_schema(cfn.regions[0], t)
++
++                # we are worried about Name properties that can be set
++                # by the customer so if Name is read only we have to skip evaluation
++                create_only_props = schema.schema.get("createOnlyProperties", [])
++                if "/properties/Name" not in create_only_props:
++                    continue
++
++                # Check if Name is not a primary identifier
++                primary_ids = schema.schema.get("primaryIdentifier", [])
++                primary_ids = [id.replace("/properties/", "") for id in primary_ids]
++                if "Name" in primary_ids:
++                    continue
++
++                matches.extend(
++                    self._validate_resource_type_name_uniqueness(cfn, t)
++                )
++            except ResourceNotFoundError:
++                continue
++        return matches
+diff --git a/test/fixtures/templates/bad/resources/unique_resource_names.yaml b/test/fixtures/templates/bad/resources/unique_resource_names.yaml
+new file mode 100644
+index 000000000..f76ca518a
+--- /dev/null
++++ b/test/fixtures/templates/bad/resources/unique_resource_names.yaml
+@@ -0,0 +1,44 @@
++Resources:
++  Project1:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  Project2:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  ServiceRole:
++    Type: AWS::IAM::Role
++    Properties:
++      AssumeRolePolicyDocument:
++        Version: "2012-10-17"
++        Statement:
++          - Effect: Allow
++            Principal:
++              Service: codebuild.amazonaws.com
++            Action: sts:AssumeRole
++      Path: /
+diff --git a/test/fixtures/templates/good/resources/unique_resource_names.yaml b/test/fixtures/templates/good/resources/unique_resource_names.yaml
+new file mode 100644
+index 000000000..5eafd793d
+--- /dev/null
++++ b/test/fixtures/templates/good/resources/unique_resource_names.yaml
+@@ -0,0 +1,44 @@
++Resources:
++  Project1:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName1
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  Project2:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName2
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  ServiceRole:
++    Type: AWS::IAM::Role
++    Properties:
++      AssumeRolePolicyDocument:
++        Version: "2012-10-17"
++        Statement:
++          - Effect: Allow
++            Principal:
++              Service: codebuild.amazonaws.com
++            Action: sts:AssumeRole
++      Path: /
+diff --git a/test/unit/rules/resources/test_unique_resource_names.py b/test/unit/rules/resources/test_unique_resource_names.py
+new file mode 100644
+index 000000000..13e2e4e48
+--- /dev/null
++++ b/test/unit/rules/resources/test_unique_resource_names.py
+@@ -0,0 +1,30 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from test.unit.rules import BaseRuleTestCase
++
++# ruff: noqa: E501
++from cfnlint.rules.resources.UniqueResourceNames import UniqueResourceNames
++
++class TestUniqueResourceNames(BaseRuleTestCase):
++    """Test base template"""
++
++    def setUp(self):
++        """Setup"""
++        super(TestUniqueResourceNames, self).setUp()
++        self.collection.register(UniqueResourceNames())
++        self.success_templates = [
++            "test/fixtures/templates/good/resources/unique_resource_names.yaml",
++        ]
++
++    def test_file_positive(self):
++        """Test Positive"""
++        self.helper_file_positive()
++
++    def test_file_negative_codebuild(self):
++        """Test failure for CodeBuild projects with duplicate names"""
++        self.helper_file_negative(
++            "test/fixtures/templates/bad/resources/unique_resource_names.yaml", 2
++        )

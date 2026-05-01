@@ -1,0 +1,64 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..c1804528 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
+ from reflex.components.base import Fragment
+ from reflex.components.component import BaseComponent, Component, MemoizationLeaf
+ from reflex.components.tags import MatchTag, Tag
++from reflex.constants import Hooks
+ from reflex.utils import format, imports, types
+ from reflex.utils.exceptions import MatchTypeError
+ from reflex.vars import BaseVar, Var, VarData
+@@ -243,6 +244,51 @@ class Match(MemoizationLeaf):
+         tag.name = "match"
+         return dict(tag)
+ 
++
++    def _get_vars(self) -> list[Var]:
++        """Walk all Vars used in this component, including those in match cases.
++
++        Returns:
++            Each var referenced by the component (props, styles, event handlers, and vars in match cases).
++        """
++        vars = super()._get_vars()
++
++        # Get Vars from all components in match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseComponent):
++                    vars.extend(element._get_vars())
++                elif isinstance(element, BaseVar):
++                    vars.append(element)
++
++        # Get Vars from the default case component
++        if isinstance(self.default, BaseComponent):
++            vars.extend(self.default._get_vars())
++        elif isinstance(self.default, BaseVar):
++            vars.append(self.default)
++
++        return vars
++
++    def _get_events_hooks(self) -> set[str]:
++        """Get the hooks required by events referenced in this component or its children.
++
++        Returns:
++            The hooks for the events (including those in child components).
++        """
++        hooks = super()._get_events_hooks()
++
++        # Check for event triggers in child components
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseComponent) and element.event_triggers:
++                    hooks.add(Hooks.EVENTS)
++                    break
++
++        # Check for event triggers in the default case
++        if isinstance(self.default, BaseComponent) and self.default.event_triggers:
++            hooks.add(Hooks.EVENTS)
++
++        return hooks
+     def _get_imports(self):
+         merged_imports = super()._get_imports()
+         # Obtain the imports of all components the in match case.

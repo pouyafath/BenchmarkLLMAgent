@@ -1,0 +1,86 @@
+diff --git a/django/db/backends/ddl_references.py b/django/db/backends/ddl_references.py
+index 44e49806f8..39fdec4659 100644
+--- a/django/db/backends/ddl_references.py
++++ b/django/db/backends/ddl_references.py
+@@ -3,7 +3,6 @@ Helpers to manipulate deferred DDL statements that might need to be adjusted or
+ discarded within when executing a migration.
+ """
+ 
+-
+ class Reference:
+     """Base class that defines the reference interface."""
+ 
+@@ -37,7 +36,6 @@ class Reference:
+     def __str__(self):
+         raise NotImplementedError('Subclasses must define how they should be converted to string.')
+ 
+-
+ class Table(Reference):
+     """Hold a reference to a table."""
+ 
+@@ -55,7 +53,6 @@ class Table(Reference):
+     def __str__(self):
+         return self.quote_name(self.table)
+ 
+-
+ class TableColumns(Table):
+     """Base class for references to multiple columns of a table."""
+ 
+@@ -72,7 +69,6 @@ class TableColumns(Table):
+                 if column == old_column:
+                     self.columns[index] = new_column
+ 
+-
+ class Columns(TableColumns):
+     """Hold a reference to one or many columns."""
+ 
+@@ -84,13 +80,13 @@ class Columns(TableColumns):
+     def __str__(self):
+         def col_str(column, idx):
+             try:
+-                return self.quote_name(column) + self.col_suffixes[idx]
++                suffix = self.col_suffixes[idx]
++                return self.quote_name(column) + (' ' + suffix if suffix else '')
+             except IndexError:
+                 return self.quote_name(column)
+ 
+         return ', '.join(col_str(column, idx) for idx, column in enumerate(self.columns))
+ 
+-
+ class IndexName(TableColumns):
+     """Hold a reference to an index name."""
+ 
+@@ -102,7 +98,6 @@ class IndexName(TableColumns):
+     def __str__(self):
+         return self.create_index_name(self.table, self.columns, self.suffix)
+ 
+-
+ class IndexColumns(Columns):
+     def __init__(self, table, columns, quote_name, col_suffixes=(), opclasses=()):
+         self.opclasses = opclasses
+@@ -114,14 +109,15 @@ class IndexColumns(Columns):
+             # length as self.columns.
+             col = '{} {}'.format(self.quote_name(column), self.opclasses[idx])
+             try:
+-                col = '{} {}'.format(col, self.col_suffixes[idx])
++                suffix = self.col_suffixes[idx]
++                if suffix:
++                    col = '{} {}'.format(col, suffix)
+             except IndexError:
+                 pass
+             return col
+ 
+         return ', '.join(col_str(column, idx) for idx, column in enumerate(self.columns))
+ 
+-
+ class ForeignKeyName(TableColumns):
+     """Hold a reference to a foreign key name."""
+ 
+@@ -155,7 +151,6 @@ class ForeignKeyName(TableColumns):
+         }
+         return self.create_fk_name(self.table, self.columns, suffix)
+ 
+-
+ class Statement(Reference):
+     """
+     Statement template and formatting parameters container.

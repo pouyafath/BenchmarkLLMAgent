@@ -1,0 +1,1148 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index c5757cc5..98d1f874 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -458,13 +458,45 @@ def profile_env(tmp_path, monkeypatch):
+ 
+ ## Testing
+ 
++**ALWAYS use `scripts/run_tests.sh`** — do not call `pytest` directly. The script enforces
++hermetic environment parity with CI (unset credential vars, TZ=UTC, LANG=C.UTF-8,
++4 xdist workers matching GHA ubuntu-latest). Direct `pytest` on a 16+ core
++developer machine with API keys set diverges from CI in ways that have caused
++multiple "works locally, fails in CI" incidents (and the reverse).
++
++```bash
++scripts/run_tests.sh                                  # full suite, CI-parity
++scripts/run_tests.sh tests/gateway/                   # one directory
++scripts/run_tests.sh tests/agent/test_foo.py::test_x  # one test
++scripts/run_tests.sh -v --tb=long                     # pass-through pytest flags
++```
++
++### Why the wrapper (and why the old "just call pytest" doesn't work)
++
++Five real sources of local-vs-CI drift the script closes:
++
++| | Without wrapper | With wrapper |
++|---|---|---|
++| Provider API keys | Whatever is in your env (auto-detects pool) | All `*_API_KEY`/`*_TOKEN`/etc. unset |
++| HOME / `~/.hermes/` | Your real config+auth.json | Temp dir per test |
++| Timezone | Local TZ (PDT etc.) | UTC |
++| Locale | Whatever is set | C.UTF-8 |
++| xdist workers | `-n auto` = all cores (20+ on a workstation) | `-n 4` matching CI |
++
++`tests/conftest.py` also enforces points 1-4 as an autouse fixture so ANY pytest
++invocation (including IDE integrations) gets hermetic behavior — but the wrapper
++is belt-and-suspenders.
++
++### Running without the wrapper (only if you must)
++
++If you can't use the wrapper (e.g. on Windows or inside an IDE that shells
++pytest directly), at minimum activate the venv and pass `-n 4`:
++
+ ```bash
+ source venv/bin/activate
+-python -m pytest tests/ -q          # Full suite (~3000 tests, ~3 min)
+-python -m pytest tests/test_model_tools.py -q   # Toolset resolution
+-python -m pytest tests/test_cli_init.py -q       # CLI config loading
+-python -m pytest tests/gateway/ -q               # Gateway tests
+-python -m pytest tests/tools/ -q                 # Tool-level tests
++python -m pytest tests/ -q -n 4
+ ```
+ 
++Worker count above 4 will surface test-ordering flakes that CI never sees.
++
+ Always run the full suite before pushing changes.
+diff --git a/cron/scheduler.py b/cron/scheduler.py
+index 9a0f561b..28c90571 100644
+--- a/cron/scheduler.py
++++ b/cron/scheduler.py
+@@ -27,7 +27,7 @@ except ImportError:
+     except ImportError:
+         msvcrt = None
+ from pathlib import Path
+-from typing import Optional
++from typing import List, Optional
+ 
+ # Add parent directory to path for imports BEFORE repo-level imports.
+ # Without this, standalone invocations (e.g. after `hermes update` reloads
+@@ -49,6 +49,25 @@ _KNOWN_DELIVERY_PLATFORMS = frozenset({
+     "qqbot",
+ })
+ 
++# Platforms that support a configured cron/notification home target, mapped to
++# the environment variable used by gateway setup/runtime config.
++_HOME_TARGET_ENV_VARS = {
++    "matrix": "MATRIX_HOME_ROOM",
++    "telegram": "TELEGRAM_HOME_CHANNEL",
++    "discord": "DISCORD_HOME_CHANNEL",
++    "slack": "SLACK_HOME_CHANNEL",
++    "signal": "SIGNAL_HOME_CHANNEL",
++    "mattermost": "MATTERMOST_HOME_CHANNEL",
++    "sms": "SMS_HOME_CHANNEL",
++    "email": "EMAIL_HOME_ADDRESS",
++    "dingtalk": "DINGTALK_HOME_CHANNEL",
++    "feishu": "FEISHU_HOME_CHANNEL",
++    "wecom": "WECOM_HOME_CHANNEL",
++    "weixin": "WEIXIN_HOME_CHANNEL",
++    "bluebubbles": "BLUEBUBBLES_HOME_CHANNEL",
++    "qqbot": "QQ_HOME_CHANNEL",
++}
++
+ from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_run
+ 
+ # Sentinel: when a cron agent has nothing new to report, it can start its
+@@ -76,15 +95,23 @@ def _resolve_origin(job: dict) -> Optional[dict]:
+     return None
+ 
+ 
+-def _resolve_delivery_target(job: dict) -> Optional[dict]:
+-    """Resolve the concrete auto-delivery target for a cron job, if any."""
+-    deliver = job.get("deliver", "local")
++def _get_home_target_chat_id(platform_name: str) -> str:
++    """Return the configured home target chat/room ID for a delivery platform."""
++    env_var = _HOME_TARGET_ENV_VARS.get(platform_name.lower())
++    if not env_var:
++        return ""
++    return os.getenv(env_var, "")
++
++
++def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[dict]:
++    """Resolve one concrete auto-delivery target for a cron job."""
++
+     origin = _resolve_origin(job)
+ 
+-    if deliver == "local":
++    if deliver_value == "local":
+         return None
+ 
+-    if deliver == "origin":
++    if deliver_value == "origin":
+         if origin:
+             return {
+                 "platform": origin["platform"],
+@@ -93,8 +120,8 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
+             }
+         # Origin missing (e.g. job created via API/script) — try each
+         # platform's home channel as a fallback instead of silently dropping.
+-        for platform_name in ("matrix", "telegram", "discord", "slack", "bluebubbles"):
+-            chat_id = os.getenv(f"{platform_name.upper()}_HOME_CHANNEL", "")
++        for platform_name in _HOME_TARGET_ENV_VARS:
++            chat_id = _get_home_target_chat_id(platform_name)
+             if chat_id:
+                 logger.info(
+                     "Job '%s' has deliver=origin but no origin; falling back to %s home channel",
+@@ -108,8 +135,8 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
+                 }
+         return None
+ 
+-    if ":" in deliver:
+-        platform_name, rest = deliver.split(":", 1)
++    if ":" in deliver_value:
++        platform_name, rest = deliver_value.split(":", 1)
+         platform_key = platform_name.lower()
+ 
+         from tools.send_message_tool import _parse_target_ref
+@@ -139,7 +166,7 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
+             "thread_id": thread_id,
+         }
+ 
+-    platform_name = deliver
++    platform_name = deliver_value
+     if origin and origin.get("platform") == platform_name:
+         return {
+             "platform": platform_name,
+@@ -149,7 +176,7 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
+ 
+     if platform_name.lower() not in _KNOWN_DELIVERY_PLATFORMS:
+         return None
+-    chat_id = os.getenv(f"{platform_name.upper()}_HOME_CHANNEL", "")
++    chat_id = _get_home_target_chat_id(platform_name)
+     if not chat_id:
+         return None
+ 
+@@ -160,6 +187,30 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
+     }
+ 
+ 
++def _resolve_delivery_targets(job: dict) -> List[dict]:
++    """Resolve all concrete auto-delivery targets for a cron job (supports comma-separated deliver)."""
++    deliver = job.get("deliver", "local")
++    if deliver == "local":
++        return []
++    parts = [p.strip() for p in str(deliver).split(",") if p.strip()]
++    seen = set()
++    targets = []
++    for part in parts:
++        target = _resolve_single_delivery_target(job, part)
++        if target:
++            key = (target["platform"].lower(), str(target["chat_id"]), target.get("thread_id"))
++            if key not in seen:
++                seen.add(key)
++                targets.append(target)
++    return targets
++
++
++def _resolve_delivery_target(job: dict) -> Optional[dict]:
++    """Resolve the concrete auto-delivery target for a cron job, if any."""
++    targets = _resolve_delivery_targets(job)
++    return targets[0] if targets else None
++
++
+ # Media extension sets — keep in sync with gateway/platforms/base.py:_process_message_background
+ _AUDIO_EXTS = frozenset({'.ogg', '.opus', '.mp3', '.wav', '.m4a'})
+ _VIDEO_EXTS = frozenset({'.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp'})
+@@ -200,7 +251,7 @@ def _send_media_via_adapter(adapter, chat_id: str, media_files: list, metadata:
+ 
+ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Optional[str]:
+     """
+-    Deliver job output to the configured target (origin chat, specific platform, etc.).
++    Deliver job output to the configured target(s) (origin chat, specific platform, etc.).
+ 
+     When ``adapters`` and ``loop`` are provided (gateway is running), tries to
+     use the live adapter first — this supports E2EE rooms (e.g. Matrix) where
+@@ -209,33 +260,14 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
+ 
+     Returns None on success, or an error string on failure.
+     """
+-    target = _resolve_delivery_target(job)
+-    if not target:
++    targets = _resolve_delivery_targets(job)
++    if not targets:
+         if job.get("deliver", "local") != "local":
+             msg = f"no delivery target resolved for deliver={job.get('deliver', 'local')}"
+             logger.warning("Job '%s': %s", job["id"], msg)
+             return msg
+         return None  # local-only jobs don't deliver — not a failure
+ 
+-    platform_name = target["platform"]
+-    chat_id = target["chat_id"]
+-    thread_id = target.get("thread_id")
+-
+-    # Diagnostic: log thread_id for topic-aware delivery debugging
+-    origin = job.get("origin") or {}
+-    origin_thread = origin.get("thread_id")
+-    if origin_thread and not thread_id:
+-        logger.warning(
+-            "Job '%s': origin has thread_id=%s but delivery target lost it "
+-            "(deliver=%s, target=%s)",
+-            job["id"], origin_thread, job.get("deliver", "local"), target,
+-        )
+-    elif thread_id:
+-        logger.debug(
+-            "Job '%s': delivering to %s:%s thread_id=%s",
+-            job["id"], platform_name, chat_id, thread_id,
+-        )
+-
+     from tools.send_message_tool import _send_to_platform
+     from gateway.config import load_gateway_config, Platform
+ 
+@@ -258,24 +290,6 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
+         "bluebubbles": Platform.BLUEBUBBLES,
+         "qqbot": Platform.QQBOT,
+     }
+-    platform = platform_map.get(platform_name.lower())
+-    if not platform:
+-        msg = f"unknown platform '{platform_name}'"
+-        logger.warning("Job '%s': %s", job["id"], msg)
+-        return msg
+-
+-    try:
+-        config = load_gateway_config()
+-    except Exception as e:
+-        msg = f"failed to load gateway config: {e}"
+-        logger.error("Job '%s': %s", job["id"], msg)
+-        return msg
+-
+-    pconfig = config.platforms.get(platform)
+-    if not pconfig or not pconfig.enabled:
+-        msg = f"platform '{platform_name}' not configured/enabled"
+-        logger.warning("Job '%s': %s", job["id"], msg)
+-        return msg
+ 
+     # Optionally wrap the content with a header/footer so the user knows this
+     # is a cron delivery.  Wrapping is on by default; set cron.wrap_response: false
+@@ -304,67 +318,117 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
+     from gateway.platforms.base import BasePlatformAdapter
+     media_files, cleaned_delivery_content = BasePlatformAdapter.extract_media(delivery_content)
+ 
+-    # Prefer the live adapter when the gateway is running — this supports E2EE
+-    # rooms (e.g. Matrix) where the standalone HTTP path cannot encrypt.
+-    runtime_adapter = (adapters or {}).get(platform)
+-    if runtime_adapter is not None and loop is not None and getattr(loop, "is_running", lambda: False)():
+-        send_metadata = {"thread_id": thread_id} if thread_id else None
+-        try:
+-            # Send cleaned text (MEDIA tags stripped) — not the raw content
+-            text_to_send = cleaned_delivery_content.strip()
+-            adapter_ok = True
+-            if text_to_send:
+-                future = asyncio.run_coroutine_threadsafe(
+-                    runtime_adapter.send(chat_id, text_to_send, metadata=send_metadata),
+-                    loop,
+-                )
+-                send_result = future.result(timeout=60)
+-                if send_result and not getattr(send_result, "success", True):
+-                    err = getattr(send_result, "error", "unknown")
+-                    logger.warning(
+-                        "Job '%s': live adapter send to %s:%s failed (%s), falling back to standalone",
+-                        job["id"], platform_name, chat_id, err,
+-                    )
+-                    adapter_ok = False  # fall through to standalone path
++    try:
++        config = load_gateway_config()
++    except Exception as e:
++        msg = f"failed to load gateway config: {e}"
++        logger.error("Job '%s': %s", job["id"], msg)
++        return msg
+ 
+-            # Send extracted media files as native attachments via the live adapter
+-            if adapter_ok and media_files:
+-                _send_media_via_adapter(runtime_adapter, chat_id, media_files, send_metadata, loop, job)
++    delivery_errors = []
+ 
+-            if adapter_ok:
+-                logger.info("Job '%s': delivered to %s:%s via live adapter", job["id"], platform_name, chat_id)
+-                return None
+-        except Exception as e:
++    for target in targets:
++        platform_name = target["platform"]
++        chat_id = target["chat_id"]
++        thread_id = target.get("thread_id")
++
++        # Diagnostic: log thread_id for topic-aware delivery debugging
++        origin = job.get("origin") or {}
++        origin_thread = origin.get("thread_id")
++        if origin_thread and not thread_id:
+             logger.warning(
+-                "Job '%s': live adapter delivery to %s:%s failed (%s), falling back to standalone",
+-                job["id"], platform_name, chat_id, e,
++                "Job '%s': origin has thread_id=%s but delivery target lost it "
++                "(deliver=%s, target=%s)",
++                job["id"], origin_thread, job.get("deliver", "local"), target,
++            )
++        elif thread_id:
++            logger.debug(
++                "Job '%s': delivering to %s:%s thread_id=%s",
++                job["id"], platform_name, chat_id, thread_id,
+             )
+ 
+-    # Standalone path: run the async send in a fresh event loop (safe from any thread)
+-    coro = _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files)
+-    try:
+-        result = asyncio.run(coro)
+-    except RuntimeError:
+-        # asyncio.run() checks for a running loop before awaiting the coroutine;
+-        # when it raises, the original coro was never started — close it to
+-        # prevent "coroutine was never awaited" RuntimeWarning, then retry in a
+-        # fresh thread that has no running loop.
+-        coro.close()
+-        import concurrent.futures
+-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+-            future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
+-            result = future.result(timeout=30)
+-    except Exception as e:
+-        msg = f"delivery to {platform_name}:{chat_id} failed: {e}"
+-        logger.error("Job '%s': %s", job["id"], msg)
+-        return msg
++        platform = platform_map.get(platform_name.lower())
++        if not platform:
++            msg = f"unknown platform '{platform_name}'"
++            logger.warning("Job '%s': %s", job["id"], msg)
++            delivery_errors.append(msg)
++            continue
+ 
+-    if result and result.get("error"):
+-        msg = f"delivery error: {result['error']}"
+-        logger.error("Job '%s': %s", job["id"], msg)
+-        return msg
++        # Prefer the live adapter when the gateway is running — this supports E2EE
++        # rooms (e.g. Matrix) where the standalone HTTP path cannot encrypt.
++        runtime_adapter = (adapters or {}).get(platform)
++        delivered = False
++        if runtime_adapter is not None and loop is not None and getattr(loop, "is_running", lambda: False)():
++            send_metadata = {"thread_id": thread_id} if thread_id else None
++            try:
++                # Send cleaned text (MEDIA tags stripped) — not the raw content
++                text_to_send = cleaned_delivery_content.strip()
++                adapter_ok = True
++                if text_to_send:
++                    future = asyncio.run_coroutine_threadsafe(
++                        runtime_adapter.send(chat_id, text_to_send, metadata=send_metadata),
++                        loop,
++                    )
++                    send_result = future.result(timeout=60)
++                    if send_result and not getattr(send_result, "success", True):
++                        err = getattr(send_result, "error", "unknown")
++                        logger.warning(
++                            "Job '%s': live adapter send to %s:%s failed (%s), falling back to standalone",
++                            job["id"], platform_name, chat_id, err,
++                        )
++                        adapter_ok = False  # fall through to standalone path
++
++                # Send extracted media files as native attachments via the live adapter
++                if adapter_ok and media_files:
++                    _send_media_via_adapter(runtime_adapter, chat_id, media_files, send_metadata, loop, job)
++
++                if adapter_ok:
++                    logger.info("Job '%s': delivered to %s:%s via live adapter", job["id"], platform_name, chat_id)
++                    delivered = True
++            except Exception as e:
++                logger.warning(
++                    "Job '%s': live adapter delivery to %s:%s failed (%s), falling back to standalone",
++                    job["id"], platform_name, chat_id, e,
++                )
++
++        if not delivered:
++            pconfig = config.platforms.get(platform)
++            if not pconfig or not pconfig.enabled:
++                msg = f"platform '{platform_name}' not configured/enabled"
++                logger.warning("Job '%s': %s", job["id"], msg)
++                delivery_errors.append(msg)
++                continue
++
++            # Standalone path: run the async send in a fresh event loop (safe from any thread)
++            coro = _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files)
++            try:
++                result = asyncio.run(coro)
++            except RuntimeError:
++                # asyncio.run() checks for a running loop before awaiting the coroutine;
++                # when it raises, the original coro was never started — close it to
++                # prevent "coroutine was never awaited" RuntimeWarning, then retry in a
++                # fresh thread that has no running loop.
++                coro.close()
++                import concurrent.futures
++                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
++                    future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
++                    result = future.result(timeout=30)
++            except Exception as e:
++                msg = f"delivery to {platform_name}:{chat_id} failed: {e}"
++                logger.error("Job '%s': %s", job["id"], msg)
++                delivery_errors.append(msg)
++                continue
++
++            if result and result.get("error"):
++                msg = f"delivery error: {result['error']}"
++                logger.error("Job '%s': %s", job["id"], msg)
++                delivery_errors.append(msg)
++                continue
++
++            logger.info("Job '%s': delivered to %s:%s", job["id"], platform_name, chat_id)
+ 
+-    logger.info("Job '%s': delivered to %s:%s", job["id"], platform_name, chat_id)
++    if delivery_errors:
++        return "; ".join(delivery_errors)
+     return None
+ 
+ 
+diff --git a/gateway/config.py b/gateway/config.py
+index 75cba733..1258e089 100644
+--- a/gateway/config.py
++++ b/gateway/config.py
+@@ -307,6 +307,14 @@ class GatewayConfig:
+             # QQBot uses extra dict for app credentials
+             elif platform == Platform.QQBOT and config.extra.get("app_id") and config.extra.get("client_secret"):
+                 connected.append(platform)
++            # DingTalk uses client_id/client_secret from config.extra or env vars
++            elif platform == Platform.DINGTALK and (
++                config.extra.get("client_id") or os.getenv("DINGTALK_CLIENT_ID")
++            ) and (
++                config.extra.get("client_secret") or os.getenv("DINGTALK_CLIENT_SECRET")
++            ):
++                connected.append(platform)
++        
+         return connected
+     
+     def get_home_channel(self, platform: Platform) -> Optional[HomeChannel]:
+diff --git a/gateway/platforms/dingtalk.py b/gateway/platforms/dingtalk.py
+index 923e6bd2..67c6ee8d 100644
+--- a/gateway/platforms/dingtalk.py
++++ b/gateway/platforms/dingtalk.py
+@@ -483,13 +483,39 @@ class _IncomingHandler(ChatbotHandler if DINGTALK_STREAM_AVAILABLE else object):
+         """Called by dingtalk-stream when a message arrives.
+ 
+         dingtalk-stream >= 0.24 passes a CallbackMessage whose `.data` contains
+-        the chatbot payload. Convert it to ChatbotMessage and await the adapter
+-        handler directly on the main event loop.
++        the chatbot payload. Convert it to ChatbotMessage via
++        ``ChatbotMessage.from_dict()``.
++
++        Message processing is dispatched as a background task so that this
++        method returns the ACK immediately — blocking here would prevent the
++        SDK from sending heartbeats, eventually causing a disconnect.
+         """
+         try:
+-            chatbot_msg = ChatbotMessage.from_dict(callback_message.data)
+-            await self._adapter._on_message(chatbot_msg)
++            data = callback_message.data
++            chatbot_msg = ChatbotMessage.from_dict(data)
++
++            # Ensure session_webhook is populated even if the SDK's
++            # from_dict() did not map it (field name mismatch across
++            # SDK versions).
++            if not getattr(chatbot_msg, "session_webhook", None):
++                webhook = (
++                    data.get("sessionWebhook")
++                    or data.get("session_webhook")
++                    or ""
++                )
++                if webhook:
++                    chatbot_msg.session_webhook = webhook
++
++            # Fire-and-forget: return ACK immediately, process in background.
++            asyncio.create_task(self._safe_on_message(chatbot_msg))
+         except Exception:
+-            logger.exception("[DingTalk] Error processing incoming message")
++            logger.exception("[DingTalk] Error preparing incoming message")
+ 
+         return dingtalk_stream.AckMessage.STATUS_OK, "OK"
++
++    async def _safe_on_message(self, chatbot_msg: "ChatbotMessage") -> None:
++        """Wrapper that catches exceptions from _on_message."""
++        try:
++            await self._adapter._on_message(chatbot_msg)
++        except Exception:
++            logger.exception("[DingTalk] Error processing incoming message")
+diff --git a/gateway/platforms/discord.py b/gateway/platforms/discord.py
+index bed3fa9c..79e70592 100644
+--- a/gateway/platforms/discord.py
++++ b/gateway/platforms/discord.py
+@@ -495,6 +495,7 @@ class DiscordAdapter(BasePlatformAdapter):
+         self._client: Optional[commands.Bot] = None
+         self._ready_event = asyncio.Event()
+         self._allowed_user_ids: set = set()  # For button approval authorization
++        self._allowed_role_ids: set = set()  # For DISCORD_ALLOWED_ROLES filtering
+         # Voice channel state (per-guild)
+         self._voice_clients: Dict[int, Any] = {}  # guild_id -> VoiceClient
+         # Text batching: merge rapid successive messages (Telegram-style)
+@@ -573,6 +574,15 @@ class DiscordAdapter(BasePlatformAdapter):
+                     if uid.strip()
+                 }
+ 
++            # Parse DISCORD_ALLOWED_ROLES — comma-separated role IDs.
++            # Users with ANY of these roles can interact with the bot.
++            roles_env = os.getenv("DISCORD_ALLOWED_ROLES", "")
++            if roles_env:
++                self._allowed_role_ids = {
++                    int(rid.strip()) for rid in roles_env.split(",")
++                    if rid.strip().isdigit()
++                }
++
+             # Set up intents.
+             # Message Content is required for normal text replies.
+             # Server Members is only needed when the allowlist contains usernames
+@@ -584,7 +594,10 @@ class DiscordAdapter(BasePlatformAdapter):
+             intents.message_content = True
+             intents.dm_messages = True
+             intents.guild_messages = True
+-            intents.members = any(not entry.isdigit() for entry in self._allowed_user_ids)
++            intents.members = (
++                any(not entry.isdigit() for entry in self._allowed_user_ids)
++                or bool(self._allowed_role_ids)  # Need members intent for role lookup
++            )
+             intents.voice_states = True
+ 
+             # Resolve proxy (DISCORD_PROXY > generic env vars > macOS system proxy)
+@@ -653,8 +666,8 @@ class DiscordAdapter(BasePlatformAdapter):
+                     # "all" falls through; bot is permitted — skip the
+                     # human-user allowlist below (bots aren't in it).
+                 else:
+-                    # Non-bot: enforce the configured user allowlist.
+-                    if not self._is_allowed_user(str(message.author.id)):
++                    # Non-bot: enforce the configured user/role allowlists.
++                    if not self._is_allowed_user(str(message.author.id), message.author):
+                         return
+                 
+                 # Multi-agent filtering: if the message mentions specific bots
+@@ -1365,11 +1378,48 @@ class DiscordAdapter(BasePlatformAdapter):
+             except OSError:
+                 pass
+ 
+-    def _is_allowed_user(self, user_id: str) -> bool:
+-        """Check if user is in DISCORD_ALLOWED_USERS."""
+-        if not self._allowed_user_ids:
++    def _is_allowed_user(self, user_id: str, author=None) -> bool:
++        """Check if user is allowed via DISCORD_ALLOWED_USERS or DISCORD_ALLOWED_ROLES.
++
++        Uses OR semantics: if the user matches EITHER allowlist, they're allowed.
++        If both allowlists are empty, everyone is allowed (backwards compatible).
++        When author is a Member, checks .roles directly; otherwise falls back
++        to scanning the bot's mutual guilds for a Member record.
++        """
++        # ``getattr`` fallbacks here guard against test fixtures that build
++        # an adapter via ``object.__new__(DiscordAdapter)`` and skip __init__
++        # (see AGENTS.md pitfall #17 — same pattern as gateway.run).
++        allowed_users = getattr(self, "_allowed_user_ids", set())
++        allowed_roles = getattr(self, "_allowed_role_ids", set())
++        has_users = bool(allowed_users)
++        has_roles = bool(allowed_roles)
++        if not has_users and not has_roles:
++            return True
++        # Check user ID allowlist
++        if has_users and user_id in allowed_users:
+             return True
+-        return user_id in self._allowed_user_ids
++        # Check role allowlist
++        if has_roles:
++            # Try direct role check from Member object
++            direct_roles = getattr(author, "roles", None) if author is not None else None
++            if direct_roles:
++                if any(getattr(r, "id", None) in allowed_roles for r in direct_roles):
++                    return True
++            # Fallback: scan mutual guilds for member's roles
++            if self._client is not None:
++                try:
++                    uid_int = int(user_id)
++                except (TypeError, ValueError):
++                    uid_int = None
++                if uid_int is not None:
++                    for guild in self._client.guilds:
++                        m = guild.get_member(uid_int)
++                        if m is None:
++                            continue
++                        m_roles = getattr(m, "roles", None) or []
++                        if any(getattr(r, "id", None) in allowed_roles for r in m_roles):
++                            return True
++        return False
+ 
+     async def send_image_file(
+         self,
+diff --git a/gateway/platforms/weixin.py b/gateway/platforms/weixin.py
+index f0b03efa..baf344ee 100644
+--- a/gateway/platforms/weixin.py
++++ b/gateway/platforms/weixin.py
+@@ -96,6 +96,8 @@ MEDIA_VIDEO = 2
+ MEDIA_FILE = 3
+ MEDIA_VOICE = 4
+ 
++_LIVE_ADAPTERS: Dict[str, Any] = {}
++
+ ITEM_TEXT = 1
+ ITEM_IMAGE = 2
+ ITEM_VOICE = 3
+@@ -1052,7 +1054,8 @@ class WeixinAdapter(BasePlatformAdapter):
+         self._hermes_home = hermes_home
+         self._token_store = ContextTokenStore(hermes_home)
+         self._typing_cache = TypingTicketCache()
+-        self._session: Optional[aiohttp.ClientSession] = None
++        self._poll_session: Optional[aiohttp.ClientSession] = None
++        self._send_session: Optional[aiohttp.ClientSession] = None
+         self._poll_task: Optional[asyncio.Task] = None
+         self._dedup = MessageDeduplicator(ttl_seconds=MESSAGE_DEDUP_TTL_SECONDS)
+ 
+@@ -1127,14 +1130,17 @@ class WeixinAdapter(BasePlatformAdapter):
+         except Exception as exc:
+             logger.debug("[%s] Token lock unavailable (non-fatal): %s", self.name, exc)
+ 
+-        self._session = aiohttp.ClientSession(trust_env=True)
++        self._poll_session = aiohttp.ClientSession(trust_env=True)
++        self._send_session = aiohttp.ClientSession(trust_env=True)
+         self._token_store.restore(self._account_id)
+         self._poll_task = asyncio.create_task(self._poll_loop(), name="weixin-poll")
+         self._mark_connected()
++        _LIVE_ADAPTERS[self._token] = self
+         logger.info("[%s] Connected account=%s base=%s", self.name, _safe_id(self._account_id), self._base_url)
+         return True
+ 
+     async def disconnect(self) -> None:
++        _LIVE_ADAPTERS.pop(self._token, None)
+         self._running = False
+         if self._poll_task and not self._poll_task.done():
+             self._poll_task.cancel()
+@@ -1143,15 +1149,18 @@ class WeixinAdapter(BasePlatformAdapter):
+             except asyncio.CancelledError:
+                 pass
+         self._poll_task = None
+-        if self._session and not self._session.closed:
+-            await self._session.close()
+-        self._session = None
++        if self._poll_session and not self._poll_session.closed:
++            await self._poll_session.close()
++        self._poll_session = None
++        if self._send_session and not self._send_session.closed:
++            await self._send_session.close()
++        self._send_session = None
+         self._release_platform_lock()
+         self._mark_disconnected()
+         logger.info("[%s] Disconnected", self.name)
+ 
+     async def _poll_loop(self) -> None:
+-        assert self._session is not None
++        assert self._poll_session is not None
+         sync_buf = _load_sync_buf(self._hermes_home, self._account_id)
+         timeout_ms = LONG_POLL_TIMEOUT_MS
+         consecutive_failures = 0
+@@ -1159,7 +1168,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         while self._running:
+             try:
+                 response = await _get_updates(
+-                    self._session,
++                    self._poll_session,
+                     base_url=self._base_url,
+                     token=self._token,
+                     sync_buf=sync_buf,
+@@ -1216,7 +1225,7 @@ class WeixinAdapter(BasePlatformAdapter):
+             logger.error("[%s] unhandled inbound error from=%s: %s", self.name, _safe_id(message.get("from_user_id")), exc, exc_info=True)
+ 
+     async def _process_message(self, message: Dict[str, Any]) -> None:
+-        assert self._session is not None
++        assert self._poll_session is not None
+         sender_id = str(message.get("from_user_id") or "").strip()
+         if not sender_id:
+             return
+@@ -1309,7 +1318,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         media = _media_reference(item, "image_item")
+         try:
+             data = await _download_and_decrypt_media(
+-                self._session,
++                self._poll_session,
+                 cdn_base_url=self._cdn_base_url,
+                 encrypted_query_param=media.get("encrypt_query_param"),
+                 aes_key_b64=(item.get("image_item") or {}).get("aeskey")
+@@ -1327,7 +1336,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         media = _media_reference(item, "video_item")
+         try:
+             data = await _download_and_decrypt_media(
+-                self._session,
++                self._poll_session,
+                 cdn_base_url=self._cdn_base_url,
+                 encrypted_query_param=media.get("encrypt_query_param"),
+                 aes_key_b64=media.get("aes_key"),
+@@ -1346,7 +1355,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         mime = _mime_from_filename(filename)
+         try:
+             data = await _download_and_decrypt_media(
+-                self._session,
++                self._poll_session,
+                 cdn_base_url=self._cdn_base_url,
+                 encrypted_query_param=media.get("encrypt_query_param"),
+                 aes_key_b64=media.get("aes_key"),
+@@ -1365,7 +1374,7 @@ class WeixinAdapter(BasePlatformAdapter):
+             return None
+         try:
+             data = await _download_and_decrypt_media(
+-                self._session,
++                self._poll_session,
+                 cdn_base_url=self._cdn_base_url,
+                 encrypted_query_param=media.get("encrypt_query_param"),
+                 aes_key_b64=media.get("aes_key"),
+@@ -1378,13 +1387,13 @@ class WeixinAdapter(BasePlatformAdapter):
+             return None
+ 
+     async def _maybe_fetch_typing_ticket(self, user_id: str, context_token: Optional[str]) -> None:
+-        if not self._session or not self._token:
++        if not self._poll_session or not self._token:
+             return
+         if self._typing_cache.get(user_id):
+             return
+         try:
+             response = await _get_config(
+-                self._session,
++                self._poll_session,
+                 base_url=self._base_url,
+                 token=self._token,
+                 user_id=user_id,
+@@ -1414,7 +1423,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         for attempt in range(self._send_chunk_retries + 1):
+             try:
+                 await _send_message(
+-                    self._session,
++                    self._send_session,
+                     base_url=self._base_url,
+                     token=self._token,
+                     to=chat_id,
+@@ -1449,7 +1458,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         reply_to: Optional[str] = None,
+         metadata: Optional[Dict[str, Any]] = None,
+     ) -> SendResult:
+-        if not self._session or not self._token:
++        if not self._send_session or not self._token:
+             return SendResult(success=False, error="Not connected")
+         context_token = self._token_store.get(self._account_id, chat_id)
+         last_message_id: Optional[str] = None
+@@ -1508,14 +1517,14 @@ class WeixinAdapter(BasePlatformAdapter):
+             return SendResult(success=False, error=str(exc))
+ 
+     async def send_typing(self, chat_id: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+-        if not self._session or not self._token:
++        if not self._send_session or not self._token:
+             return
+         typing_ticket = self._typing_cache.get(chat_id)
+         if not typing_ticket:
+             return
+         try:
+             await _send_typing(
+-                self._session,
++                self._send_session,
+                 base_url=self._base_url,
+                 token=self._token,
+                 to_user_id=chat_id,
+@@ -1526,14 +1535,14 @@ class WeixinAdapter(BasePlatformAdapter):
+             logger.debug("[%s] typing start failed for %s: %s", self.name, _safe_id(chat_id), exc)
+ 
+     async def stop_typing(self, chat_id: str) -> None:
+-        if not self._session or not self._token:
++        if not self._send_session or not self._token:
+             return
+         typing_ticket = self._typing_cache.get(chat_id)
+         if not typing_ticket:
+             return
+         try:
+             await _send_typing(
+-                self._session,
++                self._send_session,
+                 base_url=self._base_url,
+                 token=self._token,
+                 to_user_id=chat_id,
+@@ -1585,7 +1594,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         caption: str = "",
+         metadata: Optional[Dict[str, Any]] = None,
+     ) -> SendResult:
+-        if not self._session or not self._token:
++        if not self._send_session or not self._token:
+             return SendResult(success=False, error="Not connected")
+         try:
+             message_id = await self._send_file(chat_id, file_path, caption)
+@@ -1602,7 +1611,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         reply_to: Optional[str] = None,
+         metadata: Optional[Dict[str, Any]] = None,
+     ) -> SendResult:
+-        if not self._session or not self._token:
++        if not self._send_session or not self._token:
+             return SendResult(success=False, error="Not connected")
+         try:
+             message_id = await self._send_file(chat_id, video_path, caption or "")
+@@ -1619,7 +1628,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         reply_to: Optional[str] = None,
+         metadata: Optional[Dict[str, Any]] = None,
+     ) -> SendResult:
+-        if not self._session or not self._token:
++        if not self._send_session or not self._token:
+             return SendResult(success=False, error="Not connected")
+ 
+         # Native outbound Weixin voice bubbles are not proven-working in the
+@@ -1644,8 +1653,8 @@ class WeixinAdapter(BasePlatformAdapter):
+         if not is_safe_url(url):
+             raise ValueError(f"Blocked unsafe URL (SSRF protection): {url}")
+ 
+-        assert self._session is not None
+-        async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
++        assert self._send_session is not None
++        async with self._send_session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+             response.raise_for_status()
+             data = await response.read()
+             suffix = Path(url.split("?", 1)[0]).suffix or ".bin"
+@@ -1660,7 +1669,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         caption: str,
+         force_file_attachment: bool = False,
+     ) -> str:
+-        assert self._session is not None and self._token is not None
++        assert self._send_session is not None and self._token is not None
+         plaintext = Path(path).read_bytes()
+         media_type, item_builder = self._outbound_media_builder(path, force_file_attachment=force_file_attachment)
+         filekey = secrets.token_hex(16)
+@@ -1668,7 +1677,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         rawsize = len(plaintext)
+         rawfilemd5 = hashlib.md5(plaintext).hexdigest()
+         upload_response = await _get_upload_url(
+-            self._session,
++            self._send_session,
+             base_url=self._base_url,
+             token=self._token,
+             to_user_id=chat_id,
+@@ -1694,7 +1703,7 @@ class WeixinAdapter(BasePlatformAdapter):
+             raise RuntimeError(f"getUploadUrl returned neither upload_param nor upload_full_url: {upload_response}")
+ 
+         encrypted_query_param = await _upload_ciphertext(
+-            self._session,
++            self._send_session,
+             ciphertext=ciphertext,
+             upload_url=upload_url,
+         )
+@@ -1722,7 +1731,7 @@ class WeixinAdapter(BasePlatformAdapter):
+         if caption:
+             last_message_id = f"hermes-weixin-{uuid.uuid4().hex}"
+             await _send_message(
+-                self._session,
++                self._send_session,
+                 base_url=self._base_url,
+                 token=self._token,
+                 to=chat_id,
+@@ -1733,7 +1742,7 @@ class WeixinAdapter(BasePlatformAdapter):
+ 
+         last_message_id = f"hermes-weixin-{uuid.uuid4().hex}"
+         await _api_post(
+-            self._session,
++            self._send_session,
+             base_url=self._base_url,
+             endpoint=EP_SEND_MESSAGE,
+             payload={
+@@ -1857,6 +1866,33 @@ async def send_weixin_direct(
+     token_store.restore(account_id)
+     context_token = token_store.get(account_id, chat_id)
+ 
++    live_adapter = _LIVE_ADAPTERS.get(resolved_token)
++    send_session = getattr(live_adapter, '_send_session', None)
++    if live_adapter is not None and send_session is not None and not send_session.closed:
++        last_result: Optional[SendResult] = None
++        cleaned = live_adapter.format_message(message)
++        if cleaned:
++            last_result = await live_adapter.send(chat_id, cleaned)
++            if not last_result.success:
++                return {"error": f"Weixin send failed: {last_result.error}"}
++
++        for media_path, _is_voice in media_files or []:
++            ext = Path(media_path).suffix.lower()
++            if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}:
++                last_result = await live_adapter.send_image_file(chat_id, media_path)
++            else:
++                last_result = await live_adapter.send_document(chat_id, media_path)
++            if not last_result.success:
++                return {"error": f"Weixin media send failed: {last_result.error}"}
++
++        return {
++            "success": True,
++            "platform": "weixin",
++            "chat_id": chat_id,
++            "message_id": last_result.message_id if last_result else None,
++            "context_token_used": bool(context_token),
++        }
++
+     async with aiohttp.ClientSession(trust_env=True) as session:
+         adapter = WeixinAdapter(
+             PlatformConfig(
+@@ -1870,6 +1906,7 @@ async def send_weixin_direct(
+                 },
+             )
+         )
++        adapter._send_session = session
+         adapter._session = session
+         adapter._token = resolved_token
+         adapter._account_id = account_id
+diff --git a/gateway/run.py b/gateway/run.py
+index 261fecbf..9b979686 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -2655,6 +2655,18 @@ class GatewayRunner:
+             if allow_bots in ("mentions", "all"):
+                 return True
+ 
++        # Discord role-based access (DISCORD_ALLOWED_ROLES): the adapter's
++        # on_message pre-filter already verified role membership — if the
++        # message reached here, the user passed that check. Authorize
++        # directly to avoid the "no allowlists configured" branch below
++        # rejecting role-only setups where DISCORD_ALLOWED_USERS is empty
++        # (issue #7871).
++        if (
++            source.platform == Platform.DISCORD
++            and os.getenv("DISCORD_ALLOWED_ROLES", "").strip()
++        ):
++            return True
++
+         # Check pairing store (always checked, regardless of allowlists)
+         platform_name = source.platform.value if source.platform else ""
+         if self.pairing_store.is_approved(platform_name, user_id):
+diff --git a/hermes_cli/tools_config.py b/hermes_cli/tools_config.py
+index 8bfbc059..8e4bde88 100644
+--- a/hermes_cli/tools_config.py
++++ b/hermes_cli/tools_config.py
+@@ -512,7 +512,7 @@ def _get_platform_tools(
+     """Resolve which individual toolset names are enabled for a platform."""
+     from toolsets import resolve_toolset
+ 
+-    platform_toolsets = config.get("platform_toolsets", {})
++    platform_toolsets = config.get("platform_toolsets") or {}
+     toolset_names = platform_toolsets.get(platform)
+ 
+     if toolset_names is None or not isinstance(toolset_names, list):
+diff --git a/scripts/release.py b/scripts/release.py
+index ccbb4f2d..fedc924e 100755
+--- a/scripts/release.py
++++ b/scripts/release.py
+@@ -70,6 +70,7 @@ AUTHOR_MAP = {
+     "27917469+nosleepcassette@users.noreply.github.com": "nosleepcassette",
+     "241404605+MestreY0d4-Uninter@users.noreply.github.com": "MestreY0d4-Uninter",
+     "109555139+davetist@users.noreply.github.com": "davetist",
++    "39405770+yyq4193@users.noreply.github.com": "yyq4193",
+     "Asunfly@users.noreply.github.com": "Asunfly",
+     # contributors (manual mapping from git names)
+     "ahmedsherif95@gmail.com": "asheriif",
+@@ -181,6 +182,7 @@ AUTHOR_MAP = {
+     "juan.ovalle@mistral.ai": "jjovalle99",
+     "julien.talbot@ergonomia.re": "Julientalbot",
+     "kagura.chen28@gmail.com": "kagura-agent",
++    "1342088860@qq.com": "youngDoo",
+     "kamil@gwozdz.me": "kamil-gwozdz",
+     "karamusti912@gmail.com": "MustafaKara7",
+     "kira@ariaki.me": "kira-ariaki",
+@@ -237,12 +239,15 @@ AUTHOR_MAP = {
+     "mbelleau@Michels-MacBook-Pro.local": "malaiwah",
+     "michel.belleau@malaiwah.com": "malaiwah",
+     "gnanasekaran.sekareee@gmail.com": "gnanam1990",
++    "jz.pentest@gmail.com": "0xyg3n",
+     "dhandhalyabhavik@gmail.com": "v1k22",
+     "rucchizhao@zhaochenfeideMacBook-Pro.local": "RucchiZ",
+     "lehaolin98@outlook.com": "LehaoLin",
+     "yuewang1@microsoft.com": "imink",
+     "1736355688@qq.com": "hedgeho9X",
+     "bernylinville@devopsthink.org": "bernylinville",
++    "brian@bde.io": "briandevans",
++    "hubin_ll@qq.com": "LLQWQ",
+ }
+ 
+ 
+diff --git a/scripts/run_tests.sh b/scripts/run_tests.sh
+new file mode 100755
+index 00000000..0ad2dc46
+--- /dev/null
++++ b/scripts/run_tests.sh
+@@ -0,0 +1,104 @@
++#!/usr/bin/env bash
++# Canonical test runner for hermes-agent. Run this instead of calling
++# `pytest` directly to guarantee your local run matches CI behavior.
++#
++# What this script enforces:
++#   * -n 4 xdist workers (CI has 4 cores; -n auto diverges locally)
++#   * TZ=UTC, LANG=C.UTF-8, PYTHONHASHSEED=0 (deterministic)
++#   * Credential env vars blanked (conftest.py also does this, but this
++#     is belt-and-suspenders for anyone running `pytest` outside of
++#     our conftest path — e.g. calling pytest on a single file)
++#   * Proper venv activation
++#
++# Usage:
++#   scripts/run_tests.sh                     # full suite
++#   scripts/run_tests.sh tests/agent/        # one directory
++#   scripts/run_tests.sh tests/agent/test_foo.py::TestClass::test_method
++#   scripts/run_tests.sh --tb=long -v        # pass-through pytest args
++
++set -euo pipefail
++
++# ── Locate repo root ────────────────────────────────────────────────────────
++# Works whether this is the main checkout or a worktree.
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
++
++# ── Activate venv ───────────────────────────────────────────────────────────
++# Prefer a .venv in the current tree, fall back to the main checkout's venv
++# (useful for worktrees where we don't always duplicate the venv).
++VENV=""
++for candidate in "$REPO_ROOT/.venv" "$REPO_ROOT/venv" "$HOME/.hermes/hermes-agent/venv"; do
++  if [ -f "$candidate/bin/activate" ]; then
++    VENV="$candidate"
++    break
++  fi
++done
++
++if [ -z "$VENV" ]; then
++  echo "error: no virtualenv found in $REPO_ROOT/.venv or $REPO_ROOT/venv" >&2
++  exit 1
++fi
++
++PYTHON="$VENV/bin/python"
++
++# ── Ensure pytest-split is installed (required for shard-equivalent runs) ──
++if ! "$PYTHON" -c "import pytest_split" 2>/dev/null; then
++  echo "→ installing pytest-split into $VENV"
++  "$PYTHON" -m pip install --quiet "pytest-split>=0.9,<1"
++fi
++
++# ── Hermetic environment ────────────────────────────────────────────────────
++# Mirror what CI does in .github/workflows/tests.yml + what conftest.py does.
++# Unset every credential-shaped var currently in the environment.
++while IFS='=' read -r name _; do
++  case "$name" in
++    *_API_KEY|*_TOKEN|*_SECRET|*_PASSWORD|*_CREDENTIALS|*_ACCESS_KEY| \
++    *_SECRET_ACCESS_KEY|*_PRIVATE_KEY|*_OAUTH_TOKEN|*_WEBHOOK_SECRET| \
++    *_ENCRYPT_KEY|*_APP_SECRET|*_CLIENT_SECRET|*_CORP_SECRET|*_AES_KEY| \
++    AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|FAL_KEY| \
++    GH_TOKEN|GITHUB_TOKEN)
++      unset "$name"
++      ;;
++  esac
++done < <(env)
++
++# Unset HERMES_* behavioral vars too.
++unset HERMES_YOLO_MODE HERMES_INTERACTIVE HERMES_QUIET HERMES_TOOL_PROGRESS \
++      HERMES_TOOL_PROGRESS_MODE HERMES_MAX_ITERATIONS HERMES_SESSION_PLATFORM \
++      HERMES_SESSION_CHAT_ID HERMES_SESSION_CHAT_NAME HERMES_SESSION_THREAD_ID \
++      HERMES_SESSION_SOURCE HERMES_SESSION_KEY HERMES_GATEWAY_SESSION \
++      HERMES_PLATFORM HERMES_INFERENCE_PROVIDER HERMES_MANAGED HERMES_DEV \
++      HERMES_CONTAINER HERMES_EPHEMERAL_SYSTEM_PROMPT HERMES_TIMEZONE \
++      HERMES_REDACT_SECRETS HERMES_BACKGROUND_NOTIFICATIONS HERMES_EXEC_ASK \
++      HERMES_HOME_MODE 2>/dev/null || true
++
++# Pin deterministic runtime.
++export TZ=UTC
++export LANG=C.UTF-8
++export LC_ALL=C.UTF-8
++export PYTHONHASHSEED=0
++
++# ── Worker count ────────────────────────────────────────────────────────────
++# CI uses `-n auto` on ubuntu-latest which gives 4 workers. A 20-core
++# workstation with `-n auto` gets 20 workers and exposes test-ordering
++# flakes that CI will never see. Pin to 4 so local matches CI.
++WORKERS="${HERMES_TEST_WORKERS:-4}"
++
++# ── Run pytest ──────────────────────────────────────────────────────────────
++cd "$REPO_ROOT"
++
++# If the first argument starts with `-` treat all args as pytest flags;
++# otherwise treat them as test paths.
++ARGS=("$@")
++
++echo "▶ running pytest with $WORKERS workers, hermetic env, in $REPO_ROOT"
++echo "  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; all credential env vars unset)"
++
++# -o "addopts=" clears pyproject.toml's `-n auto` so our -n wins.
++exec "$PYTHON" -m pytest \
++  -o "addopts=" \
++  -n "$WORKERS" \
++  --ignore=tests/integration \
++  --ignore=tests/e2e \
++  -m "not integration" \
++  "${ARGS[@]}"
+diff --git a/tools/send_message_tool.py b/tools/send_message_tool.py
+index 4bc93ce4..bb274768 100644
+--- a/tools/send_message_tool.py
++++ b/tools/send_message_tool.py
+@@ -215,7 +215,27 @@ def _handle_send(args):
+ 
+     pconfig = config.platforms.get(platform)
+     if not pconfig or not pconfig.enabled:
+-        return tool_error(f"Platform '{platform_name}' is not configured. Set up credentials in ~/.hermes/config.yaml or environment variables.")
++        # Weixin can be configured purely via .env; synthesize a pconfig so
++        # send_message and cron delivery work without a gateway.yaml entry.
++        if platform_name == "weixin":
++            import os
++            wx_token = os.getenv("WEIXIN_TOKEN", "").strip()
++            wx_account = os.getenv("WEIXIN_ACCOUNT_ID", "").strip()
++            if wx_token and wx_account:
++                from gateway.config import PlatformConfig
++                pconfig = PlatformConfig(
++                    enabled=True,
++                    token=wx_token,
++                    extra={
++                        "account_id": wx_account,
++                        "base_url": os.getenv("WEIXIN_BASE_URL", "").strip(),
++                        "cdn_base_url": os.getenv("WEIXIN_CDN_BASE_URL", "").strip(),
++                    },
++                )
++            else:
++                return tool_error(f"Platform '{platform_name}' is not configured. Set up credentials in ~/.hermes/config.yaml or environment variables.")
++        else:
++            return tool_error(f"Platform '{platform_name}' is not configured. Set up credentials in ~/.hermes/config.yaml or environment variables.")
+ 
+     from gateway.platforms.base import BasePlatformAdapter
+ 
+@@ -225,6 +245,12 @@ def _handle_send(args):
+     used_home_channel = False
+     if not chat_id:
+         home = config.get_home_channel(platform)
++        if not home and platform_name == "weixin":
++            import os
++            wx_home = os.getenv("WEIXIN_HOME_CHANNEL", "").strip()
++            if wx_home:
++                from gateway.config import HomeChannel
++                home = HomeChannel(platform=platform, chat_id=wx_home, name="Weixin Home")
+         if home:
+             chat_id = home.chat_id
+             used_home_channel = True

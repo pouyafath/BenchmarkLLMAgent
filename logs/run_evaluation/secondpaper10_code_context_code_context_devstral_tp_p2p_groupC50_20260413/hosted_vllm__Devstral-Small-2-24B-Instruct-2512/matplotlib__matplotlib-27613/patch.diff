@@ -1,0 +1,93 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..bd30493771 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -201,6 +201,70 @@ validate_string = _make_type_validator(str)
+ validate_string_or_None = _make_type_validator(str, allow_none=True)
+ validate_stringlist = _listify_validator(
+     validate_string, doc='return a list of strings')
++
++def validate_marker(s):
++    """
++    Validate a marker specification.
++
++    Accepts:
++    - strings (e.g., '+', '.', 'o')
++    - integers (e.g., 0, 1, 2, ..., 11 for special markers)
++    - Path objects
++    - MarkerStyle objects
++    - tuples for regular polygons/stars (e.g., (5, 0, 45))
++    - array-like for custom vertices
++    """
++    from collections.abc import Sized
++    import numpy as np
++
++    # Try to import Path and MarkerStyle, but handle circular imports
++    Path = None
++    MarkerStyle = None
++    try:
++        from matplotlib.path import Path
++    except (ImportError, AttributeError):
++        pass
++    try:
++        from matplotlib.markers import MarkerStyle
++    except (ImportError, AttributeError):
++        pass
++
++    # Build list of types to check
++    type_list = []
++    if MarkerStyle is not None:
++        type_list.append(MarkerStyle)
++    if Path is not None:
++        type_list.append(Path)
++    type_tuple = tuple(type_list) if type_list else ()
++
++    # Already a valid marker object
++    if type_tuple and isinstance(s, type_tuple):
++        return s
++    # Integer marker codes
++    elif isinstance(s, int):
++        return s
++    # String marker
++    elif isinstance(s, str):
++        return s
++    # Tuple for regular polygon/star
++    elif isinstance(s, tuple):
++        return s
++    # Array-like for custom vertices
++    elif isinstance(s, np.ndarray):
++        return s
++    # Sized for tuple-like objects
++    elif isinstance(s, Sized):
++        return s
++    else:
++        # Try to convert to Path for custom markers
++        if Path is not None:
++            try:
++                return Path(s)
++            except (TypeError, ValueError):
++                pass
++        raise ValueError(f'Could not convert {s!r} to a valid marker')
++
++validate_markerlist = _listify_validator(validate_marker, doc='return a list of markers')
+ validate_int = _make_type_validator(int)
+ validate_int_or_None = _make_type_validator(int, allow_none=True)
+ validate_float = _make_type_validator(float)
+@@ -645,7 +709,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }
+@@ -908,7 +972,7 @@ _validators = {
+     "lines.linewidth":       validate_float,  # line width in points
+     "lines.linestyle":       _validate_linestyle,  # solid line
+     "lines.color":           validate_color,  # first color in color cycle
+-    "lines.marker":          validate_string,  # marker name
++    "lines.marker":          validate_marker,  # marker name
+     "lines.markerfacecolor": validate_color_or_auto,  # default color
+     "lines.markeredgecolor": validate_color_or_auto,  # default color
+     "lines.markeredgewidth": validate_float,

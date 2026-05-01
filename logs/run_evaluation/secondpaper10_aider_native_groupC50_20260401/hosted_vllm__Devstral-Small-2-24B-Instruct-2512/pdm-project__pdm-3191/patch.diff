@@ -1,0 +1,41 @@
+diff --git a/src/pdm/models/in_process/__init__.py b/src/pdm/models/in_process/__init__.py
+index 54bb9434..ad4ee7ce 100644
+--- a/src/pdm/models/in_process/__init__.py
++++ b/src/pdm/models/in_process/__init__.py
+@@ -36,9 +36,14 @@ def get_sys_config_paths(executable: str, vars: dict[str, str] | None = None, ki
+ 
+ def parse_setup_py(executable: str, path: str) -> dict[str, Any]:
+     """Parse setup.py and return the kwargs"""
++    from pdm.core import importlib_metadata
++
++    required_libs = ["setuptools"]
++    shared_libs = {str(importlib_metadata.distribution(lib).locate_file("")) for lib in required_libs}
++
+     with _in_process_script("parse_setup.py") as script:
+         _, outfile = tempfile.mkstemp(suffix=".json")
+-        cmd = [executable, "-Es", script, path, outfile]
++        cmd = [executable, "-EsS", script, path, outfile, *shared_libs]
+         subprocess.check_call(cmd)
+         with open(outfile, "rb") as fp:
+             return json.load(fp)
+diff --git a/src/pdm/models/in_process/parse_setup.py b/src/pdm/models/in_process/parse_setup.py
+index 57198673..1e52ab96 100644
+--- a/src/pdm/models/in_process/parse_setup.py
++++ b/src/pdm/models/in_process/parse_setup.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import os
++import site
+ import sys
+ from typing import Any
+ 
+@@ -215,5 +216,8 @@ if __name__ == "__main__":
+     import json
+ 
+     outfile = sys.argv[2]
++    # Add shared libraries to the path if provided
++    for shared_lib in sys.argv[3:]:
++        site.addsitedir(shared_lib)
+     with open(outfile, "w") as f:
+         json.dump(parse_setup(sys.argv[1]), f, default=json_default)

@@ -1,0 +1,276 @@
+diff --git a/src/instructlab/configuration.py b/src/instructlab/configuration.py
+--- a/src/instructlab/configuration.py
++++ b/src/instructlab/configuration.py
+@@ -1,478 +1,478 @@
+ # SPDX-License-Identifier: Apache-2.0
+
+ # Standard
+ from os import path
+-from re import match
+ from typing import Optional
+ import os
+ import sys
+ import typing
+
+ # Third Party
+ # pylint: disable=ungrouped-imports
+ from instructlab.training import (
+     DeepSpeedOptions,
+     LoraOptions,
+     TorchrunArgs,
+     TrainingArgs,
+ )
+ from pydantic import (
+     BaseModel,
+     ConfigDict,
+     Field,
+     PositiveInt,
+     StrictStr,
+     ValidationError,
+     field_validator,
+     model_validator,
+ )
+ import click
+ import httpx
+ import platformdirs
+ import yaml
+
+ # Local
+ from . import log
+
+ ILAB_PACKAGE_NAME = "instructlab"
+ CONFIG_FILENAME = "config.yaml"
+
+
+ class STORAGE_DIR_NAMES:
+     ILAB = "instructlab"
+     DATASETS = "datasets"
+     CHECKPOINTS = "checkpoints"
+     MODELS = "models"
+     TAXONOMY = "taxonomy"
+     INTERNAL = (
+         "internal"  # for storing all ilab-internal files the user doesn't need to see
+     )
+     CHATLOGS = "chatlogs"
+
+
+ class _InstructlabDefaults:
+     """
+     Class that defines the default paths used by ilab.
+     We define them this way so that they can be lazy-loaded and overridden by tests.
+     This way, they are defined when they are read instead of when the module is imported.
+     """
+
+     # define static defaults up here
+     API_KEY = "no_api_key"
+
+     # TODO: Consolidate --model and --model-path into one --model-path flag since we always need a path now
+     MODEL_NAME_OLD = "merlinite-7b-lab-Q4_K_M"
+     MERLINITE_GGUF_REPO = "instructlab/merlinite-7b-lab-GGUF"
+     GGUF_MODEL_NAME = "merlinite-7b-lab-Q4_K_M.gguf"
+     MODEL_REPO = "instructlab/granite-7b-lab"
+     JUDGE_MODEL_MT = "prometheus-eval/prometheus-8x7b-v2.0"
+     TAXONOMY_REPO = "https://github.com/instructlab/taxonomy.git"
+     TAXONOMY_BASE = "origin/main"
+     MAX_CONTEXT_SIZE = 4096
+     # TODO: these constants should be removed, they should not leak out
+     NUM_CPUS = 10
+     CHUNK_WORD_COUNT = 1000
+     NUM_INSTRUCTIONS = 100
+     CONNECTION_TIMEOUT = httpx.Timeout(timeout=30.0)
+     # use spawn start method, fork is not thread-safe
+     MULTIPROCESSING_START_METHOD = "spawn"
+
+     # When otherwise unknown, ilab uses this as the default family
+     MODEL_FAMILY = "merlinite"
+
+     def __init__(self):
+         self._reset()
+
+     def _reset(self):
+         """
+         Utility function which is mostly used for testing purposes to clear the cache.
+         Otherwise, all tests will used cached temporary directories and cause errors.
+         """
+         pd = platformdirs.PlatformDirs(appname=ILAB_PACKAGE_NAME)
+         self._cache_home = pd.user_cache_dir
+         self._config_dir = pd.user_config_dir
+         self._data_dir = pd.user_data_dir
+
+     @property
+     def CHECKPOINTS_DIR(self) -> str:
+         return path.join(self._cache_home, STORAGE_DIR_NAMES.CHECKPOINTS)
+
+     @property
+     def DATASETS_DIR(self) -> str:
+         return path.join(self._data_dir, STORAGE_DIR_NAMES.DATASETS)
+
+     @property
+     def CONFIG_FILE(self) -> str:
+         return path.join(self._config_dir, CONFIG_FILENAME)
+
+     @property
+     def MODELS_DIR(self) -> str:
+         return path.join(self._data_dir, STORAGE_DIR_NAMES.MODELS)
+
+     @property
+     def DEFAULT_MODEL(self) -> str:
+         return path.join(self.MODELS_DIR, self.GGUF_MODEL_NAME)
+
+     @property
+     def TAXONOMY_DIR(self) -> str:
+         return path.join(self._data_dir, STORAGE_DIR_NAMES.TAXONOMY)
+
+     @property
+     def CHATLOGS_DIR(self) -> str:
+         return path.join(self._data_dir, STORAGE_DIR_NAMES.CHATLOGS)
+
+     @property
+     def INTERNAL_DIR(self) -> str:
+         """
+         This directory is used for storing all misc. files that the user doesn't need to see.
+
+         For example, during training we output an intermediate dataset with the tokenized
+         instructions and the generated responses.
+         Usually this gets outputted into /dev/shm, however this may not be an option on every system,
+         so we would store it in here as a fall-back.
+         """
+         return path.join(self._data_dir, STORAGE_DIR_NAMES.INTERNAL)
+
+     @property
+     def PROMPT_FILE(self) -> str:
+         return path.join(self.INTERNAL_DIR, "prompt.txt")
+
+     @property
+     def SEED_FILE(self) -> str:
+         return path.join(self.INTERNAL_DIR, "seed_tasks.json")
+
+     @property
+     def EVAL_DATA_DIR(self) -> str:
+         return path.join(self.INTERNAL_DIR, "eval_data")
+
+     @property
+     def TRAIN_CONFIG_DIR(self) -> str:
+         return path.join(self.INTERNAL_DIR, "train_configuration")
+
+     @property
+     def TRAIN_PROFILE_DIR(self) -> str:
+         return path.join(self.TRAIN_CONFIG_DIR, "profiles")
+
+     @property
+     def TRAIN_ADDITIONAL_OPTIONS_DIR(self) -> str:
+         return path.join(self.TRAIN_CONFIG_DIR, "additional")
+
+     @property
+     def TRAIN_ADDITIONAL_OPTIONS_FILE(self) -> str:
+         return path.join(self.TRAIN_ADDITIONAL_OPTIONS_DIR, "additional_args.yaml")
+
+     @property
+     def TRAIN_DEFAULT_PROFILE(self) -> str:
+         return path.join(self.TRAIN_PROFILE_DIR, "default.yaml")
+
+ DEFAULTS = _InstructlabDefaults()
+
+
+ # Model families understood by ilab
+ MODEL_FAMILIES = {"merlinite", "mixtral"}
+
+ # Map model names to their family
+ MODEL_FAMILY_MAPPINGS = {
+     "granite": "merlinite",
+ }
+
+
+ class ConfigException(Exception):
+     """An exception that a configuration file has an error."""
+
+
+
+ class _general(BaseModel):
+     """Class describing various top-level configuration options for all commands."""
+
+     # model configuration
+     model_config = ConfigDict(extra="ignore")
+
+     # additional fields with defaults
+     log_level: StrictStr = "INFO"
+     debug_level: int = 0
+
+     @field_validator("log_level")
+     def validate_log_level(cls, v):
+         # TODO: remove 'valid_levels' once we switch to support Python 3.11+ and call
+         # "logging.getLevelNamesMapping()" instead
+         valid_levels = [
+             "DEBUG",
+             "INFO",
+             "WARNING",
+             "ERROR",
+             "CRITICAL",
+         ]
+         if v.upper() not in valid_levels:
+             raise ValueError(
+                 f"Invalid log level: {v}. Valid levels are: {', '.join(valid_levels)}"
+             )
+         return v
+ 
+     @model_validator("model_config")
+     def validate_model_config(cls, values):
+         if "model_name" not in values:
+             raise ConfigException("Missing 'model_name' in model_config")
+         if "model_family" not in values:
+             values["model_family"] = MODEL_FAMILY_MAPPINGS.get(values["model_name"], DEFAULTS.MODEL_FAMILY)
+         return values
+
+
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,10 +1,11 @@
+ ## v0.18
+
+ ### Features
+
+ * `ilab model download` now stores models in `~/.cache/instructlab`
+ * A new `ilab system info` command has been added to provide system-related information.
+ * Add [vLLM](https://github.com/vllm-project/vllm) backend to serve, chat and generate commands.
+ * Add `--backend` flag to `ilab model serve` command to allow for specifying the backend to use
+   when serving a model. This is useful when you have multiple backends installed and want to
+   specify which one to use. Currently, the only supported backends are `llama-cpp` and `vllm`.
+ * Update `llama-cpp-python` to latest upstream release 0.2.79 to address poor
+   results of synthetic data generation and local training.
+ * Adding `ilab model evaluate` which uses the new backend serving functionality.  Evaluate offers
+   two standard benchmarks (mt-bench and mmlu) as well as two variations (mt-bench-branch and
+   mmlu-branch) which are integrated with the ilab workflow to evaluate new skills and knowledge.
+   Includes --gpus option for specifying number of gpus to utilize when serving models for
+   evaluation (currently applicable for vLLM only).  Also includes --merge-system-user-message
+   flag to enable Mistral based judge models and a --enable-serving-output flag that
+   configures whether the output of the model serving backend is suppressed.
+ * The `ilab` command now accepts a `-v` / `--verbose` option to enable debug logging.
+   `ilab -vv` or `ilab --verbose --verbose` enables more verbose debug logging.
+ * `ilab model test` generic support
+ * Add `--chat-template` option to `ilab model serve` to support customization of the chat
+   template for both vLLM and llama.cpp backends. Options include 'auto' (current behavior, ilab
+   provides its own template), 'tokenizer' (uses the model's tokenizer config), and an external
+   file name.
+ * Default log format changes to include the logger name in the logs.
+ * Introduces CUDA-specific requirements in a new file `requirements-cuda.txt`. To install these
+   CUDA-enabled dependencies, simply run `pip install instructlab[cuda]`.
+
+ ### Breaking Changes
+
+ * `ilab`: **Deprecation of Python 3.9 support and withdrawal of Python 3.12 support** Due to changes to training requiring the usage of [GPTDolomite](https://github.com/instructlab/GPTDolomite), Python 3.9 is no longer supported and Python 3.12 support is currently withdrawn. If you are using either of these versions, you will need to start using either Python 3.10 or Python 3.11 to use this and subsequent versions of the CLI.
+ * `ilab model train`: The '--device' parameter no longer supports specifying a GPU index (e.g., 'cuda:0'). To use a specific GPU, set the visible GPU before running the train command.
+ * `ilab init`: With the introduction of a dedicated storage system within the `ilab` CLI,
+    `ilab init` and `ilab config init` will now output and read the config file from the
+    platform's config directory under the `instructlab` package.
+ * `ilab taxonomy` and `ilab data`: The `ilab` CLI now uses the platform's dedicated data directory to store
+    the taxonomy under the `instructlab/taxonomy` directory as a default.
+ * `ilab data`: The default directory for new datasets is now under `instructlab/datasets` in the
+    platform's dedicated data directory under the `instructlab` package.
+ * `ilab model`: The default location for saved and downloaded models is now under `instructlab/models`
+    in the platform's dedicated data directory under the `instructlab` package. Outputted
+    checkpoints now live in the `instructlab/checkpoints` directory under the platform's dedicated
+    program cache directory.
+ * `ilab model chat`: Chatlogs are now stored under the `instructlab/checkpoints` directory in the
+    platform's dedicated data directory under the `instructlab` package.

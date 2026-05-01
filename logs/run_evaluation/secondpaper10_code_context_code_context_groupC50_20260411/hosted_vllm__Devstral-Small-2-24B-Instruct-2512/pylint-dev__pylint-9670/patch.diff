@@ -1,0 +1,72 @@
+diff --git a/pylint/checkers/base/basic_error_checker.py b/pylint/checkers/base/basic_error_checker.py
+index e58be2309..d462ec1e3 100644
+--- a/pylint/checkers/base/basic_error_checker.py
++++ b/pylint/checkers/base/basic_error_checker.py
+@@ -285,8 +285,8 @@ class BasicErrorChecker(_BasicChecker):
+                     self.add_message("return-in-init", node=node)
+         # Check for duplicate names by clustering args with same name for detailed report
+         arg_clusters = {}
+-        arguments: Iterator[Any] = filter(None, [node.args.args, node.args.kwonlyargs])
+-        for arg in itertools.chain.from_iterable(arguments):
++        # Check positional-or-keyword arguments
++        for arg in node.args.args:
+             if arg.name in arg_clusters:
+                 self.add_message(
+                     "duplicate-argument-name",
+@@ -296,7 +296,55 @@ class BasicErrorChecker(_BasicChecker):
+                 )
+             else:
+                 arg_clusters[arg.name] = arg
+-
++        
++        # Check positional-only arguments
++        for arg in node.args.posonlyargs:
++            if arg.name in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=arg,
++                    args=(arg.name,),
++                    confidence=HIGH,
++                )
++            else:
++                arg_clusters[arg.name] = arg
++        
++        # Check keyword-only arguments
++        for arg in node.args.kwonlyargs:
++            if arg.name in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=arg,
++                    args=(arg.name,),
++                    confidence=HIGH,
++                )
++            else:
++                arg_clusters[arg.name] = arg
++        
++        # Check varargs (*args)
++        if node.args.vararg:
++            if node.args.vararg in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=node,
++                    args=(node.args.vararg,),
++                    confidence=HIGH,
++                )
++            else:
++                arg_clusters[node.args.vararg] = node
++        
++        # Check kwargs (**kwargs)
++        if node.args.kwarg:
++            if node.args.kwarg in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=node,
++                    args=(node.args.kwarg,),
++                    confidence=HIGH,
++                )
++            else:
++                arg_clusters[node.args.kwarg] = node
++        
+     visit_asyncfunctiondef = visit_functiondef
+ 
+     def _check_name_used_prior_global(self, node: nodes.FunctionDef) -> None:

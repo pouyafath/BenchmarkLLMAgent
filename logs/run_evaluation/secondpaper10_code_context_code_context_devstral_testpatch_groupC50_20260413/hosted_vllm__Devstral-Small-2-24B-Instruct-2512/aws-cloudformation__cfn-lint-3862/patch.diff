@@ -1,0 +1,335 @@
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..d29974cad 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -789,6 +789,7 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+         return self._glob_filenames(filenames)
+ 
+     def _glob_filenames(self, filenames: Sequence[str]) -> list[str]:
++        """Expand glob patterns to find matching files."""
+         # handle different shells and Config files
+         # some shells don't expand * and configparser won't expand wildcards
+         all_filenames = []
+@@ -801,8 +802,13 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+             else:
+                 LOGGER.error(f"{filename} could not be processed by glob.glob")
+ 
++        # Check if any files were found
++        if not all_filenames and not self.ignore_bad_template:
++            raise ValueError(f"{filename} could not be processed by glob.glob") from None
++
+         return sorted(list(map(str, map(Path, all_filenames))))
+ 
++
+     @property
+     def append_rules(self):
+         return [_DEFAULT_RULESDIR] + self._get_argument_value(
+diff --git a/src/cfnlint/data/CfnLintCli/config/schema.json b/src/cfnlint/data/CfnLintCli/config/schema.json
+index eb8974c8f..a0e4b21f8 100644
+--- a/src/cfnlint/data/CfnLintCli/config/schema.json
++++ b/src/cfnlint/data/CfnLintCli/config/schema.json
+@@ -1,125 +1,129 @@
+ {
+- "$id": "https://github.com/aws-cloudformation/cfn-python-lint/blob/main/src/cfnlint/data/CfnLintCli/config/schema.json",
+- "$schema": "http://json-schema.org/draft-07/schema#",
+- "additionalProperties": false,
+- "description": "CFNLINTRC configuration schema",
+- "properties": {
+-  "append_rules": {
+-   "description": "Location of directories to append rules from",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "configure_rules": {
+-   "additionalProperties": false,
+-   "description": "Configure rules",
+-   "patternProperties": {
+-    "^.*$": {
+-     "patternProperties": {
+-      "^.*$": {
+-       "anyOf": [
+-        {
+-         "type": "string"
+-        },
+-        {
+-         "type": "integer"
+-        },
+-        {
+-         "type": "boolean"
+-        },
+-        {
+-         "items": {
+-          "type": "string"
+-         },
+-         "type": "array"
+-        },
+-        {
+-         "items": {
+-          "type": "integer"
+-         },
+-         "type": "array"
+-        },
+-        {
+-         "items": {
+-          "type": "string"
+-         },
+-         "type": "boolean"
++  "$id": "https://github.com/aws-cloudformation/cfn-python-lint/blob/main/src/cfnlint/data/CfnLintCli/config/schema.json",
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "additionalProperties": false,
++  "description": "CFNLINTRC configuration schema",
++  "properties": {
++    "append_rules": {
++      "description": "Location of directories to append rules from",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "configure_rules": {
++      "additionalProperties": false,
++      "description": "Configure rules",
++      "patternProperties": {
++        "^.*$": {
++          "patternProperties": {
++            "^.*$": {
++              "anyOf": [
++                {
++                  "type": "string"
++                },
++                {
++                  "type": "integer"
++                },
++                {
++                  "type": "boolean"
++                },
++                {
++                  "items": {
++                    "type": "string"
++                  },
++                  "type": "array"
++                },
++                {
++                  "items": {
++                    "type": "integer"
++                  },
++                  "type": "array"
++                },
++                {
++                  "items": {
++                    "type": "string"
++                  },
++                  "type": "boolean"
++                }
++              ]
++            }
++          },
++          "type": "object"
+         }
+-       ]
+-      }
+-     },
+-     "type": "object"
++      },
++      "type": "object"
++    },
++    "custom_rules": {
++      "description": "custom rule file to use",
++      "type": "string"
++    },
++    "ignore_checks": {
++      "description": "List of checks to ignore",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "ignore_templates": {
++      "description": "Templates to ignore",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "include_checks": {
++      "description": "List of checks to include",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "mandatory_checks": {
++      "description": "List of mandatory checks to enforce",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "merge_configs": {
++      "description": "Merges lists between configuration layers",
++      "type": "boolean"
++    },
++    "output_file": {
++      "description": "Path to the file to write the main output to",
++      "type": "string"
++    },
++    "override_spec": {
++      "description": "Path to spec file to override with",
++      "type": "string"
++    },
++    "regions": {
++      "description": "Regions to test against",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "registry_schemas": {
++      "description": "One or more directories of CloudFormation Registry Resource Schemas",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "templates": {
++      "description": "Templates to lint",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "ignore_bad_template": {
++      "description": "Ignore bad templates",
++      "type": "boolean"
+     }
+-   },
+-   "type": "object"
+-  },
+-  "custom_rules": {
+-   "description": "custom rule file to use",
+-   "type": "string"
+-  },
+-  "ignore_checks": {
+-   "description": "List of checks to ignore",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "ignore_templates": {
+-   "description": "Templates to ignore",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "include_checks": {
+-   "description": "List of checks to include",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "mandatory_checks": {
+-   "description": "List of mandatory checks to enforce",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "merge_configs": {
+-   "description": "Merges lists between configuration layers",
+-   "type": "boolean"
+-  },
+-  "output_file": {
+-   "description": "Path to the file to write the main output to",
+-   "type": "string"
+-  },
+-  "override_spec": {
+-   "description": "Path to spec file to override with",
+-   "type": "string"
+-  },
+-  "regions": {
+-   "description": "Regions to test against",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "registry_schemas": {
+-   "description": "One or more directories of CloudFormation Registry Resource Schemas",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+   },
+-  "templates": {
+-   "description": "Templates to lint",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  }
+- },
+- "title": "CFNLINTRC JSON Schema",
+- "type": "object"
+-}
++  "title": "CFNLINTRC JSON Schema",
++  "type": "object"
++}
+\ No newline at end of file
+diff --git a/src/cfnlint/rules/errors/__init__.py b/src/cfnlint/rules/errors/__init__.py
+index 142af3703..b380bbaba 100644
+--- a/src/cfnlint/rules/errors/__init__.py
++++ b/src/cfnlint/rules/errors/__init__.py
+@@ -6,3 +6,4 @@ SPDX-License-Identifier: MIT-0
+ from cfnlint.rules.errors.parse import ParseError
+ from cfnlint.rules.errors.rule import RuleError
+ from cfnlint.rules.errors.transform import TransformError
++from cfnlint.rules.errors.config import ConfigError
+diff --git a/src/cfnlint/runner.py b/src/cfnlint/runner.py
+index e1954650c..bdc727b32 100644
+--- a/src/cfnlint/runner.py
++++ b/src/cfnlint/runner.py
+@@ -446,12 +446,37 @@ class Runner:
+         except CfnLintExitException as e:
+             LOGGER.error(str(e))
+             sys.exit(e.exit_code)
++        except ValueError as e:
++            # Handle configuration errors (e.g., missing template files)
++            from cfnlint.rules.errors import ConfigError
++            from cfnlint.match import Match
++            match = Match(ConfigError(), str(e), None, "None:1:1")
++            formatter = get_formatter(self.config)
++            output = formatter.print_matches([match], self.rules, config=self.config)
++            if output:
++                print(output)
++            sys.exit(2)
+ 
+ 
+ def main() -> None:
+     config = ConfigMixIn(sys.argv[1:])
+-    runner = Runner(config)
+-    runner.cli()
++    try:
++        runner = Runner(config)
++        runner.cli()
++    except ValueError as e:
++        # Handle configuration errors (e.g., missing template files)
++        from cfnlint.rules.errors import ConfigError
++        from cfnlint.match import Match
++        config_error = ConfigError()
++        match = Match.create(str(e), None, config_error, 1, 1)
++        formatter = get_formatter(config)
++        # Create a dummy rules object for formatting
++        from cfnlint.rules import RulesCollection
++        rules = RulesCollection([config_error])
++        output = formatter.print_matches([match], rules, config=config)
++        if output:
++            print(output)
++        sys.exit(2)
+ 
+ 
+ class CfnLintExitException(Exception):

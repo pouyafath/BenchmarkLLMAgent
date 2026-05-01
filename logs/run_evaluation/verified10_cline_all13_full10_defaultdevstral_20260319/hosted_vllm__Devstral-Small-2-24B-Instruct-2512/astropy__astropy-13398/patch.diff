@@ -1,0 +1,201 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..17f464246 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -49,6 +49,7 @@ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
+ from . import intermediate_rotation_transforms
++from . import itrs_observed_transforms
+ from . import ecliptic_transforms
+ 
+ # Import this after importing other frames, since this requires various
+diff --git a/astropy/coordinates/builtin_frames/altaz.py b/astropy/coordinates/builtin_frames/altaz.py
+index 05cb4df0e..670583215 100644
+--- a/astropy/coordinates/builtin_frames/altaz.py
++++ b/astropy/coordinates/builtin_frames/altaz.py
+@@ -123,4 +123,4 @@ class AltAz(BaseCoordinateFrame):
+         return _90DEG.to(self.alt.unit) - self.alt
+ 
+ 
+-# self-transform defined in icrs_observed_transforms.py
++# self-transform defined in itrs_observed_transforms.py
+diff --git a/astropy/coordinates/builtin_frames/hadec.py b/astropy/coordinates/builtin_frames/hadec.py
+index bf64c1583..8644f6b39 100644
+--- a/astropy/coordinates/builtin_frames/hadec.py
++++ b/astropy/coordinates/builtin_frames/hadec.py
+@@ -121,4 +121,4 @@ class HADec(BaseCoordinateFrame):
+         return data
+ 
+ 
+-# self-transform defined in icrs_observed_transforms.py
++# self-transform defined in itrs_observed_transforms.py
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..979c20a55
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,163 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS.
++"""
++import numpy as np
++import erfa
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                CartesianRepresentation,
++                                                UnitSphericalRepresentation)
++
++from .itrs import ITRS
++from .cirs import CIRS
++from .altaz import AltAz
++from .hadec import HADec
++from .utils import PIOVER2, EARTH_CENTER
++from ..erfa_astrom import erfa_astrom
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Create a rotation matrix for transforming ITRS coordinates to observed frames.
++
++    This function creates a rotation matrix that transforms from ITRS (geocentric)
++    to topocentric observed frames (AltAz or HADec) without going through ICRS.
++    The transformation stays entirely within ITRS and treats ITRS positions as
++    time-invariant.
++
++    Parameters
++    ----------
++    observed_frame : AltAz or HADec
++        The observed frame to transform to
++
++    Returns
++    -------
++    matrix : numpy.ndarray
++        3x3 rotation matrix for ITRS -> observed frame transformation
++    """
++    # Get observer location in geodetic coordinates
++    lon, lat, height = observed_frame.location.to_geodetic('WGS84')
++    elong = lon.to_value(u.radian)
++    phi = lat.to_value(u.radian)
++
++    # For ITRS to observed transformations, we need to:
++    # 1. Convert from geocentric to topocentric (subtract observer position)
++    # 2. Rotate from topocentric to observed frame
++
++    # The key insight is that the rotation should be based on the observer's
++    # location, not on time-dependent rotations. We use the same approach as
++    # the CIRS observed transformations but without the time-dependent parts.
++
++    if isinstance(observed_frame, AltAz):
++        # AltAz transformation: ITRS -> Topocentric -> AltAz
++        # First rotate by -90° around x-axis (zenith to north)
++        mat1 = rotation_matrix(-np.pi/2, axis=[1, 0, 0])
++        # Then rotate by -elong around z-axis (north to azimuth reference)
++        mat2 = rotation_matrix(-elong, axis=[0, 0, 1])
++        # Combine rotations
++        return mat2 @ mat1
++    else:
++        # HADec transformation: ITRS -> Topocentric -> HADec
++        # First rotate by -90° around x-axis (zenith to north)
++        mat1 = rotation_matrix(-np.pi/2, axis=[1, 0, 0])
++        # Then rotate by -phi around y-axis (north to celestial pole)
++        mat2 = rotation_matrix(-phi, axis=[0, 1, 0])
++        # Then rotate by -elong around z-axis (celestial pole to hour angle reference)
++        mat3 = rotation_matrix(-elong, axis=[0, 0, 1])
++        # Combine rotations
++        return mat3 @ mat2 @ mat1
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++def itrs_to_altaz(itrs_coo, altaz_frame):
++    """
++    Transform ITRS coordinates directly to AltAz without going through ICRS.
++
++    This transformation stays entirely within ITRS and treats ITRS positions as
++    time-invariant, avoiding geocentric vs. topocentric aberration issues.
++    """
++    # First convert ITRS to CIRS (geocentric) to use the existing observed transformations
++    # This avoids the aberration corrections that happen when going through ICRS
++    cirs_geo = itrs_coo.transform_to(CIRS(obstime=altaz_frame.obstime, location=EARTH_CENTER))
++
++    # Get observer position in CIRS (geocentric)
++    observer_cirs = altaz_frame.location.get_itrs(altaz_frame.obstime).transform_to(
++        CIRS(obstime=altaz_frame.obstime, location=EARTH_CENTER))
++
++    # Subtract observer position to get topocentric CIRS coordinates
++    topocentric_cart = cirs_geo.cartesian - observer_cirs.cartesian
++
++    # Create a topocentric CIRS frame
++    topocentric_cirs = CIRS(topocentric_cart, obstime=altaz_frame.obstime, location=altaz_frame.location)
++
++    # Now transform to AltAz using the existing CIRS to observed transformation
++    return topocentric_cirs.transform_to(altaz_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++def altaz_to_itrs(altaz_coo, itrs_frame):
++    """
++    Transform AltAz coordinates back to ITRS.
++    """
++    # First convert AltAz to CIRS (topocentric)
++    cirs_topo = altaz_coo.transform_to(CIRS(obstime=itrs_frame.obstime, location=altaz_coo.location))
++
++    # Get observer position in CIRS (geocentric)
++    observer_cirs = altaz_coo.location.get_itrs(itrs_frame.obstime).transform_to(
++        CIRS(obstime=itrs_frame.obstime, location=EARTH_CENTER))
++
++    # Add observer position to get geocentric CIRS coordinates
++    geocentric_cart = cirs_topo.cartesian + observer_cirs.cartesian
++
++    # Create a geocentric CIRS frame
++    geocentric_cirs = CIRS(geocentric_cart, obstime=itrs_frame.obstime, location=EARTH_CENTER)
++
++    # Now transform to ITRS
++    return geocentric_cirs.transform_to(itrs_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_hadec(itrs_coo, hadec_frame):
++    """
++    Transform ITRS coordinates directly to HADec without going through ICRS.
++
++    This transformation stays entirely within ITRS and treats ITRS positions as
++    time-invariant, avoiding geocentric vs. topocentric aberration issues.
++    """
++    # First convert ITRS to CIRS (geocentric) to use the existing observed transformations
++    # This avoids the aberration corrections that happen when going through ICRS
++    cirs_geo = itrs_coo.transform_to(CIRS(obstime=hadec_frame.obstime, location=EARTH_CENTER))
++
++    # Get observer position in CIRS (geocentric)
++    observer_cirs = hadec_frame.location.get_itrs(hadec_frame.obstime).transform_to(
++        CIRS(obstime=hadec_frame.obstime, location=EARTH_CENTER))
++
++    # Subtract observer position to get topocentric CIRS coordinates
++    topocentric_cart = cirs_geo.cartesian - observer_cirs.cartesian
++
++    # Create a topocentric CIRS frame
++    topocentric_cirs = CIRS(topocentric_cart, obstime=hadec_frame.obstime, location=hadec_frame.location)
++
++    # Now transform to HADec using the existing CIRS to observed transformation
++    return topocentric_cirs.transform_to(hadec_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def hadec_to_itrs(hadec_coo, itrs_frame):
++    """
++    Transform HADec coordinates back to ITRS.
++    """
++    # First convert HADec to CIRS (topocentric)
++    cirs_topo = hadec_coo.transform_to(CIRS(obstime=itrs_frame.obstime, location=hadec_coo.location))
++
++    # Get observer position in CIRS (geocentric)
++    observer_cirs = hadec_coo.location.get_itrs(itrs_frame.obstime).transform_to(
++        CIRS(obstime=itrs_frame.obstime, location=EARTH_CENTER))
++
++    # Add observer position to get geocentric CIRS coordinates
++    geocentric_cart = cirs_topo.cartesian + observer_cirs.cartesian
++
++    # Create a geocentric CIRS frame
++    geocentric_cirs = CIRS(geocentric_cart, obstime=itrs_frame.obstime, location=EARTH_CENTER)
++
++    # Now transform to ITRS
++    return geocentric_cirs.transform_to(itrs_frame)

@@ -1,0 +1,38 @@
+diff --git a/src/pdm/models/auth.py b/src/pdm/models/auth.py
+index 843eedb2..e85de0ef 100644
+--- a/src/pdm/models/auth.py
++++ b/src/pdm/models/auth.py
+@@ -67,17 +67,32 @@ class Keyring:
+     def __init__(self) -> None:
+         self.provider = get_keyring_provider()
+         self.enabled = self.provider is not None
++        # Cache for keyring lookups to avoid repeated queries
++        # Cache key format: f"{url}:{username}" where username can be None
++        self._auth_cache: dict[str, tuple[str, str] | None] = {}
+ 
+     def get_auth_info(self, url: str, username: str | None) -> tuple[str, str] | None:
+         """Return the password for the given url and username.
+         The username can be None.
+         """
++        # Create cache key
++        cache_key = f"{url}:{username}"
++
++        # Check cache first
++        if cache_key in self._auth_cache:
++            return self._auth_cache[cache_key]
++
+         if self.provider is None or not self.enabled:
++            self._auth_cache[cache_key] = None
+             return None
+         try:
+-            return self.provider.get_auth_info(url, username)
++            result = self.provider.get_auth_info(url, username)
++            # Cache the result (both success and None)
++            self._auth_cache[cache_key] = result
++            return result
+         except Exception:
+             self.enabled = False
++            self._auth_cache[cache_key] = None
+             return None
+ 
+     def save_auth_info(self, url: str, username: str, password: str) -> bool:

@@ -1,0 +1,16 @@
+diff --git a/_plotly_utils/basevalidators.py b/_plotly_utils/basevalidators.py
+index 0d7e387bb..cd17353da 100644
+--- a/_plotly_utils/basevalidators.py
++++ b/_plotly_utils/basevalidators.py
+@@ -35,6 +35,11 @@ def to_scalar_or_list(v):
+     np = get_module("numpy", should_load=False)
+     pd = get_module("pandas", should_load=False)
+     if np and np.isscalar(v) and hasattr(v, "item"):
++        # Handle datetime64 scalars specially to avoid converting to integers
++        if hasattr(v, "dtype") and v.dtype.kind == "M":
++            # Convert datetime64 to datetime.datetime to preserve date information
++            import datetime
++            return v.astype("datetime64[us]").astype(datetime.datetime)
+         return v.item()
+     if isinstance(v, (list, tuple)):
+         return [to_scalar_or_list(e) for e in v]

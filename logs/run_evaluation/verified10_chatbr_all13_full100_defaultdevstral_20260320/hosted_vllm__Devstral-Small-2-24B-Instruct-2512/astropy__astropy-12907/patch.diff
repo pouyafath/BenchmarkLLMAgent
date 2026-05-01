@@ -1,0 +1,32 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..056746249 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -207,12 +207,21 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = 1
+     else:
+-        mat = np.zeros((noutp, model.n_inputs))
+-
+-        for i in range(model.n_inputs):
+-            mat[i, i] = 1
+-        if pos == 'right':
+-            mat = np.roll(mat, (noutp - model.n_outputs))
++        # For CompoundModels, use the actual separability matrix
++        if isinstance(model, CompoundModel):
++            sep_matrix = _separable(model)
++            mat = np.zeros((noutp, model.n_inputs))
++            if pos == 'left':
++                mat[:model.n_outputs, :model.n_inputs] = sep_matrix
++            else:
++                mat[-model.n_outputs:, -model.n_inputs:] = sep_matrix
++        else:
++            # For simple separable models, create diagonal matrix
++            mat = np.zeros((noutp, model.n_inputs))
++            for i in range(model.n_inputs):
++                mat[i, i] = 1
++            if pos == 'right':
++                mat = np.roll(mat, (noutp - model.n_outputs))
+     return mat
+ 
+ 

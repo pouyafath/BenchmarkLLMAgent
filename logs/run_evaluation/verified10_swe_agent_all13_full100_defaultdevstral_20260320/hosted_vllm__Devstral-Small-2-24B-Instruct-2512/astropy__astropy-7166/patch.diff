@@ -1,0 +1,55 @@
+diff --git a/astropy/utils/misc.py b/astropy/utils/misc.py
+index de3fb01d1..44cc6c78a 100644
+--- a/astropy/utils/misc.py
++++ b/astropy/utils/misc.py
+@@ -526,20 +526,40 @@ class InheritDocstrings(type):
+                 (key.startswith('__') and key.endswith('__')
+                  and len(key) > 4) or
+                 not key.startswith('_'))
+-
+-        for key, val in dct.items():
+-            if (inspect.isfunction(val) and
+-                is_public_member(key) and
+-                val.__doc__ is None):
++        
++        super().__init__(name, bases, dct)
++        
++        for key in list(dct.keys()):
++            if not is_public_member(key):
++                continue
++            
++            # Get the descriptor from the class dict
++            descriptor = cls.__dict__.get(key)
++            if descriptor is None:
++                continue
++            
++            # Check if it's a callable or a descriptor with __get__
++            # This covers: functions, methods, staticmethods, classmethods, properties
++            is_callable = inspect.isfunction(descriptor) or callable(descriptor)
++            is_descriptor = hasattr(descriptor, '__get__')
++            is_property = isinstance(descriptor, property)
++            
++            if (is_callable or is_descriptor or is_property) and descriptor.__doc__ is None:
+                 for base in cls.__mro__[1:]:
+                     super_method = getattr(base, key, None)
+                     if super_method is not None:
+-                        val.__doc__ = super_method.__doc__
++                        # For classmethods and properties, we need to set the docstring
++                        # on the underlying function/property
++                        if hasattr(descriptor, '__func__'):
++                            # classmethod or other descriptor with __func__
++                            descriptor.__func__.__doc__ = super_method.__doc__
++                        elif isinstance(descriptor, property):
++                            # property - set on the property object itself
++                            descriptor.__doc__ = super_method.__doc__
++                        else:
++                            # regular function or staticmethod
++                            descriptor.__doc__ = super_method.__doc__
+                         break
+-
+-        super().__init__(name, bases, dct)
+-
+-
+ class OrderedDescriptor(metaclass=abc.ABCMeta):
+     """
+     Base class for descriptors whose order in the class body should be

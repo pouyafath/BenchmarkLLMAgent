@@ -1,0 +1,62 @@
+diff --git a/checkov/terraform/checks/module/generic/RevisionVersionTag.py b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+index 14626ecf0..40dd3e41c 100644
+--- a/checkov/terraform/checks/module/generic/RevisionVersionTag.py
++++ b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+@@ -8,7 +8,8 @@ from checkov.terraform.checks.module.base_module_check import BaseModuleCheck
+ from .RevisionHash import check as RevisionHashCheck
+ 
+ VERSION_PATTERN = re.compile(r"[?&](ref=).*(\d\.\d).*")
+-
++# Updated pattern to accept major.minor or major.minor.patch versions
++VERSION_NUMBER_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
+ 
+ class RevisionVersionTag(BaseModuleCheck):
+     def __init__(self) -> None:
+@@ -30,7 +31,13 @@ class RevisionVersionTag(BaseModuleCheck):
+             if ("?ref" in source_url or "&ref" in source_url) and re.search(VERSION_PATTERN, source_url):
+                 return CheckResult.PASSED
+ 
+-        return CheckResult.FAILED
++        # Check for pinned version in Terraform Registry modules
++        version = conf.get("version")
++        if version and isinstance(version, list) and len(version) > 0:
++            version_value = version[0]
++            if isinstance(version_value, str) and re.search(VERSION_NUMBER_PATTERN, version_value):
++                return CheckResult.PASSED
+ 
++        return CheckResult.FAILED
+ 
+ check = RevisionVersionTag()
+diff --git a/tests/terraform/checks/module/generic/test_RevisionVersionTag.py b/tests/terraform/checks/module/generic/test_RevisionVersionTag.py
+index 505fa5790..53885dbe0 100644
+--- a/tests/terraform/checks/module/generic/test_RevisionVersionTag.py
++++ b/tests/terraform/checks/module/generic/test_RevisionVersionTag.py
+@@ -5,7 +5,6 @@ from checkov.runner_filter import RunnerFilter
+ from checkov.terraform.checks.module.generic.RevisionVersionTag import check
+ from checkov.terraform.runner import Runner
+ 
+-
+ class TestRevisionVersionTag(unittest.TestCase):
+     def test(self):
+         # given
+@@ -21,11 +20,11 @@ class TestRevisionVersionTag(unittest.TestCase):
+             "hash",
+             "sub_dir_hash",
+             "tag",
+-            "shallow_clone"
++            "shallow_clone",
++            "tf_registry",  # Updated: tf_registry now passes due to pinned version
+         }
+         failing_resources = {
+             "looks_like_a_branch",
+-            "tf_registry",
+         }
+ 
+         passed_check_resources = {c.resource for c in report.passed_checks}
+@@ -39,6 +38,5 @@ class TestRevisionVersionTag(unittest.TestCase):
+         self.assertEqual(passing_resources, passed_check_resources)
+         self.assertEqual(failing_resources, failed_check_resources)
+ 
+-
+ if __name__ == "__main__":
+     unittest.main()

@@ -1,0 +1,220 @@
+diff --git a/src/cfnlint/rules/resources/PrimaryIdentifiers.py b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+index bf3305c44..87ba35e20 100644
+--- a/src/cfnlint/rules/resources/PrimaryIdentifiers.py
++++ b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+@@ -13,14 +13,12 @@ from cfnlint.rules import CloudFormationLintRule, RuleMatch
+ from cfnlint.schema import PROVIDER_SCHEMA_MANAGER, ResourceNotFoundError
+ from cfnlint.template import Template
+ 
+-
+ @dataclass
+ class _Seen:
+     conditions: Dict[str, Set[bool]] = field(init=True, default_factory=dict)
+     resources: Set[str] = field(init=True, default_factory=set)
+     instance: Dict[str, Any] = field(init=True, default_factory=dict)
+ 
+-
+ class PrimaryIdentifiers(CloudFormationLintRule):
+     id = "E3019"
+     shortdesc = "Validate that all resources have unique primary identifiers"
+@@ -129,6 +127,96 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+ 
+         return matches
+ 
++    def _validate_create_only_properties_uniqueness(self, cfn, resource_type, create_only_props):
++        """Validate that createOnlyProperties have unique values across resources"""
++        matches = []
++        seens = []
++
++        # Only validate specific resource types that have known issues
++        if resource_type == "AWS::CodeBuild::Project":
++            # For CodeBuild projects, check the Name property
++            prop_name = "Name"
++            if prop_name not in create_only_props:
++                return matches
++
++            for resource_name, resource_attributes in cfn.get_resources(resource_type).items():
++                condition = resource_attributes.get("Condition")
++                properties = resource_attributes.get("Properties", {})
++                path = ["Resources", resource_name, "Properties", prop_name]
++
++                for scenario in cfn.get_object_without_conditions(properties):
++                    object = scenario.get("Object")
++                    conditions = scenario.get("Scenario")
++                    if conditions is None:
++                        conditions = {}
++                    # we need to change this to a set for implies to work
++                    conditions = {k: set([v]) for k, v in conditions.items()}
++
++                    # if there is a resource level condition lets see if its valid
++                    # and add it to the scenario as needed
++                    if condition:
++                        if scenario:
++                            if not cfn.conditions.check_implies(scenario, condition):
++                                continue
++                        conditions[condition] = set([True])
++
++                    # validate object is an object just in case it was emptied out
++                    # from the condition (Ref: AWS::NoValue)
++                    if not isinstance(object, dict):
++                        continue
++
++                    # get the Name value
++                    name_value = object.get(prop_name)
++                    # if name_value is None, the service will define it, skip this test
++                    if name_value is None:
++                        continue
++
++                    # build the element
++                    element = _Seen(conditions, set([resource_name]), {prop_name: name_value})
++
++                    found = False
++                    for seen in seens:
++                        if equal(seen.instance, element.instance):
++                            try:
++                                merged_conditions = self._merge_conditions(
++                                    copy(seen.conditions), copy(element.conditions)
++                                )
++                                # if conditions are empty we found it
++                                if not merged_conditions:
++                                    found = True
++                                    seen.resources.add(resource_name)
++                                for _ in cfn.conditions.build_scenarios(merged_conditions):
++                                    seen.resources.add(resource_name)
++                                    # because the conditions could be unique
++                                    # we will validate conditions being equal
++                                    # and only say found if they match
++                                    if equal(element.conditions, seen.conditions):
++                                        found = True
++                                    break
++
++                            except ValueError:
++                                continue
++
++                    # add anything not already Found to the seens element
++                    if not found:
++                        seens.append(element)
++
++            for seen in seens:
++                # build errors for any seen items with more than 1 resource
++                if len(seen.resources) > 1:
++                    for resource in seen.resources:
++                        path = ["Resources", resource, "Properties", prop_name]
++
++                        message = (
++                            f"Create-only property '{prop_name}' with value {seen.instance!r} "
++                            "should have unique values across the resources "
++                            f"{seen.resources!r}"
++                        )
++
++                        matches.append(RuleMatch(path, message))
++
++        return matches
++
+     def match(self, cfn: Template) -> RuleMatches:
+         tS = set()
+         for _, resource_properties in cfn.get_resources().items():
+@@ -141,26 +229,28 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+             try:
+                 schema = PROVIDER_SCHEMA_MANAGER.get_resource_schema(cfn.regions[0], t)
+ 
+-                # we are worried about primary identifiers that can be set
+-                # by the customer so if any primary identifiers are read
+-                # only we have to skip evaluation
++                # Check primary identifiers first
+                 primary_ids = schema.schema.get("primaryIdentifier", [])
+-                if not primary_ids:
+-                    continue
++                if primary_ids:
++                    read_only_ids = schema.schema.get("readOnlyProperties", [])
+ 
+-                read_only_ids = schema.schema.get("readOnlyProperties", [])
++                    if not any(id in read_only_ids for id in primary_ids):
++                        primary_ids = [id.replace("/properties/", "") for id in primary_ids]
++                        # most primaryIdentifiers are at the root level. At this time
++                        # we can only validate if they are at the root of Properties
++                        if not any("/" in id for id in primary_ids):
++                            matches.extend(
++                                self._validate_resource_type_uniqueness(cfn, t, primary_ids)
++                            )
+ 
+-                if any(id in read_only_ids for id in primary_ids):
+-                    continue
++                # Also check createOnlyProperties for specific resource types
++                create_only_props = schema.schema.get("createOnlyProperties", [])
++                if create_only_props:
++                    create_only_props = [prop.replace("/properties/", "") for prop in create_only_props]
++                    matches.extend(
++                        self._validate_create_only_properties_uniqueness(cfn, t, create_only_props)
++                    )
+ 
+-                primary_ids = [id.replace("/properties/", "") for id in primary_ids]
+-                # most primaryIdentifiers are at the root level. At this time
+-                # we can only validate if they are at the root of Properties
+-                if any("/" in id for id in primary_ids):
+-                    continue
+-                matches.extend(
+-                    self._validate_resource_type_uniqueness(cfn, t, primary_ids)
+-                )
+             except ResourceNotFoundError:
+                 continue
+         return matches
+diff --git a/test/fixtures/templates/bad/resources/primary_identifiers.yaml b/test/fixtures/templates/bad/resources/primary_identifiers.yaml
+index 3aea9828c..c6ea3b0a3 100644
+--- a/test/fixtures/templates/bad/resources/primary_identifiers.yaml
++++ b/test/fixtures/templates/bad/resources/primary_identifiers.yaml
+@@ -162,3 +162,43 @@ Resources:
+     Type: MyCompany::MODULE
+     Properties:
+       Attribute2: test
++
++  Project1:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName
++      ServiceRole: arn
++      Artifacts:
++        Type: no_artifacts
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++        EnvironmentVariables:
++        - Name: varName
++          Type: varType
++          Value: varValue
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  Project2:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName
++      ServiceRole: arn
++      Artifacts:
++        Type: no_artifacts
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++        EnvironmentVariables:
++        - Name: varName
++          Type: varType
++          Value: varValue
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
+diff --git a/test/unit/rules/resources/test_primary_identifiers.py b/test/unit/rules/resources/test_primary_identifiers.py
+index c49795f20..54d4d76e9 100644
+--- a/test/unit/rules/resources/test_primary_identifiers.py
++++ b/test/unit/rules/resources/test_primary_identifiers.py
+@@ -27,5 +27,5 @@ class TestPrimaryIdentifiers(BaseRuleTestCase):
+     def test_file_negative_alias(self):
+         """Test failure"""
+         self.helper_file_negative(
+-            "test/fixtures/templates/bad/resources/primary_identifiers.yaml", 8
++            "test/fixtures/templates/bad/resources/primary_identifiers.yaml", 10
+         )

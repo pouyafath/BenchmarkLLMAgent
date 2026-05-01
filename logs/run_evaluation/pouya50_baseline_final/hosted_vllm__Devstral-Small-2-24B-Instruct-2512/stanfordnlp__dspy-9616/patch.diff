@@ -1,0 +1,32 @@
+diff --git a/dspy/signatures/signature.py b/dspy/signatures/signature.py
+index de9f0170..39939600 100644
+--- a/dspy/signatures/signature.py
++++ b/dspy/signatures/signature.py
+@@ -259,6 +259,27 @@ class SignatureMeta(type(BaseModel)):
+         field_repr = "\n    ".join(field_reprs)
+         return f"{cls.__name__}({cls.signature}\n    instructions={cls.instructions!r}\n    {field_repr}\n)"
+ 
++    def __getstate__(self):
++        """Get state for pickling, handling unpicklable __pydantic_parent_namespace__."""
++        state = super().__getstate__()
++
++        # Handle __pydantic_parent_namespace__ which may contain unpicklable objects
++        # on Python 3.14+ due to PEP 749 (deferred evaluation of annotations)
++        if "__pydantic_parent_namespace__" in state:
++            parent_namespace = state["__pydantic_parent_namespace__"]
++            if isinstance(parent_namespace, dict) and "annotate_func" in parent_namespace:
++                # Remove the annotate_func as it contains closures with unpicklable _abc._abc_data objects
++                # The annotations have already been processed during class creation,
++                # so we don't need this function at unpickling time
++                parent_namespace = {k: v for k, v in parent_namespace.items() if k != "annotate_func"}
++                state["__pydantic_parent_namespace__"] = parent_namespace
++
++        return state
++
++    def __setstate__(self, state):
++        """Set state for unpickling."""
++        super().__setstate__(state)
++
+ 
+ class Signature(BaseModel, metaclass=SignatureMeta):
+     """"""

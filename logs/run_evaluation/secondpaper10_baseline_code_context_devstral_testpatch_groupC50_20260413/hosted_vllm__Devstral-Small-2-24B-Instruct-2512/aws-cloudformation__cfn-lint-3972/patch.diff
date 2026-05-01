@@ -1,0 +1,199 @@
+diff --git a/src/cfnlint/rules/resources/CodeBuildProjectUniqueNames.py b/src/cfnlint/rules/resources/CodeBuildProjectUniqueNames.py
+new file mode 100644
+index 000000000..42f4e8c1e
+--- /dev/null
++++ b/src/cfnlint/rules/resources/CodeBuildProjectUniqueNames.py
+@@ -0,0 +1,56 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from cfnlint.rules import CloudFormationLintRule, RuleMatch
++from cfnlint.template import Template
++
++
++class CodeBuildProjectUniqueNames(CloudFormationLintRule):
++    id = "E3060"
++    shortdesc = "CodeBuild projects must have unique names"
++    description = "AWS::CodeBuild::Project resources must have unique Name properties"
++    source_url = "https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html"
++    tags = ["resources", "codebuild"]
++
++    def match(self, cfn: Template):
++        matches = []
++        codebuild_projects = {}
++
++        # Collect all CodeBuild projects and their names
++        for resource_name, resource_props in cfn.get_resources("AWS::CodeBuild::Project").items():
++            properties = resource_props.get("Properties", {})
++            name = properties.get("Name")
++
++            if name:
++                # Handle intrinsic functions (Ref, GetAtt, etc.) which are represented as dicts
++                if isinstance(name, dict):
++                    # If it's a function, we can't determine the value at lint time
++                    # Skip this check to avoid false positives
++                    continue
++
++                # Convert name to string to handle different types
++                name_str = str(name)
++
++                if name_str in codebuild_projects:
++                    # Found a duplicate name
++                    existing_resource = codebuild_projects[name_str]
++                    matches.append(
++                        RuleMatch(
++                            ["Resources", resource_name, "Properties", "Name"],
++                            f"CodeBuild project name '{name_str}' is not unique. "
++                            f"Also defined in resource '{existing_resource}'"
++                        )
++                    )
++                    matches.append(
++                        RuleMatch(
++                            ["Resources", existing_resource, "Properties", "Name"],
++                            f"CodeBuild project name '{name_str}' is not unique. "
++                            f"Also defined in resource '{resource_name}'"
++                        )
++                    )
++                else:
++                    codebuild_projects[name_str] = resource_name
++
++        return matches
+diff --git a/test/fixtures/templates/bad/resources/codebuild_unique_names.yaml b/test/fixtures/templates/bad/resources/codebuild_unique_names.yaml
+new file mode 100644
+index 000000000..8d11e1426
+--- /dev/null
++++ b/test/fixtures/templates/bad/resources/codebuild_unique_names.yaml
+@@ -0,0 +1,44 @@
++Resources:
++  ServiceRole:
++    Type: AWS::IAM::Role
++    Properties:
++      AssumeRolePolicyDocument:
++        Version: "2012-10-17"
++        Statement:
++          - Effect: Allow
++            Principal:
++              Service: codebuild.amazonaws.com
++            Action: sts:AssumeRole
++      Path: /
++
++  Project1:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  Project2:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
+diff --git a/test/fixtures/templates/good/resources/codebuild_unique_names.yaml b/test/fixtures/templates/good/resources/codebuild_unique_names.yaml
+new file mode 100644
+index 000000000..22ab2a662
+--- /dev/null
++++ b/test/fixtures/templates/good/resources/codebuild_unique_names.yaml
+@@ -0,0 +1,44 @@
++Resources:
++  ServiceRole:
++    Type: AWS::IAM::Role
++    Properties:
++      AssumeRolePolicyDocument:
++        Version: "2012-10-17"
++        Statement:
++          - Effect: Allow
++            Principal:
++              Service: codebuild.amazonaws.com
++            Action: sts:AssumeRole
++      Path: /
++
++  Project1:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName1
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
++
++  Project2:
++    Type: AWS::CodeBuild::Project
++    Properties:
++      Name: myProjectName2
++      ServiceRole: !GetAtt ServiceRole.Arn
++      Artifacts:
++        Type: NO_ARTIFACTS
++      Environment:
++        Type: LINUX_CONTAINER
++        ComputeType: BUILD_GENERAL1_SMALL
++        Image: aws/codebuild/java:openjdk-8
++      Source:
++        Location: codebuild-demo-test/0123ab9a371ebf0187b0fe5614fbb72c
++        Type: S3
++      TimeoutInMinutes: 10
+diff --git a/test/unit/rules/resources/test_codebuild_unique_names.py b/test/unit/rules/resources/test_codebuild_unique_names.py
+new file mode 100644
+index 000000000..3e51283fc
+--- /dev/null
++++ b/test/unit/rules/resources/test_codebuild_unique_names.py
+@@ -0,0 +1,31 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from test.unit.rules import BaseRuleTestCase
++
++# ruff: noqa: E501
++from cfnlint.rules.resources.CodeBuildProjectUniqueNames import CodeBuildProjectUniqueNames
++
++
++class TestCodeBuildProjectUniqueNames(BaseRuleTestCase):
++    """Test base template"""
++
++    def setUp(self):
++        """Setup"""
++        super(TestCodeBuildProjectUniqueNames, self).setUp()
++        self.collection.register(CodeBuildProjectUniqueNames())
++        self.success_templates = [
++            "test/fixtures/templates/good/resources/codebuild_unique_names.yaml",
++        ]
++
++    def test_file_positive(self):
++        """Test Positive"""
++        self.helper_file_positive()
++
++    def test_file_negative(self):
++        """Test failure"""
++        self.helper_file_negative(
++            "test/fixtures/templates/bad/resources/codebuild_unique_names.yaml", 2
++        )

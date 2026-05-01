@@ -1,0 +1,119 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..f19d2282 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -1,4 +1,5 @@
+ from __future__ import annotations
++import warnings
+ 
+ import collections.abc as cabc
+ import os
+@@ -185,6 +186,8 @@ class Flask(App):
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
+             "APPLICATION_ROOT": "/",
++            "CANONICAL_URL": None,
++            "ROUTING_HOST": None,
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+             "SESSION_COOKIE_PATH": None,
+@@ -446,14 +449,15 @@ class Flask(App):
+ 
+             return self.url_map.bind_to_environ(
+                 request.environ,
+-                server_name=self.config["SERVER_NAME"],
++                server_name=self.config.get("ROUTING_HOST") or self.config["SERVER_NAME"],
+                 subdomain=subdomain,
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        routing_host = self.config.get("ROUTING_HOST") or self.config["SERVER_NAME"]
++        if routing_host is not None:
+             return self.url_map.bind(
+-                self.config["SERVER_NAME"],
++                routing_host,
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )
+@@ -1067,14 +1071,41 @@ class Flask(App):
+             # use its url_adapter. Otherwise, app.url_for was called
+             # directly, build an adapter.
+             if app_ctx is not None:
++                # Check if the app context url_adapter was created using SERVER_NAME
++                # (i.e., no CANONICAL_URL was set)
++                if (self.config.get("CANONICAL_URL") is None and
++                    app_ctx.url_adapter is not None):
++                    warnings.warn(
++                        "Using SERVER_NAME for URL generation outside request context is deprecated. "
++                        "Use CANONICAL_URL for URL generation instead.",
++                        DeprecationWarning,
++                        stacklevel=2
++                    )
+                 url_adapter = app_ctx.url_adapter
+             else:
+-                url_adapter = self.create_url_adapter(None)
++                # Try to create URL adapter using CANONICAL_URL first for URL generation
++                canonical_url = self.config.get("CANONICAL_URL")
++                if canonical_url is not None:
++                    try:
++                        from urllib.parse import urlparse
++                        parsed = urlparse(canonical_url)
++                        if parsed.netloc:
++                            url_adapter = self.url_map.bind(
++                                parsed.netloc,
++                                script_name=self.config["APPLICATION_ROOT"],
++                                url_scheme=parsed.scheme or self.config["PREFERRED_URL_SCHEME"],
++                            )
++                    except Exception:
++                        pass
++
++                # Fall back to create_url_adapter which uses ROUTING_HOST or SERVER_NAME
++                if url_adapter is None:
++                    url_adapter = self.create_url_adapter(None)
+ 
+             if url_adapter is None:
+                 raise RuntimeError(
+                     "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
++                    " without 'SERVER_NAME' or 'CANONICAL_URL' configured. Also configure"
+                     " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+                     " needed."
+                 )
+diff --git a/src/flask/ctx.py b/src/flask/ctx.py
+index 9b164d39..ac9df4fd 100644
+--- a/src/flask/ctx.py
++++ b/src/flask/ctx.py
+@@ -1,4 +1,5 @@
+ from __future__ import annotations
++import warnings
+ 
+ import contextvars
+ import sys
+@@ -244,7 +245,25 @@ class AppContext:
+ 
+     def __init__(self, app: Flask) -> None:
+         self.app = app
+-        self.url_adapter = app.create_url_adapter(None)
++        # Try to use CANONICAL_URL for URL generation in app context
++        canonical_url = app.config.get("CANONICAL_URL")
++        if canonical_url is not None:
++            try:
++                from urllib.parse import urlparse
++                parsed = urlparse(canonical_url)
++                if parsed.netloc:
++                    self.url_adapter = app.url_map.bind(
++                        parsed.netloc,
++                        script_name=app.config["APPLICATION_ROOT"],
++                        url_scheme=parsed.scheme or app.config["PREFERRED_URL_SCHEME"],
++                    )
++                else:
++                    self.url_adapter = app.create_url_adapter(None)
++            except Exception:
++                self.url_adapter = app.create_url_adapter(None)
++        else:
++            self.url_adapter = app.create_url_adapter(None)
++
+         self.g: _AppCtxGlobals = app.app_ctx_globals_class()
+         self._cv_tokens: list[contextvars.Token[AppContext]] = []
+ 

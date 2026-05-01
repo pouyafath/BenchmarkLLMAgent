@@ -1,0 +1,70 @@
+diff --git a/lib/matplotlib/text.py b/lib/matplotlib/text.py
+index 4591316cf9..cb43fb1780 100644
+--- a/lib/matplotlib/text.py
++++ b/lib/matplotlib/text.py
+@@ -115,6 +115,7 @@ class Text(Artist):
+                  wrap=False,
+                  transform_rotates_text=False,
+                  parse_math=None,    # defaults to rcParams['text.parse_math']
++                 antialiased=None,  # defaults to rcParams['text.antialiased']
+                  **kwargs
+                  ):
+         """
+@@ -149,6 +150,7 @@ class Text(Artist):
+             transform_rotates_text=transform_rotates_text,
+             linespacing=linespacing,
+             rotation_mode=rotation_mode,
++            antialiased=antialiased,
+         )
+         self.update(kwargs)
+ 
+@@ -167,6 +169,7 @@ class Text(Artist):
+         transform_rotates_text=False,
+         linespacing=None,
+         rotation_mode=None,
++        antialiased=None,
+     ):
+         self.set_text(text)
+         self.set_color(
+@@ -187,6 +190,10 @@ class Text(Artist):
+             linespacing = 1.2  # Maybe use rcParam later.
+         self.set_linespacing(linespacing)
+         self.set_rotation_mode(rotation_mode)
++        if antialiased is not None:
++            self.set_antialiased(antialiased)
++        else:
++            self.set_antialiased(mpl.rcParams["text.antialiased"])
+ 
+     def update(self, kwargs):
+         # docstring inherited
+@@ -736,6 +743,7 @@ class Text(Artist):
+             gc = renderer.new_gc()
+             gc.set_foreground(self.get_color())
+             gc.set_alpha(self.get_alpha())
++            gc.set_antialiased(self.get_antialiased())
+             gc.set_url(self._url)
+             self._set_gc_clip(gc)
+ 
+@@ -773,6 +781,22 @@ class Text(Artist):
+     def get_color(self):
+         """Return the color of the text."""
+         return self._color
++    
++    def get_antialiased(self):
++        """Return whether the text should be drawn with antialiased rendering."""
++        return self._antialiased
++    
++    def set_antialiased(self, aa):
++        """
++        Set whether the text should be drawn with antialiased rendering.
++        
++        Parameters
++        ----------
++        aa : bool
++            If True, the text will be drawn with antialiasing.
++        """
++        self._antialiased = bool(aa)
++        self.stale = True
+ 
+     def get_fontproperties(self):
+         """Return the `.font_manager.FontProperties`."""

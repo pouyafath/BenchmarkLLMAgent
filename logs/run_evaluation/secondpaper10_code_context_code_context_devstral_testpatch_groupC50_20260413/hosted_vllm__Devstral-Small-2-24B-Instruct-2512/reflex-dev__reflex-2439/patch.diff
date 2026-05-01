@@ -1,0 +1,41 @@
+diff --git a/reflex/components/core/match.py b/reflex/components/core/match.py
+index ce7b23e5..96d01f82 100644
+--- a/reflex/components/core/match.py
++++ b/reflex/components/core/match.py
+@@ -243,6 +243,36 @@ class Match(MemoizationLeaf):
+         tag.name = "match"
+         return dict(tag)
+ 
++    def _get_vars(self) -> list[BaseVar]:
++        """Walk all Vars used in this component, including those in match cases.
++
++        Returns:
++            Each var referenced by the component (props, styles, event handlers, and match cases).
++        """
++        vars = super()._get_vars()
++
++        # Add the condition variable
++        if isinstance(self.cond, BaseVar):
++            vars.append(self.cond)
++
++        # Add vars from all match cases
++        for case in self.match_cases:
++            for element in case:
++                if isinstance(element, BaseVar):
++                    vars.append(element)
++                elif isinstance(element, BaseComponent):
++                    # Get vars from the component itself
++                    vars.extend(element._get_vars())
++
++        # Add vars from the default case
++        if isinstance(self.default, BaseVar):
++            vars.append(self.default)
++        elif isinstance(self.default, BaseComponent):
++            # Get vars from the default component
++            vars.extend(self.default._get_vars())
++
++        return vars
++
+     def _get_imports(self):
+         merged_imports = super()._get_imports()
+         # Obtain the imports of all components the in match case.

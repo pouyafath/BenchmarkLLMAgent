@@ -1,0 +1,40 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..cd27de755c 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -209,6 +209,26 @@ validate_floatlist = _listify_validator(
+     validate_float, doc='return a list of floats')
+ 
+ 
++
++def _validate_marker(marker):
++    """
++    Validate a marker value, converting numeric markers to their string names.
++    """
++    if isinstance(marker, str):
++        return marker
++    elif isinstance(marker, int):
++        # Import markers module locally to avoid circular import
++        from matplotlib import markers
++        # Convert numeric marker to string name using the markers module mapping
++        return markers.MarkerStyle.markers.get(marker, str(marker))
++    else:
++        # For other types, try to convert to string
++        return str(marker)
++
++def validate_markerlist(s):
++    """Validate a list of marker values, converting numeric markers to strings."""
++    return _listify_validator(_validate_marker, doc='return a list of marker names')(s)
++
+ def _validate_pathlike(s):
+     if isinstance(s, (str, os.PathLike)):
+         # Store value as str because savefig.directory needs to distinguish
+@@ -645,7 +665,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }

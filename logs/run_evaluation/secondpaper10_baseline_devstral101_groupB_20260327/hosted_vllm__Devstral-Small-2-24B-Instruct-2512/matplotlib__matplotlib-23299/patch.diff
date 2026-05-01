@@ -1,0 +1,55 @@
+diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py
+index c268a56724..37cdfcaa4d 100644
+--- a/lib/matplotlib/__init__.py
++++ b/lib/matplotlib/__init__.py
+@@ -1175,7 +1175,49 @@ def get_backend():
+     --------
+     matplotlib.use
+     """
+-    return rcParams['backend']
++    backend = rcParams._get_backend_or_none()
++    if backend is None:
++        # Backend is _auto_backend_sentinel, need to resolve it properly
++        # but avoid the side effect of closing figures
++        from matplotlib import rcsetup
++        from matplotlib import cbook
++
++        # Resolve the backend without closing figures
++        current_framework = cbook._get_running_interactive_framework()
++        mapping = {'qt': 'qtagg',
++                   'gtk3': 'gtk3agg',
++                   'gtk4': 'gtk4agg',
++                   'wx': 'wxagg',
++                   'tk': 'tkagg',
++                   'macosx': 'macosx',
++                   'headless': 'agg'}
++
++        best_guess = mapping.get(current_framework, None)
++        if best_guess is not None:
++            candidates = [best_guess]
++        else:
++            candidates = []
++        candidates += [
++            "macosx", "qtagg", "gtk4agg", "gtk3agg", "tkagg", "wxagg"]
++
++        for candidate in candidates:
++            try:
++                # Check if the backend can be imported without actually switching
++                import matplotlib.backends
++                # Try to import the backend module
++                backend_module = __import__(f'matplotlib.backends.backend_{candidate}', fromlist=[''])
++                backend = candidate
++                # Set the backend in rcParams without triggering switch_backend
++                rcParamsOrig['backend'] = backend
++                break
++            except (ImportError, AttributeError):
++                continue
++        else:
++            # Fallback to agg
++            backend = "agg"
++            rcParamsOrig['backend'] = backend
++
++    return backend
+ 
+ 
+ def interactive(b):

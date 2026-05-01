@@ -1,0 +1,65 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..6f4b9fde 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -201,6 +201,8 @@ class Flask(App):
+             "TRAP_HTTP_EXCEPTIONS": False,
+             "EXPLAIN_TEMPLATE_LOADING": False,
+             "PREFERRED_URL_SCHEME": "http",
++            "CANONICAL_URL_SCHEME": None,
++            "CANONICAL_URL_DOMAIN": None,
+             "TEMPLATES_AUTO_RELOAD": None,
+             "MAX_COOKIE_SIZE": 4093,
+             "PROVIDE_AUTOMATIC_OPTIONS": True,
+@@ -451,7 +453,19 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        if self.config["CANONICAL_URL_DOMAIN"] is not None:
++            # Use CANONICAL_URL for URL generation
++            url_scheme = (
++                self.config["CANONICAL_URL_SCHEME"] or
++                self.config["PREFERRED_URL_SCHEME"]
++            )
++            return self.url_map.bind(
++                self.config["CANONICAL_URL_DOMAIN"],
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=url_scheme,
++            )
++        elif self.config["SERVER_NAME"] is not None:
++            # Fallback to SERVER_NAME for backward compatibility
+             return self.url_map.bind(
+                 self.config["SERVER_NAME"],
+                 script_name=self.config["APPLICATION_ROOT"],
+@@ -1010,11 +1024,16 @@ class Flask(App):
+         In some cases, such as email messages, you want URLs to include
+         the scheme and domain, like ``https://example.com/hello``. When
+         not in an active request, URLs will be external by default, but
+-        this requires setting :data:`SERVER_NAME` so Flask knows what
+-        domain to use. :data:`APPLICATION_ROOT` and
+-        :data:`PREFERRED_URL_SCHEME` should also be configured as
++        this requires setting :data:`CANONICAL_URL_DOMAIN` so Flask knows what
++        domain to use. :data:`APPLICATION_ROOT`, :data:`CANONICAL_URL_SCHEME`,
++        and :data:`PREFERRED_URL_SCHEME` should also be configured as
+         needed. This config is only used when not in an active request.
+ 
++        .. versionchanged:: 3.1
++            :data:`CANONICAL_URL_DOMAIN` and :data:`CANONICAL_URL_SCHEME` are
++            now preferred over :data:`SERVER_NAME` for URL generation outside
++            request context.
++
+         Functions can be decorated with :meth:`url_defaults` to modify
+         keyword arguments before the URL is built.
+ 
+@@ -1074,8 +1093,8 @@ class Flask(App):
+             if url_adapter is None:
+                 raise RuntimeError(
+                     "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
+-                    " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
++                    " without 'CANONICAL_URL_DOMAIN' or 'SERVER_NAME' configured."
++                    " Also configure 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+                     " needed."
+                 )
+ 

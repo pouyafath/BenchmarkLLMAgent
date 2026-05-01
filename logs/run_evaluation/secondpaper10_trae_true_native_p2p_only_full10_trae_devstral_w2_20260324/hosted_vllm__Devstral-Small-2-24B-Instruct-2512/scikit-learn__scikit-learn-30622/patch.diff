@@ -1,0 +1,48 @@
+diff --git a/sklearn/ensemble/_base.py b/sklearn/ensemble/_base.py
+index db5a0944a..b288e3f6c 100644
+--- a/sklearn/ensemble/_base.py
++++ b/sklearn/ensemble/_base.py
+@@ -208,6 +208,43 @@ class _BaseHeterogeneousEnsemble(
+ 
+     @abstractmethod
+     def __init__(self, estimators):
++        # Validate estimators format early to provide clear error messages
++        if not isinstance(estimators, (list, tuple)):
++            raise ValueError(
++                f"Invalid 'estimators' attribute, 'estimators' should be a "
++                f"list or tuple of (string, estimator) tuples. Got {type(estimators).__name__} instead."
++            )
++
++        if len(estimators) == 0:
++            raise ValueError(
++                "Invalid 'estimators' attribute, 'estimators' should be a "
++                "non-empty list of (string, estimator) tuples."
++            )
++
++        for i, estimator in enumerate(estimators):
++            if not isinstance(estimator, (list, tuple)):
++                raise ValueError(
++                    f"Invalid estimator at position {i}, expected a tuple or list "
++                    f"of (string, estimator), got {type(estimator).__name__} instead."
++                )
++            if len(estimator) != 2:
++                raise ValueError(
++                    f"Invalid estimator at position {i}, expected a tuple or list "
++                    f"of length 2 (string, estimator), got length {len(estimator)} instead."
++                )
++            name, estimator_obj = estimator
++            if not isinstance(name, str):
++                raise ValueError(
++                    f"Invalid estimator at position {i}, expected the first element "
++                    f"to be a string (name), got {type(name).__name__} instead."
++                )
++            # Allow 'drop' as a special value, otherwise require BaseEstimator
++            if estimator_obj != "drop" and not isinstance(estimator_obj, BaseEstimator):
++                raise ValueError(
++                    f"Invalid estimator at position {i}, expected the second element "
++                    f"to be an estimator (subclass of BaseEstimator) or 'drop', got {type(estimator_obj).__name__} instead."
++                )
++
+         self.estimators = estimators
+ 
+     def _validate_estimators(self):

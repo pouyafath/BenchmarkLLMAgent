@@ -1,0 +1,131 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..61b7b1734 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -100,6 +100,19 @@ class Pipeline(_BaseComposition):
+         transformers is advantageous when fitting is time consuming.
+ 
+     verbose : bool, default=False
++
++
++    transform_input : list of str, default=None
++        This enables transforming some input arguments to ``fit`` (other than ``X``)
++        to be transformed by the steps of the pipeline up to the step which requires
++        them. Requirement is defined via :ref:`metadata routing <metadata_routing>`.
++        This can be used to pass a validation set through the pipeline for instance.
++
++        See the example TBD for more details.
++
++        You can only set this if metadata routing is enabled, which you
++        can enable using ``sklearn.set_config(enable_metadata_routing=True)``.
++
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
+@@ -152,18 +165,27 @@ class Pipeline(_BaseComposition):
+     """
+ 
+     # BaseEstimator interface
+-    _required_parameters = ["steps"]
++    _required_parameters = ["steps", "transform_input"]
+ 
+     _parameter_constraints: dict = {
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+-        "verbose": ["boolean"],
++        "verbose": ["boolean"], "transform_input": [None, list],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
++        if transform_input is not None:
++            if not _routing_enabled():
++                raise ValueError(
++                    "transform_input can only be set when metadata routing is enabled. "
++                    + "Enable it using sklearn.set_config(enable_metadata_routing=True)."
++                )
++
++
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -376,6 +398,46 @@ class Pipeline(_BaseComposition):
+ 
+     # Estimator interface
+ 
++    def _transform_metadata_inputs(self, X, metadata_inputs):
++        """Transform metadata inputs through the pipeline steps.
++
++        Parameters
++        ----------
++        X : array-like
++            Input data to be transformed.
++        metadata_inputs : dict
++            Dictionary of metadata inputs to transform.
++
++        Returns
++        -------
++        transformed_inputs : dict
++            Dictionary of transformed metadata inputs.
++        """
++        if not metadata_inputs:
++            return {}
++
++        # Transform each metadata input through the pipeline
++        transformed_inputs = {}
++        for name, value in metadata_inputs.items():
++            Xt = X
++            # Transform through each step up to the one that needs this input
++            for step_idx, step_name, step in self._iter(with_final=False, filter_passthrough=False):
++                if step is None or step == "passthrough":
++                    continue
++                # Check if this step needs the metadata input
++                if hasattr(step, "get_metadata_routing"):
++                    routing = step.get_metadata_routing()
++                    # Check if this step requests the metadata input in fit
++                    if (hasattr(routing, "fit") and
++                        hasattr(routing.fit, "get") and
++                        name in routing.fit.get("params", {})):
++                        # This step needs the metadata, so we stop transformation here
++                        break
++                # Transform the data through this step
++                Xt = step.transform(Xt)
++            transformed_inputs[name] = Xt
++        return transformed_inputs
++
+     def _fit(self, X, y=None, routed_params=None):
+         # shallow copy of steps - this should really be steps_
+         self.steps = list(self.steps)
+@@ -462,6 +524,8 @@ class Pipeline(_BaseComposition):
+             Pipeline with fitted steps.
+         """
+         routed_params = self._check_method_params(method="fit", props=params)
++
++        # Transform metadata inputs if specified\n        if self.transform_input is not None and _routing_enabled():            # Identify metadata inputs that need transformation            metadata_inputs = {}            for param_name in self.transform_input:                if param_name in params:                    metadata_inputs[param_name] = params[param_name]            # Transform metadata inputs through the pipeline            if metadata_inputs:                transformed_metadata = self._transform_metadata_inputs(X, metadata_inputs)                # Add transformed metadata to the routed params for the final estimator                if self._final_estimator != "passthrough":\n                    final_step_name = self.steps[-1][0]                    if final_step_name not in routed_params:\n                        routed_params[final_step_name] = Bunch(**{method: {} for method in METHODS})                    for param_name, transformed_value in transformed_metadata.items():                        routed_params[final_step_name]["fit"][param_name] = transformed_value
+         Xt = self._fit(X, y, routed_params)
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+             if self._final_estimator != "passthrough":
+@@ -1236,6 +1300,19 @@ def make_pipeline(*steps, memory=None, verbose=False):
+         transformers is advantageous when fitting is time consuming.
+ 
+     verbose : bool, default=False
++
++
++    transform_input : list of str, default=None
++        This enables transforming some input arguments to ``fit`` (other than ``X``)
++        to be transformed by the steps of the pipeline up to the step which requires
++        them. Requirement is defined via :ref:`metadata routing <metadata_routing>`.
++        This can be used to pass a validation set through the pipeline for instance.
++
++        See the example TBD for more details.
++
++        You can only set this if metadata routing is enabled, which you
++        can enable using ``sklearn.set_config(enable_metadata_routing=True)``.
++
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 

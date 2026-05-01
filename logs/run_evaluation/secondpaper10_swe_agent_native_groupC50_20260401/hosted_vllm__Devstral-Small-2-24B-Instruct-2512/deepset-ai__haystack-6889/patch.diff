@@ -1,0 +1,56 @@
+diff --git a/haystack/document_stores/in_memory/document_store.py b/haystack/document_stores/in_memory/document_store.py
+index 44b2f6d5..50f714f2 100644
+--- a/haystack/document_stores/in_memory/document_store.py
++++ b/haystack/document_stores/in_memory/document_store.py
+@@ -208,17 +208,43 @@ class InMemoryDocumentStore:
+         # get the last top_k indexes and reverse them
+         top_docs_positions = np.argsort(docs_scores)[-top_k:][::-1]
+ 
+-        # Create documents with the BM25 score to return them
+-        return_documents = []
++        # Collect all top_k documents with their scores
++        top_documents_with_scores = []
+         for i in top_docs_positions:
+             doc = all_documents[i]
+             score = docs_scores[i]
+-            if score <= 0.0:
+-                continue
+-            doc_fields = doc.to_dict()
+-            doc_fields["score"] = score
+-            return_document = Document.from_dict(doc_fields)
+-            return_documents.append(return_document)
++            top_documents_with_scores.append((doc, score))
++        
++        # Check if there are any negative scores (indicating algorithm that can produce them)
++        has_negative_scores = any(score < 0.0 for _, score in top_documents_with_scores)
++        
++        # Filter logic:
++        # - If there are negative scores, preserve them and be more lenient with 0.0 scores
++        # - If no negative scores, use the original filtering (<= 0.0) to maintain backward compatibility
++        return_documents = []
++        for doc, score in top_documents_with_scores:
++            if has_negative_scores:
++                # Algorithm can produce negative scores - preserve them and 0.0 scores
++                if score < 0.0:
++                    # Preserve negative scores
++                    doc_fields = doc.to_dict()
++                    doc_fields["score"] = score
++                    return_document = Document.from_dict(doc_fields)
++                    return_documents.append(return_document)
++                elif score >= 0.0:
++                    # Include all non-negative scores
++                    doc_fields = doc.to_dict()
++                    doc_fields["score"] = score
++                    return_document = Document.from_dict(doc_fields)
++                    return_documents.append(return_document)
++            else:
++                # No negative scores - use original filtering to maintain backward compatibility
++                if score > 0.0:
++                    doc_fields = doc.to_dict()
++                    doc_fields["score"] = score
++                    return_document = Document.from_dict(doc_fields)
++                    return_documents.append(return_document)
++        
+         return return_documents
+ 
+     def embedding_retrieval(

@@ -1,0 +1,80 @@
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..4dac5799 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -215,6 +215,11 @@ class App(Scaffold):
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
+ 
++    #: A list of secret keys, ordered from oldest to newest, which can be
++    #: used to validate signatures created with previous keys while signing
++    #: with the newest key.
++    secret_keys = ConfigAttribute[list[t.Union[str, bytes]] | None]("SECRET_KEYS")
++
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+     #: permanent session survive for roughly one month.
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..a4b92f2a 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,31 +313,49 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        secret_key = app.secret_key
++        secret_keys = app.secret_keys
++
++        if secret_keys:
++            secret_key = secret_keys[-1]
++        if not secret_key:
+             return None
++
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret_key,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,
+         )
+ 
+     def open_session(self, app: Flask, request: Request) -> SecureCookieSession | None:
+-        s = self.get_signing_serializer(app)
+-        if s is None:
+-            return None
+         val = request.cookies.get(self.get_cookie_name(app))
+         if not val:
+             return self.session_class()
+         max_age = int(app.permanent_session_lifetime.total_seconds())
+-        try:
+-            data = s.loads(val, max_age=max_age)
+-            return self.session_class(data)
+-        except BadSignature:
+-            return self.session_class()
++        keys = list(app.secret_keys or [])
++        if app.secret_key and app.secret_key not in keys:
++            keys.append(app.secret_key)
++        if not keys:
++            return None
++        for key in reversed(keys):
++            s = URLSafeTimedSerializer(
++                key,
++                salt=self.salt,
++                serializer=self.serializer,
++                signer_kwargs=dict(
++                    key_derivation=self.key_derivation, digest_method=self.digest_method
++                ),
++            )
++            try:
++                data = s.loads(val, max_age=max_age)
++                return self.session_class(data)
++            except BadSignature:
++                continue
++        return self.session_class()
+ 
+     def save_session(
+         self, app: Flask, session: SessionMixin, response: Response

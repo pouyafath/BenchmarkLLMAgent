@@ -1,0 +1,290 @@
+diff --git a/.devcontainer/devcontainer.json b/.devcontainer/devcontainer.json
+index b3079198c..30fb2afd3 100644
+--- a/.devcontainer/devcontainer.json
++++ b/.devcontainer/devcontainer.json
+@@ -27,6 +27,7 @@
+                 "ms-python.python",
+                 "ms-python.vscode-pylance",
+                 "ms-python.isort",
++                "ms-python.black",
+                 "davidanson.vscode-markdownlint",
+                 "ms-azuretools.vscode-docker",
+                 "vscode-icons-team.vscode-icons",
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1a87b86cf..ee6857a4c 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -109,6 +109,11 @@ jobs:
+       run: |
+         isort --check .
+ 
++    - name: Run Black
++      run: |
++        black --check .
++
++
+     - name: Run Ruff
+       run: |
+         ruff check --output-format=github .
+@@ -228,6 +233,11 @@ jobs:
+       run: |
+         isort --check .
+ 
++    - name: Run Black
++      run: |
++        black --check .
++
++
+     - name: Run Ruff
+       run: |
+         ruff check --output-format=github .
+diff --git a/.pre-commit-config.yaml b/.pre-commit-config.yaml
+index 6a8756d6f..346492e37 100644
+--- a/.pre-commit-config.yaml
++++ b/.pre-commit-config.yaml
+@@ -61,3 +61,9 @@ repos:
+     - id: codespell
+       additional_dependencies:
+         - tomli
++
++  - repo: https://github.com/psf/black
++    rev: "24.3.0"
++    hooks:
++      - id: black
++        language_version: python3
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index f9ab29592..60fbecc7e 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -76,6 +76,16 @@ mypy freqtrade
+ 
+ #### Run isort
+ 
++#### Run Black
++
++```bash
++black .
++```
++
++We use Black as our code formatter to ensure consistent code style across the project.
++To help with that, we encourage you to install the git pre-commit hook that will
++automatically format your code when you commit.
++
+ ``` bash
+ isort .
+ ```
+diff --git a/build_helpers/binance_update_lev_tiers.py b/build_helpers/binance_update_lev_tiers.py
+index c0f3a7c1c..6d5fa5c1d 100644
+--- a/build_helpers/binance_update_lev_tiers.py
++++ b/build_helpers/binance_update_lev_tiers.py
+@@ -6,21 +6,18 @@ from pathlib import Path
+ import ccxt
+ 
+ 
+-key = os.environ.get('FREQTRADE__EXCHANGE__KEY')
+-secret = os.environ.get('FREQTRADE__EXCHANGE__SECRET')
++key = os.environ.get("FREQTRADE__EXCHANGE__KEY")
++secret = os.environ.get("FREQTRADE__EXCHANGE__SECRET")
+ 
+-proxy = os.environ.get('CI_WEB_PROXY')
++proxy = os.environ.get("CI_WEB_PROXY")
+ 
+-exchange = ccxt.binance({
+-    'apiKey': key,
+-    'secret': secret,
+-    'httpsProxy': proxy,
+-    'options': {'defaultType': 'swap'}
+-    })
++exchange = ccxt.binance(
++    {"apiKey": key, "secret": secret, "httpsProxy": proxy, "options": {"defaultType": "swap"}}
++)
+ _ = exchange.load_markets()
+ 
+ lev_tiers = exchange.fetch_leverage_tiers()
+ 
+ # Assumes this is running in the root of the repository.
+-file = Path('freqtrade/exchange/binance_leverage_tiers.json')
+-json.dump(dict(sorted(lev_tiers.items())), file.open('w'), indent=2)
++file = Path("freqtrade/exchange/binance_leverage_tiers.json")
++json.dump(dict(sorted(lev_tiers.items())), file.open("w"), indent=2)
+diff --git a/build_helpers/freqtrade_client_version_align.py b/build_helpers/freqtrade_client_version_align.py
+index 3e2c32e20..a6eb9e2cf 100755
+--- a/build_helpers/freqtrade_client_version_align.py
++++ b/build_helpers/freqtrade_client_version_align.py
+@@ -6,13 +6,11 @@ from freqtrade import __version__ as ft_version
+ 
+ def main():
+     if ft_version != client_version:
+-        print(f"Versions do not match: \n"
+-              f"ft: {ft_version} \n"
+-              f"client: {client_version}")
++        print(f"Versions do not match: \n" f"ft: {ft_version} \n" f"client: {client_version}")
+         exit(1)
+     print(f"Versions match: ft: {ft_version}, client: {client_version}")
+     exit(0)
+ 
+ 
+-if __name__ == '__main__':
++if __name__ == "__main__":
+     main()
+diff --git a/build_helpers/pre_commit_update.py b/build_helpers/pre_commit_update.py
+index 91327ec9a..9d313efd2 100644
+--- a/build_helpers/pre_commit_update.py
++++ b/build_helpers/pre_commit_update.py
+@@ -6,28 +6,30 @@ from pathlib import Path
+ import yaml
+ 
+ 
+-pre_commit_file = Path('.pre-commit-config.yaml')
+-require_dev = Path('requirements-dev.txt')
+-require = Path('requirements.txt')
++pre_commit_file = Path(".pre-commit-config.yaml")
++require_dev = Path("requirements-dev.txt")
++require = Path("requirements.txt")
+ 
+-with require_dev.open('r') as rfile:
++with require_dev.open("r") as rfile:
+     requirements = rfile.readlines()
+ 
+-with require.open('r') as rfile:
++with require.open("r") as rfile:
+     requirements.extend(rfile.readlines())
+ 
+ # Extract types only
+-type_reqs = [r.strip('\n') for r in requirements if r.startswith(
+-    'types-') or r.startswith('SQLAlchemy')]
++type_reqs = [
++    r.strip("\n") for r in requirements if r.startswith("types-") or r.startswith("SQLAlchemy")
++]
+ 
+-with pre_commit_file.open('r') as file:
++with pre_commit_file.open("r") as file:
+     f = yaml.load(file, Loader=yaml.SafeLoader)
+ 
+ 
+-mypy_repo = [repo for repo in f['repos'] if repo['repo']
+-             == 'https://github.com/pre-commit/mirrors-mypy']
++mypy_repo = [
++    repo for repo in f["repos"] if repo["repo"] == "https://github.com/pre-commit/mirrors-mypy"
++]
+ 
+-hooks = mypy_repo[0]['hooks'][0]['additional_dependencies']
++hooks = mypy_repo[0]["hooks"][0]["additional_dependencies"]
+ 
+ errors = []
+ for hook in hooks:
+diff --git a/freqtrade/__init__.py b/freqtrade/__init__.py
+index d794b7c37..c9b21f1df 100644
+--- a/freqtrade/__init__.py
++++ b/freqtrade/__init__.py
+@@ -1,21 +1,33 @@
+ """ Freqtrade bot """
+-__version__ = '2024.5-dev'
+ 
+-if 'dev' in __version__:
++__version__ = "2024.5-dev"
++
++if "dev" in __version__:
+     from pathlib import Path
++
+     try:
+         import subprocess
++
+         freqtrade_basedir = Path(__file__).parent
+ 
+-        __version__ = __version__ + '-' + subprocess.check_output(
+-            ['git', 'log', '--format="%h"', '-n 1'],
+-            stderr=subprocess.DEVNULL, cwd=freqtrade_basedir).decode("utf-8").rstrip().strip('"')
++        __version__ = (
++            __version__
++            + "-"
++            + subprocess.check_output(
++                ["git", "log", '--format="%h"', "-n 1"],
++                stderr=subprocess.DEVNULL,
++                cwd=freqtrade_basedir,
++            )
++            .decode("utf-8")
++            .rstrip()
++            .strip('"')
++        )
+ 
+     except Exception:  # pragma: no cover
+         # git not available, ignore
+         try:
+             # Try Fallback to freqtrade_commit file (created by CI while building docker image)
+-            versionfile = Path('./freqtrade_commit')
++            versionfile = Path("./freqtrade_commit")
+             if versionfile.is_file():
+                 __version__ = f"docker-{__version__}-{versionfile.read_text()[:8]}"
+         except Exception:
+diff --git a/freqtrade/__main__.py b/freqtrade/__main__.py
+index ed950fa01..f39321c83 100755
+--- a/freqtrade/__main__.py
++++ b/freqtrade/__main__.py
+@@ -9,5 +9,5 @@ To launch Freqtrade as a module
+ from freqtrade import main
+ 
+ 
+-if __name__ == '__main__':
++if __name__ == "__main__":
+     main.main()
+diff --git a/freqtrade/commands/__init__.py b/freqtrade/commands/__init__.py
+index e0fa0fd51..20eed3533 100644
+--- a/freqtrade/commands/__init__.py
++++ b/freqtrade/commands/__init__.py
+@@ -9,19 +9,35 @@ Note: Be careful with file-scoped imports in these subfiles.
+ from freqtrade.commands.analyze_commands import start_analysis_entries_exits
+ from freqtrade.commands.arguments import Arguments
+ from freqtrade.commands.build_config_commands import start_new_config, start_show_config
+-from freqtrade.commands.data_commands import (start_convert_data, start_convert_trades,
+-                                              start_download_data, start_list_data)
++from freqtrade.commands.data_commands import (
++    start_convert_data,
++    start_convert_trades,
++    start_download_data,
++    start_list_data,
++)
+ from freqtrade.commands.db_commands import start_convert_db
+-from freqtrade.commands.deploy_commands import (start_create_userdir, start_install_ui,
+-                                                start_new_strategy)
++from freqtrade.commands.deploy_commands import (
++    start_create_userdir,
++    start_install_ui,
++    start_new_strategy,
++)
+ from freqtrade.commands.hyperopt_commands import start_hyperopt_list, start_hyperopt_show
+-from freqtrade.commands.list_commands import (start_list_exchanges, start_list_freqAI_models,
+-                                              start_list_markets, start_list_strategies,
+-                                              start_list_timeframes, start_show_trades)
+-from freqtrade.commands.optimize_commands import (start_backtesting, start_backtesting_show,
+-                                                  start_edge, start_hyperopt,
+-                                                  start_lookahead_analysis,
+-                                                  start_recursive_analysis)
++from freqtrade.commands.list_commands import (
++    start_list_exchanges,
++    start_list_freqAI_models,
++    start_list_markets,
++    start_list_strategies,
++    start_list_timeframes,
++    start_show_trades,
++)
++from freqtrade.commands.optimize_commands import (
++    start_backtesting,
++    start_backtesting_show,
++    start_edge,
++    start_hyperopt,
++    start_lookahead_analysis,
++    start_recursive_analysis,
++)
+ from freqtrade.commands.pairlist_commands import start_test_pairlist
+ from freqtrade.commands.plot_commands import start_plot_dataframe, start_plot_profit
+ from freqtrade.commands.strategy_utils_commands import start_strategy_update
+diff --git a/requirements-dev.txt b/requirements-dev.txt
+index 29e11c42b..99574649c 100644
+--- a/requirements-dev.txt
++++ b/requirements-dev.txt
+@@ -29,3 +29,4 @@ types-filelock==3.2.7
+ types-requests==2.31.0.20240406
+ types-tabulate==0.9.0.20240106
+ types-python-dateutil==2.9.0.20240316
++black==24.3.0

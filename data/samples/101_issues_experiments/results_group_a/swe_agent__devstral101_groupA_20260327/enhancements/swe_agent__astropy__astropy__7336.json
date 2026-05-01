@@ -1,0 +1,45 @@
+{
+  "issue_id": "astropy/astropy#7336",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "units.quantity_input decorator fails for constructors with type hinted return value -> None",
+  "original_body": "units.quantity_input decorator fails for constructors with type hinted return value -> None\n### Summary\r\nI am using the `units.quantity_input` decorator with typing hints for constructors, however when I add the correct return value for the constructor (`None`) then I get an exception, because `None` has no attribute `to`.\r\n\r\n### Reproducer\r\nThe issue can be reproduced with the following file:\r\n``` Python\r\nimport astropy.units as u\r\n\r\n\r\nclass PoC(object):\r\n\r\n    @u.quantity_input\r\n    def __init__(self, voltage: u.V) -> None:\r\n        pass\r\n\r\n\r\nif __name__ == '__main__':\r\n    poc = PoC(1.*u.V)\r\n```\r\nwhich results in the following error:\r\n```\r\n$ python3 poc.py\r\nTraceback (most recent call last):\r\n  File \"poc.py\", line 12, in <module>\r\n    poc = PoC(1.*u.V)\r\n  File \"/usr/lib64/python3.6/site-packages/astropy/utils/decorators.py\", line 868, in __init__\r\n    func = make_function_with_signature(func, name=name, **wrapped_args)\r\n  File \"/usr/lib64/python3.6/site-packages/astropy/units/decorators.py\", line 225, in wrapper\r\n    return return_.to(wrapped_signature.return_annotation)\r\nAttributeError: 'NoneType' object has no attribute 'to'\r\n```\r\n\r\nThis has been tested on Fedora 27 with python 3.6.3, astropy 2.0.2 and numpy 1.13.3 all from Fedora's repository.\r\n\r\n### Workaround\r\nThe issue can be circumvented by not adding the return type typing hint. Unfortunately, then a static type checker cannot infer that this function returns nothing.\r\n\r\n### Possible fix\r\nMaybe the decorator could explicitly check whether None is returned and then omit the unit check.\n",
+  "enhanced_title": "\\`quantity_input\\` decorator fails when constructor has \\`-> None\\` return type hint",
+  "enhanced_body": "## Summary\nThe \\`@u.quantity_input\\` decorator fails when applied to constructors that have an explicit \\`-> None\\` return type hint. The decorator attempts to call \\`.to()\\` on the return value, which fails because \\`None\\` has no such attribute.\n\n## Reproduction Steps\n1. Create a Python file with the following content:\n```python\nimport astropy.units as u\n\nclass PoC(object):\n    @u.quantity_input\n    def __init__(self, voltage: u.V) -> None:\n        pass\n\nif __name__ == '__main__':\n    poc = PoC(1.*u.V)\n```\n\n2. Run the script with Python 3.6+\n\n## Expected Behavior\nThe decorator should:\n- Accept the \\`-> None\\` return type hint\n- Not attempt to call \\`.to()\\` on \\`None\\` return values\n- Successfully create an instance of the class with the quantity input\n\n## Actual Behavior\nThe script raises an \\`AttributeError\\`:\n```\nAttributeError: 'NoneType' object has no attribute 'to'\n```\nThis occurs in \\`/astropy/units/decorators.py\\` at line 225 where the decorator tries to call \\`return_.to(wrapped_signature.return_annotation)\\`.\n\n## Environment\n- OS: Fedora 27\n- Python: 3.6.3\n- astropy: 2.0.2\n- numpy: 1.13.3\n\n## Affected Components\n- File: \\`astropy/units/decorators.py\\` (line 225)\n- Decorator: \\`@quantity_input\\`\n- Function: \\`wrapper\\` function in the decorator implementation\n\n## Workaround\nRemove the \\`-> None\\` return type hint from the constructor signature. However, this prevents static type checkers from properly verifying the return type.\n\n## Proposed Solution\nThe decorator should explicitly check if the return value is \\`None\\` and skip the unit conversion check in such cases. This would maintain compatibility with both type-hinted and non-type-hinted constructors.\n\n## Additional Context\nThis issue affects users who want to:\n1. Use the \\`@quantity_input\\` decorator for type safety\n2. Maintain proper type hints for their constructors\n3. Use static type checkers (mypy, pyright, etc.) effectively\n\"\n```",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp9_lpdcwh/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

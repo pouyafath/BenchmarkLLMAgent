@@ -1,0 +1,31 @@
+diff --git a/sklearn/svm/_base.py b/sklearn/svm/_base.py
+index f5b35f39a..89746b5a9 100644
+--- a/sklearn/svm/_base.py
++++ b/sklearn/svm/_base.py
+@@ -11,7 +11,7 @@ import scipy.sparse as sp
+ from ..base import BaseEstimator, ClassifierMixin, _fit_context
+ from ..exceptions import ConvergenceWarning, NotFittedError
+ from ..preprocessing import LabelEncoder
+-from ..utils import check_array, check_random_state, column_or_1d, compute_class_weight
++from ..utils import check_array, check_random_state, column_or_1d, compute_class_weight, compute_sample_weight
+ from ..utils._param_validation import Interval, StrOptions
+ from ..utils.extmath import safe_sparse_dot
+ from ..utils.metaestimators import available_if
+@@ -1190,7 +1190,16 @@ def _fit_liblinear(
+                 " class: %r" % classes_[0]
+             )
+ 
+-        class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
++        if class_weight == "balanced" and sample_weight is not None:
++            total_weight_per_class = np.zeros(len(classes_), dtype=np.float64)
++            for i, cls in enumerate(classes_):
++                mask = y == cls
++                if np.any(mask):
++                    total_weight_per_class[i] = np.sum(sample_weight[mask])
++            total_samples_weight = np.sum(sample_weight)
++            class_weight_ = total_samples_weight / (len(classes_) * total_weight_per_class)
++        else:
++            class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
+     else:
+         class_weight_ = np.empty(0, dtype=np.float64)
+         y_ind = y

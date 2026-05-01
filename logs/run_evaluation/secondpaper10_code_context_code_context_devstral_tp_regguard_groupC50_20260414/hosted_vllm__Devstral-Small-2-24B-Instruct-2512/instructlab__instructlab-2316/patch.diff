@@ -1,0 +1,263 @@
+diff --git a/src/instructlab/model/evaluate.py b/src/instructlab/model/evaluate.py
+index 92ff92cc..f1508674 100644
+--- a/src/instructlab/model/evaluate.py
++++ b/src/instructlab/model/evaluate.py
+@@ -146,17 +146,25 @@ def sort_score(pairing: tuple[str, float]) -> float:
+     return pairing[1]
+ 
+ 
+-def display_models(model, base_model) -> None:
++def display_models(model, base_model, model_score=None, base_model_score=None) -> None:
+     """prints the base_model and model with a header"""
+-    print("## BASE MODEL")
+-    print(base_model)
+-    display_model(model)
++    if base_model_score is not None:
++        print("## BASE MODEL (SCORE)")
++        print(f"{base_model} ({base_model_score})")
++    else:
++        print("## BASE MODEL")
++        print(base_model)
++    display_model(model, model_score)
+ 
+ 
+-def display_model(model) -> None:
++def display_model(model, score=None) -> None:
+     """prints the given model with a header"""
+-    print("\n## MODEL")
+-    print(model)
++    if score is not None:
++        print("\n## MODEL (SCORE)")
++        print(f"{model} ({score})")
++    else:
++        print("\n## MODEL")
++        print(model)
+ 
+ 
+ def display_error_rate(error_rate) -> None:
+@@ -167,37 +175,46 @@ def display_error_rate(error_rate) -> None:
+ 
+ 
+ def display_branch_eval_summary(
+-    improvements: list[tuple[str, float]],
+-    regressions: list[tuple[str, float]],
+-    no_changes: list[str],
++    improvements: list[tuple[str, float, float]],
++    regressions: list[tuple[str, float, float]],
++    no_changes: list[tuple[str, float]],
+     new=None,
++    score_range=None,
+ ):
+     """takes in results lists from mt_bench_branch benchmark evaluation
+     prints out diff between the branches to the user
+     """
+     if len(improvements) > 0:
+         improvements.sort(key=sort_score, reverse=True)
+-        print("\n### IMPROVEMENTS:")
++        range_str = f" ({score_range})" if score_range else ""
++        print(f"\n### IMPROVEMENTS{range_str}:")
+         for index, improvement in enumerate(improvements):
+-            task, delta = improvement
+-            print(f"{index+1}. {task} (+{delta})")
++            task, new_score, delta = improvement
++            base_score = new_score - delta
++            print(f"{index+1}. {task}: {base_score} -> {new_score} (+{delta})")
+ 
+     if len(regressions) > 0:
+         regressions.sort(key=sort_score)
+-        print("\n### REGRESSIONS:")
++        range_str = f" ({score_range})" if score_range else ""
++        print(f"\n### REGRESSIONS{range_str}:")
+         for index, regression in enumerate(regressions):
+-            task, delta = regression
+-            print(f"{index+1}. {task} ({delta})")
++            task, new_score, delta = regression
++            base_score = new_score - delta
++            print(f"{index+1}. {task}: {base_score} -> {new_score} ({delta})")
+ 
+     if len(no_changes) > 0:
+-        print("\n### NO CHANGE:")
+-        for index, task in enumerate(no_changes):
+-            print(f"{index+1}. {task}")
++        range_str = f" ({score_range})" if score_range else ""
++        print(f"\n### NO CHANGE{range_str}:")
++        for index, no_change in enumerate(no_changes):
++            task, score = no_change
++            print(f"{index+1}. {task} ({score})")
+ 
+     if new is not None and len(new) > 0:
+-        print("\n### NEW:")
++        range_str = f" ({score_range})" if score_range else ""
++        print(f"\n### NEW{range_str}:")
+         for index, qna in enumerate(new):
+-            print(f"{index+1}. {qna}")
++            task, score = qna
++            print(f"{index+1}. {task} ({score})")
+ 
+ 
+ def qa_pairs_to_qna_to_avg_scores(qa_pairs: list[dict]) -> dict[str, float]:
+@@ -577,7 +594,7 @@ def evaluate(
+                     server.shutdown()
+ 
+             print("# SKILL EVALUATION REPORT")
+-            display_model(model)
++            display_model(model, f"{round(overall_score, 1)}/{10.0}")
+             print("\n### AVERAGE:")
+             print(f"{round(overall_score, 2)} (across {len(qa_pairs)})")
+             print("\n### TURN ONE:")
+@@ -682,20 +699,20 @@ def evaluate(
+             base_qna_to_avg_scores = qa_pairs_to_qna_to_avg_scores(base_qa_pairs)
+ 
+             print("# SKILL EVALUATION REPORT\n")
+-            display_models(model, base_model)
++            display_models(model, base_model, "0/10.0", "0/10.0")
+ 
+             improvements, regressions, no_changes, new_qnas = [], [], [], []
+             for qna, avg_score in qna_to_avg_scores.items():
+                 base_avg_score = base_qna_to_avg_scores.get(qna)
+                 if base_avg_score is not None:
+                     if avg_score > base_avg_score:
+-                        improvements.append((qna, round(avg_score - base_avg_score, 2)))
++                        improvements.append((qna, round(avg_score, 2), round(avg_score - base_avg_score, 2)))
+                     elif avg_score == base_avg_score:
+-                        no_changes.append(qna)
++                        no_changes.append((qna, round(avg_score, 2)))
+                     else:
+-                        regressions.append((qna, round(avg_score - base_avg_score, 2)))
++                        regressions.append((qna, round(avg_score, 2), round(avg_score - base_avg_score, 2)))
+                 else:
+-                    new_qnas.append((qna))
++                    new_qnas.append((qna, round(avg_score, 2)))
+ 
+             # display summary of evaluation before exiting
+             display_branch_eval_summary(improvements, regressions, no_changes, new_qnas)
+@@ -733,7 +750,7 @@ def evaluate(
+                     server.shutdown()
+ 
+             print("# KNOWLEDGE EVALUATION REPORT")
+-            display_model(model)
++            display_model(model, f"{round(overall_score, 1)}/{1.0}")
+             print("\n### AVERAGE:")
+             print(f"{round(overall_score, 2)} (across {len(individual_scores)})\n")
+ 
+@@ -791,7 +808,7 @@ def evaluate(
+             base_individual_scores = individual_scores_list[1]
+ 
+             print("# KNOWLEDGE EVALUATION REPORT\n")
+-            display_models(model, base_model)
++            display_models(model, base_model, f"{round(overall_score, 1)}/{1.0}", f"{round(base_overall_score, 1)}/{1.0}")
+ 
+             print("\n### AVERAGE:")
+             delta = round(overall_score - base_overall_score, 2)
+@@ -809,11 +826,11 @@ def evaluate(
+                 b_s = base_score["score"]
+                 d = round(s - b_s, 2)
+                 if s > b_s:
+-                    improvements.append((task, d))
++                    improvements.append((task, round(s, 2), d))
+                 elif b_s > s:
+-                    regressions.append((task, d))
++                    regressions.append((task, round(s, 2), d))
+                 else:
+-                    no_changes.append(task)
++                    no_changes.append((task, round(s, 2)))
+ 
+             # display summary of evaluation before exiting
+             display_branch_eval_summary(improvements, regressions, no_changes)
+diff --git a/tests/test_lab_evaluate.py b/tests/test_lab_evaluate.py
+index 0237ab5f..58870d97 100644
+--- a/tests/test_lab_evaluate.py
++++ b/tests/test_lab_evaluate.py
+@@ -111,8 +111,8 @@ def run_mt_bench(cli_runner, error_rate):
+         Evaluating answers...
+         # SKILL EVALUATION REPORT
+ 
+-        ## MODEL
+-        instructlab/granite-7b-lab
++        ## MODEL (SCORE)
++        instructlab/granite-7b-lab (1.5/10.0)
+ 
+         ### AVERAGE:
+         1.5 (across 2)
+@@ -169,25 +169,25 @@ def run_mt_bench_branch(cli_runner, error_rate):
+         Evaluating answers for branch main...
+         # SKILL EVALUATION REPORT
+ 
+-        ## BASE MODEL
+-        instructlab/granite-7b-lab
++        ## BASE MODEL (SCORE)
++        instructlab/granite-7b-lab (0/10.0)
+ 
+-        ## MODEL
+-        instructlab/granite-7b-lab
++        ## MODEL (SCORE)
++        instructlab/granite-7b-lab (0/10.0)
+ 
+         ### IMPROVEMENTS:
+-        1. category1/qna.yaml (+0.1)
+-        2. category3/qna.yaml (+0.1)
++        1. category1/qna.yaml: 0.1 -> 0.2 (+0.1)
++        2. category3/qna.yaml: 0.1 -> 0.2 (+0.1)
+ 
+         ### REGRESSIONS:
+-        1. category2/qna.yaml (-0.1)
+-        2. category4/qna.yaml (-0.1)
++        1. category2/qna.yaml: 0.4 -> 0.3 (-0.1)
++        2. category4/qna.yaml: 0.4 -> 0.3 (-0.1)
+ 
+         ### NO CHANGE:
+-        1. category5/qna.yaml
++        1. category5/qna.yaml (0.5)
+ 
+         ### NEW:
+-        1. category6/qna.yaml
++        1. category6/qna.yaml (0.6)
+         """
+     )
+     if error_rate > 0:
+@@ -299,8 +299,8 @@ def test_evaluate_mmlu(
+         """\
+         # KNOWLEDGE EVALUATION REPORT
+ 
+-        ## MODEL
+-        instructlab/granite-7b-lab
++        ## MODEL (SCORE)
++        instructlab/granite-7b-lab (0.5/1.0)
+ 
+         ### AVERAGE:
+         0.5 (across 2)
+@@ -352,25 +352,25 @@ def test_evaluate_mmlu_branch(
+         """\
+         # KNOWLEDGE EVALUATION REPORT
+ 
+-        ## BASE MODEL
+-        instructlab/granite-7b-lab
++        ## BASE MODEL (SCORE)
++        instructlab/granite-7b-lab (0.6/1.0)
+ 
+-        ## MODEL
+-        instructlab/granite-7b-lab
++        ## MODEL (SCORE)
++        instructlab/granite-7b-lab (0.5/1.0)
+ 
+         ### AVERAGE:
+         -0.1 (across 5)
+ 
+         ### IMPROVEMENTS:
+-        1. task1 (+0.1)
+-        2. task3 (+0.1)
++        1. task1: 0.1 -> 0.2 (+0.1)
++        2. task3: 0.1 -> 0.2 (+0.1)
+ 
+         ### REGRESSIONS:
+-        1. task2 (-0.1)
+-        2. task4 (-0.1)
++        1. task2: 0.4 -> 0.3 (-0.1)
++        2. task4: 0.4 -> 0.3 (-0.1)
+ 
+         ### NO CHANGE:
+-        1. task5
++        1. task5 (0.5)
+         """
+     )
+     assert result.output == expected

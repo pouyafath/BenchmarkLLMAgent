@@ -1,0 +1,584 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 115 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   supervisor/store/git.py
+	modified:   tests/store/test_repository_git.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit fcb3e2eb55f1929b09392d05ec54a72999d758d1
+Author: Stefan Agner <stefan@agner.ch>
+Date:   Sat Mar 1 13:06:44 2025 +0100
+
+    Update Supervisor bug form (#5700)
+    
+    Update Supervisor bug form to reflect today's naming in the frontend.
+
+diff --git a/.github/ISSUE_TEMPLATE/bug_report.yml b/.github/ISSUE_TEMPLATE/bug_report.yml
+index 4a156f1c..5307c37b 100644
+--- a/.github/ISSUE_TEMPLATE/bug_report.yml
++++ b/.github/ISSUE_TEMPLATE/bug_report.yml
+@@ -26,7 +26,7 @@ body:
+     attributes:
+       label: What type of installation are you running?
+       description: >
+-        If you don't know, can be found in [Settings -> System -> Repairs -> System Information](https://my.home-assistant.io/redirect/system_health/).
++        If you don't know, can be found in [Settings -> System -> Repairs -> (three dot menu) -> System Information](https://my.home-assistant.io/redirect/system_health/).
+         It is listed as the `Installation Type` value.
+       options:
+         - Home Assistant OS
+@@ -72,9 +72,9 @@ body:
+     validations:
+       required: true
+     attributes:
+-      label: System Health information
++      label: System information
+       description: >
+-        System Health information can be found in the top right menu in [Settings -> System -> Repairs](https://my.home-assistant.io/redirect/repairs/).
++        The System information can be found in [Settings -> System -> Repairs -> (three dot menu) -> System Information](https://my.home-assistant.io/redirect/system_health/).
+         Click the copy button at the bottom of the pop-up and paste it here.
+         
+         [![Open your Home Assistant instance and show health information about your system.](https://my.home-assistant.io/badges/system_health.svg)](https://my.home-assistant.io/redirect/system_health/)
+@@ -83,8 +83,9 @@ body:
+       label: Supervisor diagnostics
+       placeholder: "drag-and-drop the diagnostics data file here (do not copy-and-paste the content)"
+       description: >-
+-        Supervisor diagnostics can be found in [Settings -> Integrations](https://my.home-assistant.io/redirect/integrations/).
+-        Find the card that says `Home Assistant Supervisor`, open its menu and select 'Download diagnostics'.
++        Supervisor diagnostics can be found in [Settings -> Devices & services](https://my.home-assistant.io/redirect/integrations/).
++        Find the card that says `Home Assistant Supervisor`, open it, and select the three dot menu of the Supervisor integration entry
++        and select 'Download diagnostics'.
+         
+         **Please drag-and-drop the downloaded file into the textbox below. Do not copy and paste its contents.**
+   - type: textarea
++ git -c core.fileMode=false diff fcb3e2eb55f1929b09392d05ec54a72999d758d1
+diff --git a/supervisor/store/git.py b/supervisor/store/git.py
+index 1cf3b055..546976c1 100644
+--- a/supervisor/store/git.py
++++ b/supervisor/store/git.py
+@@ -18,7 +18,6 @@ from .validate import RE_REPOSITORY
+ 
+ _LOGGER: logging.Logger = logging.getLogger(__name__)
+ 
+-
+ class GitRepo(CoreSysAttributes):
+     """Manage Add-on Git repository."""
+ 
+@@ -53,14 +52,24 @@ class GitRepo(CoreSysAttributes):
+             await self.clone()
+             return
+ 
++        # Check if directory is empty - if so, clone it
++        if not any(self.path.iterdir()):
++            _LOGGER.info("Repository directory exists but is empty, cloning")
++            await self.clone()
++            return
++
+         # Load repository
+         async with self.lock:
+             try:
+                 _LOGGER.info("Loading add-on %s repository", self.path)
+                 self.repo = await self.sys_run_in_executor(git.Repo, str(self.path))
+ 
++            except git.InvalidGitRepositoryError:
++                # Directory exists but is not a valid git repository
++                _LOGGER.error("Can't load %s", self.path)
++                raise StoreGitError() from None
++
+             except (
+-                git.InvalidGitRepositoryError,
+                 git.NoSuchPathError,
+                 git.CommandError,
+                 UnicodeDecodeError,
+@@ -197,7 +206,6 @@ class GitRepo(CoreSysAttributes):
+         async with self.lock:
+             await self.sys_run_in_executor(_remove_git_dir, self.path)
+ 
+-
+ class GitRepoHassIO(GitRepo):
+     """Supervisor add-ons repository."""
+ 
+@@ -207,7 +215,6 @@ class GitRepoHassIO(GitRepo):
+         """Initialize Git Supervisor add-on repository."""
+         super().__init__(coresys, coresys.config.path_addons_core, URL_HASSIO_ADDONS)
+ 
+-
+ class GitRepoCustom(GitRepo):
+     """Custom add-ons repository."""
+ 
+diff --git a/tests/store/test_repository_git.py b/tests/store/test_repository_git.py
+index 09c7c185..807cf4c8 100644
+--- a/tests/store/test_repository_git.py
++++ b/tests/store/test_repository_git.py
+@@ -14,14 +14,12 @@ from supervisor.store.git import GitRepo
+ 
+ REPO_URL = "https://github.com/awesome-developer/awesome-repo"
+ 
+-
+ @pytest.fixture(name="clone_from")
+ async def fixture_clone_from():
+     """Mock git clone_from."""
+     with patch("git.Repo.clone_from") as clone_from:
+         yield clone_from
+ 
+-
+ @pytest.mark.parametrize("branch", [None, "dev"])
+ async def test_git_clone(
+     coresys: CoreSys, tmp_path: Path, clone_from: AsyncMock, branch: str | None
+@@ -42,7 +40,6 @@ async def test_git_clone(
+         **kwargs,
+     )
+ 
+-
+ @pytest.mark.parametrize(
+     "git_error",
+     [
+@@ -64,26 +61,36 @@ async def test_git_clone_error(
+ 
+     assert len(coresys.resolution.suggestions) == 0
+ 
+-
+ async def test_git_load(coresys: CoreSys, tmp_path: Path):
+     """Test git load."""
+-    repo = GitRepo(coresys, tmp_path, REPO_URL)
++    repo_dir = tmp_path / "repo"
++    repo = GitRepo(coresys, repo_dir, REPO_URL)
++    repo.clone = AsyncMock()
+ 
+-    with (
+-        patch("pathlib.Path.is_dir", return_value=True),
+-        patch.object(
+-            GitRepo, "sys_run_in_executor", new_callable=AsyncMock
+-        ) as run_in_executor,
+-    ):
+-        await repo.load()
++    # Test with non-existing git repo root directory
++    await repo.load()
++    assert repo.clone.call_count == 1
++
++    repo.clone.reset_mock()
++
++    # Test with existing git repo root directory, but empty
++    repo_dir.mkdir()
++    await repo.load()
++    assert repo.clone.call_count == 1
+ 
+-        assert run_in_executor.call_count == 2
++    repo.clone.reset_mock()
+ 
++    # Pretend we have a repo
++    (repo_dir / ".git").mkdir()
++
++    with patch("git.Repo") as mock_repo:
++        await repo.load()
++        assert repo.clone.call_count == 0
++        assert mock_repo.call_count == 1
+ 
+ @pytest.mark.parametrize(
+     "git_errors",
+     [
+-        InvalidGitRepositoryError(),
+         NoSuchPathError(),
+         GitCommandError("init"),
+         UnicodeDecodeError("decode", b"", 0, 0, ""),
+@@ -92,8 +99,12 @@ async def test_git_load(coresys: CoreSys, tmp_path: Path):
+ )
+ async def test_git_load_error(coresys: CoreSys, tmp_path: Path, git_errors: Exception):
+     """Test git load error."""
++    coresys.hardware.disk.get_disk_free_space = lambda x: 5000
+     repo = GitRepo(coresys, tmp_path, REPO_URL)
+ 
++    # Pretend we have a repo
++    (tmp_path / ".git").mkdir()
++
+     with (
+         patch("pathlib.Path.is_dir", return_value=True),
+         patch.object(
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/_distutils/dist.py:270: UserWarning: Unknown distribution option: 'dependencies'
+    warnings.warn(msg)
+  /usr/local/lib/python3.11/site-packages/setuptools/dist.py:330: InformationOnly: Normalizing '9999.09.9.dev9999' to '9999.9.9.dev9999'
+    self.metadata.version = self._normalize_version(self.metadata.version)
+  running dist_info
+  creating /tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info
+  writing /tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info/dependency_links.txt
+  writing top-level names to /tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  warning: no files found matching 'LICENSE.md'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-lqhtijl6/Supervisor.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-lqhtijl6/supervisor-9999.9.9.dev9999.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+INFO: pip is looking at multiple versions of supervisor to determine which version is compatible with other requirements. This could take a while.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+ERROR: Package 'supervisor' requires a different Python: 3.11.12 not in '>=3.13.0'
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/_distutils/dist.py:270: UserWarning: Unknown distribution option: 'dependencies'
+    warnings.warn(msg)
+  /usr/local/lib/python3.11/site-packages/setuptools/dist.py:330: InformationOnly: Normalizing '9999.09.9.dev9999' to '9999.9.9.dev9999'
+    self.metadata.version = self._normalize_version(self.metadata.version)
+  running dist_info
+  creating /tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info
+  writing /tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info/dependency_links.txt
+  writing top-level names to /tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  warning: no files found matching 'LICENSE.md'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-ghamhrpo/Supervisor.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-ghamhrpo/supervisor-9999.9.9.dev9999.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+INFO: pip is looking at multiple versions of supervisor to determine which version is compatible with other requirements. This could take a while.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+ERROR: Package 'supervisor' requires a different Python: 3.11.12 not in '>=3.13.0'
++ git checkout fcb3e2eb55f1929b09392d05ec54a72999d758d1 tests/store/test_repository_git.py
+Updated 1 path from add966bf
++ git apply -v -
+Checking patch tests/store/test_repository_git.py...
+Applied patch tests/store/test_repository_git.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest --timeout=10 -rA tests tests/store/test_repository_git.py
+============================= test session starts ==============================
+platform linux -- Python 3.11.12, pytest-8.3.4, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: asyncio-0.25.2, timeout-2.3.1, time-machine-2.16.0, cov-6.0.0, aiohttp-1.1.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=function
+timeout: 10.0s
+timeout method: signal
+timeout func_only: False
+collected 12 items
+
+tests/store/test_repository_git.py ............                          [100%]
+
+==================================== PASSES ====================================
+_____________________________ test_git_clone[None] _____________________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:46.368 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:46.369 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:46.369 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:46.369 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:46.370 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:46.370 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:46.371 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:46.372 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:46.430 INFO     MainThread supervisor.store.git:git.py:109 Cloning add-on https://github.com/awesome-developer/awesome-repo repository
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:46.432 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_____________________________ test_git_clone[dev] ______________________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:46.460 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:46.464 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:46.465 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:46.465 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:46.465 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:46.466 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:46.466 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:46.467 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:46.467 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:46.468 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:46.525 INFO     MainThread supervisor.store.git:git.py:109 Cloning add-on https://github.com/awesome-developer/awesome-repo repository
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:46.527 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_clone_error[git_error0] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:46.555 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:46.559 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:46.560 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:46.560 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:46.560 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:46.560 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:46.561 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:46.562 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:46.562 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:46.562 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:46.563 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:46.563 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:46.563 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:46.563 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:46.563 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:46.563 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:46.659 INFO     MainThread supervisor.store.git:git.py:109 Cloning add-on https://github.com/awesome-developer/awesome-repo repository
+2026-04-14 04:44:46.660 ERROR    MainThread supervisor.store.git:git.py:122 Can't clone https://github.com/awesome-developer/awesome-repo repository: .
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:46.661 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_clone_error[git_error1] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:46.689 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:46.693 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:46.693 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:46.693 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:46.693 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:46.694 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:46.694 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:46.696 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:46.752 INFO     MainThread supervisor.store.git:git.py:109 Cloning add-on https://github.com/awesome-developer/awesome-repo repository
+2026-04-14 04:44:46.753 ERROR    MainThread supervisor.store.git:git.py:122 Can't clone https://github.com/awesome-developer/awesome-repo repository: .
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:46.754 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_clone_error[git_error2] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:46.781 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:46.785 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:46.786 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:46.786 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:46.786 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:46.787 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:46.787 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:46.789 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:46.789 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:46.789 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:46.789 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:46.789 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:46.790 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:46.790 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:46.790 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:46.790 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:46.846 INFO     MainThread supervisor.store.git:git.py:109 Cloning add-on https://github.com/awesome-developer/awesome-repo repository
+2026-04-14 04:44:46.846 ERROR    MainThread supervisor.store.git:git.py:122 Can't clone https://github.com/awesome-developer/awesome-repo repository: Cmd('clone') failed!
+  cmdline: clone.
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:46.847 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_clone_error[git_error3] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:46.876 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:46.880 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:46.880 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:46.880 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:46.880 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:46.881 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:46.881 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:46.883 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:46.884 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:46.884 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:46.987 INFO     MainThread supervisor.store.git:git.py:109 Cloning add-on https://github.com/awesome-developer/awesome-repo repository
+2026-04-14 04:44:46.988 ERROR    MainThread supervisor.store.git:git.py:122 Can't clone https://github.com/awesome-developer/awesome-repo repository: 'decode' codec can't decode bytes in position 0--1: .
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:46.989 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+________________________________ test_git_load _________________________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:47.017 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:47.022 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:47.022 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:47.022 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:47.022 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:47.023 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:47.023 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:47.024 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:47.025 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:47.082 INFO     MainThread supervisor.store.git:git.py:57 Repository directory exists but is empty, cloning
+2026-04-14 04:44:47.083 INFO     MainThread supervisor.store.git:git.py:64 Loading add-on /tmp/pytest-of-root/pytest-2/test_git_load0/repo repository
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:47.085 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_load_error[git_errors0] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:47.113 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:47.118 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:47.118 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:47.118 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:47.118 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:47.118 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:47.119 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:47.120 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:47.120 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:47.121 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:47.177 INFO     MainThread supervisor.store.git:git.py:64 Loading add-on /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors0 repository
+2026-04-14 04:44:47.177 ERROR    MainThread supervisor.store.git:git.py:69 Can't load /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors0
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:47.178 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_load_error[git_errors1] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:47.206 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:47.211 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:47.211 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:47.211 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:47.211 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:47.212 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:47.212 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:47.213 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:47.213 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:47.214 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:47.327 INFO     MainThread supervisor.store.git:git.py:64 Loading add-on /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors1 repository
+2026-04-14 04:44:47.327 ERROR    MainThread supervisor.store.git:git.py:77 Can't load /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors1
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:47.328 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_load_error[git_errors2] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:47.356 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:47.361 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:47.361 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:47.361 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:47.361 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:47.362 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:47.362 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:47.363 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:47.363 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:47.364 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:47.420 INFO     MainThread supervisor.store.git:git.py:64 Loading add-on /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors2 repository
+2026-04-14 04:44:47.420 ERROR    MainThread supervisor.store.git:git.py:77 Can't load /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors2
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:47.421 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_load_error[git_errors3] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:47.449 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:47.454 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:47.454 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:47.454 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:47.454 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:47.455 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:47.455 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:47.456 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:47.457 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:47.513 INFO     MainThread supervisor.store.git:git.py:64 Loading add-on /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors3 repository
+2026-04-14 04:44:47.513 ERROR    MainThread supervisor.store.git:git.py:77 Can't load /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors3
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:47.514 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+_______________________ test_git_load_error[git_errors4] _______________________
+------------------------------ Captured log setup ------------------------------
+2026-04-14 04:44:47.542 INFO     MainThread supervisor.coresys:coresys.py:134 Setting up coresys for machine: None
+2026-04-14 04:44:47.547 INFO     MainThread supervisor.resolution.check:check.py:57 Starting system checks with state initialize
+2026-04-14 04:44:47.547 INFO     MainThread supervisor.resolution.check:check.py:69 System checks complete
+2026-04-14 04:44:47.547 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:58 Starting system evaluation with state initialize
+2026-04-14 04:44:47.547 WARNING  MainThread supervisor.resolution.evaluations.base:base.py:27 D-Bus is required for Home Assistant. (more-info: https://www.home-assistant.io/more-info/unsupported/dbus)
+2026-04-14 04:44:47.548 INFO     MainThread supervisor.resolution.evaluate:evaluate.py:72 System evaluation complete
+2026-04-14 04:44:47.548 INFO     MainThread supervisor.jobs:decorator.py:183 'ResolutionFixup.run_autofix' blocked from execution, system is not running - initialize
+2026-04-14 04:44:47.549 INFO     MainThread supervisor.dbus.manager:manager.py:124 Connected to system D-Bus.
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.agent:__init__.py:96 Load dbus interface io.hass.os
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.hostname:hostname.py:38 Load dbus interface org.freedesktop.hostname1
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.logind:logind.py:27 Load dbus interface org.freedesktop.login1
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.network:__init__.py:142 Load dbus interface org.freedesktop.NetworkManager
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.rauc:rauc.py:71 Load dbus interface de.pengutronix.rauc
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.resolved:resolved.py:58 Load dbus interface org.freedesktop.resolve1
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.systemd:systemd.py:91 Load dbus interface org.freedesktop.systemd1
+2026-04-14 04:44:47.550 INFO     MainThread supervisor.dbus.timedate:timedate.py:62 Load dbus interface org.freedesktop.timedate1
+------------------------------ Captured log call -------------------------------
+2026-04-14 04:44:47.682 INFO     MainThread supervisor.store.git:git.py:64 Loading add-on /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors4 repository
+2026-04-14 04:44:47.682 ERROR    MainThread supervisor.store.git:git.py:77 Can't load /tmp/pytest-of-root/pytest-2/test_git_load_error_git_errors4
+---------------------------- Captured log teardown -----------------------------
+2026-04-14 04:44:47.683 INFO     MainThread supervisor.dbus.manager:manager.py:152 Closed conection to system D-Bus.
+=========================== short test summary info ============================
+PASSED tests/store/test_repository_git.py::test_git_clone[None]
+PASSED tests/store/test_repository_git.py::test_git_clone[dev]
+PASSED tests/store/test_repository_git.py::test_git_clone_error[git_error0]
+PASSED tests/store/test_repository_git.py::test_git_clone_error[git_error1]
+PASSED tests/store/test_repository_git.py::test_git_clone_error[git_error2]
+PASSED tests/store/test_repository_git.py::test_git_clone_error[git_error3]
+PASSED tests/store/test_repository_git.py::test_git_load
+PASSED tests/store/test_repository_git.py::test_git_load_error[git_errors0]
+PASSED tests/store/test_repository_git.py::test_git_load_error[git_errors1]
+PASSED tests/store/test_repository_git.py::test_git_load_error[git_errors2]
+PASSED tests/store/test_repository_git.py::test_git_load_error[git_errors3]
+PASSED tests/store/test_repository_git.py::test_git_load_error[git_errors4]
+============================== 12 passed in 1.43s ==============================
++ : '>>>>> End Test Output'
++ git checkout fcb3e2eb55f1929b09392d05ec54a72999d758d1 tests/store/test_repository_git.py
+Updated 1 path from add966bf

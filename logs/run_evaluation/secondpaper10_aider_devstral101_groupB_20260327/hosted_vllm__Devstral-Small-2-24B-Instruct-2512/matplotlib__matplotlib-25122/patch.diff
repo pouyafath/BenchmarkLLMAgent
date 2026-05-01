@@ -1,0 +1,140 @@
+diff --git a/lib/matplotlib/_fontconfig_pattern.py b/lib/matplotlib/_fontconfig_pattern.py
+index d3933b9f39..1e415e6c14 100644
+--- a/lib/matplotlib/_fontconfig_pattern.py
++++ b/lib/matplotlib/_fontconfig_pattern.py
+@@ -85,11 +85,11 @@ def parse_fontconfig_pattern(pattern):
+     """
+     parser = _make_fontconfig_parser()
+     try:
+-        parse = parser.parseString(pattern)
++        parse = parser.parse_string(pattern)
+     except ParseException as err:
+         # explain becomes a plain method on pyparsing 3 (err.explain(0)).
+         raise ValueError("\n" + ParseException.explain(err, 0)) from None
+-    parser.resetCache()
++    parser.reset_cache()
+     props = {}
+     if "families" in parse:
+         props["family"] = [*map(_family_unescape, parse["families"])]
+diff --git a/lib/matplotlib/_mathtext.py b/lib/matplotlib/_mathtext.py
+index 46340843f6..586a9df37b 100644
+--- a/lib/matplotlib/_mathtext.py
++++ b/lib/matplotlib/_mathtext.py
+@@ -14,7 +14,7 @@ import unicodedata
+ 
+ import numpy as np
+ from pyparsing import (
+-    Empty, Forward, Literal, NotAny, oneOf, OneOrMore, Optional,
++    Empty, Forward, Literal, NotAny, one_of, OneOrMore, Optional,
+     ParseBaseException, ParseException, ParseExpression, ParseFatalException,
+     ParserElement, ParseResults, QuotedString, Regex, StringEnd, ZeroOrMore,
+     pyparsing_common)
+@@ -27,7 +27,7 @@ from .font_manager import FontProperties, findfont, get_font
+ from .ft2font import FT2Image, KERNING_DEFAULT
+ 
+ 
+-ParserElement.enablePackrat()
++ParserElement.enable_packrat()
+ _log = logging.getLogger("matplotlib.mathtext")
+ 
+ 
+@@ -1646,7 +1646,7 @@ def Error(msg):
+     def raise_error(s, loc, toks):
+         raise ParseFatalException(s, loc, msg)
+ 
+-    return Empty().setParseAction(raise_error)
++    return Empty().set_parse_action(raise_error)
+ 
+ 
+ class ParserState:
+@@ -1803,10 +1803,10 @@ class Parser:
+             for key, val in vars(p).items():
+                 if not key.startswith('_'):
+                     # Set names on everything -- very useful for debugging
+-                    val.setName(key)
++                    val.set_name(key)
+                     # Set actions
+                     if hasattr(self, key):
+-                        val.setParseAction(getattr(self, key))
++                        val.set_parse_action(getattr(self, key))
+ 
+         # Root definitions.
+ 
+@@ -1826,9 +1826,9 @@ class Parser:
+             ))
+ 
+         p.float_literal  = Regex(r"[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)")
+-        p.space          = oneOf(self._space_widths)("space")
++        p.space          = one_of(self._space_widths)("space")
+ 
+-        p.style_literal  = oneOf(
++        p.style_literal  = one_of(
+             [str(e.value) for e in self._MathStyle])("style_literal")
+ 
+         p.symbol         = Regex(
+@@ -1836,15 +1836,15 @@ class Parser:
+             r"|\\[%${}\[\]_|]"
+             + r"|\\(?:{})(?![A-Za-z])".format(
+                 "|".join(map(re.escape, tex2uni)))
+-        )("sym").leaveWhitespace()
++        )("sym").leave_whitespace()
+         p.unknown_symbol = Regex(r"\\[A-Za-z]*")("name")
+ 
+         p.font           = csnames("font", self._fontnames)
+         p.start_group    = (
+-            Optional(r"\math" + oneOf(self._fontnames)("font")) + "{")
++            Optional(r"\math" + one_of(self._fontnames)("font")) + "{")
+         p.end_group      = Literal("}")
+ 
+-        p.delim          = oneOf(self._delims)
++        p.delim          = one_of(self._delims)
+ 
+         set_names_and_parse_actions()  # for root definitions.
+ 
+@@ -1945,7 +1945,7 @@ class Parser:
+ 
+         p.subsuper      <<= (
+             (Optional(p.placeable)("nucleus")
+-             + OneOrMore(oneOf(["_", "^"]) - p.placeable)("subsuper")
++             + OneOrMore(one_of(["_", "^"]) - p.placeable)("subsuper")
+              + Regex("'*")("apostrophes"))
+             | Regex("'+")("apostrophes")
+             | (p.placeable("nucleus") + Regex("'*")("apostrophes"))
+@@ -1965,8 +1965,8 @@ class Parser:
+ 
+         # Leaf definitions.
+         p.math          = OneOrMore(p.token)
+-        p.math_string   = QuotedString('$', '\\', unquoteResults=False)
+-        p.non_math      = Regex(r"(?:(?:\\[$])|[^$])*").leaveWhitespace()
++        p.math_string   = QuotedString('$', '\\', unquote_results=False)
++        p.non_math      = Regex(r"(?:(?:\\[$])|[^$])*").leave_whitespace()
+         p.main          = (
+             p.non_math + ZeroOrMore(p.math_string + p.non_math) + StringEnd()
+         )
+@@ -1989,7 +1989,7 @@ class Parser:
+             ParserState(fonts_object, 'default', 'rm', fontsize, dpi)]
+         self._em_width_cache = {}
+         try:
+-            result = self._expression.parseString(s)
++            result = self._expression.parse_string(s)
+         except ParseBaseException as err:
+             # explain becomes a plain method on pyparsing 3 (err.explain(0)).
+             raise ValueError("\n" + ParseException.explain(err, 0)) from None
+@@ -1997,7 +1997,7 @@ class Parser:
+         self._in_subscript_or_superscript = False
+         # prevent operator spacing from leaking into a new expression
+         self._em_width_cache = {}
+-        self._expression.resetCache()
++        self._expression.reset_cache()
+         return result[0]
+ 
+     def get_state(self):
+@@ -2016,7 +2016,7 @@ class Parser:
+         return [Hlist(toks)]
+ 
+     def math_string(self, s, loc, toks):
+-        return self._math_expression.parseString(toks[0][1:-1])
++        return self._math_expression.parse_string(toks[0][1:-1])
+ 
+     def math(self, s, loc, toks):
+         hlist = Hlist(toks)

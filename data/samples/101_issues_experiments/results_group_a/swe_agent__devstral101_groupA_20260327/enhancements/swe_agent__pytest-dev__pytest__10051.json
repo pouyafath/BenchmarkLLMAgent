@@ -1,0 +1,45 @@
+{
+  "issue_id": "pytest-dev/pytest#10051",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "caplog.get_records and caplog.clear conflict",
+  "original_body": "caplog.get_records and caplog.clear conflict\n# Description\r\n\r\n`caplog.get_records()` gets decoupled from actual caplog records when `caplog.clear()` is called. As a result, after `caplog.clear()` is called, `caplog.get_records()` is frozen: it does not get cleared, nor does it get new records.\r\n\r\nDuring test set up it is [set to the same list](https://github.com/pytest-dev/pytest/blob/28e8c8582ea947704655a3c3f2d57184831336fd/src/_pytest/logging.py#L699) as `caplog.records`, but the latter gets [replaced rather than cleared](https://github.com/pytest-dev/pytest/blob/28e8c8582ea947704655a3c3f2d57184831336fd/src/_pytest/logging.py#L345) in `caplog.clear()`, which diverges the two objects.\r\n\r\n# Reproductive example\r\n```python\r\nimport logging\r\n\r\ndef test(caplog) -> None:\r\n    def verify_consistency() -> None:\r\n        assert caplog.get_records(\"call\") == caplog.records\r\n\r\n    verify_consistency()\r\n    logging.warning(\"test\")\r\n    verify_consistency()\r\n    caplog.clear()\r\n    verify_consistency()  # fails: assert [<LogRecord: ...y, 8, \"test\">] == []\r\n```\r\n\r\n# Environment details\r\nArch Linux, Python 3.9.10:\r\n```\r\nPackage    Version\r\n---------- -------\r\nattrs      21.4.0\r\niniconfig  1.1.1\r\npackaging  21.3\r\npip        22.0.4\r\npluggy     1.0.0\r\npy         1.11.0\r\npyparsing  3.0.8\r\npytest     7.1.1\r\nsetuptools 60.10.0\r\ntomli      2.0.1\r\nwheel      0.37.1\r\n```\n",
+  "enhanced_title": "caplog.get_records() and caplog.clear() have inconsistent behavior causing decoupling",
+  "enhanced_body": "## Description\n\nThe `caplog.get_records()` method becomes decoupled from the actual caplog records when `caplog.clear()` is called. After clearing, `caplog.get_records()` stops updating - it neither clears its records nor captures new log records.\n\n## Problem Details\n\n1. **Root Cause**: During test setup, `caplog.get_records()` and `caplog.records` are set to reference the same list object\n2. **Conflict**: When `caplog.clear()` is called, it replaces `caplog.records` with a new list rather than clearing the existing one\n3. **Result**: The two references diverge, causing `caplog.get_records()` to return stale data\n\n## Expected Behavior\n\nAfter calling `caplog.clear()`:\n- `caplog.get_records()` should return an empty list\n- Subsequent log records should be properly captured by `caplog.get_records()`\n- `caplog.get_records()` should always return the same records as `caplog.records`\n\n## Actual Behavior\n\nAfter calling `caplog.clear()`:\n- `caplog.get_records()` continues to return the old records\n- New log records are not captured by `caplog.get_records()`\n- The method becomes \"frozen\" with stale data\n\n## Reproduction Steps\n\n1. Create a test using the `caplog` fixture\n2. Verify initial consistency between `caplog.get_records()` and `caplog.records`\n3. Log a message and verify consistency again\n4. Call `caplog.clear()`\n5. Verify consistency - this will fail\n\n## Reproduction Example\n\n```python\nimport logging\n\ndef test(caplog) -> None:\n    def verify_consistency() -> None:\n        assert caplog.get_records(\"call\") == caplog.records\n\n    verify_consistency()  # Passes: both are empty lists\n    logging.warning(\"test\")\n    verify_consistency()  # Passes: both contain the warning record\n    caplog.clear()\n    verify_consistency()  # Fails: get_records() still has old record, records is empty\n```\n\n## Affected Components\n\nBased on the hints, the issue is in these files:\n- `src/_pytest/logging.py` (lines 699 and 345)\n  - Line 699: Where `caplog.get_records()` is initially set to the same list as `caplog.records`\n  - Line 345: Where `caplog.clear()` replaces rather than clears the records list\n\n## Environment Details\n\n- OS: Arch Linux\n- Python: 3.9.10\n- pytest: 7.1.1\n- Related packages:\n  - attrs: 21.4.0\n  - iniconfig: 1.1.1\n  - packaging: 21.3\n  - pip: 22.0.4\n  - pluggy: 1.0.0\n  - py: 1.11.0\n  - pyparsing: 3.0.8\n  - setuptools: 60.10.0\n  - tomli: 2.0.1\n  - wheel: 0.37.1\n\n## Suggested Fix Direction\n\nThe fix should ensure that `caplog.get_records()` always returns the current state of `caplog.records`. This could be achieved by:\n1. Making `caplog.get_records()` return a fresh copy of the records list\n2. Or ensuring `caplog.clear()` properly updates both references\n3. Or restructuring how the records are managed to maintain consistency",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmptajmbeh8/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

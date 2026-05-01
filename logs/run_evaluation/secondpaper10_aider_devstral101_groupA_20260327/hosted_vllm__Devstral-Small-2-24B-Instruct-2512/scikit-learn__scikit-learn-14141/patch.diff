@@ -1,0 +1,38 @@
+diff --git a/sklearn/cluster/hierarchical.py b/sklearn/cluster/hierarchical.py
+index 17aae1458..a845ac1be 100644
+--- a/sklearn/cluster/hierarchical.py
++++ b/sklearn/cluster/hierarchical.py
+@@ -214,6 +214,23 @@ def ward_tree(X, connectivity=None, n_clusters=None, return_distance=False):
+         known as the incremental algorithm.
+     """
+     X = np.asarray(X)
++    # Check for zero vectors before converting to dense array
++    if affinity == "cosine":
++        if sparse.issparse(X):
++            # For sparse matrices, check if any row has zero sum
++            has_zero_vectors = np.any(X.sum(axis=1) == 0)
++        else:
++            # For dense matrices, handle both 1D and 2D arrays
++            if X.ndim == 1:
++                # 1D array: check if any element is zero
++                has_zero_vectors = np.any(X == 0)
++            else:
++                # 2D array: use the existing logic
++                has_zero_vectors = np.any(~np.any(X, axis=1))
++        
++        if has_zero_vectors:
++            raise ValueError(
++                "Cosine affinity cannot be used when X contains zero vectors")
+     if X.ndim == 1:
+         X = np.reshape(X, (-1, 1))
+     n_samples, n_features = X.shape
+@@ -432,9 +449,6 @@ def linkage_tree(X, connectivity=None, n_clusters=None, linkage='complete',
+             'Unknown linkage option, linkage should be one '
+             'of %s, but %s was given' % (linkage_choices.keys(), linkage))
+ 
+-    if affinity == 'cosine' and np.any(~np.any(X, axis=1)):
+-        raise ValueError(
+-            'Cosine affinity cannot be used when X contains zero vectors')
+ 
+     if connectivity is None:
+         from scipy.cluster import hierarchy  # imports PIL

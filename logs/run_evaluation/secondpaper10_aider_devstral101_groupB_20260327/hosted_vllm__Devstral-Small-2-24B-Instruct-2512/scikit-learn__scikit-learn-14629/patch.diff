@@ -1,0 +1,252 @@
+diff --git a/sklearn/neighbors/binary_tree.pxi b/sklearn/neighbors/binary_tree.pxi
+index 2eba04cda..d288ec82e 100755
+--- a/sklearn/neighbors/binary_tree.pxi
++++ b/sklearn/neighbors/binary_tree.pxi
+@@ -1089,7 +1089,7 @@ cdef class BinaryTree:
+         # the number of nodes in the tree.  This results in leaf nodes
+         # with numbers of points between leaf_size and 2 * leaf_size
+         self.n_levels = np.log2(fmax(1, (n_samples - 1) / self.leaf_size)) + 1
+-        self.n_nodes = (2 ** self.n_levels) - 1
++        self.n_nodes = <ITYPE_t>(2 ** self.n_levels) - 1
+ 
+         # allocate arrays for storage
+         self.idx_array_arr = np.arange(n_samples, dtype=ITYPE)
+diff --git a/sklearn/neighbors/quad_tree.pyx b/sklearn/neighbors/quad_tree.pyx
+index 9c22e5332..d6313d085 100644
+--- a/sklearn/neighbors/quad_tree.pyx
++++ b/sklearn/neighbors/quad_tree.pyx
+@@ -78,7 +78,7 @@ cdef class _QuadTree:
+         # Parameters of the tree
+         self.n_dimensions = n_dimensions
+         self.verbose = verbose
+-        self.n_cells_per_cell = 2 ** self.n_dimensions
++        self.n_cells_per_cell = <SIZE_t>(2 ** self.n_dimensions)
+ 
+         # Inner structures
+         self.max_depth = 0
+@@ -394,7 +394,7 @@ cdef class _QuadTree:
+                 .format(self.n_points, self.cells[0].cumulative_size))
+ 
+     cdef long summarize(self, DTYPE_t[3] point, DTYPE_t* results,
+-                        float squared_theta=.5, SIZE_t cell_id=0, long idx=0
++                        float squared_theta=0.5, int cell_id=0, long idx=0
+                         ) nogil:
+         """Summarize the tree compared to a query point.
+ 
+@@ -577,7 +577,6 @@ cdef class _QuadTree:
+                                    strides, <void*> self.cells,
+                                    np.NPY_DEFAULT, None)
+         Py_INCREF(self)
+-        arr.base = <PyObject*> self
+         return arr
+ 
+     cdef int _resize(self, SIZE_t capacity) nogil except -1:
+diff --git a/sklearn/svm/liblinear.pxd b/sklearn/svm/liblinear.pxd
+index 0f10e54a5..dc0355b6b 100644
+--- a/sklearn/svm/liblinear.pxd
++++ b/sklearn/svm/liblinear.pxd
+@@ -2,10 +2,10 @@ cimport numpy as np
+ 
+ 
+ cdef extern from "_cython_blas_helpers.h":
+-    ctypedef double (*dot_func)(int, double*, int, double*, int)
+-    ctypedef void (*axpy_func)(int, double, double*, int, double*, int)
+-    ctypedef void (*scal_func)(int, double, double*, int)
+-    ctypedef double (*nrm2_func)(int, double*, int)
++    ctypedef double (*dot_func)(int, double*, int, double*, int) except * nogil
++    ctypedef void (*axpy_func)(int, double, double*, int, double*, int) except * nogil
++    ctypedef void (*scal_func)(int, double, double*, int) except * nogil
++    ctypedef double (*nrm2_func)(int, double*, int) except * nogil
+     cdef struct BlasFunctions:
+         dot_func dot
+         axpy_func axpy
+diff --git a/sklearn/tree/_splitter.pyx b/sklearn/tree/_splitter.pyx
+index cbccfde1a..bc5035d2f 100644
+--- a/sklearn/tree/_splitter.pyx
++++ b/sklearn/tree/_splitter.pyx
+@@ -992,7 +992,7 @@ cdef class BaseSparseSplitter(Splitter):
+                                          end_negative, start_positive)
+ 
+ 
+-cdef int compare_SIZE_t(const void* a, const void* b) nogil:
++cdef int compare_SIZE_t(const void* a, const void* b) nogil noexcept:
+     """Comparison function for sort."""
+     return <int>((<SIZE_t*>a)[0] - (<SIZE_t*>b)[0])
+ 
+diff --git a/sklearn/tree/_tree.pyx b/sklearn/tree/_tree.pyx
+index 2fecf36c7..d299f0eb4 100644
+--- a/sklearn/tree/_tree.pyx
++++ b/sklearn/tree/_tree.pyx
+@@ -158,7 +158,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
+         cdef int init_capacity
+ 
+         if tree.max_depth <= 10:
+-            init_capacity = (2 ** (tree.max_depth + 1)) - 1
++            init_capacity = <int>(2 ** (tree.max_depth + 1)) - 1
+         else:
+             init_capacity = 2047
+ 
+@@ -1101,7 +1101,6 @@ cdef class Tree:
+         cdef np.ndarray arr
+         arr = np.PyArray_SimpleNewFromData(3, shape, np.NPY_DOUBLE, self.value)
+         Py_INCREF(self)
+-        arr.base = <PyObject*> self
+         return arr
+ 
+     cdef np.ndarray _get_node_ndarray(self):
+@@ -1122,7 +1121,6 @@ cdef class Tree:
+                                    strides, <void*> self.nodes,
+                                    np.NPY_DEFAULT, None)
+         Py_INCREF(self)
+-        arr.base = <PyObject*> self
+         return arr
+ 
+ 
+diff --git a/sklearn/utils/_random.pxd b/sklearn/utils/_random.pxd
+index 276ab5051..82df9fee6 100644
+--- a/sklearn/utils/_random.pxd
++++ b/sklearn/utils/_random.pxd
+@@ -15,8 +15,8 @@ cdef enum:
+     # particularly tiny on Windows/MSVC.
+     RAND_R_MAX = 0x7FFFFFFF
+ 
+-cpdef sample_without_replacement(np.int_t n_population,
+-                                 np.int_t n_samples,
++cpdef sample_without_replacement(np.intp_t n_population,
++                                 np.intp_t n_samples,
+                                  method=*,
+                                  random_state=*)
+ 
+diff --git a/sklearn/utils/_random.pyx b/sklearn/utils/_random.pyx
+index ad01a7b46..3496dcb61 100644
+--- a/sklearn/utils/_random.pyx
++++ b/sklearn/utils/_random.pyx
+@@ -24,8 +24,8 @@ from . import check_random_state
+ cdef UINT32_t DEFAULT_SEED = 1
+ 
+ 
+-cpdef _sample_without_replacement_check_input(np.int_t n_population,
+-                                              np.int_t n_samples):
++cpdef _sample_without_replacement_check_input(np.intp_t n_population,
++                                              np.intp_t n_samples):
+     """ Check that input are consistent for sample_without_replacement"""
+     if n_population < 0:
+         raise ValueError('n_population should be greater than 0, got %s.'
+@@ -38,8 +38,8 @@ cpdef _sample_without_replacement_check_input(np.int_t n_population,
+ 
+ 
+ cpdef _sample_without_replacement_with_tracking_selection(
+-        np.int_t n_population,
+-        np.int_t n_samples,
++        np.intp_t n_population,
++        np.intp_t n_samples,
+         random_state=None):
+     r"""Sample integers without replacement.
+ 
+@@ -81,9 +81,9 @@ cpdef _sample_without_replacement_with_tracking_selection(
+     """
+     _sample_without_replacement_check_input(n_population, n_samples)
+ 
+-    cdef np.int_t i
+-    cdef np.int_t j
+-    cdef np.ndarray[np.int_t, ndim=1] out = np.empty((n_samples, ),
++    cdef np.intp_t i
++    cdef np.intp_t j
++    cdef np.ndarray[np.intp_t, ndim=1] out = np.empty((n_samples, ),
+                                                      dtype=np.int)
+ 
+     rng = check_random_state(random_state)
+@@ -103,8 +103,8 @@ cpdef _sample_without_replacement_with_tracking_selection(
+     return out
+ 
+ 
+-cpdef _sample_without_replacement_with_pool(np.int_t n_population,
+-                                            np.int_t n_samples,
++cpdef _sample_without_replacement_with_pool(np.intp_t n_population,
++                                            np.intp_t n_samples,
+                                             random_state=None):
+     """Sample integers without replacement.
+ 
+@@ -137,12 +137,12 @@ cpdef _sample_without_replacement_with_pool(np.int_t n_population,
+     """
+     _sample_without_replacement_check_input(n_population, n_samples)
+ 
+-    cdef np.int_t i
+-    cdef np.int_t j
+-    cdef np.ndarray[np.int_t, ndim=1] out = np.empty((n_samples, ),
++    cdef np.intp_t i
++    cdef np.intp_t j
++    cdef np.ndarray[np.intp_t, ndim=1] out = np.empty((n_samples, ),
+                                                      dtype=np.int)
+ 
+-    cdef np.ndarray[np.int_t, ndim=1] pool = np.empty((n_population, ),
++    cdef np.ndarray[np.intp_t, ndim=1] pool = np.empty((n_population, ),
+                                                       dtype=np.int)
+ 
+     rng = check_random_state(random_state)
+@@ -164,8 +164,8 @@ cpdef _sample_without_replacement_with_pool(np.int_t n_population,
+ 
+ 
+ cpdef _sample_without_replacement_with_reservoir_sampling(
+-    np.int_t n_population,
+-    np.int_t n_samples,
++    np.intp_t n_population,
++    np.intp_t n_samples,
+     random_state=None):
+     """Sample integers without replacement.
+ 
+@@ -200,9 +200,9 @@ cpdef _sample_without_replacement_with_reservoir_sampling(
+     """
+     _sample_without_replacement_check_input(n_population, n_samples)
+ 
+-    cdef np.int_t i
+-    cdef np.int_t j
+-    cdef np.ndarray[np.int_t, ndim=1] out = np.empty((n_samples, ),
++    cdef np.intp_t i
++    cdef np.intp_t j
++    cdef np.ndarray[np.intp_t, ndim=1] out = np.empty((n_samples, ),
+                                                      dtype=np.int)
+ 
+     rng = check_random_state(random_state)
+@@ -223,8 +223,8 @@ cpdef _sample_without_replacement_with_reservoir_sampling(
+     return out
+ 
+ 
+-cpdef sample_without_replacement(np.int_t n_population,
+-                                 np.int_t n_samples,
++cpdef sample_without_replacement(np.intp_t n_population,
++                                 np.intp_t n_samples,
+                                  method="auto",
+                                  random_state=None):
+     """Sample integers without replacement.
+diff --git a/sklearn/utils/fast_dict.pyx b/sklearn/utils/fast_dict.pyx
+index 719cafc3c..66f98faa5 100644
+--- a/sklearn/utils/fast_dict.pyx
++++ b/sklearn/utils/fast_dict.pyx
+@@ -66,7 +66,7 @@ cdef class IntFloatDict:
+     # and relying on the to_arrays method
+     #def __iter__(self):
+     #    cdef cpp_map[ITYPE_t, DTYPE_t].iterator it = self.my_map.begin()
+-    #    cdef cpp_map[ITYPE_t, DTYPE_t].iterator end = self.my_map.end()
++    #    cdef cpp_map[ITYPE_t, DTYPE_t].const_iterator end = self.my_map.end()
+     #    while it != end:
+     #        yield deref(it).first, deref(it).second
+     #        inc(it)
+@@ -106,7 +106,7 @@ cdef class IntFloatDict:
+     cdef _to_arrays(self, ITYPE_t [:] keys, DTYPE_t [:] values):
+         # Internal version of to_arrays that takes already-initialized arrays
+         cdef cpp_map[ITYPE_t, DTYPE_t].iterator it = self.my_map.begin()
+-        cdef cpp_map[ITYPE_t, DTYPE_t].iterator end = self.my_map.end()
++        cdef cpp_map[ITYPE_t, DTYPE_t].const_iterator end = self.my_map.end()
+         cdef int index = 0
+         while it != end:
+             keys[index] = deref(it).first
+@@ -128,7 +128,7 @@ cdef class IntFloatDict:
+         return out_obj
+ 
+     def append(self, ITYPE_t key, DTYPE_t value):
+-        cdef cpp_map[ITYPE_t, DTYPE_t].iterator end = self.my_map.end()
++        cdef cpp_map[ITYPE_t, DTYPE_t].const_iterator end = self.my_map.end()
+         # Decrement the iterator
+         dec(end)
+         # Construct our arguments

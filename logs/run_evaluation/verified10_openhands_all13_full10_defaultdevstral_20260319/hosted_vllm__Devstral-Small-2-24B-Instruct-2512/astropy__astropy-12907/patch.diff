@@ -1,0 +1,22 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..2d44d40bb 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -186,6 +186,17 @@ def _coord_matrix(model, pos, noutp):
+         is a left or right child.
+ 
+     """
++    # Handle CompoundModels by recursively calling _separable
++    if isinstance(model, CompoundModel):
++        sep_matrix = _separable(model)
++        # Expand the separability matrix to the correct shape
++        mat = np.zeros((noutp, model.n_inputs))
++        if pos == 'left':
++            mat[:model.n_outputs, :model.n_inputs] = sep_matrix
++        else:
++            mat[-model.n_outputs:, -model.n_inputs:] = sep_matrix
++        return mat
++
+     if isinstance(model, Mapping):
+         axes = []
+         for i in model.mapping:

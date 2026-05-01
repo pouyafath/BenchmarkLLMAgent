@@ -1,0 +1,45 @@
+{
+  "issue_id": "astropy/astropy#14365",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "ascii.qdp Table format assumes QDP commands are upper case",
+  "original_body": "ascii.qdp Table format assumes QDP commands are upper case\n### Description\n\nascii.qdp assumes that commands in a QDP file are upper case, for example, for errors they must be \"READ SERR 1 2\" whereas QDP itself is not case sensitive and case use \"read serr 1 2\". \r\n\r\nAs many QDP files are created by hand, the expectation that all commands be all-caps should be removed.\n\n### Expected behavior\n\nThe following qdp file should read into a `Table` with errors, rather than crashing.\r\n```\r\nread serr 1 2 \r\n1 0.5 1 0.5\r\n```\n\n### How to Reproduce\n\nCreate a QDP file:\r\n```\r\n> cat > test.qdp\r\nread serr 1 2 \r\n1 0.5 1 0.5\r\n<EOF>\r\n\r\n > python\r\nPython 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)] on darwin\r\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.\r\n>>> from astropy.table import Table\r\n>>> Table.read('test.qdp',format='ascii.qdp')\r\nWARNING: table_id not specified. Reading the first available table [astropy.io.ascii.qdp]\r\nTraceback (most recent call last):\r\n...\r\n    raise ValueError(f'Unrecognized QDP line: {line}')\r\nValueError: Unrecognized QDP line: read serr 1 2\r\n```\r\n\r\nRunning \"qdp test.qdp\" works just fine.\r\n\n\n### Versions\n\nPython 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)]\r\nastropy 5.1\r\nNumpy 1.24.1\r\npyerfa 2.0.0.1\r\nScipy 1.10.0\r\nMatplotlib 3.6.3\r\n\n",
+  "enhanced_title": "ascii.qdp Table format should support case-insensitive QDP commands",
+  "enhanced_body": "## Summary\nThe \\`ascii.qdp\\` table format reader currently assumes all QDP commands are uppercase, which is inconsistent with QDP's actual case-insensitive behavior. This causes the reader to fail when processing QDP files with lowercase commands.\n\n## Problem Description\nThe QDP file format reader in Astropy (\\`astropy.io.ascii.qdp\\`) only recognizes uppercase commands (e.g., \\`READ SERR 1 2\\`), but the actual QDP software accepts commands in any case (e.g., \\`read serr 1 2\\`). This limitation affects users who create QDP files with lowercase commands, which is common when files are created by hand.\n\n## Expected Behavior\nThe reader should accept QDP commands regardless of case, matching the behavior of the actual QDP software. The following QDP file should successfully read into a \\`Table\\` with errors:\n\n```qdp\nread serr 1 2\n1 0.5 1 0.5\n```\n\n## Actual Behavior\nThe current implementation raises a \\`ValueError\\` when encountering lowercase commands:\n\n```python\nfrom astropy.table import Table\nTable.read('test.qdp', format='ascii.qdp')\n# Raises: ValueError: Unrecognized QDP line: read serr 1 2\n```\n\n## Reproduction Steps\n1. Create a QDP file with lowercase commands:\n   ```bash\n   cat > test.qdp << EOF\n   read serr 1 2\n   1 0.5 1 0.5\n   EOF\n   ```\n2. Attempt to read the file using Astropy:\n   ```python\n   from astropy.table import Table\n   Table.read('test.qdp', format='ascii.qdp')\n   ```\n3. Observe the \\`ValueError\\` being raised\n\n## Environment\n- Python: 3.10.9\n- Astropy: 5.1\n- Numpy: 1.24.1\n- Platform: macOS (Darwin)\n\n## Affected Components\nBased on the hints, this issue affects:\n- \\`astropy/io/ascii/qdp.py\\` (QDP format reader implementation)\n\n## Additional Notes\n- The actual QDP software successfully processes the same file with lowercase commands\n- This is a compatibility issue that affects user-generated QDP files\n- The fix should maintain backward compatibility with existing uppercase command files\n\n## Suggested Fix\nModify the command parsing logic in \\`astropy/io/ascii/qdp.py\\` to convert commands to uppercase (or implement case-insensitive comparison) before processing.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpqxd_mllk/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

@@ -1,0 +1,419 @@
+diff --git a/trl/experimental/sdpo/__init__.py b/trl/experimental/sdpo/__init__.py
+new file mode 100644
+index 00000000..6f963611
+--- /dev/null
++++ b/trl/experimental/sdpo/__init__.py
+@@ -0,0 +1,18 @@
++# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++from .sdpo_config import SDPOConfig
++from .sdpo_trainer import SDPOTrainer
++
++__all__ = ["SDPOConfig", "SDPOTrainer"]
+diff --git a/trl/experimental/sdpo/sdpo_config.py b/trl/experimental/sdpo/sdpo_config.py
+new file mode 100644
+index 00000000..0eabd932
+--- /dev/null
++++ b/trl/experimental/sdpo/sdpo_config.py
+@@ -0,0 +1,74 @@
++# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++from dataclasses import dataclass
++from typing import Any, Literal
++
++from transformers import TrainingArguments
++
++from ...trainer.base_config import _BaseConfig
++
++
++@dataclass
++class SDPOConfig(_BaseConfig):
++    r"""
++    Configuration class for SDPO (Self-Distillation with Preference Optimization) training.
++
++    Args:
++        beta (`float`, *optional*, defaults to `0.1`):
++            The beta parameter for the SDPO loss. Controls the trade-off between the policy and reference model.
++        gamma (`float`, *optional*, defaults to `1.0`):
++            The gamma parameter for the SDPO loss. Controls the temperature of the softmax.
++        label_smoothing (`float`, *optional*, defaults to `0.0`):
++            The label smoothing parameter for the SDPO loss.
++        loss_type (`Literal["sigmoid", "hinge", "ipo"]`, *optional*, defaults to `"sigmoid"`):
++            The type of loss to use for SDPO training.
++        model_init_pretrained_model_name_or_path (`str`, *optional*):
++            The path to a pretrained model to initialize the reference model. If not provided, the reference model
++            will be initialized from the same weights as the policy model.
++        model_init_pretrained_model_name_or_path_2 (`str`, *optional*):
++            The path to a pretrained model to initialize the policy model. If not provided, the policy model will be
++            initialized from the same weights as the reference model.
++        reference_free (`bool`, *optional*, defaults to `False`):
++            Whether to use a reference-free version of SDPO.
++        use_softmax (`bool`, *optional*, defaults to `False`):
++            Whether to use softmax instead of sigmoid for the preference model.
++        **kwargs:
++            Additional arguments to pass to the TrainingArguments.
++    """
++
++    beta: float = 0.1
++    gamma: float = 1.0
++    label_smoothing: float = 0.0
++    loss_type: Literal["sigmoid", "hinge", "ipo"] = "sigmoid"
++    model_init_pretrained_model_name_or_path: str | None = None
++    model_init_pretrained_model_name_or_path_2: str | None = None
++    reference_free: bool = False
++    use_softmax: bool = False
++    padding_free: bool = False
++
++    def to_trainer_kwargs(self) -> dict[str, Any]:
++        """
++        Convert the SDPO config to trainer kwargs.
++        """
++        return {
++            "beta": self.beta,
++            "gamma": self.gamma,
++            "label_smoothing": self.label_smoothing,
++            "loss_type": self.loss_type,
++            "model_init_pretrained_model_name_or_path": self.model_init_pretrained_model_name_or_path,
++            "model_init_pretrained_model_name_or_path_2": self.model_init_pretrained_model_name_or_path_2,
++            "reference_free": self.reference_free,
++            "use_softmax": self.use_softmax,
++        }
+diff --git a/trl/experimental/sdpo/sdpo_trainer.py b/trl/experimental/sdpo/sdpo_trainer.py
+new file mode 100644
+index 00000000..27af5d17
+--- /dev/null
++++ b/trl/experimental/sdpo/sdpo_trainer.py
+@@ -0,0 +1,309 @@
++# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import contextlib
++import textwrap
++from collections import defaultdict
++from collections.abc import Callable
++from pathlib import Path
++from typing import Any, Literal, Optional, Union
++
++import torch
++import torch.nn as nn
++import torch.nn.functional as F
++import transformers
++from accelerate import PartialState
++from accelerate.logging import get_logger
++from accelerate.utils import is_peft_model, tqdm
++from datasets import Dataset
++from packaging.version import Version
++from torch import autocast
++from torch.utils.data import DataLoader
++from transformers import (
++    AutoModelForCausalLM,
++    DataCollator,
++    PreTrainedModel,
++    PreTrainedTokenizerBase,
++    TrainerCallback,
++    is_comet_available,
++    is_torch_xla_available,
++    is_wandb_available,
++)
++from transformers.trainer_utils import EvalLoopOutput
++from transformers.utils import is_peft_available, is_torch_fx_proxy
++
++from ...data_utils import maybe_apply_chat_template, maybe_extract_prompt
++from ...trainer.base_trainer import _BaseTrainer
++from ...trainer.utils import disable_dropout_in_model, log_table_to_comet_experiment, selective_log_softmax
++from ..utils import (
++    DPODataCollatorWithPadding,
++    add_bos_token_if_needed,
++    add_eos_token_if_needed,
++    pad_to_length,
++    peft_module_casting_to_bf16,
++)
++from .sdpo_config import SDPOConfig
++
++if is_peft_available():
++    from peft import PeftModel, get_peft_model, prepare_model_for_kbit_training
++
++if is_wandb_available():
++    import wandb
++
++if is_torch_xla_available():
++    import torch_xla.core.xla_model as xm
++
++logger = get_logger(__name__)
++
++class SDPOTrainer(_BaseTrainer):
++    r"""
++    Initialize SDPOTrainer.
++
++    Args:
++        model ([`~transformers.PreTrainedModel`]):
++            The model to train, preferably an [`~transformers.AutoModelForCausalLM`].
++        args ([`experimental.sdpo.SDPOConfig`]):
++            The SDPO config arguments to use for training.
++        data_collator ([`~transformers.DataCollator`]):
++            The data collator to use for training. If None is specified, the default data collator
++            ([`experimental.utils.DPODataCollatorWithPadding`]) will be used which will pad the sequences to the
++            maximum length of the sequences in the batch, given a dataset of paired sequences.
++        train_dataset ([`~datasets.Dataset`]):
++            The dataset to use for training.
++        eval_dataset ([`~datasets.Dataset`]):
++            The dataset to use for evaluation.
++        model_init ([`Callable[[], torch.nn.Module]`], *optional*):
++            A function to initialize the model. If None is specified, the model will be initialized from the
++            pretrained model name.
++        callbacks ([`List[`[`~transformers.TrainerCallback`]`]`], *optional*):
++            A list of callbacks to use for training.
++        optimizers ([`tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]`], *optional*):
++            A tuple of (optimizer, scheduler) to use for training.
++        preprocess_logits_for_metrics ([`Callable[[torch.Tensor, torch.Tensor], torch.Tensor]`], *optional*):
++            A function to preprocess the logits before computing metrics.
++    """
++
++    def __init__(
++        self,
++        model: Union[PreTrainedModel, nn.Module] = None,
++        args: SDPOConfig = None,
++        data_collator: DataCollator = None,
++        train_dataset: Dataset = None,
++        eval_dataset: Dataset = None,
++        model_init: Callable[[], torch.nn.Module] = None,
++        callbacks: list[TrainerCallback] = None,
++        optimizers: tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
++        preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
++    ):
++        if args is None:
++            raise ValueError("`args` must be provided for SDPO training.")
++
++        if model is None:
++            raise ValueError("`model` must be provided for SDPO training.")
++
++        if data_collator is None:
++            data_collator = DPODataCollatorWithPadding()
++
++        # Initialize reference model
++        self.reference_model = None
++        if not args.reference_free:
++            if args.model_init_pretrained_model_name_or_path is not None:
++                self.reference_model = AutoModelForCausalLM.from_pretrained(
++                    args.model_init_pretrained_model_name_or_path,
++                    torch_dtype=model.dtype,
++                )
++            else:
++                # Clone the policy model as the reference model
++                self.reference_model = type(model)(model.config)
++                self.reference_model.load_state_dict(model.state_dict())
++                self.reference_model.requires_grad_(False)
++
++        # Set up models
++        self.policy_model = model
++        self.model = model  # For compatibility with base trainer
++
++        # Set up config
++        self.args = args
++        self.beta = args.beta
++        self.gamma = args.gamma
++        self.label_smoothing = args.label_smoothing
++        self.loss_type = args.loss_type
++        self.reference_free = args.reference_free
++        self.use_softmax = args.use_softmax
++
++        # Initialize base trainer
++        super().__init__(
++            model=model,
++            args=args,
++            data_collator=data_collator,
++            train_dataset=train_dataset,
++            eval_dataset=eval_dataset,
++            model_init=model_init,
++            callbacks=callbacks,
++            optimizers=optimizers,
++            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
++        )
++
++        # Move reference model to the same device as policy model
++        if self.reference_model is not None:
++            self.reference_model.to(self.policy_model.device)
++
++    def compute_loss(self, model, inputs, return_outputs=False):
++        """
++        Compute the SDPO loss.
++
++        Args:
++            model ([`~transformers.PreTrainedModel`]):
++                The model to compute the loss for.
++            inputs (`dict[str, torch.Tensor]`):
++                The inputs to the model.
++            return_outputs (`bool`, *optional*, defaults to `False`):
++                Whether to return the outputs.
++
++        Returns:
++            `tuple[torch.Tensor, torch.Tensor]`:
++                A tuple of (loss, outputs) if return_outputs is True, otherwise just the loss.
++        """
++        # Extract inputs
++        policy_chosen_inputs = {
++            "input_ids": inputs["chosen_input_ids"],
++            "attention_mask": inputs["chosen_attention_mask"],
++        }
++        policy_rejected_inputs = {
++            "input_ids": inputs["rejected_input_ids"],
++            "attention_mask": inputs["rejected_attention_mask"],
++        }
++
++        # Get policy logits
++        policy_chosen_outputs = model(**policy_chosen_inputs, return_dict=True)
++        policy_rejected_outputs = model(**policy_rejected_inputs, return_dict=True)
++
++        policy_chosen_logits = policy_chosen_outputs.logits
++        policy_rejected_logits = policy_rejected_outputs.logits
++
++        # Get reference logits if not reference-free
++        if not self.reference_free:
++            reference_chosen_outputs = self.reference_model(**policy_chosen_inputs, return_dict=True)
++            reference_rejected_outputs = self.reference_model(**policy_rejected_inputs, return_dict=True)
++
++            reference_chosen_logits = reference_chosen_outputs.logits
++            reference_rejected_logits = reference_rejected_outputs.logits
++        else:
++            reference_chosen_logits = policy_chosen_logits.detach()
++            reference_rejected_logits = policy_rejected_logits.detach()
++
++        # Compute log probabilities
++        # For SDPO, we use the last token's logits as the preference score
++        policy_chosen_logps = (policy_chosen_logits * policy_chosen_inputs["attention_mask"].unsqueeze(-1)).sum(dim=1) / policy_chosen_inputs["attention_mask"].sum(dim=1).unsqueeze(-1)
++        policy_rejected_logps = (policy_rejected_logits * policy_rejected_inputs["attention_mask"].unsqueeze(-1)).sum(dim=1) / policy_rejected_inputs["attention_mask"].sum(dim=1).unsqueeze(-1)
++        reference_chosen_logps = (reference_chosen_logits * policy_chosen_inputs["attention_mask"].unsqueeze(-1)).sum(dim=1) / policy_chosen_inputs["attention_mask"].sum(dim=1).unsqueeze(-1)
++        reference_rejected_logps = (reference_rejected_logits * policy_rejected_inputs["attention_mask"].unsqueeze(-1)).sum(dim=1) / policy_rejected_inputs["attention_mask"].sum(dim=1).unsqueeze(-1)
++
++        # Compute SDPO loss
++        if self.loss_type == "sigmoid":
++            logits = policy_chosen_logps - policy_rejected_logps - (reference_chosen_logps - reference_rejected_logps)
++            losses = -torch.nn.functional.logsigmoid(self.beta * logits)
++        elif self.loss_type == "hinge":
++            logits = policy_chosen_logps - policy_rejected_logps - (reference_chosen_logps - reference_rejected_logps)
++            losses = torch.nn.functional.relu(1 - self.beta * logits)
++        elif self.loss_type == "ipo":
++            logits = policy_chosen_logps - policy_rejected_logps
++            reference_logits = reference_chosen_logps - reference_rejected_logps
++            losses = -torch.nn.functional.logsigmoid(self.beta * (logits - reference_logits))
++        else:
++            raise ValueError(f"Unknown loss type: {self.loss_type}")
++
++        # Apply label smoothing if specified
++        if self.label_smoothing > 0:
++            losses = (1 - self.label_smoothing) * losses + self.label_smoothing / 2
++
++        loss = losses.mean()
++
++        return (loss, {"loss": loss}) if return_outputs else loss
++
++    def training_step(self, model: nn.Module, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
++        """
++        Perform a training step.
++
++        Args:
++            model ([`~transformers.PreTrainedModel`]):
++                The model to train.
++            inputs (`dict[str, torch.Tensor]`):
++                The inputs to the model.
++
++        Returns:
++            `torch.Tensor`:
++                The loss.
++        """
++        loss = self.compute_loss(model, inputs)
++        return loss
++
++    def evaluation(self, model: nn.Module, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
++        """
++        Perform an evaluation step.
++
++        Args:
++            model ([`~transformers.PreTrainedModel`]):
++                The model to evaluate.
++            inputs (`dict[str, torch.Tensor]`):
++                The inputs to the model.
++
++        Returns:
++            `dict[str, torch.Tensor]`:
++                A dictionary of metrics.
++        """
++        loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
++        return outputs
++
++    def save_model(self, output_dir: str, _internal_call: bool = False):
++        """
++        Save the model and reference model.
++
++        Args:
++            output_dir (`str`):
++                The directory to save the model to.
++            _internal_call (`bool`, *optional*, defaults to `False`):
++                Whether this is an internal call.
++        """
++        super().save_model(output_dir, _internal_call=_internal_call)
++        if self.reference_model is not None:
++            self.reference_model.save_pretrained(output_dir, safe_serialization=True)
++
++    def _save(self, output_dir: str, state_dict=None):
++        """
++        Save the trainer state.
++
++        Args:
++            output_dir (`str`):
++                The directory to save the state to.
++            state_dict (`dict[str, torch.Tensor]`, *optional*):
++                The state dict to save.
++        """
++        super()._save(output_dir, state_dict=state_dict)
++        if self.reference_model is not None:
++            self.reference_model.save_pretrained(output_dir, safe_serialization=True)
++
++    def on_save(self, output_dir: str, state_dict=None):
++        """
++        Save the model and reference model.
++
++        Args:
++            output_dir (`str`):
++                The directory to save the model to.
++            state_dict (`dict[str, torch.Tensor]`, *optional*):
++                The state dict to save.
++        """
++        super().on_save(output_dir, state_dict=state_dict)
++        if self.reference_model is not None:
++            self.reference_model.save_pretrained(output_dir, safe_serialization=True)

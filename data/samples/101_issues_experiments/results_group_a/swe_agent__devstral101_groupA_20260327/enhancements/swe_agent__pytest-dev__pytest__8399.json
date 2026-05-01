@@ -1,0 +1,45 @@
+{
+  "issue_id": "pytest-dev/pytest#8399",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "Starting v6.2.0, unittest setUpClass fixtures are no longer \"private\"",
+  "original_body": "Starting v6.2.0, unittest setUpClass fixtures are no longer \"private\"\n<!--\r\nThanks for submitting an issue!\r\n\r\nQuick check-list while reporting bugs:\r\n-->\r\nMinimal example:\r\n```\r\nimport unittest\r\n\r\nclass Tests(unittest.TestCase):\r\n    @classmethod\r\n    def setUpClass(cls):\r\n        pass\r\n\r\n    def test_1(self):\r\n        pass\r\n```\r\n```\r\n~$  pytest --fixtures\r\n...\r\nunittest_setUpClass_fixture_Tests [class scope] -- ../Platform/.venv/lib/python3.6/site-packages/_pytest/unittest.py:145\r\n    /home/ubuntu/src/Platform/.venv/lib/python3.6/site-packages/_pytest/unittest.py:145: no docstring available\r\n```\r\nThe expected (and previously implemented behavior) is that this fixture's name would start with an underscore, and would therefore only get printed if the additional `-v` flag was used. As it stands, I don't see a way to hide such generated fixtures which will not have a docstring.\r\n\r\nThis breaks a code-quality CI script that makes sure we don't have undocumented pytest fixtures (and the code-base has many legacy tests that use unittest, and that will not get upgraded).\r\n\n",
+  "enhanced_title": "unittest setUpClass fixtures should remain private (hidden by default) in pytest v6.2.0+",
+  "enhanced_body": "## Summary\nStarting with pytest v6.2.0, `unittest.setUpClass` fixtures are no longer treated as private fixtures (those starting with underscore), causing them to be displayed by default in `pytest --fixtures` output. This breaks existing workflows that rely on private fixtures being hidden.\n\n## Steps to Reproduce\n1. Create a unittest test case with a `setUpClass` method\n2. Run `pytest --fixtures` in the directory containing the test\n3. Observe that the generated fixture appears in the output without an underscore prefix\n\n## Expected Behavior\nThe generated fixture for `setUpClass` should:\n- Have a name starting with underscore (e.g., `_unittest_setUpClass_fixture_Tests`)\n- Only appear in `pytest --fixtures` output when using the `-v` flag\n- Remain hidden by default to maintain consistency with private fixtures\n\n## Actual Behavior\nThe generated fixture appears as `unittest_setUpClass_fixture_Tests` (without underscore) and is displayed by default in `pytest --fixtures` output, even though it has no docstring.\n\n## Impact\nThis breaks code-quality CI scripts that:\n- Check for undocumented pytest fixtures\n- Rely on private fixtures being hidden by default\n- Work with legacy unittest test suites that won't be upgraded\n\n## Environment\n- pytest version: v6.2.0+\n- Python version: 3.6 (as shown in example)\n- Affected component: `_pytest/unittest.py` (line 145)\n\n## Technical Details\nThe issue appears to be in the fixture generation code at:\n`_pytest/unittest.py:145` where the fixture name is constructed without the leading underscore that would make it private.\n\n## Minimal Example\n```python\nimport unittest\n\nclass Tests(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n        pass\n\n    def test_1(self):\n        pass\n```\n\nCommand to reproduce:\n```bash\npytest --fixtures\n```\n\nCurrent output shows:\nunittest_setUpClass_fixture_Tests [class scope] -- ../Platform/.venv/lib/python3.6/site-packages/_pytest/unittest.py:145\n\nExpected output should show:\n_unittest_setUpClass_fixture_Tests [class scope] -- ../Platform/.venv/lib/python3.6/site-packages/_pytest/unittest.py:145\n\n## Requested Fix\nModify the fixture name generation in `_pytest/unittest.py` to prepend an underscore to maintain the private fixture behavior that was present in previous versions.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp_315d8un/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

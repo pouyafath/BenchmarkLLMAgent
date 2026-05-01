@@ -1,0 +1,67 @@
+diff --git a/lib/matplotlib/figure.py b/lib/matplotlib/figure.py
+index f1a6711cb6..d4c2a31174 100644
+--- a/lib/matplotlib/figure.py
++++ b/lib/matplotlib/figure.py
+@@ -2108,6 +2108,35 @@ class SubFigure(FigureBase):
+             self.stale = False
+ 
+ 
++    @docstring.dedent_interpd
++    def legend(self, *args, **kwargs):
++        """
++        Place a legend on the subfigure.
++
++        This method has the same signature and behavior as `.Figure.legend`,
++        but operates on the subfigure instead of the main figure.
++
++        See Also
++        --------
++        .Figure.legend
++        .Axes.legend
++        """
++        handles, labels, extra_args, kwargs = mlegend._parse_legend_args(
++                self.axes,
++                *args,
++                **kwargs)
++        # check for third arg
++        if len(extra_args):
++            pass
++        transform = kwargs.pop('bbox_transform', self.transSubfigure)
++        # explicitly set the bbox transform if the user hasn't.
++        l = mlegend.Legend(self, handles, labels, *extra_args,
++                           bbox_transform=transform, **kwargs)
++        self.legends.append(l)
++        l._remove_method = self.legends.remove
++        self.stale = True
++        return l
++
+ @docstring.interpd
+ class Figure(FigureBase):
+     """
+diff --git a/lib/matplotlib/legend.py b/lib/matplotlib/legend.py
+index 44ab024698..7d05328672 100644
+--- a/lib/matplotlib/legend.py
++++ b/lib/matplotlib/legend.py
+@@ -360,7 +360,7 @@ class Legend(Artist):
+         """
+         # local import only to avoid circularity
+         from matplotlib.axes import Axes
+-        from matplotlib.figure import Figure
++        from matplotlib.figure import Figure, SubFigure
+ 
+         super().__init__()
+ 
+@@ -434,11 +434,11 @@ class Legend(Artist):
+             self.isaxes = True
+             self.axes = parent
+             self.set_figure(parent.figure)
+-        elif isinstance(parent, Figure):
++        elif isinstance(parent, (Figure, SubFigure)):
+             self.isaxes = False
+             self.set_figure(parent)
+         else:
+-            raise TypeError("Legend needs either Axes or Figure as parent")
++            raise TypeError("Legend needs either Axes or Figure/SubFigure as parent")
+         self.parent = parent
+ 
+         self._loc_used_default = loc is None

@@ -1,0 +1,21 @@
+diff --git a/dspy/signatures/signature.py b/dspy/signatures/signature.py
+index de9f0170..f4cc5c39 100644
+--- a/dspy/signatures/signature.py
++++ b/dspy/signatures/signature.py
+@@ -200,6 +200,16 @@ class SignatureMeta(type(BaseModel)):
+             if "desc" not in field.json_schema_extra:
+                 field.json_schema_extra["desc"] = f"${{{name}}}"
+ 
++        # Remove __pydantic_parent_namespace__ to fix cloudpickle serialization on Python 3.14
++        # This attribute is only needed during class construction and contains weakrefs
++        # that can reference objects with unpicklable _abc._abc_data in their closures
++        try:
++            if hasattr(cls, "__pydantic_parent_namespace__"):
++                delattr(cls, "__pydantic_parent_namespace__")
++        except AttributeError:
++            # Attribute might have already been deleted or not set
++            pass
++
+         return cls
+ 
+     def _validate_fields(cls):

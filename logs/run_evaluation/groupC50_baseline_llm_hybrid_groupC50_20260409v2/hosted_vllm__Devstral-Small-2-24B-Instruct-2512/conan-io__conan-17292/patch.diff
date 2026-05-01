@@ -1,0 +1,46 @@
+diff --git a/conan/tools/microsoft/msbuild.py b/conan/tools/microsoft/msbuild.py
+index a2ec898ca..1e360f86f 100644
+--- a/conan/tools/microsoft/msbuild.py
++++ b/conan/tools/microsoft/msbuild.py
+@@ -1,6 +1,5 @@
+ from conan.errors import ConanException
+ 
+-
+ def msbuild_verbosity_cmd_line_arg(conanfile):
+     """
+     Controls msbuild verbosity.
+@@ -16,14 +15,12 @@ def msbuild_verbosity_cmd_line_arg(conanfile):
+         return f'/verbosity:{verbosity}'
+     return ""
+ 
+-
+ def msbuild_arch(arch):
+     return {'x86': 'x86',
+             'x86_64': 'x64',
+             'armv7': 'ARM',
+             'armv8': 'ARM64'}.get(str(arch))
+ 
+-
+ class MSBuild(object):
+     """
+     MSBuild build helper class
+@@ -62,10 +59,15 @@ class MSBuild(object):
+         if verbosity:
+             cmd += " {}".format(verbosity)
+ 
+-        maxcpucount = self._conanfile.conf.get("tools.microsoft.msbuild:max_cpu_count",
+-                                               check_type=int)
+-        if maxcpucount:
+-            cmd += " /m:{}".format(maxcpucount)
++        maxcpucount = self._conanfile.conf.get("tools.microsoft.msbuild:max_cpu_count")
++        if maxcpucount is not None:
++            # Support "all" (case-insensitive) or 0 to use all available CPUs
++            if str(maxcpucount).lower() == "all" or maxcpucount == 0:
++                cmd += " /m"
++            elif isinstance(maxcpucount, int) and maxcpucount > 0:
++                cmd += " /m:{}".format(maxcpucount)
++            else:
++                raise ConanException("tools.microsoft.msbuild:max_cpu_count must be a positive integer, 0, or 'all'")
+ 
+         if targets:
+             if not isinstance(targets, list):

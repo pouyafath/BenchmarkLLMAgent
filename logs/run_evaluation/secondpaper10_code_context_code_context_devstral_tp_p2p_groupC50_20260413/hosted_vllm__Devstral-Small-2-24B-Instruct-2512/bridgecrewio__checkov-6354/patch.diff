@@ -1,0 +1,20 @@
+diff --git a/checkov/terraform/checks/module/generic/RevisionVersionTag.py b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+index 14626ecf0..9b65ec6e0 100644
+--- a/checkov/terraform/checks/module/generic/RevisionVersionTag.py
++++ b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+@@ -30,7 +30,14 @@ class RevisionVersionTag(BaseModuleCheck):
+             if ("?ref" in source_url or "&ref" in source_url) and re.search(VERSION_PATTERN, source_url):
+                 return CheckResult.PASSED
+ 
+-        return CheckResult.FAILED
++        # Check for version attribute in Terraform Registry modules
++        version = conf.get("version")
++        if version and isinstance(version, list) and len(version) > 0:
++            version_value = version[0]
++            # Check if version looks like a semantic version (e.g., 4.3.0, 5.39.1)
++            if isinstance(version_value, str) and re.search(r"^\d+\.\d+\.\d+$", version_value):
++                return CheckResult.PASSED
+ 
++        return CheckResult.FAILED
+ 
+ check = RevisionVersionTag()

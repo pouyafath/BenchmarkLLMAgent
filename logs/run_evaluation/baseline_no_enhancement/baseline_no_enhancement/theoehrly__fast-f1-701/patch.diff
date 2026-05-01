@@ -1,0 +1,68 @@
+diff --git a/fastf1/plotting/_interface.py b/fastf1/plotting/_interface.py
+--- a/fastf1/plotting/_interface.py
++++ b/fastf1/plotting/_interface.py
+@@ -1,4 +1,35 @@
+     if colormap == 'fastf1':
+         return team.constants.TeamColor.FastF1
+     elif colormap == 'official':
+         return team.constants.TeamColor.Official
++    
++# ---------------------------------------------------------------------------
++# Helper to replace the placeholder string "auto" recursively in nested
++# structures (dicts, lists, tuples). This is used by ``get_driver_style`` to
++# ensure that any occurrence of the keyword ``auto`` – no matter how deeply
++# nested – is substituted with the appropriate driver colour.
++def _replace_auto(obj: Any, replacement: str) -> Any:
++    """
++    Recursively replace occurrences of the string ``"auto"`` in *obj* with
++    *replacement*.
++
++    Parameters
++    ----------
++    obj : Any
++        The object to process. Can be a dict, list, tuple, or any other type.
++    replacement : str
++        The string that should replace every ``"auto"`` occurrence.
++
++    Returns
++    -------
++    Any
++        The processed object with all ``"auto"`` strings replaced.
++    """
++    if isinstance(obj, dict):
++        return {k: _replace_auto(v, replacement) for k, v in obj.items()}
++    if isinstance(obj, (list, tuple)):
++        # Preserve the original container type
++        return type(obj)(_replace_auto(v, replacement) for v in obj)
++    if obj == "auto":
++        return replacement
++    return obj
+@@ -105,17 +136,14 @@
+-    # Build the style dictionary (original implementation)
+-    style = {
+-        "fillcolor": fillcolor if fillcolor is not None else "auto",
+-        "line": line if line is not None else {"color": "auto"},
+-        **kwargs,
+-    }
++    # Build the style dictionary (original implementation)
++    style = {
++        "fillcolor": fillcolor if fillcolor is not None else "auto",
++        "line": line if line is not None else {"color": "auto"},
++        **kwargs,
++    }
+ 
+-    # Resolve the driver colour (original implementation)
+-    driver_color = _get_driver_color(driver, session)
++    # Resolve the driver colour (original implementation)
++    driver_color = _get_driver_color(driver, session)
+ 
+-    # Replace top‑level ``auto`` placeholders
+-    if style.get("fillcolor") == "auto":
+-        style["fillcolor"] = driver_color
+-    if isinstance(style.get("line"), dict) and style["line"].get("color") == "auto":
+-        style["line"]["color"] = driver_color
++    # Replace any remaining ``auto`` placeholders recursively
++    style = _replace_auto(style, driver_color)
+ 
+-    return style
++    return style

@@ -1,0 +1,67 @@
+--- a/astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
++++ b/astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
+index a15248c38..2cab21ec2 100644
+--- astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
++++ astropy/coordinates/builtin_frames/intermediate_rotation_transforms.py
+@@ -16,8 +16,10 @@ from .icrs import ICRS
+ from .gcrs import GCRS, PrecessedGeocentric
+ from .cirs import CIRS
+ from .itrs import ITRS
++from .altaz import AltAz
++from .hadec import HADec
+ from .equatorial import TEME, TETE
+-from .utils import get_polar_motion, get_jd12, EARTH_CENTER
++from .utils import get_polar_motion, get_jd12, EARTH_CENTER, PIOVER2
+ 
+ # # first define helper functions
+ 
+@@ -217,6 +219,49 @@ def itrs_to_cirs(itrs_coo, cirs_frame):
+     return cirs.transform_to(cirs_frame)
+ 
+ 
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_observed(itrs_coo, observed_frame):
++    topocentric_itrs_repr = (itrs_coo.cartesian
++                             - observed_frame.location.get_itrs(observed_frame.obstime).cartesian)
++    lon = observed_frame.location.lon.to_value(u.radian)
++    if isinstance(observed_frame, AltAz):
++        lat = observed_frame.location.lat.to_value(u.radian)
++        minus_x = np.eye(3)
++        minus_x[0, 0] = -1.0
++        mat = (minus_x
++               @ rotation_matrix(PIOVER2 - lat, 'y', unit=u.radian)
++               @ rotation_matrix(lon, 'z', unit=u.radian))
++    else:
++        minus_y = np.eye(3)
++        minus_y[1, 1] = -1.0
++        mat = minus_y @ rotation_matrix(lon, 'z', unit=u.radian)
++    rep = topocentric_itrs_repr.transform(mat)
++    return observed_frame.realize_frame(rep)
++
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def observed_to_itrs(observed_coo, itrs_frame):
++    if isinstance(observed_coo, AltAz):
++        lat = observed_coo.location.lat.to_value(u.radian)
++        lon = observed_coo.location.lon.to_value(u.radian)
++        minus_x = np.eye(3)
++        minus_x[0, 0] = -1.0
++        mat = (minus_x
++               @ rotation_matrix(PIOVER2 - lat, 'y', unit=u.radian)
++               @ rotation_matrix(lon, 'z', unit=u.radian))
++    else:
++        lon = observed_coo.location.lon.to_value(u.radian)
++        minus_y = np.eye(3)
++        minus_y[1, 1] = -1.0
++        mat = minus_y @ rotation_matrix(lon, 'z', unit=u.radian)
++
++    topocentric_itrs_repr = observed_coo.cartesian.transform(matrix_transpose(mat))
++    rep = topocentric_itrs_repr + observed_coo.location.get_itrs(itrs_frame.obstime).cartesian
++    return itrs_frame.realize_frame(rep)
++
++
+ # TODO: implement GCRS<->CIRS if there's call for it.  The thing that's awkward
+ # is that they both have obstimes, so an extra set of transformations are necessary.
+ # so unless there's a specific need for that, better to just have it go through the above

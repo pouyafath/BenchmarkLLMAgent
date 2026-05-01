@@ -1,0 +1,70 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..04d7b0e0 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -451,9 +451,48 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        canonical_url = self.config.get("CANONICAL_URL")
++        server_name = self.config["SERVER_NAME"]
++
++        if canonical_url is not None:
++            # Parse CANONICAL_URL to extract server_name and url_scheme for binding
++            url_scheme = self.config["PREFERRED_URL_SCHEME"]
++            bind_server_name = canonical_url
++
++            if canonical_url.startswith(('http://', 'https://')):
++                # Extract host:port from URL
++                url_parts = canonical_url.split('://', 1)
++                url_scheme = url_parts[0]
++                host_port = url_parts[1].split('/', 1)[0]
++                bind_server_name = host_port
++            # else: assume it's just host:port format
++
++            return self.url_map.bind(
++                bind_server_name,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=url_scheme,
++            )
++        elif server_name is not None:
++            # Only show deprecation warning when used for URL generation outside request context
++            # During routing, SERVER_NAME is still used internally
++            import inspect
++            frame = inspect.currentframe()
++            try:
++                # Check if we're being called from url_for or similar URL generation code
++                caller_frame = frame.f_back
++                if caller_frame and 'url_for' in caller_frame.f_code.co_name:
++                    warnings.warn(
++                        "The 'SERVER_NAME' configuration is deprecated and will be "
++                        "removed in Flask 3.0. Use 'CANONICAL_URL' for URL generation "
++                        "and configure host matching for routing instead.",
++                        DeprecationWarning,
++                        stacklevel=3,
++                    )
++            finally:
++                del frame
++
+             return self.url_map.bind(
+-                self.config["SERVER_NAME"],
++                server_name,
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )
+@@ -1092,11 +1131,13 @@ class Flask(App):
+         self.inject_url_defaults(endpoint, values)
+ 
+         try:
++            # Use the provided _scheme if given, otherwise use the adapter's default scheme
++            build_url_scheme = _scheme if _scheme is not None else url_adapter.url_scheme
+             rv = url_adapter.build(  # type: ignore[union-attr]
+                 endpoint,
+                 values,
+                 method=_method,
+-                url_scheme=_scheme,
++                url_scheme=build_url_scheme,
+                 force_external=_external,
+             )
+         except BuildError as error:

@@ -1,0 +1,27 @@
+diff --git a/conan/cli/commands/test.py b/conan/cli/commands/test.py
+index d8f2093fb..54c6a14e8 100644
+--- a/conan/cli/commands/test.py
++++ b/conan/cli/commands/test.py
+@@ -49,6 +49,22 @@ def test(conan_api, parser, *args):
+ 
+ def run_test(conan_api, path, ref, profile_host, profile_build, remotes, lockfile, update,
+              build_modes, tested_python_requires=None, build_modes_test=None, tested_graph=None):
++    # Check if the tested reference is a python_requires
++    if tested_python_requires is None:
++        from conan.internal.conan_app import ConanApp
++        import os
++        app = ConanApp(conan_api)
++        try:
++            conanfile_path = conan_api.cache.export_path(ref)
++            # Try to read the conanfile.py and check for package_type
++            with open(os.path.join(conanfile_path, "conanfile.py"), "r") as f:
++                conanfile_content = f.read()
++                if 'package_type = "python-require"' in conanfile_content:
++                    tested_python_requires = ref.repr_notime()
++        except Exception:
++            # If we can't read the conanfile, assume it's not a python_requires
++            pass
++
+     root_node = conan_api.graph.load_root_test_conanfile(path, ref,
+                                                          profile_host, profile_build,
+                                                          remotes=remotes,

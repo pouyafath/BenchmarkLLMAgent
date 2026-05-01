@@ -1,0 +1,132 @@
+diff --git a/src/streamlink/plugins/bilibili.py b/src/streamlink/plugins/bilibili.py
+index 1a5a1121..e96468da 100644
+--- a/src/streamlink/plugins/bilibili.py
++++ b/src/streamlink/plugins/bilibili.py
+@@ -12,10 +12,8 @@ from streamlink.plugin import Plugin, pluginmatcher
+ from streamlink.plugin.api import validate
+ from streamlink.stream.hls import HLSStream
+ 
+-
+ log = logging.getLogger(__name__)
+ 
+-
+ @pluginmatcher(
+     re.compile(r"https?://live\.bilibili\.com/(?P<channel>[^/]+)"),
+ )
+@@ -26,6 +24,22 @@ class Bilibili(Plugin):
+     SHOW_STATUS_ONLINE = 1
+     SHOW_STATUS_ROUND = 2
+ 
++    # Quality level mapping
++    _QUALITY_NAMES = {
++        10000: "4k",
++        20000: "1080p60",
++        15000: "1080p_plus",
++        4000: "720p60",
++        2500: "720p",
++        1500: "480p",
++        80: "360p",
++        15: "480p_old",
++        10: "360p_old",
++        1: "1080p_old",
++        0: "source",
++        400: "4k_av1",  # AV1 4K
++    }
++
+     @staticmethod
+     def _schema_streams():
+         return validate.all(
+@@ -67,7 +81,7 @@ class Bilibili(Plugin):
+                 "room_id": room_id,
+                 "no_playurl": 0,
+                 "mask": 1,
+-                "qn": 0,
++                "qn": 0,  # Request original quality
+                 "platform": "web",
+                 "protocol": "0,1",
+                 "format": "0,1,2",
+@@ -159,12 +173,82 @@ class Bilibili(Plugin):
+             log.debug("Falling back to _get_api_playinfo()")
+             streams = self._get_api_playinfo(self.match["channel"])
+ 
++        # Group streams by quality level and format
++        quality_streams = {}
++
+         for stream in streams or []:
+             for stream_format in stream["format"]:
+                 for codec in stream_format["codec"]:
+                     for url_info in codec["url_info"]:
+                         url = f"{url_info['host']}{codec['base_url']}{url_info['extra']}"
+-                        yield "live", HLSStream(self.session, url)
+-
++                        # Extract quality level from URL
++                        qn = 250  # Default quality
++                        if 'qn=' in url_info['extra']:
++                            try:
++                                qn_value = url_info['extra'].split('qn=')[1].split('&')[0]
++                                qn = int(qn_value)
++                            except ValueError:
++                                qn = 250  # Fallback to default quality
++
++                        # Store stream with format and codec information
++                        format_key = stream_format['format_name']
++                        codec_key = codec['codec_name']
++
++                        if qn not in quality_streams:
++                            quality_streams[qn] = {}
++
++                        if format_key not in quality_streams[qn]:
++                            quality_streams[qn][format_key] = {}
++
++                        if codec_key not in quality_streams[qn][format_key]:
++                            quality_streams[qn][format_key][codec_key] = []
++
++                        quality_streams[qn][format_key][codec_key].append(url)
++
++        # Yield streams with appropriate quality names
++        for qn in sorted(quality_streams.keys()):
++            # Use quality name if available, otherwise use the quality number
++            quality_name = self._QUALITY_NAMES.get(qn, f"qn{qn}")
++
++            # Yield all available formats and codecs for this quality level
++            for format_name, codecs in quality_streams[qn].items():
++                for codec_name, urls in codecs.items():
++                    for url in urls:
++                        # Create a unique stream name for each format/codec combination
++                        if format_name != "fmp4" or codec_name != "avc":
++                            stream_name = f"{quality_name}_{format_name}_{codec_name}"
++                        else:
++                            stream_name = quality_name
++
++                        yield stream_name, HLSStream(self.session, url)
++
++        # Also yield a "best" and "worst" stream for backward compatibility
++        if quality_streams:
++            worst_qn = min(quality_streams.keys())
++            best_qn = max(quality_streams.keys())
++
++            # Find the best stream (prefer fmp4 with avc codec)
++            best_stream = None
++            for qn in sorted(quality_streams.keys(), reverse=True):
++                if "fmp4" in quality_streams[qn] and "avc" in quality_streams[qn]["fmp4"]:
++                    urls = quality_streams[qn]["fmp4"]["avc"]
++                    if urls:
++                        best_stream = urls[0]
++                        break
++
++            if best_stream:
++                yield "best", HLSStream(self.session, best_stream)
++
++            # Find the worst stream (prefer fmp4 with avc codec)
++            worst_stream = None
++            for qn in sorted(quality_streams.keys()):
++                if "fmp4" in quality_streams[qn] and "avc" in quality_streams[qn]["fmp4"]:
++                    urls = quality_streams[qn]["fmp4"]["avc"]
++                    if urls:
++                        worst_stream = urls[0]
++                        break
++
++            if worst_stream:
++                yield "worst", HLSStream(self.session, worst_stream)
+ 
+ __plugin__ = Bilibili

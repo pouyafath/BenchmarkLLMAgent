@@ -1,0 +1,26 @@
+diff --git a/conan/tools/scm/git.py b/conan/tools/scm/git.py
+index 77d0e6dbb..f0aae608b 100644
+--- a/conan/tools/scm/git.py
++++ b/conan/tools/scm/git.py
+@@ -237,3 +237,21 @@ class Git:
+         files = self.run("ls-files --full-name --others --cached --exclude-standard")
+         files = files.splitlines()
+         return files
++
++    def update_conandata_scm(self, key="scm", remote="origin", repository=False):
++        """
++        Updates conandata.yml with SCM (Source Control Management) information.
++        This is a helper method that combines the functionality of getting git URL and commit
++        and updating conandata.yml in a single call.
++
++        :param key: Key to use in conandata.yml for the SCM information (default: "scm").
++                   Can be used to store SCM data under different keys like "sources", "exports", etc.
++        :param remote: Name of the remote git repository (default: "origin").
++        :param repository: By default gets the commit of the defined folder, use repo=True to get
++                   the commit of the repository instead.
++        :return: None
++        """
++        from conan.tools.files import update_conandata
++
++        scm_url, scm_commit = self.get_url_and_commit(remote=remote, repository=repository)
++        update_conandata(self._conanfile, {key: {"commit": scm_commit, "url": scm_url}})

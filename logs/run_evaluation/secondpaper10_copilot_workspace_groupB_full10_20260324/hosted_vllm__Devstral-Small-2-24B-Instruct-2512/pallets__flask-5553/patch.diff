@@ -1,0 +1,97 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..7f18aef2 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -7,6 +7,7 @@ import typing as t
+ import weakref
+ from datetime import timedelta
+ from inspect import iscoroutinefunction
++import warnings
+ from itertools import chain
+ from types import TracebackType
+ from urllib.parse import quote as _url_quote
+@@ -185,6 +186,8 @@ class Flask(App):
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
+             "APPLICATION_ROOT": "/",
++            "CANONICAL_URL": None,
++            "ROUTING_SERVER_NAME": None,
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+             "SESSION_COOKIE_PATH": None,
+@@ -444,16 +447,57 @@ class Flask(App):
+             else:
+                 subdomain = None
+ 
++            # For routing, use ROUTING_SERVER_NAME if available, otherwise fall back to SERVER_NAME
++            server_name = self.config.get("ROUTING_SERVER_NAME") or self.config.get("SERVER_NAME")
++
++            if self.config.get("SERVER_NAME") is not None:
++                warnings.warn(
++                    "The 'SERVER_NAME' configuration is deprecated and will be "
++                    "removed in Flask 3.1. Use 'CANONICAL_URL' for URL generation "
++                    "and 'ROUTING_SERVER_NAME' for routing instead.",
++                    DeprecationWarning,
++                    stacklevel=2,
++                )
+             return self.url_map.bind_to_environ(
+                 request.environ,
+-                server_name=self.config["SERVER_NAME"],
++                server_name=server_name,
+                 subdomain=subdomain,
+             )
+-        # We need at the very least the server name to be set for this
+-        # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        # For URL generation outside request context
++        # Use CANONICAL_URL if available for URL generation
++        canonical_url = self.config.get("CANONICAL_URL")
++        if canonical_url is not None:
++            # Parse CANONICAL_URL to extract host and scheme
++            if not canonical_url.startswith(("http://", "https://")):
++                canonical_url = f"http://{canonical_url}"
++
++            # Extract host and scheme from CANONICAL_URL
++            from urllib.parse import urlparse
++            parsed = urlparse(canonical_url)
++            host = parsed.netloc
++            scheme = parsed.scheme
++
++            return self.url_map.bind(
++                host,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=scheme,
++            )
++
++        # Fall back to ROUTING_SERVER_NAME or SERVER_NAME for compatibility
++        server_name = self.config.get("ROUTING_SERVER_NAME") or self.config.get("SERVER_NAME")
++
++        if self.config.get("SERVER_NAME") is not None:
++            warnings.warn(
++                "The 'SERVER_NAME' configuration is deprecated and will be "
++                "removed in Flask 3.1. Use 'CANONICAL_URL' for URL generation "
++                "and 'ROUTING_SERVER_NAME' for routing instead.",
++                DeprecationWarning,
++                stacklevel=2,
++            )
++
++        if server_name is not None:
+             return self.url_map.bind(
+-                self.config["SERVER_NAME"],
++                server_name,
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )
+@@ -1074,9 +1118,9 @@ class Flask(App):
+             if url_adapter is None:
+                 raise RuntimeError(
+                     "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
+-                    " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+-                    " needed."
++                    " without 'CANONICAL_URL' or 'SERVER_NAME' configured."
++                    " Also configure 'APPLICATION_ROOT' and"
++                    " 'PREFERRED_URL_SCHEME' as needed."
+                 )
+ 
+             # When outside a request, generate a URL with scheme and

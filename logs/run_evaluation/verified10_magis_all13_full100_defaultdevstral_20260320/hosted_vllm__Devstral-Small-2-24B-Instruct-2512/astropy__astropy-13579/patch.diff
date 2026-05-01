@@ -1,0 +1,48 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..c682d496d 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -245,13 +245,40 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+     def world_to_pixel_values(self, *world_arrays):
+         world_arrays = tuple(map(np.asanyarray, world_arrays))
+         world_arrays_new = []
+-        iworld_curr = -1
++        iworld_curr = 0
+         for iworld in range(self._wcs.world_n_dim):
+             if iworld in self._world_keep:
+-                iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
++                iworld_curr += 1
+             else:
+-                world_arrays_new.append(1.)
++                # For dropped world dimensions, we need to determine the correct
++                # world coordinate value that corresponds to the fixed pixel value
++                # Find the pixel dimension that is fixed and corresponds to this world dimension
++                pixel_dim = None
++                for ipixel in range(self._wcs.pixel_n_dim):
++                    if ipixel not in self._pixel_keep and self._wcs.axis_correlation_matrix[iworld, ipixel]:
++                        pixel_dim = ipixel
++                        break
++
++                if pixel_dim is not None and isinstance(self._slices_pixel[pixel_dim], numbers.Integral):
++                    # Use the fixed pixel value to get the correct world coordinate
++                    # Create a pixel array with the fixed value for this dimension and zeros for others
++                    pixel_for_world = []
++                    ipixel_curr = -1
++                    for ipixel in range(self._wcs.pixel_n_dim):
++                        if ipixel == pixel_dim:
++                            pixel_for_world.append(self._slices_pixel[ipixel])
++                        elif ipixel in self._pixel_keep:
++                            ipixel_curr += 1
++                            pixel_for_world.append(0)
++                        else:
++                            pixel_for_world.append(self._slices_pixel[ipixel])
++
++                    world_for_dropped = self._wcs.pixel_to_world_values(*pixel_for_world)[iworld]
++                    world_arrays_new.append(world_for_dropped)
++                else:
++                    # Fallback to 1. if we can't determine the correct value
++                    world_arrays_new.append(1.)
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

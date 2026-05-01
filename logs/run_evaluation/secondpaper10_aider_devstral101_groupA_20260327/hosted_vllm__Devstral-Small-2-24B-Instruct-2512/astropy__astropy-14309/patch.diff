@@ -1,0 +1,38 @@
+diff --git a/astropy/utils/xml/writer.py b/astropy/utils/xml/writer.py
+index 20b6574e4..3e4de4446 100644
+--- a/astropy/utils/xml/writer.py
++++ b/astropy/utils/xml/writer.py
+@@ -195,6 +195,33 @@ class XMLWriter:
+ 
+             if clean_kwargs is None:
+                 clean_kwargs = {}
++            else:
++                # Convert bleach.ALLOWED_TAGS to list if present in tags parameter
++                if "tags" in clean_kwargs:
++                    tags = clean_kwargs["tags"]
++                    if tags is None:
++                        # None tags should be handled by bleach itself
++                        pass
++                    elif isinstance(tags, (frozenset, set)):
++                        clean_kwargs = clean_kwargs.copy()
++                        clean_kwargs["tags"] = list(tags)
++                    elif isinstance(tags, str):
++                        # String tags are handled by bleach itself
++                        pass
++                    elif hasattr(tags, "__iter__"):
++                        # Handle case where tags might be a sequence containing frozenset/set
++                        try:
++                            new_tags = []
++                            for tag in tags:
++                                if isinstance(tag, (frozenset, set)):
++                                    new_tags.extend(list(tag))
++                                else:
++                                    new_tags.append(tag)
++                            clean_kwargs = clean_kwargs.copy()
++                            clean_kwargs["tags"] = new_tags
++                        except TypeError:
++                            # If iteration fails, just pass as-is
++                            pass
+             self.xml_escape_cdata = lambda x: bleach.clean(x, **clean_kwargs)
+         elif method == "none":
+             self.xml_escape_cdata = lambda x: x

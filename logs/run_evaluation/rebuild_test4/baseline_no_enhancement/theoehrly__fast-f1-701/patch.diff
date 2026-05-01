@@ -1,0 +1,59 @@
+diff --git a/fastf1/plotting/_interface.py b/fastf1/plotting/_interface.py
+--- a/fastf1/plotting/_interface.py
++++ b/fastf1/plotting/_interface.py
+@@ -104,6 +104,10 @@
+     return dtm.drivers_by_normalized[normalized_driver]
+
+ def _get_driver_exact(identifier: str, session: Session) -> _Driver:
++    if identifier.lower() == 'auto':
++        return None
+     dtm = _get_driver_team_mapping(session)
+     identifier = _normalize_string(identifier).lower()
+ 
+@@ -111,6 +115,10 @@
+     return dtm.drivers_by_abbreviation[abb]
+ 
+     # check for an exact driver name match
++    if identifier.lower() == 'auto':
++        return None
+     if identifier in dtm.drivers_by_normalized:
+         return dtm.drivers_by_normalized[identifier]
+ 
+@@ -120,6 +128,10 @@
+     return dtm.teams_by_normalized[normalized_team_name]
+ 
+ 
++def _get_driver_color(
++        identifier: str,
++        session: Session,
++        *,
++        colormap: str = 'default',
++        exact_match: bool = False,
++        _variants: bool = False
++) -> str:
++    driver = _get_driver(identifier, session, exact_match=exact_match)
++    if driver is None:
++        return 'auto'
++    team_name = driver.team.normalized_value
++    return _get_team_color(team_name, session, colormap=colormap,
++                           exact_match=True)
++
++
+ def _get_team_color(
+         identifier: str,
+         session: Session,
+@@ -130,6 +142,10 @@
+     if colormap == 'default':
+         colormap = _DEFAULT_COLOR_MAP
+ 
+-    if colormap == 'fastf1':
+-        return team.constants.TeamColor.FastF1
+-    elif colormap == 'official':
+-        return team.constants.TeamColor.Official
++    if colormap == 'fastf1':
++        return team.constants.TeamColor.FastF1
++    elif colormap == 'official':
++        return team.constants.TeamColor.Official
++    else:
++        raise ValueError(f"Invalid colormap: {colormap}")
+ ... (652 more lines)

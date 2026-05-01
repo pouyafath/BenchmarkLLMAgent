@@ -1,0 +1,87 @@
+diff --git a/reflex/constants/base.py b/reflex/constants/base.py
+index d0d9a124..e44a742a 100644
+--- a/reflex/constants/base.py
++++ b/reflex/constants/base.py
+@@ -62,10 +62,8 @@ class Reflex(SimpleNamespace):
+     # Files and directories used to init a new project.
+     # The directory to store reflex dependencies.
+     DIR = (
+-        # on windows, we use C:/Users/<username>/AppData/Local/reflex.
+-        # on macOS, we use ~/Library/Application Support/reflex.
+-        # on linux, we use ~/.local/share/reflex.
+-        PlatformDirs(MODULE_NAME, False).user_data_dir
++        # Check for REFLEX_DIR environment variable first
++        os.environ.get("REFLEX_DIR", PlatformDirs(MODULE_NAME, False).user_data_dir)
+     )
+     # The root directory of the reflex library.
+ 
+diff --git a/tests/test_config.py b/tests/test_config.py
+index bc353141..8519cc91 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -200,3 +200,65 @@ def test_replace_defaults(
+     c._set_persistent(**set_persistent_vars)
+     for key, value in exp_config_values.items():
+         assert getattr(c, key) == value
++
++@pytest.mark.parametrize(
++    "env_var_value",
++    [
++        "/custom/reflex/dir",
++        "/another/custom/dir",
++    ],
++)
++def test_reflex_dir_env_var(monkeypatch, env_var_value):
++    """Test that REFLEX_DIR environment variable overrides the default directory.
++
++    Args:
++        monkeypatch: The pytest monkeypatch object.
++        env_var_value: The custom directory path to test.
++    """
++    # Save original environment
++    original_reflex_dir = os.environ.get("REFLEX_DIR")
++
++    try:
++        # Set the custom REFLEX_DIR
++        monkeypatch.setenv("REFLEX_DIR", env_var_value)
++
++        # Import after setting the environment variable
++        import importlib
++        import reflex.constants.base
++        importlib.reload(reflex.constants.base)
++        from reflex.constants.base import Reflex
++
++        # Verify the DIR matches our environment variable
++        assert Reflex.DIR == env_var_value
++
++    finally:
++        # Restore original environment
++        if original_reflex_dir is not None:
++            os.environ["REFLEX_DIR"] = original_reflex_dir
++        elif "REFLEX_DIR" in os.environ:
++            del os.environ["REFLEX_DIR"]
++
++def test_reflex_dir_default():
++    """Test that Reflex.DIR uses the default PlatformDirs value when REFLEX_DIR is not set."""
++    # Save original environment
++    original_reflex_dir = os.environ.get("REFLEX_DIR")
++
++    try:
++        # Clear the environment variable
++        if "REFLEX_DIR" in os.environ:
++            del os.environ["REFLEX_DIR"]
++
++        # Import after clearing the environment variable
++        import importlib
++        import reflex.constants.base
++        importlib.reload(reflex.constants.base)
++        from reflex.constants.base import Reflex
++
++        # Verify the DIR is not None and contains "reflex"
++        assert Reflex.DIR is not None
++        assert "reflex" in Reflex.DIR.lower()
++
++    finally:
++        # Restore original environment
++        if original_reflex_dir is not None:
++            os.environ["REFLEX_DIR"] = original_reflex_dir

@@ -1,0 +1,45 @@
+diff --git a/astropy/wcs/setup_package.py b/astropy/wcs/setup_package.py
+index eb37ffd43..2ceb8647a 100644
+--- a/astropy/wcs/setup_package.py
++++ b/astropy/wcs/setup_package.py
+@@ -10,7 +10,28 @@ from os.path import join
+ 
+ import numpy
+ from setuptools import Extension
+-from setuptools.dep_util import newer_group
++
++def newer_group(sources, target, how="newer"):
++    """
++    Replacement for setuptools.dep_util.newer_group.
++
++    Check if any source file is newer than the target file.
++    If how="newer", return True if any source is newer than target.
++    If how="newer_exist", return True if any source is newer than target and target exists.
++    """
++    if how == "newer_exist":
++        if not os.path.exists(target):
++            return False
++    elif how != "newer":
++        raise ValueError(f"Unknown how parameter: {how}")
++
++    for source in sources:
++        if not os.path.exists(source):
++            continue
++        if os.path.getmtime(source) > os.path.getmtime(target):
++            return True
++    return False
++
+ 
+ from extension_helpers import get_compiler, import_file, pkg_config, write_if_different
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 1c5f74f3a..486d6b9b3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [build-system]
+-requires = ["setuptools==68.0.0",
++requires = ["setuptools",
+             "setuptools_scm>=6.2",
+             "wheel",
+             "cython==0.29.30",

@@ -1,0 +1,136 @@
+--- a/fastf1/plotting/_interface.py
++++ b/fastf1/plotting/_interface.py
+@@
+ from fastf1.plotting._constants import Constants as _Constants
+@@
+ _DEFAULT_COLOR_MAP: Literal['fastf1', 'official'] = 'fastf1'
+ _DRIVER_TEAM_MAPPINGS = dict()
+@@
+ def _get_driver_color(
+         identifier: str,
+         session: Session,
+         *,
+         colormap: str = 'default',
+         exact_match: bool = False,
+         _variants: bool = False
+ ) -> str:
+@@
+     return _get_team_color(team_name, session, colormap=colormap,
+                            exact_match=True)
+@@
+ def _get_team_color(
+         identifier: str,
+         session: Session,
+         *,
+         colormap: str = 'default',
+         exact_match: bool = False
+ ) -> str:
+@@
+     elif colormap == 'official':
+         return team.constants.TeamColor.Official
+@@
+     return team.constants.TeamColor.FastF1
+*** End of File Patch
+--- a/fastf1/plotting/_interface.py
++++ b/fastf1/plotting/_interface.py
+@@
+ from fastf1.plotting._constants import Constants as _Constants
+@@
+ _DEFAULT_COLOR_MAP: Literal['fastf1', 'official'] = 'fastf1'
+ _DRIVER_TEAM_MAPPINGS = dict()
+@@
+ _get_team_color(
+         identifier: str,
+         session: Session,
+         *,
+         colormap: str = 'default',
+         exact_match: bool = False
+ ) -> str:
+@@
+     elif colormap == 'official':
+         return team.constants.TeamColor.Official
+@@
+     return team.constants.TeamColor.FastF1
++
++# ---------------------------------------------------------------------------
++# Helper functions for recursive replacement of the "auto" keyword in style
++# dictionaries. This enables nested style specifications such as
++# ``(fillcolor="auto", line={"color":"auto"})`` to be correctly resolved.
++# ---------------------------------------------------------------------------
++
++import copy
++
++
++def _replace_auto_recursive(
++    obj: Any,
++    driver: str,
++    session: Session,
++    *,
++    colormap: str = 'default'
++) -> None:
++    """
++    Recursively walk through ``obj`` (which can be a dict, list, tuple or a
++    scalar) and replace any string value equal to ``\"auto\"`` with the driver
++    colour obtained via ``_get_driver_color``.
++
++    The replacement is performed in‑place.
++    """
++    if isinstance(obj, dict):
++        for key, value in obj.items():
++            if isinstance(value, str) and value == "auto":
++                # Determine the appropriate colour based on the key. Most
++                # Plotly style keys that accept a colour are covered here.
++                if key.lower() in {
++                    "fillcolor",
++                    "color",
++                    "linecolor",
++                    "markercolor",
++                    "marker.line.color",
++                }:
++                    obj[key] = _get_driver_color(
++                        driver, session, colormap=colormap
++                    )
++                else:
++                    # Fallback – use driver colour for any other key.
++                    obj[key] = _get_driver_color(
++                        driver, session, colormap=colormap
++                    )
++            else:
++                _replace_auto_recursive(value, driver, session, colormap=colormap)
++    elif isinstance(obj, (list, tuple)):
++        # Lists are mutable, tuples are not – we only modify lists.
++        if isinstance(obj, list):
++            for idx, item in enumerate(obj):
++                if isinstance(item, str) and item == "auto":
++                    obj[idx] = _get_driver_color(
++                        driver, session, colormap=colormap
++                    )
++                else:
++                    _replace_auto_recursive(item, driver, session, colormap=colormap)
++        else:
++            # For tuples we cannot modify in place; iterate for side‑effects only.
++            for item in obj:
++                _replace_auto_recursive(item, driver, session, colormap=colormap)
++    # Scalars (int, float, None, etc.) are ignored.
++
++
++def get_driver_style(
++    style: dict,
++    driver: str,
++    session: Session,
++    *,
++    colormap: str = 'default'
++) -> dict:
++    """
++    Return a copy of ``style`` where every occurrence of the string ``\"auto\"``
++    (including those nested inside dictionaries or lists) is replaced by the
++    colour associated with ``driver``.
++
++    This function supersedes the previous implementation which only replaced
++    top‑level ``\"auto\"`` entries.
++    """
++    # Work on a deep copy to avoid mutating the caller's dictionary.
++    style_copy = copy.deepcopy(style)
++    _replace_auto_recursive(style_copy, driver, session, colormap=colormap)
++    return style_copy
+*** End of File Patch

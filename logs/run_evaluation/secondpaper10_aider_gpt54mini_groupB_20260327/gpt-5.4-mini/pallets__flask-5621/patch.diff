@@ -1,0 +1,47 @@
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index dd03f3c5..c176f8c6 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -748,25 +748,32 @@ def load_dotenv(
+ 
+         return False
+ 
+-    data: dict[str, str | None] = {}
++    loaded = False
++
++    def load_file(filename: str | os.PathLike[str]) -> None:
++        nonlocal loaded
++
++        values = dotenv.dotenv_values(filename, encoding="utf-8")
++        if values:
++            loaded = True
++
++        for key, value in values.items():
++            if key in os.environ or value is None:
++                continue
++
++            os.environ[key] = value
+ 
+     if load_defaults:
+         for default_name in (".flaskenv", ".env"):
+             if not (default_path := dotenv.find_dotenv(default_name, usecwd=True)):
+                 continue
+ 
+-            data |= dotenv.dotenv_values(default_path, encoding="utf-8")
++            load_file(default_path)
+ 
+     if path is not None and os.path.isfile(path):
+-        data |= dotenv.dotenv_values(path, encoding="utf-8")
+-
+-    for key, value in data.items():
+-        if key in os.environ or value is None:
+-            continue
+-
+-        os.environ[key] = value
++        load_file(path)
+ 
+-    return bool(data)  # True if at least one env var was loaded.
++    return loaded
+ 
+ 
+ def show_server_banner(debug: bool, app_import_path: str | None) -> None:

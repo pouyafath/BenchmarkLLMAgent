@@ -1,0 +1,216 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..e479cb1de 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -100,6 +100,18 @@ class Pipeline(_BaseComposition):
+         transformers is advantageous when fitting is time consuming.
+ 
+     verbose : bool, default=False
++    transform_input : list of str, default=None
++        List of metadata parameter names that should be transformed through the
++        pipeline steps. For example, if `transform_input=["X_val", "y_val"]`,
++        then `X_val` and `y_val` passed to `fit` will be transformed through
++        the pipeline steps before being passed to the final estimator.
++        
++        .. versionadded:: 1.4
++            The `transform_input` parameter was added.
++        
++        .. note::
++            This parameter requires metadata routing to be enabled via
++            `sklearn.set_config(enable_metadata_routing=True)`.
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
+@@ -153,17 +165,18 @@ class Pipeline(_BaseComposition):
+ 
+     # BaseEstimator interface
+     _required_parameters = ["steps"]
+-
+     _parameter_constraints: dict = {
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list],
+     }
+-
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
++        self._transformed_metadata_ = {}
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -344,6 +357,38 @@ class Pipeline(_BaseComposition):
+         name, _ = self.steps[step_idx]
+ 
+         return "(step %d of %d) Processing %s" % (step_idx + 1, len(self.steps), name)
++    
++    def _transform_metadata(self, X, metadata_params):
++        """Transform metadata parameters through the pipeline steps.
++        
++        Parameters
++        ----------
++        X : array-like
++            The main input data.
++        metadata_params : dict
++            Dictionary of metadata parameters to transform.
++            
++        Returns
++        -------
++        transformed_params : dict
++            Dictionary of transformed metadata parameters.
++        """
++        if not self.transform_input:
++            return metadata_params
++            
++        transformed_params = {}
++        for param_name in self.transform_input:
++            if param_name in metadata_params:
++                param_value = metadata_params[param_name]
++                # Transform the parameter value through the pipeline
++                X_transformed = X
++                for _, name, transformer in self._iter(with_final=False, filter_passthrough=False):
++                    if transformer is None or transformer == "passthrough":
++                        continue
++                    if hasattr(transformer, "transform"):
++                        X_transformed = transformer.transform(X_transformed)
++                transformed_params[param_name] = X_transformed
++        return transformed_params
+ 
+     def _check_method_params(self, method, props, **kwargs):
+         if _routing_enabled():
+@@ -463,6 +508,16 @@ class Pipeline(_BaseComposition):
+         """
+         routed_params = self._check_method_params(method="fit", props=params)
+         Xt = self._fit(X, y, routed_params)
++        # Transform metadata parameters if specified
++        if self.transform_input and params:
++            metadata_params = {}
++            for param_name in self.transform_input:
++                if param_name in params:
++                    metadata_params[param_name] = params[param_name]
++            
++            if metadata_params:
++                transformed_metadata = self._transform_metadata(X, metadata_params)
++                self._transformed_metadata_ = transformed_metadata
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+             if self._final_estimator != "passthrough":
+                 last_step_params = routed_params[self.steps[-1][0]]
+@@ -527,6 +582,16 @@ class Pipeline(_BaseComposition):
+         """
+         routed_params = self._check_method_params(method="fit_transform", props=params)
+         Xt = self._fit(X, y, routed_params)
++        # Transform metadata parameters if specified
++        if self.transform_input and params:
++            metadata_params = {}
++            for param_name in self.transform_input:
++                if param_name in params:
++                    metadata_params[param_name] = params[param_name]
++            
++            if metadata_params:
++                transformed_metadata = self._transform_metadata(X, metadata_params)
++                self._transformed_metadata_ = transformed_metadata
+ 
+         last_step = self._final_estimator
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+@@ -659,6 +724,16 @@ class Pipeline(_BaseComposition):
+         """
+         routed_params = self._check_method_params(method="fit_predict", props=params)
+         Xt = self._fit(X, y, routed_params)
++        # Transform metadata parameters if specified
++        if self.transform_input and params:
++            metadata_params = {}
++            for param_name in self.transform_input:
++                if param_name in params:
++                    metadata_params[param_name] = params[param_name]
++            
++            if metadata_params:
++                transformed_metadata = self._transform_metadata(X, metadata_params)
++                self._transformed_metadata_ = transformed_metadata
+ 
+         params_last_step = routed_params[self.steps[-1][0]]
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+@@ -1186,6 +1261,14 @@ class Pipeline(_BaseComposition):
+         )
+ 
+         router.add(method_mapping=method_mapping, **{final_name: final_est})
++        # Add transform_input parameters to routing if specified
++        if self.transform_input:
++            # Add self as a consumer that requests the transform_input parameters
++            from .utils._metadata_requests import MetadataRequest
++            self_request = MetadataRequest(owner=self.__class__.__name__)
++            for param_name in self.transform_input:
++                self_request.fit.add_request(param=param_name, alias=True)
++            router.add_self_request(self_request)
+         return router
+ 
+ 
+@@ -1236,6 +1319,18 @@ def make_pipeline(*steps, memory=None, verbose=False):
+         transformers is advantageous when fitting is time consuming.
+ 
+     verbose : bool, default=False
++    transform_input : list of str, default=None
++        List of metadata parameter names that should be transformed through the
++        pipeline steps. For example, if `transform_input=["X_val", "y_val"]`,
++        then `X_val` and `y_val` passed to `fit` will be transformed through
++        the pipeline steps before being passed to the final estimator.
++        
++        .. versionadded:: 1.4
++            The `transform_input` parameter was added.
++        
++        .. note::
++            This parameter requires metadata routing to be enabled via
++            `sklearn.set_config(enable_metadata_routing=True)`.
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
+@@ -1368,6 +1463,18 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
+         Raises ValueError if key not present in ``transformer_list``.
+ 
+     verbose : bool, default=False
++    transform_input : list of str, default=None
++        List of metadata parameter names that should be transformed through the
++        pipeline steps. For example, if `transform_input=["X_val", "y_val"]`,
++        then `X_val` and `y_val` passed to `fit` will be transformed through
++        the pipeline steps before being passed to the final estimator.
++        
++        .. versionadded:: 1.4
++            The `transform_input` parameter was added.
++        
++        .. note::
++            This parameter requires metadata routing to be enabled via
++            `sklearn.set_config(enable_metadata_routing=True)`.
+         If True, the time elapsed while fitting each transformer will be
+         printed as it is completed.
+ 
+@@ -1441,6 +1548,8 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
+         self.n_jobs = n_jobs
+         self.transformer_weights = transformer_weights
+         self.verbose = verbose
++        self.transform_input = transform_input
++        self._transformed_metadata_ = {}
+         self.verbose_feature_names_out = verbose_feature_names_out
+ 
+     def set_output(self, *, transform=None):
+@@ -1905,6 +2014,18 @@ def make_union(*transformers, n_jobs=None, verbose=False):
+            `n_jobs` default changed from 1 to None.
+ 
+     verbose : bool, default=False
++    transform_input : list of str, default=None
++        List of metadata parameter names that should be transformed through the
++        pipeline steps. For example, if `transform_input=["X_val", "y_val"]`,
++        then `X_val` and `y_val` passed to `fit` will be transformed through
++        the pipeline steps before being passed to the final estimator.
++        
++        .. versionadded:: 1.4
++            The `transform_input` parameter was added.
++        
++        .. note::
++            This parameter requires metadata routing to be enabled via
++            `sklearn.set_config(enable_metadata_routing=True)`.
+         If True, the time elapsed while fitting each transformer will be
+         printed as it is completed.
+ 

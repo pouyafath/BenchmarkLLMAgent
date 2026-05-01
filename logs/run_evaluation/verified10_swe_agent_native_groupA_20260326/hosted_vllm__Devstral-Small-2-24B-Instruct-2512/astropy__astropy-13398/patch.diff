@@ -1,0 +1,305 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..17b524478 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -48,6 +48,7 @@ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
++from . import itrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+ 
+
+New file: astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+"""
+Contains the transformation functions for getting to "observed" systems from ITRS
+without geocentric aberration corrections.
+"""
+import numpy as np
+import erfa
+
+from astropy import units as u
+from astropy.coordinates.baseframe import frame_transform_graph
+from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
+from astropy.coordinates.representation import (SphericalRepresentation,
+                                                CartesianRepresentation,
+                                                UnitSphericalRepresentation)
+
+from .itrs import ITRS
+from .altaz import AltAz
+from .hadec import HADec
+from .utils import get_jd12
+
+__all__ = ['itrs_to_observed', 'observed_to_itrs']
+
+def _get_observer_itrs(location, obstime):
+    """
+    Get the observer's position in ITRS coordinates.
+
+    Parameters
+    ----------
+    location : `~astropy.coordinates.EarthLocation`
+        The location on Earth for the observation.
+    obstime : `~astropy.time.Time`
+        The time of observation.
+
+    Returns
+    -------
+    observer_itrs : `~astropy.coordinates.ITRS`
+        Observer's position in ITRS.
+    """
+    return location.get_itrs(obstime)
+
+def _itrs_to_altaz(itrs_coo, altaz_frame):
+    """
+    Transform ITRS coordinates directly to AltAz frame.
+
+    This transformation treats ITRS positions as time-invariant and performs
+    the transformation entirely within the ITRS, avoiding the complexities of
+    geocentric versus topocentric aberration.
+
+    Parameters
+    ----------
+    itrs_coo : `~astropy.coordinates.ITRS`
+        ITRS coordinate to transform.
+    altaz_frame : `~astropy.coordinates.AltAz`
+        Target AltAz frame.
+
+    Returns
+    -------
+    altaz_coo : `~astropy.coordinates.AltAz`
+        Transformed coordinate in AltAz frame.
+    """
+    # Get observer position in ITRS
+    observer_itrs = _get_observer_itrs(altaz_frame.location, altaz_frame.obstime)
+    observer_cart = observer_itrs.cartesian
+
+    # Get the vector from observer to target in ITRS
+    target_cart = itrs_coo.cartesian
+    vector_to_target = target_cart - observer_cart
+
+    # Normalize to get direction vector
+    direction_vector = vector_to_target / np.linalg.norm(vector_to_target.value)
+
+    # Get local coordinate system at observer location
+    # Zenith direction: direction of observer position vector (normalized)
+    zenith_dir = observer_cart / np.linalg.norm(observer_cart.value)
+
+    # North direction: perpendicular to zenith and in the meridian plane
+    # This is a simplified approach that assumes the local meridian is aligned
+    # with the ITRS y-z plane projection
+    north_dir = np.array([0.0, zenith_dir.z.value, -zenith_dir.y.value])
+    north_dir = north_dir / np.linalg.norm(north_dir)
+
+    # East direction: perpendicular to both zenith and north (right-hand rule)
+    east_dir = np.cross(north_dir, zenith_dir.value)
+
+    # Project the direction vector onto local coordinate system
+    east_component = np.dot(direction_vector.value, east_dir)
+    north_component = np.dot(direction_vector.value, north_dir)
+    zenith_component = np.dot(direction_vector.value, zenith_dir.value)
+
+    # Calculate azimuth and altitude
+    # Azimuth: angle east of north (0 = north, 90 = east, 180 = south, 270 = west)
+    azimuth = np.arctan2(east_component, north_component)
+
+    # Altitude: angle above horizon
+    altitude = np.arcsin(zenith_component)
+
+    # Create the spherical representation
+    if isinstance(itrs_coo.data, UnitSphericalRepresentation):
+        obs_srepr = UnitSphericalRepresentation(azimuth << u.radian, altitude << u.radian, copy=False)
+    else:
+        distance = np.linalg.norm(vector_to_target.value) << u.m
+        obs_srepr = SphericalRepresentation(azimuth << u.radian, altitude << u.radian, distance, copy=False)
+
+    return altaz_frame.realize_frame(obs_srepr)
+
+def _altaz_to_itrs(altaz_coo, itrs_frame):
+    """
+    Transform AltAz coordinates directly to ITRS frame.
+
+    Parameters
+    ----------
+    altaz_coo : `~astropy.coordinates.AltAz`
+        AltAz coordinate to transform.
+    itrs_frame : `~astropy.coordinates.ITRS`
+        Target ITRS frame.
+
+    Returns
+    -------
+    itrs_coo : `~astropy.coordinates.ITRS`
+        Transformed coordinate in ITRS frame.
+    """
+    # Get observer position in ITRS
+    observer_itrs = _get_observer_itrs(altaz_coo.location, altaz_coo.obstime)
+    observer_cart = observer_itrs.cartesian
+
+    # Get local coordinate system at observer location
+    zenith_dir = observer_cart / np.linalg.norm(observer_cart.value)
+    north_dir = np.array([0.0, zenith_dir.z.value, -zenith_dir.y.value])
+    north_dir = north_dir / np.linalg.norm(north_dir)
+    east_dir = np.cross(north_dir, zenith_dir.value)
+
+    # Convert AltAz to direction vector in local frame
+    usrepr = altaz_coo.represent_as(UnitSphericalRepresentation)
+    azimuth = usrepr.lon.to_value(u.radian)
+    altitude = usrepr.lat.to_value(u.radian)
+
+    # Create direction vector in local frame
+    if isinstance(altaz_coo.data, UnitSphericalRepresentation):
+        east_component = np.cos(altitude) * np.sin(azimuth)
+        north_component = np.cos(altitude) * np.cos(azimuth)
+        zenith_component = np.sin(altitude)
+        direction_vector = (east_component * east_dir +
+                           north_component * north_dir +
+                           zenith_component * zenith_dir.value)
+    else:
+        distance = altaz_coo.distance.to_value(u.m)
+        east_component = np.cos(altitude) * np.sin(azimuth) * distance
+        north_component = np.cos(altitude) * np.cos(azimuth) * distance
+        zenith_component = np.sin(altitude) * distance
+        direction_vector = (east_component * east_dir +
+                           north_component * north_dir +
+                           zenith_component * zenith_dir.value)
+
+    # Convert back to ITRS by adding to observer position
+    target_cart = observer_cart + CartesianRepresentation.from_spherical(
+        direction_vector, unit=u.m, copy=False)
+
+    return itrs_frame.realize_frame(target_cart)
+
+def _itrs_to_hadec(itrs_coo, hadec_frame):
+    """
+    Transform ITRS coordinates directly to HADec frame.
+
+    Parameters
+    ----------
+    itrs_coo : `~astropy.coordinates.ITRS`
+        ITRS coordinate to transform.
+    hadec_frame : `~astropy.coordinates.HADec`
+        Target HADec frame.
+
+    Returns
+    -------
+    hadec_coo : `~astropy.coordinates.HADec`
+        Transformed coordinate in HADec frame.
+    """
+    # First transform to AltAz, then convert to HADec
+    altaz_frame = AltAz(obstime=hadec_frame.obstime, location=hadec_frame.location)
+    altaz_coo = _itrs_to_altaz(itrs_coo, altaz_frame)
+
+    # Convert AltAz to HADec using standard astronomical transformations
+    usrepr = altaz_coo.represent_as(UnitSphericalRepresentation)
+    azimuth = usrepr.lon.to_value(u.radian)
+    altitude = usrepr.lat.to_value(u.radian)
+
+    # Get local sidereal time
+    lst = erfa.gst06a(*get_jd12(hadec_frame.obstime, 'ut1'))
+
+    # Convert to HADec
+    lat_obs = hadec_frame.location.lat.to_value(u.radian)
+    lon_obs = hadec_frame.location.lon.to_value(u.radian)
+
+    # Hour angle calculation: HA = LST - Azimuth
+    ha = lst - azimuth
+
+    # Declination calculation using spherical trigonometry
+    sin_dec = (np.sin(altitude) * np.sin(lat_obs) +
+               np.cos(altitude) * np.cos(lat_obs) * np.cos(azimuth - lon_obs))
+    dec = np.arcsin(sin_dec)
+
+    # Create the spherical representation
+    if isinstance(itrs_coo.data, UnitSphericalRepresentation):
+        obs_srepr = UnitSphericalRepresentation(ha << u.radian, dec << u.radian, copy=False)
+    else:
+        obs_srepr = SphericalRepresentation(ha << u.radian, dec << u.radian, altaz_coo.distance, copy=False)
+
+    return hadec_frame.realize_frame(obs_srepr)
+
+def _hadec_to_itrs(hadec_coo, itrs_frame):
+    """
+    Transform HADec coordinates directly to ITRS frame.
+
+    Parameters
+    ----------
+    hadec_coo : `~astropy.coordinates.HADec`
+        HADec coordinate to transform.
+    itrs_frame : `~astropy.coordinates.ITRS`
+        Target ITRS frame.
+
+    Returns
+    -------
+    itrs_coo : `~astropy.coordinates.ITRS`
+        Transformed coordinate in ITRS frame.
+    """
+    # First convert HADec to AltAz, then to ITRS
+    usrepr = hadec_coo.represent_as(UnitSphericalRepresentation)
+    ha = usrepr.lon.to_value(u.radian)
+    dec = usrepr.lat.to_value(u.radian)
+
+    # Get local sidereal time
+    lst = erfa.gst06a(*get_jd12(hadec_coo.obstime, 'ut1'))
+    azimuth = lst - ha
+
+    # Convert to altitude using spherical trigonometry
+    lat_obs = hadec_coo.location.lat.to_value(u.radian)
+    lon_obs = hadec_coo.location.lon.to_value(u.radian)
+
+    sin_alt = (np.sin(dec) * np.sin(lat_obs) +
+               np.cos(dec) * np.cos(lat_obs) * np.cos(azimuth - lon_obs))
+    altitude = np.arcsin(sin_alt)
+
+    # Create AltAz coordinate
+    if isinstance(hadec_coo.data, UnitSphericalRepresentation):
+        altaz_srepr = UnitSphericalRepresentation(azimuth << u.radian, altitude << u.radian, copy=False)
+    else:
+        altaz_srepr = SphericalRepresentation(azimuth << u.radian, altitude << u.radian, hadec_coo.distance, copy=False)
+
+    altaz_frame = AltAz(obstime=hadec_coo.obstime, location=hadec_coo.location)
+    altaz_coo = altaz_frame.realize_frame(altaz_srepr)
+
+    # Convert AltAz to ITRS
+    return _altaz_to_itrs(altaz_coo, itrs_frame)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
+def itrs_to_altaz(itrs_coo, altaz_frame):
+    """
+    Transform ITRS coordinates directly to AltAz frame without geocentric aberration.
+
+    This transformation treats ITRS positions as time-invariant and performs
+    the transformation entirely within the ITRS, avoiding the complexities of
+    geocentric versus topocentric aberration.
+    """
+    return _itrs_to_altaz(itrs_coo, altaz_frame)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
+def altaz_to_itrs(altaz_coo, itrs_frame):
+    """
+    Transform AltAz coordinates directly to ITRS frame without geocentric aberration.
+    """
+    return _altaz_to_itrs(altaz_coo, itrs_frame)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
+def itrs_to_hadec(itrs_coo, hadec_frame):
+    """
+    Transform ITRS coordinates directly to HADec frame without geocentric aberration.
+
+    This transformation treats ITRS positions as time-invariant and performs
+    the transformation entirely within the ITRS, avoiding the complexities of
+    geocentric versus topocentric aberration.
+    """
+    return _itrs_to_hadec(itrs_coo, hadec_frame)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
+def hadec_to_itrs(hadec_coo, itrs_frame):
+    """
+    Transform HADec coordinates directly to ITRS frame without geocentric aberration.
+    """
+    return _hadec_to_itrs(hadec_coo, itrs_frame)
+
+# Create loopback transformations
+frame_transform_graph._add_merged_transform(AltAz, ITRS, AltAz)
+frame_transform_graph._add_merged_transform(HADec, ITRS, HADec)

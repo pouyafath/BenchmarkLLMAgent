@@ -1,0 +1,78 @@
+diff --git a/cfnlint/transforms/foreach.py b/cfnlint/transforms/foreach.py
+--- a/cfnlint/transforms/foreach.py
++++ b/cfnlint/transforms/foreach.py
+@@ -1,30 +1,44 @@
+-def resolve_foreach(resource_name, iterator_name, values, template_body):
+-    """
+-    Resolve a Fn::ForEach transform.
+-
+-    Parameters
+-    ----------
+-    resource_name : str
+-        The name of the resource being transformed.
+-    iterator_name : str
+-        The name of the iterator variable.
+-    values : list
+-        The list of values to iterate over.
+-    template_body : dict
+-        The body of the resource to be duplicated per value.
+-
+-    Returns
+-    -------
+-    list
+-        A list of resolved resources.
+-    """
+-    resolved = []
+-    for value in values:
+-        # Deep copy the template body for each iteration
+-        new_body = copy.deepcopy(template_body)
+-        # Replace iterator placeholders with the current value
+-        new_body = replace_placeholders(new_body, {iterator_name: value})
+-        # Construct the new resource name
+-        new_name = resource_name.replace(f'&{{{iterator_name}}}', str(value))
+-        resolved.append((new_name, new_body))
+-    return resolved
++def resolve_foreach(resource_name, iterator_name, values, template_body):
++    """
++    Resolve a ``Fn::ForEach`` transform.
++
++    The original implementation assumed ``values`` was always a non‑empty list.
++    When ``values`` is an empty list (or resolves to one), CloudFormation treats the
++    ``Fn::ForEach`` as a no‑op – it simply does not create any resources.  The
++    previous behaviour of cfn‑lint raised ``E0001 Fn::ForEach could not be resolved``,
++    which is incorrect.  This function now mirrors the CloudFormation semantics:
++    an empty ``values`` list results in an empty list of resolved resources.
++
++    Parameters
++    ----------
++    resource_name : str
++        The name of the resource being transformed.
++    iterator_name : str
++        The name of the iterator variable.
++    values : list
++        The list of values to iterate over.  May be empty.
++    template_body : dict
++        The body of the resource to be duplicated per value.
++
++    Returns
++    -------
++    list
++        A list of resolved resources.  Returns an empty list when ``values`` is
++        empty or not a list.
++    """
++    # Guard against ``values`` being ``None`` or not a list (e.g. a scalar that
++    # could not be resolved).  In such cases we treat it as an empty collection,
++    # which aligns with CloudFormation's handling of an empty ``Fn::ForEach``.
++    if not isinstance(values, list) or len(values) == 0:
++        return []
++
++    resolved = []
++    for value in values:
++        # Deep copy the template body for each iteration
++        new_body = copy.deepcopy(template_body)
++        # Replace iterator placeholders with the current value
++        new_body = replace_placeholders(new_body, {iterator_name: value})
++        # Construct the new resource name
++        new_name = resource_name.replace(f'&{{{iterator_name}}}', str(value))
++        resolved.append((new_name, new_body))
++    return resolved

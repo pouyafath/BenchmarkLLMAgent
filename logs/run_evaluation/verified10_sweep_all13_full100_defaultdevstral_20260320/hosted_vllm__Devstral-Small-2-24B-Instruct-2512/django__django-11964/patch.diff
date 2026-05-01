@@ -1,0 +1,112 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 0a5e5ff673..be1745f591 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -431,14 +431,14 @@ class Model(metaclass=ModelBase):
+             for val, field in zip(args, fields_iter):
+                 if val is _DEFERRED:
+                     continue
+-                _setattr(self, field.attname, val)
++                _setattr(self, field.attname, field.to_python(val))
+         else:
+             # Slower, kwargs-ready version.
+             fields_iter = iter(opts.fields)
+             for val, field in zip(args, fields_iter):
+                 if val is _DEFERRED:
+                     continue
+-                _setattr(self, field.attname, val)
++                _setattr(self, field.attname, field.to_python(val))
+                 kwargs.pop(field.name, None)
+ 
+         # Now we're left with the unprocessed fields that *must* come from
+@@ -482,7 +482,7 @@ class Model(metaclass=ModelBase):
+                     _setattr(self, field.name, rel_obj)
+             else:
+                 if val is not _DEFERRED:
+-                    _setattr(self, field.attname, val)
++                    _setattr(self, field.attname, field.to_python(val))
+ 
+         if kwargs:
+             property_names = opts._property_names
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index d610dc86f0..261f5986ba 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -8,6 +8,7 @@ import warnings
+ from base64 import b64decode, b64encode
+ from functools import partialmethod, total_ordering
+ 
++import enum
+ from django import forms
+ from django.apps import apps
+ from django.conf import settings
+@@ -578,6 +579,8 @@ class Field(RegisterLookupMixin):
+         django.core.exceptions.ValidationError if the data can't be converted.
+         Return the converted value. Subclasses should override this.
+         """
++        if isinstance(value, enum.Enum):
++            return value.value
+         return value
+ 
+     @cached_property
+@@ -792,6 +795,8 @@ class Field(RegisterLookupMixin):
+         """Perform preliminary non-db specific value checks and conversions."""
+         if isinstance(value, Promise):
+             value = value._proxy____cast()
++        if isinstance(value, enum.Enum):
++            value = value.value
+         return value
+ 
+     def get_db_prep_value(self, value, connection, prepared=False):
+@@ -1008,6 +1013,8 @@ class CharField(Field):
+         return "CharField"
+ 
+     def to_python(self, value):
++        if isinstance(value, enum.Enum):
++            return value.value
+         if isinstance(value, str) or value is None:
+             return value
+         return str(value)
+@@ -1767,6 +1774,8 @@ class IntegerField(Field):
+         return "IntegerField"
+ 
+     def to_python(self, value):
++        if isinstance(value, enum.Enum):
++            return value.value
+         if value is None:
+             return value
+         try:
+@@ -2023,6 +2032,8 @@ class TextField(Field):
+         return "TextField"
+ 
+     def to_python(self, value):
++        if isinstance(value, enum.Enum):
++            return value.value
+         if isinstance(value, str) or value is None:
+             return value
+         return str(value)
+diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py
+index 189fb4fa44..78d96f65d1 100644
+--- a/django/db/models/query_utils.py
++++ b/django/db/models/query_utils.py
+@@ -7,6 +7,7 @@ circular import difficulties.
+ """
+ import copy
+ import functools
++import enum
+ import inspect
+ from collections import namedtuple
+ 
+@@ -150,6 +151,12 @@ class DeferredAttribute:
+             return getattr(instance, link_field.attname)
+         return None
+ 
++    def __set__(self, instance, value):
++        """Set the field value, converting enum values to their underlying values."""
++        if isinstance(value, enum.Enum):
++            value = value.value
++        instance.__dict__[self.field.attname] = value
++
+ 
+ class RegisterLookupMixin:
+ 

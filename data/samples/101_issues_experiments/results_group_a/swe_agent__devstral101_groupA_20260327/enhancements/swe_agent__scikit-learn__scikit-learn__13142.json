@@ -1,0 +1,45 @@
+{
+  "issue_id": "scikit-learn/scikit-learn#13142",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "GaussianMixture predict and fit_predict disagree when n_init>1",
+  "original_body": "GaussianMixture predict and fit_predict disagree when n_init>1\n#### Description\r\nWhen `n_init` is specified in GaussianMixture, the results of fit_predict(X) and predict(X) are often different.  The `test_gaussian_mixture_fit_predict` unit test doesn't catch this because it does not set `n_init`.\r\n\r\n#### Steps/Code to Reproduce\r\n```\r\npython\r\nfrom sklearn.mixture import GaussianMixture\r\nfrom sklearn.utils.testing import assert_array_equal\r\nimport numpy\r\nX = numpy.random.randn(1000,5)\r\nprint 'no n_init'\r\ngm = GaussianMixture(n_components=5)\r\nc1 = gm.fit_predict(X)\r\nc2 = gm.predict(X)\r\nassert_array_equal(c1,c2)\r\nprint 'n_init=5'\r\ngm = GaussianMixture(n_components=5, n_init=5)\r\nc1 = gm.fit_predict(X)\r\nc2 = gm.predict(X)\r\nassert_array_equal(c1,c2)\r\n```\r\n\r\n#### Expected Results\r\n```\r\nno n_init\r\nn_init=5\r\n```\r\nNo exceptions.\r\n\r\n#### Actual Results\r\n```\r\nno n_init\r\nn_init=5\r\nTraceback (most recent call last):\r\n  File \"test_gm.py\", line 17, in <module>\r\n    assert_array_equal(c1,c2)\r\n  File \"/home/scott/.local/lib/python2.7/site-packages/numpy/testing/_private/utils.py\", line 872, in assert_array_equal\r\n    verbose=verbose, header='Arrays are not equal')\r\n  File \"/home/scott/.local/lib/python2.7/site-packages/numpy/testing/_private/utils.py\", line 796, in assert_array_compare\r\n    raise AssertionError(msg)\r\nAssertionError: \r\nArrays are not equal\r\n\r\n(mismatch 88.6%)\r\n x: array([4, 0, 1, 1, 1, 3, 3, 4, 4, 2, 0, 0, 1, 2, 0, 2, 0, 1, 3, 1, 1, 3,\r\n       2, 1, 0, 2, 1, 0, 2, 0, 3, 1, 2, 3, 3, 1, 0, 2, 2, 0, 3, 0, 2, 0,\r\n       4, 2, 3, 0, 4, 2, 4, 1, 0, 2, 2, 1, 3, 2, 1, 4, 0, 2, 2, 1, 1, 2,...\r\n y: array([4, 1, 0, 2, 2, 1, 1, 4, 4, 0, 4, 1, 0, 3, 1, 0, 2, 2, 1, 2, 0, 0,\r\n       1, 0, 4, 1, 0, 4, 0, 1, 1, 2, 3, 1, 4, 0, 1, 4, 4, 4, 0, 1, 0, 2,\r\n       4, 1, 1, 2, 4, 3, 4, 0, 2, 3, 2, 3, 0, 0, 2, 3, 3, 3, 3, 0, 3, 2,...\r\n```\r\n\r\n#### Versions\r\n```\r\nSystem:\r\n    python: 2.7.15rc1 (default, Nov 12 2018, 14:31:15)  [GCC 7.3.0]\r\n   machine: Linux-4.15.0-43-generic-x86_64-with-Ubuntu-18.04-bionic\r\nexecutable: /usr/bin/python\r\n\r\nBLAS:\r\n    macros: HAVE_CBLAS=None, NO_ATLAS_INFO=-1\r\ncblas_libs: cblas\r\n  lib_dirs: /usr/lib/x86_64-linux-gnu\r\n\r\nPython deps:\r\n    Cython: 0.28.5\r\n     scipy: 1.2.0\r\nsetuptools: 39.0.1\r\n       pip: 19.0.1\r\n     numpy: 1.16.0\r\n    pandas: 0.23.1\r\n   sklearn: 0.20.2\r\n```\n",
+  "enhanced_title": "GaussianMixture fit_predict and predict produce inconsistent results when n_init > 1",
+  "enhanced_body": "## Description\nWhen \\`n_init\\` parameter is specified in \\`GaussianMixture\\`, the results of \\`fit_predict(X)\\` and \\`predict(X)\\` often differ, which is unexpected behavior since both methods should return the same cluster assignments for the same data.\n\n## Problem\nThe inconsistency occurs because:\n1. \\`fit_predict()\\` uses the best model from all \\`n_init\\` initializations\n2. \\`predict()\\` uses the last fitted model (not necessarily the best one)\n\nThis discrepancy is not caught by existing unit tests (\\`test_gaussian_mixture_fit_predict\\`) because they don't set \\`n_init\\`.\n\n## Steps to Reproduce\n```python\nfrom sklearn.mixture import GaussianMixture\nfrom sklearn.utils.testing import assert_array_equal\nimport numpy as np\n\n# Generate random data\nX = np.random.randn(1000, 5)\n\n# Case 1: Default n_init (works correctly)\nprint('Testing with default n_init:')\ngm = GaussianMixture(n_components=5)\nc1 = gm.fit_predict(X)\nc2 = gm.predict(X)\nassert_array_equal(c1, c2)  # This passes\n\n# Case 2: With n_init=5 (fails)\nprint('Testing with n_init=5:')\ngm = GaussianMixture(n_components=5, n_init=5)\nc1 = gm.fit_predict(X)\nc2 = gm.predict(X)\nassert_array_equal(c1, c2)  # This fails with ~88.6% mismatch\n```\n\n## Expected Behavior\nBoth \\`fit_predict()\\` and \\`predict()\\` should return identical cluster assignments when called on the same data immediately after fitting, regardless of the \\`n_init\\` parameter value.\n\n## Actual Behavior\nWhen \\`n_init > 1\\`:\n- \\`fit_predict()\\` returns cluster assignments from the best model across all initializations\n- \\`predict()\\` returns cluster assignments from the last fitted model (which may not be the best one)\n- This results in different cluster assignments (~88.6% mismatch in the example)\n\n## Environment\n- Python: 2.7.15rc1\n- scikit-learn: 0.20.2\n- numpy: 1.16.0\n- scipy: 1.2.0\n- OS: Ubuntu 18.04 (Linux 4.15.0-43-generic)\n\n## Affected Components\nBased on the hints, this issue likely affects:\n- \\`sklearn/mixture/gaussian_mixture.py\\` (main GaussianMixture implementation)\n- The \\`fit_predict()\\` and \\`predict()\\` methods specifically\n\n## Proposed Solution\nThe behavior should be consistent - either:\n1. Make \\`predict()\\` use the best model (like \\`fit_predict()\\` does), or\n2. Make \\`fit_predict()\\` use the last model (like \\`predict()\\` does), or\n3. Document this behavior clearly as expected\n\n## Additional Notes\nThis inconsistency can lead to confusing results in practice, as users might expect both methods to return the same cluster assignments for the same input data.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp0p770x6i/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

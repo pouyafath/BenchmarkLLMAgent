@@ -1,0 +1,74 @@
+diff --git a/sklearn/covariance/_graph_lasso.py b/sklearn/covariance/_graph_lasso.py
+index 73fa4f1fd..f3720f23a 100644
+--- a/sklearn/covariance/_graph_lasso.py
++++ b/sklearn/covariance/_graph_lasso.py
+@@ -587,6 +587,7 @@ class GraphicalLasso(BaseGraphicalLasso):
+ def graphical_lasso_path(
+     X,
+     alphas,
++    suppress_warnings=False,
+     cov_init=None,
+     X_test=None,
+     mode="cd",
+@@ -614,6 +615,11 @@ def graphical_lasso_path(
+     X_test : array of shape (n_test_samples, n_features), default=None
+         Optional test matrix to measure generalisation error.
+ 
++    suppress_warnings : bool, default=False
++        Whether to suppress convergence warnings. This is used internally
++        during cross-validation to avoid flooding the output with warnings
++        for non-converged models.
++
+     mode : {'cd', 'lars'}, default='cd'
+         The Lasso solver to use: coordinate descent or LARS. Use LARS for
+         very sparse underlying graphs, where p > n. Elsewhere prefer cd
+@@ -674,16 +680,31 @@ def graphical_lasso_path(
+     for alpha in alphas:
+         try:
+             # Capture the errors, and move on
+-            covariance_, precision_, _, _ = _graphical_lasso(
+-                emp_cov,
+-                alpha=alpha,
+-                cov_init=covariance_,
+-                mode=mode,
+-                tol=tol,
+-                enet_tol=enet_tol,
+-                max_iter=max_iter,
+-                verbose=inner_verbose,
+-                eps=eps,
++            if suppress_warnings:
++                with warnings.catch_warnings():
++                    warnings.simplefilter("ignore", ConvergenceWarning)
++                    covariance_, precision_, _, _ = _graphical_lasso(
++                        emp_cov,
++                        alpha=alpha,
++                        cov_init=covariance_,
++                        mode=mode,
++                        tol=tol,
++                        enet_tol=enet_tol,
++                        max_iter=max_iter,
++                        verbose=inner_verbose,
++                        eps=eps,
++                    )
++            else:
++                covariance_, precision_, _, _ = _graphical_lasso(
++                    emp_cov,
++                    alpha=alpha,
++                    cov_init=covariance_,
++                    mode=mode,
++                    tol=tol,
++                    enet_tol=enet_tol,
++                    max_iter=max_iter,
++                    verbose=inner_verbose,
++                    eps=eps,
+             )
+             covariances_.append(covariance_)
+             precisions_.append(precision_)
+@@ -1022,6 +1043,7 @@ class GraphicalLassoCV(BaseGraphicalLasso):
+                         enet_tol=self.enet_tol,
+                         max_iter=int(0.1 * self.max_iter),
+                         verbose=inner_verbose,
++                        suppress_warnings=True,
+                         eps=self.eps,
+                     )
+                     for train, test in cv.split(X, y, **routed_params.splitter.split)

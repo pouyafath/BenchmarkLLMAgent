@@ -1,0 +1,23 @@
+diff --git a/src/requests/exceptions.py b/src/requests/exceptions.py
+index e1cedf88..01b4fb77 100644
+--- a/src/requests/exceptions.py
++++ b/src/requests/exceptions.py
+@@ -38,9 +38,18 @@ class JSONDecodeError(InvalidJSONError, CompatJSONDecodeError):
+         the json specific args aren't used as IOError specific args
+         and the error message from JSONDecodeError is preserved.
+         """
++        # Store original args for pickling
++        self._pickle_args = args
+         CompatJSONDecodeError.__init__(self, *args)
+         InvalidJSONError.__init__(self, *self.args, **kwargs)
+ 
++    def __reduce__(self):
++        """
++        Ensure proper serialization by returning the class and args
++        that can be used to reconstruct this instance.
++        """
++        return (self.__class__, self._pickle_args)
++
+ 
+ class HTTPError(RequestException):
+     """An HTTP error occurred."""

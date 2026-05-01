@@ -1,0 +1,40 @@
+diff --git a/src/helm/tokenizers/anthropic_tokenizer.py b/src/helm/tokenizers/anthropic_tokenizer.py
+index d34cd841..844f77dd 100644
+--- a/src/helm/tokenizers/anthropic_tokenizer.py
++++ b/src/helm/tokenizers/anthropic_tokenizer.py
+@@ -1,5 +1,4 @@
+ from typing import Any, Dict
+-
+ import threading
+ 
+ from helm.common.cache import CacheConfig
+@@ -12,7 +11,6 @@ try:
+ except ModuleNotFoundError as e:
+     handle_module_not_found_error(e, ["anthropic"])
+ 
+-
+ class AnthropicTokenizer(CachingTokenizer):
+     LOCK: threading.Lock = threading.Lock()
+     """Global lock for the Anthropic tokenizer.
+@@ -22,9 +20,18 @@ class AnthropicTokenizer(CachingTokenizer):
+     def __init__(self, cache_config: CacheConfig) -> None:
+         super().__init__(cache_config)
+         with AnthropicTokenizer.LOCK:
+-            self._tokenizer: PreTrainedTokenizerBase = PreTrainedTokenizerFast(
+-                tokenizer_object=anthropic.Anthropic().get_tokenizer()
+-            )
++            # Try to get the tokenizer using the old method
++            try:
++                self._tokenizer: PreTrainedTokenizerBase = PreTrainedTokenizerFast(
++                    tokenizer_object=anthropic.Anthropic().get_tokenizer()
++                )
++            except AttributeError:
++                # If get_tokenizer() is not available (Anthropic 0.39.0+), raise an error
++                raise NotImplementedError(
++                    "Anthropic 0.39.0+ is not yet supported. "
++                    "The get_tokenizer() method has been removed from the Anthropic SDK. "
++                    "Please use a version of Anthropic < 0.39.0 or wait for the new implementation."
++                )
+ 
+     def _tokenize_do_it(self, request: Dict[str, Any]) -> Dict[str, Any]:
+         if request["encode"]:

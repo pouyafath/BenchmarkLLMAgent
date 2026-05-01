@@ -1,0 +1,42 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 27b5cbd379..8e75620396 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -120,9 +120,9 @@ class EnumSerializer(BaseSerializer):
+     def serialize(self):
+         enum_class = self.value.__class__
+         module = enum_class.__module__
+-        v_string, v_imports = serializer_factory(self.value.value).serialize()
+-        imports = {'import %s' % module, *v_imports}
+-        return "%s.%s(%s)" % (module, enum_class.__name__, v_string), imports
++        # Use name-based access for stability (e.g., EnumClass["NAME"] instead of EnumClass(value))
++        # This ensures migrations work correctly even if Enum values change (e.g., through translation)
++        return "%s.%s[\"%s\"]" % (module, enum_class.__name__, self.value.name), {"import %s" % module}
+ 
+ 
+ class FloatSerializer(BaseSimpleSerializer):
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index d610dc86f0..9a2ab17313 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -5,6 +5,7 @@ import decimal
+ import operator
+ import uuid
+ import warnings
++import enum
+ from base64 import b64decode, b64encode
+ from functools import partialmethod, total_ordering
+ 
+@@ -477,6 +478,12 @@ class Field(RegisterLookupMixin):
+         for name, default in possibles.items():
+             value = getattr(self, attr_overrides.get(name, name))
+             # Unroll anything iterable for choices into a concrete list
++            # Handle Enum values for default parameter
++            if name == "default" and isinstance(value, enum.Enum):
++                # Convert Enum member to name-based access for stability
++                # e.g., Status.GOOD becomes Status["GOOD"]
++                value = f"{value.__class__.__name__}[\"{value.name}\"]"
++
+             if name == "choices" and isinstance(value, collections.abc.Iterable):
+                 value = list(value)
+             # Do correct kind of comparison

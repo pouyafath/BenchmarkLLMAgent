@@ -1,0 +1,178 @@
+diff --git a/dspy/utils/dummies.py b/dspy/utils/dummies.py
+index 019f0fc0..2dcd4751 100644
+--- a/dspy/utils/dummies.py
++++ b/dspy/utils/dummies.py
+@@ -9,7 +9,7 @@ from dspy.clients.lm import LM
+ from dspy.dsp.utils.utils import dotdict
+ from dspy.signatures.field import OutputField
+ from dspy.utils.callback import with_callbacks
+-
++from litellm.utils import Choices, Message, ModelResponse
+
+ class DummyLM(LM):
+     """Dummy language model for unit testing purposes.
+@@ -104,56 +104,87 @@ class DummyLM(LM):
+             if any(field in output["content"] for field in output_fields) and final_input in input["content"]:
+                 return output["content"]
+
++    def _format_answer_fields(self, field_names_and_values: dict[str, Any]) -> str:
++        fields_with_values = {
++            FieldInfoWithName(name=field_name, info=OutputField()): value
++            for field_name, value in field_names_and_values.items()
++        }
++        # The reason why DummyLM needs an adapter is because it needs to know which output format to mimic.
++        # Normally LMs should not have any knowledge of an adapter, because the output format is defined in the prompt.
++        adapter = self.adapter
+
++        # Try to use role="assistant" if the adapter supports it (like JSONAdapter)
++        try:
++            return adapter.format_field_with_value(fields_with_values, role="assistant")
++        except TypeError:
++            # Fallback for adapters that don't support role parameter (like ChatAdapter)
++            return adapter.format_field_with_value(fields_with_values)
++
++    def forward(self, prompt=None, messages=None, **kwargs):
++        """Forward pass for DummyLM that returns a mock ModelResponse."""
++        # Try to call the parent's forward method (which will use litellm.completion)
++        # If litellm.completion is mocked (e.g., in tests), it will return the mocked response
++        # If litellm.completion is not mocked, it will raise an error, and we'll fall back to mock responses
++        try:
++            return super().forward(prompt=prompt, messages=messages, **kwargs)
++        except Exception:
++            # litellm.completion is not mocked, so provide our own mock responses
++            def format_answer_fields(field_names_and_values: dict[str, Any]):
++                return self._format_answer_fields(field_names_and_values)
+
++            # Build the request.
++            outputs = []
++            for _ in range(kwargs.get("n", 1)):
++                messages = messages or [{"role": "user", "content": prompt}]
++                kwargs = {**self.kwargs, **kwargs}
+
++                if self.follow_examples:
++                    current_output = self._use_example(messages)
++                elif isinstance(self.answers, dict):
++                    current_output = next(
++                        (format_answer_fields(v) for k, v in self.answers.items() if k in messages[-1]["content"]),
++                        "No more responses",
++                    )
++                else:
++                    current_output = format_answer_fields(next(self.answers, {"answer": "No more responses"}))
+
++                # Mock reasoning
++                if self.reasoning:
++                    current_output = {
++                        "text": current_output,
++                        "reasoning_content": "Some reasoning",
++                    }
+
++                # Store the output
++                outputs.append(current_output)
+
++            # Create a mock ModelResponse object
++            # We need to create choices with messages
++            choices = []
++            for output in outputs:
++                if isinstance(output, dict) and "text" in output:
++                    # Handle reasoning case
++                    message_content = output["text"]
++                    message = Message(role="assistant", content=message_content)
++                    if "reasoning_content" in output:
++                        message.reasoning_content = output["reasoning_content"]
++                    choices.append(Choices(message=message))
++                else:
++                    # Handle string case
++                    choices.append(Choices(message=Message(role="assistant", content=output)))
+
++            # Create the response
++            response = ModelResponse(
++                choices=choices,
++                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
++                model="dummy",
++            )
++            return response
+
+     @with_callbacks
+     def __call__(self, prompt=None, messages=None, **kwargs):
+-        def format_answer_fields(field_names_and_values: dict[str, Any]):
+-            fields_with_values = {
+-                FieldInfoWithName(name=field_name, info=OutputField()): value
+-                for field_name, value in field_names_and_values.items()
+-            }
+-            # The reason why DummyLM needs an adapter is because it needs to know which output format to mimic.
+-            # Normally LMs should not have any knowledge of an adapter, because the output format is defined in the prompt.
+-            adapter = self.adapter
+-
+-            # Try to use role="assistant" if the adapter supports it (like JSONAdapter)
+-            try:
+-                return adapter.format_field_with_value(fields_with_values, role="assistant")
+-            except TypeError:
+-                # Fallback for adapters that don't support role parameter (like ChatAdapter)
+-                return adapter.format_field_with_value(fields_with_values)
+-
+-        # Build the request.
+-        outputs = []
+-        for _ in range(kwargs.get("n", 1)):
+-            messages = messages or [{"role": "user", "content": prompt}]
+-            kwargs = {**self.kwargs, **kwargs}
+-
+-            if self.follow_examples:
+-                current_output = self._use_example(messages)
+-            elif isinstance(self.answers, dict):
+-                current_output = next(
+-                    (format_answer_fields(v) for k, v in self.answers.items() if k in messages[-1]["content"]),
+-                    "No more responses",
+-                )
+-            else:
+-                current_output = format_answer_fields(next(self.answers, {"answer": "No more responses"}))
+-
+-            # Mock reasoning
+-            if self.reasoning:
+-                current_output = {
+-                    "text": current_output,
+-                    "reasoning_content": "Some reasoning",
+-                }
+-            # Store the output
+-            outputs.append(current_output)
+-
+-            # Logging, with removed api key & where `cost` is None on cache hit.
+-            kwargs = {k: v for k, v in kwargs.items() if not k.startswith("api_")}
+-            entry = {"prompt": prompt", "messages": messages, "kwargs": kwargs}
+-            entry = {**entry, "outputs": outputs, "usage": 0}
+-            entry = {**entry, "cost": 0}
+-            self.update_history(entry)
+-
++        response = self.forward(prompt=prompt, messages=messages, **kwargs)
++        outputs = self._process_lm_response(response, prompt, messages, **kwargs)
+         return outputs
+
+     async def acall(self, prompt=None, messages=None, **kwargs):
+@@ -163,7 +194,6 @@ class DummyLM(LM):
+         """Get the prompt + answer from the ith message."""
+         return self.history[index]["messages"], self.history[index]["outputs"]
+
+-
+ def dummy_rm(passages=()) -> callable:
+     if not passages:
+
+@@ -185,7 +215,6 @@ def dummy_rm(passages=()) -> callable:
+     return inner
+
+-
+ class DummyVectorizer:
+     """Simple vectorizer based on n-grams."""
+
+diff --git a/tests/clients/test_lm.py b/tests/clients/test_lm.py
+index 71e5ee5a..ef782702 100644
+--- a/tests/clients/test_lm.py
++++ b/tests/clients/test_lm.py
+@@ -124,7 +124,7 @@ def test_disabled_cache_skips_cache_key(monkeypatch):
+             dummy_lm = DummyLM([{"answer": "ignored"}])
+             # TODO(isaacbmiller): Change from dummy_lm.forward to just dummy_lm.__call__ #8864
+             dummy_lm.forward(messages=[{"role": "user", "content": "Hello"}])
+-            dummy_lm.__call__(messages=[{"role": "user", "content": "Hello"}])
++            dummy_lm.__call__(messages=[{"role": "user", "content": "Hello"}])
+
+             cache_key_spy.assert_not_called()
+             cache_get_spy.assert_called_once()
+             cache_put_spy.assert_called_once()

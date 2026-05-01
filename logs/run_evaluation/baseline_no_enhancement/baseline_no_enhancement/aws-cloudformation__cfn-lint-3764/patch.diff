@@ -1,0 +1,49 @@
+diff --git a/src/cfnlint/template/transforms/_language_extensions.py b/src/cfnlint/template/transforms/_language_extensions.py
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@ -1,8 +1,12 @@
+                 if re.match(FUNCTION_FOR_EACH, k):
+                     # only translate the foreach if its valid
+                     foreach = _ForEach(k, v, self._collections)
+                     # get the values will flatten the foreach
+-                    for collection_value in foreach.items(cfn):
++                    # Resolve the collection values.  If the values list is empty,
++                    # foreach.items will return an empty iterator and no resources
++                    # will be generated – this is the expected behaviour for an
++                    # empty array (see issue #3762).
++                    for collection_value in foreach.items(cfn):
+                         flattened = self._walk(
+                             v[2], {**params, **{v[0]: collection_value}}, cfn
+                         )
+@@ -109,16 +113,20 @@
+     def __init__(self, key: str, value: list, collections: MutableMapping[str, str]) -> None:
+         self.key = key
+         self.value = value
+         self.collections = collections
+ 
+-    def items(self, cfn: Any) -> Iterator[Any]:
+-        """Yield each item from the values list."""
+-        # Resolve the values list (second element of the ForEach definition)
+-        values = self._resolve_values(cfn)
+-        if not isinstance(values, list):
+-            raise _ResolveError(
+-                f"Fn::ForEach values must be a list, got {type(values).__name__}",
+-                self.key,
+-            )
+-        for item in values:
+-            yield item
++    def items(self, cfn: Any) -> Iterator[Any]:
++        """Yield each item from the values list, handling empty lists gracefully."""
++        # Resolve the values list (second element of the ForEach definition)
++        values = self._resolve_values(cfn)
++        # The values must be a list; otherwise raise a resolve error.
++        if not isinstance(values, list):
++            raise _ResolveError(
++                f"Fn::ForEach values must be a list, got {type(values).__name__}",
++                self.key,
++            )
++        # If the list is empty, simply return without yielding any items.
++        if len(values) == 0:
++            return iter([])
++        for item in values:
++            yield item

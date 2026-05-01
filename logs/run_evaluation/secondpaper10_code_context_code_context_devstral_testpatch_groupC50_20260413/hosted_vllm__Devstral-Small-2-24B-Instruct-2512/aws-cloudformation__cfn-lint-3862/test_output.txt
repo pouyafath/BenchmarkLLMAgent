@@ -1,0 +1,648 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 168 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/cfnlint/config.py
+	modified:   src/cfnlint/data/CfnLintCli/config/schema.json
+	modified:   src/cfnlint/rules/errors/__init__.py
+	modified:   src/cfnlint/runner.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 30ecbc1fe4ffe2dd3690071f891352e15419b874
+Author: Kevin DeJong <kddejong@amazon.com>
+Date:   Mon Dec 9 11:42:38 2024 -0800
+
+    Replace parameters when both transforms (#3861)
+
+diff --git a/src/cfnlint/template/transforms/_sam.py b/src/cfnlint/template/transforms/_sam.py
+index 26fd206fa..4bb8b4a96 100644
+--- a/src/cfnlint/template/transforms/_sam.py
++++ b/src/cfnlint/template/transforms/_sam.py
+@@ -17,7 +17,7 @@ from samtranslator.translator.translator import Translator
+ 
+ from cfnlint.data import Serverless
+ from cfnlint.decode.utils import convert_dict
+-from cfnlint.helpers import load_resource
++from cfnlint.helpers import ensure_list, is_function, load_resource
+ from cfnlint.template.transforms._types import TransformResult
+ 
+ LOGGER = logging.getLogger("cfnlint")
+@@ -100,11 +100,10 @@ class Transform:
+                     Transform._update_to_s3_uri("CodeUri", resource_dict)
+                 auto_publish_alias = resource_dict.get("AutoPublishAlias")
+                 if isinstance(auto_publish_alias, dict):
+-                    if len(auto_publish_alias) == 1:
+-                        for k, v in auto_publish_alias.items():
+-                            if k == "Ref":
+-                                if v in self._template.get("Parameters"):
+-                                    self._parameters[v] = "Alias"
++                    k, v = is_function(auto_publish_alias)
++                    if k == "Ref":
++                        if v in self._template.get("Parameters"):
++                            self._parameters[v] = "Alias"
+                 if isinstance(resource_dict.get("AutoPublishCodeSha256"), dict):
+                     resource_dict["AutoPublishCodeSha256"] = "fakesha"
+             if resource_type in ["AWS::Serverless::LayerVersion"]:
+@@ -130,6 +129,33 @@ class Transform:
+             ):
+                 Transform._update_to_s3_uri("DefinitionUri", resource_dict)
+ 
++    def _find_and_replace(self, item, parameters):
++
++        k, v = is_function(item)
++        if k == "Ref":
++            if v in parameters:
++                return parameters[v]
++        if isinstance(item, dict):
++            for k, v in item.items():
++                item[k] = self._find_and_replace(v, parameters)
++        if isinstance(item, list):
++            for i, v in enumerate(item):
++                item[i] = self._find_and_replace(v, parameters)
++
++        return item
++
++    def _replace_variables_with_language_extension(self):
++        transforms = self._template.get("Transform", [])
++
++        transforms = ensure_list(transforms)
++        if "AWS::LanguageExtensions" in transforms:
++            parameters = {}
++            for k, v in self._template.get("Parameters", {}).items():
++                if isinstance(v, dict) and v.get("Default"):
++                    parameters[k] = v.get("Default")
++
++            self._template = self._find_and_replace(self._template, parameters)
++
+     def transform_template(self):
+         """
+         Transform the Template using the Serverless Application Model.
+@@ -144,6 +170,7 @@ class Transform:
+                 managed_policy_map=self._managed_policy_map, sam_parser=self._sam_parser
+             )
+ 
++            self._replace_variables_with_language_extension()
+             self._replace_local_codeuri()
+ 
+             # Tell SAM to use the region we're linting in, this has to be
+diff --git a/test/fixtures/templates/good/transform/language_extension.yaml b/test/fixtures/templates/good/transform/language_extension.yaml
+index e2ef9ff74..9f6a401a8 100644
+--- a/test/fixtures/templates/good/transform/language_extension.yaml
++++ b/test/fixtures/templates/good/transform/language_extension.yaml
+@@ -7,6 +7,9 @@ Conditions:
+ Parameters:
+   DBPolicy:
+     Type: String
++  AutoPublishAliasParameter:
++    Type: String
++    Default: TestAliasRef
+ Mappings:
+   StackIdMap01:
+     teststack1:
+@@ -38,3 +41,25 @@ Resources:
+         - "Retain"
+         - "Delete"
+     DeletionPolicy: "Retain"
++  TestStateMachine:
++    Type: AWS::Serverless::StateMachine
++    Properties:
++      Name: StateMachine
++      AutoPublishAlias: !Ref AutoPublishAliasParameter
++      Definition:
++        StartAt: MyLambdaState
++        States:
++          MyLambdaState:
++            Type: Task
++            Resource: arn:aws:lambda:us-east-1:<REDACTED>:function:print-event
++            End: true
++
++  TestLambdaFunction:
++    Type: AWS::Serverless::Function
++    Properties:
++      Handler: index.handler
++      Runtime: python3.9
++      InlineCode: |
++        def handler(event, context):
++          print("Hello, world!")
++      AutoPublishAlias: !Ref AutoPublishAliasParameter
++ git -c core.fileMode=false diff 30ecbc1fe4ffe2dd3690071f891352e15419b874
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..d29974cad 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -789,6 +789,7 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+         return self._glob_filenames(filenames)
+ 
+     def _glob_filenames(self, filenames: Sequence[str]) -> list[str]:
++        """Expand glob patterns to find matching files."""
+         # handle different shells and Config files
+         # some shells don't expand * and configparser won't expand wildcards
+         all_filenames = []
+@@ -801,8 +802,13 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+             else:
+                 LOGGER.error(f"{filename} could not be processed by glob.glob")
+ 
++        # Check if any files were found
++        if not all_filenames and not self.ignore_bad_template:
++            raise ValueError(f"{filename} could not be processed by glob.glob") from None
++
+         return sorted(list(map(str, map(Path, all_filenames))))
+ 
++
+     @property
+     def append_rules(self):
+         return [_DEFAULT_RULESDIR] + self._get_argument_value(
+diff --git a/src/cfnlint/data/CfnLintCli/config/schema.json b/src/cfnlint/data/CfnLintCli/config/schema.json
+index eb8974c8f..a0e4b21f8 100644
+--- a/src/cfnlint/data/CfnLintCli/config/schema.json
++++ b/src/cfnlint/data/CfnLintCli/config/schema.json
+@@ -1,125 +1,129 @@
+ {
+- "$id": "https://github.com/aws-cloudformation/cfn-python-lint/blob/main/src/cfnlint/data/CfnLintCli/config/schema.json",
+- "$schema": "http://json-schema.org/draft-07/schema#",
+- "additionalProperties": false,
+- "description": "CFNLINTRC configuration schema",
+- "properties": {
+-  "append_rules": {
+-   "description": "Location of directories to append rules from",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "configure_rules": {
+-   "additionalProperties": false,
+-   "description": "Configure rules",
+-   "patternProperties": {
+-    "^.*$": {
+-     "patternProperties": {
+-      "^.*$": {
+-       "anyOf": [
+-        {
+-         "type": "string"
+-        },
+-        {
+-         "type": "integer"
+-        },
+-        {
+-         "type": "boolean"
+-        },
+-        {
+-         "items": {
+-          "type": "string"
+-         },
+-         "type": "array"
+-        },
+-        {
+-         "items": {
+-          "type": "integer"
+-         },
+-         "type": "array"
+-        },
+-        {
+-         "items": {
+-          "type": "string"
+-         },
+-         "type": "boolean"
++  "$id": "https://github.com/aws-cloudformation/cfn-python-lint/blob/main/src/cfnlint/data/CfnLintCli/config/schema.json",
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "additionalProperties": false,
++  "description": "CFNLINTRC configuration schema",
++  "properties": {
++    "append_rules": {
++      "description": "Location of directories to append rules from",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "configure_rules": {
++      "additionalProperties": false,
++      "description": "Configure rules",
++      "patternProperties": {
++        "^.*$": {
++          "patternProperties": {
++            "^.*$": {
++              "anyOf": [
++                {
++                  "type": "string"
++                },
++                {
++                  "type": "integer"
++                },
++                {
++                  "type": "boolean"
++                },
++                {
++                  "items": {
++                    "type": "string"
++                  },
++                  "type": "array"
++                },
++                {
++                  "items": {
++                    "type": "integer"
++                  },
++                  "type": "array"
++                },
++                {
++                  "items": {
++                    "type": "string"
++                  },
++                  "type": "boolean"
++                }
++              ]
++            }
++          },
++          "type": "object"
+         }
+-       ]
+-      }
+-     },
+-     "type": "object"
++      },
++      "type": "object"
++    },
++    "custom_rules": {
++      "description": "custom rule file to use",
++      "type": "string"
++    },
++    "ignore_checks": {
++      "description": "List of checks to ignore",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "ignore_templates": {
++      "description": "Templates to ignore",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "include_checks": {
++      "description": "List of checks to include",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "mandatory_checks": {
++      "description": "List of mandatory checks to enforce",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "merge_configs": {
++      "description": "Merges lists between configuration layers",
++      "type": "boolean"
++    },
++    "output_file": {
++      "description": "Path to the file to write the main output to",
++      "type": "string"
++    },
++    "override_spec": {
++      "description": "Path to spec file to override with",
++      "type": "string"
++    },
++    "regions": {
++      "description": "Regions to test against",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "registry_schemas": {
++      "description": "One or more directories of CloudFormation Registry Resource Schemas",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "templates": {
++      "description": "Templates to lint",
++      "items": {
++        "type": "string"
++      },
++      "type": "array"
++    },
++    "ignore_bad_template": {
++      "description": "Ignore bad templates",
++      "type": "boolean"
+     }
+-   },
+-   "type": "object"
+-  },
+-  "custom_rules": {
+-   "description": "custom rule file to use",
+-   "type": "string"
+-  },
+-  "ignore_checks": {
+-   "description": "List of checks to ignore",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "ignore_templates": {
+-   "description": "Templates to ignore",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "include_checks": {
+-   "description": "List of checks to include",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "mandatory_checks": {
+-   "description": "List of mandatory checks to enforce",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "merge_configs": {
+-   "description": "Merges lists between configuration layers",
+-   "type": "boolean"
+-  },
+-  "output_file": {
+-   "description": "Path to the file to write the main output to",
+-   "type": "string"
+-  },
+-  "override_spec": {
+-   "description": "Path to spec file to override with",
+-   "type": "string"
+-  },
+-  "regions": {
+-   "description": "Regions to test against",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  },
+-  "registry_schemas": {
+-   "description": "One or more directories of CloudFormation Registry Resource Schemas",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+   },
+-  "templates": {
+-   "description": "Templates to lint",
+-   "items": {
+-    "type": "string"
+-   },
+-   "type": "array"
+-  }
+- },
+- "title": "CFNLINTRC JSON Schema",
+- "type": "object"
+-}
++  "title": "CFNLINTRC JSON Schema",
++  "type": "object"
++}
+\ No newline at end of file
+diff --git a/src/cfnlint/rules/errors/__init__.py b/src/cfnlint/rules/errors/__init__.py
+index 142af3703..b380bbaba 100644
+--- a/src/cfnlint/rules/errors/__init__.py
++++ b/src/cfnlint/rules/errors/__init__.py
+@@ -6,3 +6,4 @@ SPDX-License-Identifier: MIT-0
+ from cfnlint.rules.errors.parse import ParseError
+ from cfnlint.rules.errors.rule import RuleError
+ from cfnlint.rules.errors.transform import TransformError
++from cfnlint.rules.errors.config import ConfigError
+diff --git a/src/cfnlint/runner.py b/src/cfnlint/runner.py
+index e1954650c..bdc727b32 100644
+--- a/src/cfnlint/runner.py
++++ b/src/cfnlint/runner.py
+@@ -446,12 +446,37 @@ class Runner:
+         except CfnLintExitException as e:
+             LOGGER.error(str(e))
+             sys.exit(e.exit_code)
++        except ValueError as e:
++            # Handle configuration errors (e.g., missing template files)
++            from cfnlint.rules.errors import ConfigError
++            from cfnlint.match import Match
++            match = Match(ConfigError(), str(e), None, "None:1:1")
++            formatter = get_formatter(self.config)
++            output = formatter.print_matches([match], self.rules, config=self.config)
++            if output:
++                print(output)
++            sys.exit(2)
+ 
+ 
+ def main() -> None:
+     config = ConfigMixIn(sys.argv[1:])
+-    runner = Runner(config)
+-    runner.cli()
++    try:
++        runner = Runner(config)
++        runner.cli()
++    except ValueError as e:
++        # Handle configuration errors (e.g., missing template files)
++        from cfnlint.rules.errors import ConfigError
++        from cfnlint.match import Match
++        config_error = ConfigError()
++        match = Match.create(str(e), None, config_error, 1, 1)
++        formatter = get_formatter(config)
++        # Create a dummy rules object for formatting
++        from cfnlint.rules import RulesCollection
++        rules = RulesCollection([config_error])
++        output = formatter.print_matches([match], rules, config=config)
++        if output:
++            print(output)
++        sys.exit(2)
+ 
+ 
+ class CfnLintExitException(Exception):
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info
+  writing /tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info/dependency_links.txt
+  writing top-level names to /tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE'
+  adding license file 'NOTICE'
+  writing manifest file '/tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-1onxc5kk/UNKNOWN.dist-info'
+  Preparing metadata (pyproject.toml): finished with status 'done'
+WARNING: unknown 0.0.0 does not provide the extra 'test'
+Installing collected packages: UNKNOWN
+  DEPRECATION: Legacy editable install of UNKNOWN[test]==0.0.0 from file:///testbed (setup.py develop) is deprecated. pip 25.1 will enforce this behaviour change. A possible replacement is to add a pyproject.toml or enable --use-pep517, and use setuptools >= 64. If the resulting installation is not behaving as expected, try using --config-settings editable_mode=compat. Please consult the setuptools documentation for more information. Discussion can be found at https://github.com/pypa/pip/issues/11457
+  Running setup.py develop for UNKNOWN
+    Running command python setup.py develop
+    running develop
+    running egg_info
+    creating UNKNOWN.egg-info
+    writing UNKNOWN.egg-info/PKG-INFO
+    writing dependency_links to UNKNOWN.egg-info/dependency_links.txt
+    writing top-level names to UNKNOWN.egg-info/top_level.txt
+    writing manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    reading manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    adding license file 'LICENSE'
+    adding license file 'NOTICE'
+    writing manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.8/site-packages/UNKNOWN.egg-link (link to .)
+    Adding UNKNOWN 0.0.0 to easy-install.pth file
+
+    Installed /testbed
+Successfully installed UNKNOWN
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 30ecbc1fe4ffe2dd3690071f891352e15419b874 test/unit/module/config/test_config_mixin.py test/unit/module/maintenance/test_update_documentation.py test/unit/module/runner/test_runner.py
+Updated 0 paths from db30e6639
++ git apply -v -
+Checking patch test/unit/module/config/test_config_mixin.py...
+Checking patch test/unit/module/maintenance/test_update_documentation.py...
+Checking patch test/unit/module/runner/test_runner.py...
+Applied patch test/unit/module/config/test_config_mixin.py cleanly.
+Applied patch test/unit/module/maintenance/test_update_documentation.py cleanly.
+Applied patch test/unit/module/runner/test_runner.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA test/unit/module/config/test_config_mixin.py test/unit/module/maintenance/test_update_documentation.py test/unit/module/runner/test_runner.py
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-8.3.4, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+collected 0 items / 3 errors
+
+==================================== ERRORS ====================================
+________ ERROR collecting test/unit/module/config/test_config_mixin.py _________
+ImportError while importing test module '/testbed/test/unit/module/config/test_config_mixin.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/unit/module/config/test_config_mixin.py:9: in <module>
+    from test.testlib.testcase import BaseTestCase
+test/testlib/testcase.py:8: in <module>
+    import cfnlint.decode.cfn_yaml
+src/cfnlint/__init__.py:8: in <module>
+    from cfnlint.api import lint, lint_all
+src/cfnlint/api.py:10: in <module>
+    from cfnlint.config import ConfigMixIn, ManualArgs
+src/cfnlint/config.py:20: in <module>
+    import cfnlint.decode.cfn_yaml
+src/cfnlint/decode/__init__.py:6: in <module>
+    from cfnlint.decode.decode import (
+src/cfnlint/decode/decode.py:16: in <module>
+    from cfnlint.decode import cfn_json, cfn_yaml
+src/cfnlint/decode/cfn_json.py:17: in <module>
+    from cfnlint.rules.errors import ParseError
+src/cfnlint/rules/__init__.py:7: in <module>
+    from cfnlint.rules._rules import Rules, RulesCollection
+src/cfnlint/rules/_rules.py:19: in <module>
+    from cfnlint.rules.errors import RuleError
+src/cfnlint/rules/errors/__init__.py:9: in <module>
+    from cfnlint.rules.errors.config import ConfigError
+E   ModuleNotFoundError: No module named 'cfnlint.rules.errors.config'
+__ ERROR collecting test/unit/module/maintenance/test_update_documentation.py __
+ImportError while importing test module '/testbed/test/unit/module/maintenance/test_update_documentation.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/unit/module/maintenance/test_update_documentation.py:7: in <module>
+    from test.testlib.testcase import BaseTestCase
+test/testlib/testcase.py:8: in <module>
+    import cfnlint.decode.cfn_yaml
+src/cfnlint/__init__.py:8: in <module>
+    from cfnlint.api import lint, lint_all
+src/cfnlint/api.py:10: in <module>
+    from cfnlint.config import ConfigMixIn, ManualArgs
+src/cfnlint/config.py:20: in <module>
+    import cfnlint.decode.cfn_yaml
+src/cfnlint/decode/__init__.py:6: in <module>
+    from cfnlint.decode.decode import (
+src/cfnlint/decode/decode.py:16: in <module>
+    from cfnlint.decode import cfn_json, cfn_yaml
+src/cfnlint/decode/cfn_json.py:17: in <module>
+    from cfnlint.rules.errors import ParseError
+src/cfnlint/rules/__init__.py:7: in <module>
+    from cfnlint.rules._rules import Rules, RulesCollection
+src/cfnlint/rules/_rules.py:19: in <module>
+    from cfnlint.rules.errors import RuleError
+src/cfnlint/rules/errors/__init__.py:9: in <module>
+    from cfnlint.rules.errors.config import ConfigError
+E   ModuleNotFoundError: No module named 'cfnlint.rules.errors.config'
+___________ ERROR collecting test/unit/module/runner/test_runner.py ____________
+ImportError while importing test module '/testbed/test/unit/module/runner/test_runner.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test/unit/module/runner/test_runner.py:11: in <module>
+    from cfnlint.config import ConfigMixIn
+src/cfnlint/__init__.py:8: in <module>
+    from cfnlint.api import lint, lint_all
+src/cfnlint/api.py:10: in <module>
+    from cfnlint.config import ConfigMixIn, ManualArgs
+src/cfnlint/config.py:20: in <module>
+    import cfnlint.decode.cfn_yaml
+src/cfnlint/decode/__init__.py:6: in <module>
+    from cfnlint.decode.decode import (
+src/cfnlint/decode/decode.py:16: in <module>
+    from cfnlint.decode import cfn_json, cfn_yaml
+src/cfnlint/decode/cfn_json.py:17: in <module>
+    from cfnlint.rules.errors import ParseError
+src/cfnlint/rules/__init__.py:7: in <module>
+    from cfnlint.rules._rules import Rules, RulesCollection
+src/cfnlint/rules/_rules.py:19: in <module>
+    from cfnlint.rules.errors import RuleError
+src/cfnlint/rules/errors/__init__.py:9: in <module>
+    from cfnlint.rules.errors.config import ConfigError
+E   ModuleNotFoundError: No module named 'cfnlint.rules.errors.config'
+=========================== short test summary info ============================
+ERROR test/unit/module/config/test_config_mixin.py
+ERROR test/unit/module/maintenance/test_update_documentation.py
+ERROR test/unit/module/runner/test_runner.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!!
+============================== 3 errors in 0.99s ===============================
++ : '>>>>> End Test Output'
++ git checkout 30ecbc1fe4ffe2dd3690071f891352e15419b874 test/unit/module/config/test_config_mixin.py test/unit/module/maintenance/test_update_documentation.py test/unit/module/runner/test_runner.py
+Updated 3 paths from db30e6639

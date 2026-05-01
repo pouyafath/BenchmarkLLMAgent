@@ -1,0 +1,60 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 0a5e5ff673..13d04a7a56 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -1,5 +1,6 @@
+ import copy
+ import inspect
++import enum
+ import warnings
+ from functools import partialmethod
+ from itertools import chain
+@@ -498,8 +499,26 @@ class Model(metaclass=ModelBase):
+                     pass
+             for kwarg in kwargs:
+                 raise TypeError("%s() got an unexpected keyword argument '%s'" % (cls.__name__, kwarg))
+-        super().__init__()
+-        post_init.send(sender=cls, instance=self)
++            post_init.send(sender=cls, instance=self)
++
++    def __setattr__(self, name, value):
++        """
++        Set an attribute on the model instance. If the attribute corresponds to
++        a field with choices and the value is an enum member, store the enum
++        value instead of the enum object.
++        """
++        # Check if this is a field with choices and the value is an enum member
++        try:
++            field = self._meta.get_field(name)
++            if field.choices is not None and isinstance(value, enum.Enum):
++                # Convert enum member to its value
++                value = value.value
++        except (AttributeError, FieldDoesNotExist):
++            # Not a field or field doesn't exist, proceed normally
++            pass
++
++        # Use the original setattr behavior
++        super().__setattr__(name, value)
+ 
+     @classmethod
+     def from_db(cls, db, field_names, values):
+diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py
+index 189fb4fa44..eb2fdd46fa 100644
+--- a/django/db/models/query_utils.py
++++ b/django/db/models/query_utils.py
+@@ -1,3 +1,4 @@
++import enum
+ """
+ Various data structures used in query construction.
+ 
+@@ -135,6 +136,10 @@ class DeferredAttribute:
+             if val is None:
+                 instance.refresh_from_db(fields=[field_name])
+                 val = getattr(instance, field_name)
++            # If the field has choices and the value is an enum member,
++            # store the enum value instead of the enum object
++            if self.field.choices is not None and isinstance(val, enum.Enum):
++                val = val.value
+             data[field_name] = val
+         return data[field_name]
+ 

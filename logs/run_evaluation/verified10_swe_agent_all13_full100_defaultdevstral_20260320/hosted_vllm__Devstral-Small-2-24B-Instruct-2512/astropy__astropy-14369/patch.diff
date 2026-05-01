@@ -1,0 +1,62 @@
+diff --git a/astropy/units/format/cds.py b/astropy/units/format/cds.py
+index 307e987ed..00032dffb 100644
+--- a/astropy/units/format/cds.py
++++ b/astropy/units/format/cds.py
+@@ -312,15 +312,53 @@ class CDS(Base):
+     def _get_unit_name(unit):
+         return unit.get_format_name("cds")
+ 
++
+     @classmethod
+     def _format_unit_list(cls, units):
+-        out = []
++        """Format unit pairs according to CDS format rules.
++        
++        In CDS format:
++        - Dots (.) represent multiplication
++        - Forward slashes (/) represent division
++        
++        This method separates positive powers (multiplication) from
++        negative powers (division) and formats them appropriately.
++        """
++        positive_powers = []
++        negative_powers = []
++
+         for base, power in units:
++            if power > 0:
++                positive_powers.append((base, power))
++            else:
++                negative_powers.append((base, power))
++
++        # Format positive powers (multiplication)
++        pos_out = []
++        for base, power in positive_powers:
+             if power == 1:
+-                out.append(cls._get_unit_name(base))
++                pos_out.append(cls._get_unit_name(base))
++            else:
++                pos_out.append(f"{cls._get_unit_name(base)}{int(power)}")
++        pos_str = ".".join(pos_out)
++
++        # Format negative powers (division)
++        neg_out = []
++        for base, power in negative_powers:
++            if power == -1:
++                neg_out.append(cls._get_unit_name(base))
+             else:
+-                out.append(f"{cls._get_unit_name(base)}{int(power)}")
+-        return ".".join(out)
++                neg_out.append(f"{cls._get_unit_name(base)}{int(power)}")
++        neg_str = "/".join(neg_out)
++
++        # Combine: positive powers followed by divisions
++        result = pos_str
++        if neg_str:
++            if result:
++                result += "/"
++            result += neg_str
++
++        return result
+ 
+     @classmethod
+     def to_string(cls, unit):

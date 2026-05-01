@@ -1,0 +1,34 @@
+diff --git a/lib/matplotlib/colors.py b/lib/matplotlib/colors.py
+index e0c42c5b6..c20dafdbb 100644
+--- a/lib/matplotlib/colors.py
++++ b/lib/matplotlib/colors.py
+@@ -1472,7 +1472,13 @@ def _make_norm_from_scale(scale_cls, base_norm_cls=None, *, init=None):
+             if clip:
+                 value = np.clip(value, self.vmin, self.vmax)
+             t_value = self._trf.transform(value).reshape(np.shape(value))
+-            t_vmin, t_vmax = self._trf.transform([self.vmin, self.vmax])
++            # Ensure vmin and vmax are positive for log transform
++
++            vmin_transform = max(self.vmin, np.finfo(value.dtype).eps) if self.vmin <= 0 else self.vmin
++
++            vmax_transform = max(self.vmax, np.finfo(value.dtype).eps) if self.vmax <= 0 else self.vmax
++
++            t_vmin, t_vmax = self._trf.transform([vmin_transform, vmax_transform])
+             if not np.isfinite([t_vmin, t_vmax]).all():
+                 raise ValueError("Invalid vmin or vmax")
+             t_value -= t_vmin
+@@ -1485,7 +1491,13 @@ def _make_norm_from_scale(scale_cls, base_norm_cls=None, *, init=None):
+                 raise ValueError("Not invertible until scaled")
+             if self.vmin > self.vmax:
+                 raise ValueError("vmin must be less or equal to vmax")
+-            t_vmin, t_vmax = self._trf.transform([self.vmin, self.vmax])
++            # Ensure vmin and vmax are positive for log transform
++
++            vmin_transform = max(self.vmin, np.finfo(np.float64).eps) if self.vmin <= 0 else self.vmin
++
++            vmax_transform = max(self.vmax, np.finfo(np.float64).eps) if self.vmax <= 0 else self.vmax
++
++            t_vmin, t_vmax = self._trf.transform([vmin_transform, vmax_transform])
+             if not np.isfinite([t_vmin, t_vmax]).all():
+                 raise ValueError("Invalid vmin or vmax")
+             value, is_scalar = self.process_value(value)

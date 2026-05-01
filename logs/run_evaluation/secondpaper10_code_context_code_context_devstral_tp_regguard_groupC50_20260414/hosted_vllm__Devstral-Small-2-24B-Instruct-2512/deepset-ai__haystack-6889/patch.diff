@@ -1,0 +1,24 @@
+diff --git a/haystack/document_stores/in_memory/document_store.py b/haystack/document_stores/in_memory/document_store.py
+index 44b2f6d5..fcd2a02d 100644
+--- a/haystack/document_stores/in_memory/document_store.py
++++ b/haystack/document_stores/in_memory/document_store.py
+@@ -203,8 +203,9 @@ class InMemoryDocumentStore:
+         tokenized_query = self.tokenizer(query.lower())
+         # get scores for the query against the corpus
+         docs_scores = bm25_scorer.get_scores(tokenized_query)
++        # Filter out zero scores (no match) before scaling
+         if scale_score:
+-            docs_scores = [expit(float(score / BM25_SCALING_FACTOR)) for score in docs_scores]
++            docs_scores = [expit(float(score / BM25_SCALING_FACTOR)) if score != 0.0 else 0.0 for score in docs_scores]
+         # get the last top_k indexes and reverse them
+         top_docs_positions = np.argsort(docs_scores)[-top_k:][::-1]
+ 
+@@ -213,7 +214,7 @@ class InMemoryDocumentStore:
+         for i in top_docs_positions:
+             doc = all_documents[i]
+             score = docs_scores[i]
+-            if score <= 0.0:
++            if score == 0.0 or (scale_score and score < 0.0):
+                 continue
+             doc_fields = doc.to_dict()
+             doc_fields["score"] = score

@@ -1,0 +1,466 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 1071 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   haystack/components/rankers/transformers_similarity.py
+	modified:   haystack/components/readers/extractive.py
+	modified:   haystack/utils/type_serialization.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 1841aec11e479ed75d912bb01db7cc90dd2c4e47
+Author: Daria Fokina <daria.fokina@deepset.ai>
+Date:   Thu Jan 11 16:33:45 2024 +0100
+
+    docs: reorder and rename Classifier and CacheChecker files (#6726)
+    
+    * docs: reorder
+    
+    * others's order
+    
+    * whisper order
+
+diff --git a/docs/pydoc/config/caching.yml b/docs/pydoc/config/caching.yml
+index 92898fb2..f116f92b 100644
+--- a/docs/pydoc/config/caching.yml
++++ b/docs/pydoc/config/caching.yml
+@@ -15,9 +15,9 @@ renderer:
+   type: renderers.ReadmePreviewRenderer
+   excerpt: Checks if any document coming from the given URL is already present in the store.
+   category_slug: haystack-classes
+-  title: UrlCacheChecker API
++  title: CacheChecker API
+   slug: caching-api
+-  order: 160
++  order: 7
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
+diff --git a/docs/pydoc/config/classifier.yml b/docs/pydoc/config/classifier.yml
+index 85eb4e77..1789b017 100644
+--- a/docs/pydoc/config/classifier.yml
++++ b/docs/pydoc/config/classifier.yml
+@@ -15,12 +15,12 @@ renderer:
+   type: renderers.ReadmePreviewRenderer
+   excerpt: Detects the language of the Documents and routes them appropriately.
+   category_slug: haystack-classes
+-  title: Language Classifier API
+-  slug: language-classifier-api
++  title: Classifier API
++  slug: classifier-api
+   order: 10
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
+     add_method_class_prefix: true
+     add_member_class_prefix: false
+-    filename: language_classifier_api.md
++    filename: classifier_api.md
+diff --git a/docs/pydoc/config/joiner.yml b/docs/pydoc/config/joiner.yml
+index 34a9141a..2ec25c1f 100644
+--- a/docs/pydoc/config/joiner.yml
++++ b/docs/pydoc/config/joiner.yml
+@@ -17,7 +17,7 @@ renderer:
+   category_slug: haystack-classes
+   title: Joiner API
+   slug: joiner-api
+-  order: 140
++  order: 75
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
+diff --git a/docs/pydoc/config/others.yml b/docs/pydoc/config/others.yml
+index 1dc1103c..88b8bfb6 100644
+--- a/docs/pydoc/config/others.yml
++++ b/docs/pydoc/config/others.yml
+@@ -17,7 +17,7 @@ renderer:
+   category_slug: haystack-classes
+   title: Other Components API
+   slug: others
+-  order: 170
++  order: 85
+   markdown:
+     descriptive_class_title: false
+     descriptive_module_title: true
++ git -c core.fileMode=false diff 1841aec11e479ed75d912bb01db7cc90dd2c4e47
+diff --git a/haystack/components/rankers/transformers_similarity.py b/haystack/components/rankers/transformers_similarity.py
+index 6dc163f5..2b4b5207 100644
+--- a/haystack/components/rankers/transformers_similarity.py
++++ b/haystack/components/rankers/transformers_similarity.py
+@@ -5,6 +5,7 @@ from typing import List, Union, Dict, Any, Optional
+ from haystack import ComponentError, Document, component, default_to_dict
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.type_serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -103,8 +104,10 @@ class TransformersSimilarityRanker:
+         if self.model is None:
+             if self.device is None:
+                 self.device = get_device()
++            # Deserialize model_kwargs to convert string representations back to actual types
++            deserialized_model_kwargs = deserialize_model_kwargs(self.model_kwargs)
+             self.model = AutoModelForSequenceClassification.from_pretrained(
+-                self.model_name_or_path, token=self.token, **self.model_kwargs
++                self.model_name_or_path, token=self.token, **deserialized_model_kwargs
+             ).to(self.device)
+             self.model.eval()
+             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, token=self.token)
+@@ -124,9 +127,22 @@ class TransformersSimilarityRanker:
+             scale_score=self.scale_score,
+             calibration_factor=self.calibration_factor,
+             score_threshold=self.score_threshold,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "TransformersSimilarityRanker":
++        """
++        Deserialize this component from a dictionary.
++        """
++        init_params = data.get("init_parameters", {}).copy()
++
++        # Deserialize model_kwargs if present
++        if "model_kwargs" in init_params:
++            init_params["model_kwargs"] = deserialize_model_kwargs(init_params["model_kwargs"])
++
++        return cls(**init_params)
++
+     @component.output_types(documents=List[Document])
+     def run(
+         self,
+diff --git a/haystack/components/readers/extractive.py b/haystack/components/readers/extractive.py
+index dea016f7..17c9b975 100644
+--- a/haystack/components/readers/extractive.py
++++ b/haystack/components/readers/extractive.py
+@@ -7,6 +7,7 @@ import logging
+ from haystack import component, default_to_dict, ComponentError, Document, ExtractedAnswer
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.type_serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ with LazyImport("Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+@@ -125,7 +126,20 @@ class ExtractiveReader:
+             answers_per_seq=self.answers_per_seq,
+             no_answer=self.no_answer,
+             calibration_factor=self.calibration_factor,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "ExtractiveReader":
++        """
++        Deserialize this component from a dictionary.
++        """
++        init_params = data.get("init_parameters", {}).copy()
++
++        # Deserialize model_kwargs if present
++        if "model_kwargs" in init_params:
++            init_params["model_kwargs"] = deserialize_model_kwargs(init_params["model_kwargs"])
++
++        return cls(**init_params)
+         )
+ 
+     def warm_up(self):
+@@ -135,8 +149,10 @@ class ExtractiveReader:
+         if self.model is None:
+             if self.device is None:
+                 self.device = get_device()
++            # Deserialize model_kwargs to convert string representations back to actual types
++            deserialized_model_kwargs = deserialize_model_kwargs(self.model_kwargs)
+             self.model = AutoModelForQuestionAnswering.from_pretrained(
+-                self.model_name_or_path, token=self.token, **self.model_kwargs
++                self.model_name_or_path, token=self.token, **deserialized_model_kwargs
+             ).to(self.device)
+             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, token=self.token)
+ 
+diff --git a/haystack/utils/type_serialization.py b/haystack/utils/type_serialization.py
+index 5d16554b..b618eda1 100644
+--- a/haystack/utils/type_serialization.py
++++ b/haystack/utils/type_serialization.py
+@@ -1,3 +1,4 @@
++from typing import Dict, Any
+ import importlib
+ import inspect
+ import sys
+@@ -115,3 +116,61 @@ def deserialize_type(type_str: str) -> Any:
+             raise DeserializationError(f"Could not locate the type: {type_name} in the module: {module_name}")
+ 
+         return deserialized_type
++
++
++def serialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
++    """
++    Serializes model_kwargs by converting non-serializable types to strings.
++
++    This function handles special types like torch.dtype that cannot be directly
++    serialized to YAML. It converts these types to their string representations.
++
++    :param model_kwargs: Dictionary of model kwargs, potentially containing non-serializable types.
++    :return: Dictionary with non-serializable types converted to strings.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    serialized = {}
++    for key, value in model_kwargs.items():
++        if hasattr(value, '__module__') and value.__module__.startswith('torch'):
++            # Handle torch.dtype objects
++            serialized[key] = str(value)
++        elif isinstance(value, dict):
++            # Recursively handle nested dictionaries
++            serialized[key] = serialize_model_kwargs(value)
++        else:
++            serialized[key] = value
++    return serialized
++
++def deserialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
++    """
++    Deserializes model_kwargs by converting string representations back to their original types.
++
++    This function handles special types like torch.dtype that were converted to strings
++    during serialization.
++
++    :param model_kwargs: Dictionary of model kwargs, potentially containing string representations.
++    :return: Dictionary with string representations converted back to their original types.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    deserialized = {}
++    for key, value in model_kwargs.items():
++        if isinstance(value, str) and value.startswith('torch.'):
++            # Handle torch.dtype string representations
++            try:
++                import torch
++                # Remove the 'torch.' prefix to get the actual dtype name
++                dtype_name = value.replace('torch.', '')
++                deserialized[key] = getattr(torch, dtype_name)
++            except (ImportError, AttributeError):
++                # If torch is not available or the attribute doesn't exist, keep as string
++                deserialized[key] = value
++        elif isinstance(value, dict):
++            # Recursively handle nested dictionaries
++            deserialized[key] = deserialize_model_kwargs(value)
++        else:
++            deserialized[key] = value
++    return deserialized
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 106, in _run_wrapper
+    status = _inner_run()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 97, in _inner_run
+    return self.run(options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/req_command.py", line 67, in wrapper
+    return func(self, options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/commands/install.py", line 386, in run
+    requirement_set = resolver.resolve(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 76, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 329, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 339, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 698, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 72, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+  File "/usr/local/lib/python3.8/functools.py", line 967, in __get__
+    val = self.func(instance)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 106, in _run_wrapper
+    status = _inner_run()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/base_command.py", line 97, in _inner_run
+    return self.run(options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/cli/req_command.py", line 67, in wrapper
+    return func(self, options, args)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/commands/install.py", line 386, in run
+    requirement_set = resolver.resolve(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 76, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 329, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 339, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 698, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/operations/prepare.py", line 72, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+  File "/usr/local/lib/python3.8/functools.py", line 967, in __get__
+    val = self.func(instance)
+  File "/usr/local/lib/python3.8/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+  File "/usr/local/lib/python3.8/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ git checkout 1841aec11e479ed75d912bb01db7cc90dd2c4e47 test/components/generators/test_hugging_face_local_generator.py test/components/rankers/test_transformers_similarity.py test/components/readers/test_extractive.py
+Updated 0 paths from 8bd39103
++ git apply -v -
+Checking patch test/components/generators/test_hugging_face_local_generator.py...
+Checking patch test/components/rankers/test_transformers_similarity.py...
+Checking patch test/components/readers/test_extractive.py...
+Applied patch test/components/generators/test_hugging_face_local_generator.py cleanly.
+Applied patch test/components/rankers/test_transformers_similarity.py cleanly.
+Applied patch test/components/readers/test_extractive.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest --cov-report xml:coverage.xml --cov=haystack -m 'not integration' -rA test test/components/generators/test_hugging_face_local_generator.py test/components/rankers/test_transformers_similarity.py test/components/readers/test_extractive.py
+/usr/local/lib/python3.8/site-packages/coverage/report_core.py:109: CoverageWarning: Couldn't parse Python file '/testbed/haystack/components/readers/extractive.py' (couldnt-parse)
+  coverage._warn(msg, slug="couldnt-parse")
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-7.4.4, pluggy-1.3.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-4.1.0, asyncio-0.23.3, anyio-4.2.0, custom-exit-code-0.3.0
+asyncio: mode=strict
+collected 1048 items / 2 errors / 95 deselected / 1 skipped / 953 selected
+
+==================================== ERRORS ====================================
+_________ ERROR collecting test/components/readers/test_extractive.py __________
+/usr/local/lib/python3.8/site-packages/_pytest/python.py:617: in _importtestmodule
+    mod = import_path(self.path, mode=importmode, root=self.config.rootpath)
+/usr/local/lib/python3.8/site-packages/_pytest/pathlib.py:567: in import_path
+    importlib.import_module(module_name)
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1014: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:991: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:975: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:671: in _load_unlocked
+    ???
+/usr/local/lib/python3.8/site-packages/_pytest/assertion/rewrite.py:186: in exec_module
+    exec(co, module.__dict__)
+test/components/readers/test_extractive.py:9: in <module>
+    from haystack.components.readers import ExtractiveReader
+haystack/components/readers/__init__.py:1: in <module>
+    from haystack.components.readers.extractive import ExtractiveReader
+E     File "/testbed/haystack/components/readers/extractive.py", line 131
+E       @classmethod
+E       ^
+E   SyntaxError: invalid syntax
+_________ ERROR collecting test/components/readers/test_extractive.py __________
+/usr/local/lib/python3.8/site-packages/_pytest/python.py:617: in _importtestmodule
+    mod = import_path(self.path, mode=importmode, root=self.config.rootpath)
+/usr/local/lib/python3.8/site-packages/_pytest/pathlib.py:567: in import_path
+    importlib.import_module(module_name)
+/usr/local/lib/python3.8/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1014: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:991: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:975: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:671: in _load_unlocked
+    ???
+/usr/local/lib/python3.8/site-packages/_pytest/assertion/rewrite.py:186: in exec_module
+    exec(co, module.__dict__)
+test/components/readers/test_extractive.py:9: in <module>
+    from haystack.components.readers import ExtractiveReader
+haystack/components/readers/__init__.py:1: in <module>
+    from haystack.components.readers.extractive import ExtractiveReader
+E     File "/testbed/haystack/components/readers/extractive.py", line 131
+E       @classmethod
+E       ^
+E   SyntaxError: invalid syntax
+=============================== warnings summary ===============================
+test/test_pipeline.py:9
+  /testbed/test/test_pipeline.py:9: PytestCollectionWarning: cannot collect test class 'TestComponent' because it has a __init__ constructor (from: test/test_pipeline.py)
+    class TestComponent:
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.8.20-final-0 -----------
+Coverage XML written to file coverage.xml
+
+=========================== short test summary info ============================
+SKIPPED [1] test/core/pipeline/test_draw_graphviz.py:14: could not import 'pygraphviz': No module named 'pygraphviz'
+ERROR test/components/readers/test_extractive.py
+ERROR test/components/readers/test_extractive.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!
+============ 1 skipped, 95 deselected, 1 warning, 2 errors in 6.66s ============
++ : '>>>>> End Test Output'
++ git checkout 1841aec11e479ed75d912bb01db7cc90dd2c4e47 test/components/generators/test_hugging_face_local_generator.py test/components/rankers/test_transformers_similarity.py test/components/readers/test_extractive.py
+Updated 3 paths from 8bd39103

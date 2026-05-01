@@ -1,0 +1,78 @@
+diff --git a/sphinx/builders/linkcheck.py b/sphinx/builders/linkcheck.py
+index dd5317087..3f71abd6a 100644
+--- a/sphinx/builders/linkcheck.py
++++ b/sphinx/builders/linkcheck.py
+@@ -109,6 +109,59 @@ class CheckExternalLinksBuilder(Builder):
+             thread.start()
+             self.workers.append(thread)
+ 
++    def check_local_uri(self, uri: str) -> Tuple[bool, str]:
++        """Check if a local URI corresponds to a valid target."""
++        # Check if it's a simple label reference (no #)
++        if '#' not in uri:
++            # Search in the current document's doctree first
++            # The current document is being processed, so we can check its nodes
++            try:
++                # Look for target nodes in all found documents
++                for docname in self.env.found_docs:
++                    try:
++                        doctree = self.env.get_doctree(docname)
++                        for node in doctree.traverse():
++                            if hasattr(node, 'get') and 'names' in node:
++                                if uri in node['names']:
++                                    return True, f"label '{uri}' found in {docname}"
++                            if hasattr(node, 'get') and 'refname' in node:
++                                if uri == node['refname']:
++                                    return True, f"label '{uri}' found in {docname}"
++                    except Exception:
++                        continue
++            except Exception:
++                pass
++
++            # Also check domain labels as fallback
++            try:
++                std_domain = self.env.get_domain('std')
++                if uri in std_domain.labels:
++                    return True, "label found"
++            except Exception:
++                pass
++
++        # Check if it's a document reference with anchor
++        if '#' in uri:
++            doc_part, anchor = uri.split('#', 1)
++            # Check if the document exists
++            if doc_part in self.env.found_docs:
++                # Check if the anchor exists in that document
++                try:
++                    doctree = self.env.get_doctree(doc_part)
++                    # Look for nodes with matching ids or names
++                    for node in doctree.traverse():
++                        if hasattr(node, 'get'):
++                            if 'id' in node and node['id'] == anchor:
++                                return True, "anchor found in document"
++                            if 'name' in node and node['name'] == anchor:
++                                return True, "anchor found in document"
++                    return False, f"anchor '{anchor}' not found in {doc_part}"
++                except Exception as e:
++                    return False, f"could not check anchor in {doc_part}: {e}"
++            else:
++                return False, f"document '{doc_part}' not found"
++
++        return False, f"label '{uri}' not found"
+     def check_thread(self) -> None:
+         kwargs = {
+             'allow_redirects': True,
+@@ -213,7 +266,12 @@ class CheckExternalLinksBuilder(Builder):
+             if len(uri) == 0 or uri.startswith(('#', 'mailto:', 'ftp:')):
+                 return 'unchecked', '', 0
+             elif not uri.startswith(('http:', 'https:')):
+-                return 'local', '', 0
++                # Check if local URI is valid
++                is_valid, info = self.check_local_uri(uri)
++                if is_valid:
++                    return 'working', 'local', 0
++                else:
++                    return 'broken', info, 0
+             elif uri in self.good:
+                 return 'working', 'old', 0
+             elif uri in self.broken:

@@ -1,0 +1,112 @@
+diff --git a/reflex/istate/dynamic.py b/reflex/istate/dynamic.py
+--- a/reflex/istate/dynamic.py
++++ b/reflex/istate/dynamic.py
+@@ -1,7 +1,9 @@
+-from __future__ import annotations
+-
+-import inspect
+-import types
+-from typing import Any, Callable, Dict, Type
+-
+-from reflex.state import BaseState
++from __future__ import annotations
++
++import importlib
++import inspect
++import types
++import uuid
++from typing import Any, Callable, Dict, Type
++
++from reflex.state import BaseState
+@@ -1,2 +1,90 @@
+-# Existing dynamic state handling code (omitted for brevity)
++# Existing dynamic state handling code (omitted for brevity)
++
++# ---------------------------------------------------------------------------
++# Fix for pickling dynamically created State subclasses
++# ---------------------------------------------------------------------------
++
++# Cache for dynamically created state classes to ensure they are only
++# registered once and have a stable module/qualname for pickling.
++_DYNAMIC_STATE_CACHE: Dict[int, Type[BaseState]] = {}
++
++
++def _register_dynamic_state(cls: Type[BaseState]) -> Type[BaseState]:
++    """
++    Register a dynamically created ``BaseState`` subclass in a known module
++    so that it can be pickled. The function ensures that the class has a
++    stable ``__module__`` and ``__qualname__`` and is added to the globals
++    of ``reflex.state``.
++
++    Args:
++        cls: The dynamically created state subclass.
++
++    Returns:
++        The same class (potentially renamed) that is now registered.
++    """
++    # If the class is already cached, return the cached version.
++    cache_key = id(cls)
++    if cache_key in _DYNAMIC_STATE_CACHE:
++        return _DYNAMIC_STATE_CACHE[cache_key]
++
++    # Detect if the class is defined in a local scope (e.g., <locals> in __qualname__).
++    # Such classes cannot be pickled because their module path is not importable.
++    if "<locals>" in getattr(cls, "__qualname__", "") or "<locals>" in getattr(cls, "__module__", ""):
++        # Generate a unique, importable name.
++        unique_name = f"DynamicState_{uuid.uuid4().hex}"
++        # Update the class's metadata.
++        cls.__name__ = unique_name
++        cls.__qualname__ = unique_name
++        cls.__module__ = "reflex.state"
++
++        # Insert the class into the reflex.state module's globals so that
++        # ``import reflex.state`` can locate it during unpickling.
++        state_mod = importlib.import_module("reflex.state")
++        setattr(state_mod, unique_name, cls)
++
++    # Cache the class for future lookups.
++    _DYNAMIC_STATE_CACHE[cache_key] = cls
++    return cls
++
++
++def dynamic_state_factory(factory_fn: Callable[[], Type[BaseState]]) -> Type[BaseState]:
++    """
++    Helper used by the library to create a dynamic state class from a user‑provided
++    factory function. It ensures the resulting class is registered for pickling.
++
++    Args:
++        factory_fn: A callable that returns a ``BaseState`` subclass.
++
++    Returns:
++        A ``BaseState`` subclass that is safe to pickle.
++    """
++    # Create the class using the user supplied factory.
++    dynamic_cls = factory_fn()
++    # Register it so that it can be pickled.
++    return _register_dynamic_state(dynamic_cls)
++
++
++# Backwards compatibility: expose the original public API if it existed.
++# If the library previously exposed a ``dynamic_state`` function that returned a class,
++# we now wrap it to ensure registration.
++def dynamic_state(*args: Any, **kwargs: Any) -> Type[BaseState]:
++    """
++    Compatibility wrapper for the original ``dynamic_state`` API.
++    It forwards all arguments to the underlying factory (if callable) or returns
++    the class directly, after ensuring it is registered for pickling.
++    """
++    if args and callable(args[0]) and not kwargs:
++        # Called as ``dynamic_state(factory_fn)``.
++        return dynamic_state_factory(args[0])
++    # Called as ``dynamic_state()`` where the function itself creates the class
++    # via closure; we attempt to retrieve the class from the caller's locals.
++    # This mirrors the previous behaviour but adds registration.
++    frame = inspect.currentframe()
++    if frame is not None:
++        outer_locals = frame.f_back.f_locals if frame.f_back else {}
++        # Look for a class that subclasses BaseState defined in the locals.
++        for obj in outer_locals.values():
++            if isinstance(obj, type) and issubclass(obj, BaseState):
++                return _register_dynamic_state(obj)
++    raise RuntimeError("Unable to determine dynamic state class.")
+ *** End of File ***

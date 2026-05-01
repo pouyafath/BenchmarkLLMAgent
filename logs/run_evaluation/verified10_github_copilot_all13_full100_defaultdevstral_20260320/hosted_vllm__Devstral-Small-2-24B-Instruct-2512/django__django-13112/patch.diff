@@ -1,0 +1,62 @@
+diff --git a/django/db/migrations/operations/utils.py b/django/db/migrations/operations/utils.py
+index 6e2bacd549..f1b8b434a5 100644
+--- a/django/db/migrations/operations/utils.py
++++ b/django/db/migrations/operations/utils.py
+@@ -2,7 +2,6 @@ from collections import namedtuple
+ 
+ from django.db.models.fields.related import RECURSIVE_RELATIONSHIP_CONSTANT
+ 
+-
+ def resolve_relation(model, app_label=None, model_name=None):
+     """
+     Turn a model class or model reference string and return a model tuple.
+@@ -19,7 +18,8 @@ def resolve_relation(model, app_label=None, model_name=None):
+                 )
+             return app_label, model_name
+         if '.' in model:
+-            return tuple(model.lower().split('.', 1))
++            app_label, model_name = model.split('.', 1)
++            return app_label, model_name.lower()
+         if app_label is None:
+             raise TypeError(
+                 'app_label must be provided to resolve unscoped model '
+@@ -28,10 +28,8 @@ def resolve_relation(model, app_label=None, model_name=None):
+         return app_label, model.lower()
+     return model._meta.app_label, model._meta.model_name
+ 
+-
+ FieldReference = namedtuple('FieldReference', 'to through')
+ 
+-
+ def field_references(
+     model_tuple,
+     field,
+@@ -80,7 +78,6 @@ def field_references(
+         return False
+     return FieldReference(references_to, references_through)
+ 
+-
+ def get_references(state, model_tuple, field_tuple=()):
+     """
+     Generator of (model_state, name, field, reference) referencing
+@@ -95,7 +92,6 @@ def get_references(state, model_tuple, field_tuple=()):
+             if reference:
+                 yield model_state, name, field, reference
+ 
+-
+ def field_is_referenced(state, model_tuple, field_tuple):
+     """Return whether `field_tuple` is referenced by any state models."""
+     return next(get_references(state, model_tuple, field_tuple), None) is not None
+diff --git a/django/db/models/fields/related.py b/django/db/models/fields/related.py
+index c2aea9c730..7b6bf9713f 100644
+--- a/django/db/models/fields/related.py
++++ b/django/db/models/fields/related.py
+@@ -582,7 +582,7 @@ class ForeignObject(RelatedField):
+         if self.remote_field.parent_link:
+             kwargs['parent_link'] = self.remote_field.parent_link
+         if isinstance(self.remote_field.model, str):
+-            kwargs['to'] = self.remote_field.model.lower()
++            kwargs['to'] = self.remote_field.model
+         else:
+             kwargs['to'] = self.remote_field.model._meta.label_lower
+         # If swappable is True, then see if we're actually pointing to the target

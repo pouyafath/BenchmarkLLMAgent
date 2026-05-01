@@ -1,0 +1,43 @@
+diff --git a/django/utils/html.py b/django/utils/html.py
+index 9c519978f5..9a02282396 100644
+--- a/django/utils/html.py
++++ b/django/utils/html.py
+@@ -3,6 +3,8 @@
+ import json
+ import re
+ from html.parser import HTMLParser
++from html import escape as html_escape
++
+ from urllib.parse import (
+     parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit,
+ )
+@@ -24,15 +26,13 @@ word_split_re = re.compile(r'''([\s<>"']+)''')
+ simple_url_re = re.compile(r'^https?://\[?\w', re.IGNORECASE)
+ simple_url_2_re = re.compile(r'^www\.|^(?!http)\w[^@]+\.(com|edu|gov|int|mil|net|org)($|/.*)$', re.IGNORECASE)
+ 
+-_html_escapes = {
+-    ord('&'): '&amp;',
+-    ord('<'): '&lt;',
+-    ord('>'): '&gt;',
+-    ord('"'): '&quot;',
+-    ord("'"): '&#39;',
+-}
+ 
+ 
++
++# For backward compatibility, we need to replace &#x27; with &#39;
++# since Django's escape() has historically used &#39; for single quotes
++_quote_fix_re = re.compile(r'&#x27;')
++
+ @keep_lazy(str, SafeString)
+ def escape(text):
+     """
+@@ -43,7 +43,7 @@ def escape(text):
+     This may result in double-escaping. If this is a concern, use
+     conditional_escape() instead.
+     """
+-    return mark_safe(str(text).translate(_html_escapes))
++    return mark_safe(_quote_fix_re.sub('&#39;', html_escape(str(text))))
+ 
+ 
+ _js_escapes = {

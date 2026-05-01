@@ -1,0 +1,87 @@
+diff --git a/mcpgateway/config.py b/mcpgateway/config.py
+index 297a97fa..b65c3027 100644
+--- a/mcpgateway/config.py
++++ b/mcpgateway/config.py
+@@ -98,6 +98,7 @@ class Settings(BaseSettings):
+     app_name: str = "MCP_Gateway"
+     host: str = "127.0.0.1"
+     port: int = 4444
++    gateway_protocol: str = "auto"  # http, https, or auto
+     database_url: str = "sqlite:///./mcp.db"
+     templates_dir: Path = Path("mcpgateway/templates")
+     # Absolute paths resolved at import-time (still override-able via env vars)
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..9f73e7dd 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -583,7 +583,12 @@ class DiscoveryService(LocalDiscoveryService):
+                     addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
+                     if addresses:
+                         port = info.port
+-                        url = f"http://{addresses[0]}:{port}"
++                        # Detect protocol - use https if available, otherwise http
++                        protocol = "https" if settings.gateway_protocol == "https" else "http"
++                        if settings.gateway_protocol == "auto":
++                            # Try to detect from environment or use default
++                            protocol = "https" if os.environ.get("GATEWAY_PROTOCOL") == "https" else "http"
++                        url = f"{protocol}://{addresses[0]}:{port}"
+                         name = info.properties.get(b"name", b"").decode()
+ 
+                         # Add peer
+diff --git a/mcpgateway/main.py b/mcpgateway/main.py
+index 7aa7bd61..8990c7a0 100644
+--- a/mcpgateway/main.py
++++ b/mcpgateway/main.py
+@@ -921,7 +921,7 @@ async def sse_endpoint(request: Request, server_id: str, user: str = Depends(req
+         logger.debug(f"User {user} is establishing SSE connection for server {server_id}")
+         base_url = str(request.base_url).rstrip("/")
+         server_sse_url = f"{base_url}/servers/{server_id}"
+-        transport = SSETransport(base_url=server_sse_url)
++        transport = SSETransport(base_url=server_sse_url, request=request)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+         response = await transport.create_sse_response(request)
+@@ -2056,7 +2056,7 @@ async def utility_sse_endpoint(request: Request, user: str = Depends(require_aut
+     try:
+         logger.debug("User %s requested SSE connection", user)
+         base_url = str(request.base_url).rstrip("/")
+-        transport = SSETransport(base_url=base_url)
++        transport = SSETransport(base_url=base_url, request=request)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+ 
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..fa774169 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -76,11 +76,12 @@ class SSETransport(Transport):
+         True
+     """
+ 
+-    def __init__(self, base_url: str = None):
++    def __init__(self, base_url: str = None, request: Request = None):
+         """Initialize SSE transport.
+ 
+         Args:
+             base_url: Base URL for client message endpoints
++            request: Optional FastAPI request object for protocol detection
+ 
+         Examples:
+             >>> # Test default initialization
+@@ -105,7 +106,15 @@ class SSETransport(Transport):
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        if base_url:
++            self._base_url = base_url
++        elif request:
++            # Detect protocol from request
++            protocol = "https" if request.url.scheme == "https" else "http"
++            self._base_url = f"{protocol}://{settings.host}:{settings.port}"
++        else:
++            # Fallback to default (http)
++            self._base_url = f"http://{settings.host}:{settings.port}"
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()

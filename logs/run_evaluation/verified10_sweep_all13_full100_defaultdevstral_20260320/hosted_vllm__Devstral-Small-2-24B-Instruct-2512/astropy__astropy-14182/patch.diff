@@ -1,0 +1,36 @@
+diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py
+index abdeba8ef..b5dbf5dc7 100644
+--- a/astropy/io/ascii/rst.py
++++ b/astropy/io/ascii/rst.py
+@@ -57,10 +57,28 @@ class RST(FixedWidth):
+     data_class = SimpleRSTData
+     header_class = SimpleRSTHeader
+ 
+-    def __init__(self):
+-        super().__init__(delimiter_pad=None, bookend=False)
++    def __init__(self, header_rows=None):
++        if header_rows is None:
++            header_rows = ["name"]
++        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
++        # Adjust data start_line based on header_rows
++        # For RST: position_line (0) + header_rows + position_line (1) + 1
++        self.data.start_line = len(header_rows) + 2
+ 
+     def write(self, lines):
+         lines = super().write(lines)
+-        lines = [lines[1]] + lines + [lines[1]]
++        # For RST tables, we need to add a position line at the beginning and end
++        # The position line is the line with only position characters (usually '=')
++        # It should be the line after all header rows
++        if len(lines) > 0:
++            # Find the position line (line that contains only '=' characters separated by spaces)
++            position_line = None
++            for line in lines:
++                stripped_line = line.strip()
++                if stripped_line and all(part == '=' * len(part) for part in stripped_line.split()):
++                    position_line = line
++                    break
++
++            if position_line is not None:
++                lines = [position_line] + lines + [position_line]
+         return lines

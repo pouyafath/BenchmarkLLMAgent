@@ -1,0 +1,1041 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch master
+Your branch is behind 'origin/master' by 1101 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   keras/backend/common/keras_tensor.py
+	modified:   keras/ops/nn.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	normal_model.weights.h5
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit df705d4fc719ab617705197248804d689ad74767
+Author: Gabriel Rasskin <43894452+grasskin@users.noreply.github.com>
+Date:   Tue Mar 12 19:00:24 2024 -0400
+
+    Sine docstring (#19295)
+
+diff --git a/keras/ops/numpy.py b/keras/ops/numpy.py
+index c25f1c748..c388f1026 100644
+--- a/keras/ops/numpy.py
++++ b/keras/ops/numpy.py
+@@ -4610,7 +4610,7 @@ class Sin(Operation):
+ 
+ @keras_export(["keras.ops.sin", "keras.ops.numpy.sin"])
+ def sin(x):
+-    """Trigonomeric sine, element-wise.
++    """Trigonometric sine, element-wise.
+ 
+     Arguments:
+         x: Input tensor.
++ git -c core.fileMode=false diff df705d4fc719ab617705197248804d689ad74767
+diff --git a/keras/backend/common/keras_tensor.py b/keras/backend/common/keras_tensor.py
+index c741d5ce8..d19a0e1c1 100644
+--- a/keras/backend/common/keras_tensor.py
++++ b/keras/backend/common/keras_tensor.py
+@@ -296,6 +296,9 @@ def any_symbolic_tensors(args=None, kwargs=None):
+     for x in tree.flatten((args, kwargs)):
+         if isinstance(x, KerasTensor):
+             return True
++        # Also check for TensorFlow symbolic tensors (have graph attribute that is not None)
++        if hasattr(x, "graph") and x.graph is not None:
++            return True
+     return False
+ 
+ 
+diff --git a/keras/ops/nn.py b/keras/ops/nn.py
+index 6731d9980..5cec6ac9a 100644
+--- a/keras/ops/nn.py
++++ b/keras/ops/nn.py
+@@ -538,14 +538,7 @@ def softmax(x, axis=-1):
+     array([0.09003057, 0.24472847, 0.66524096], shape=(3,), dtype=float64)
+ 
+     """
+-    if isinstance(axis, int) and backend.shape(x)[axis] == 1:
+-        warnings.warn(
+-            f"You are using a softmax over axis {axis} "
+-            f"of a tensor of shape {backend.shape(x)}. This axis "
+-            "has size 1. The softmax operation will always return "
+-            "the value 1, which is likely not what you intended. "
+-            "Did you mean to use a sigmoid instead?"
+-        )
++
+     if any_symbolic_tensors((x,)):
+         return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, tuple):
+@@ -568,6 +561,14 @@ def softmax(x, axis=-1):
+         x = backend.numpy.reshape(x, original_shape)
+         return x
+     else:
++        if isinstance(axis, int) and backend.shape(x)[axis] == 1:
++            warnings.warn(
++                f"You are using a softmax over axis {axis} "
++                f"of a tensor of shape {backend.shape(x)}. This axis "
++                "has size 1. The softmax operation will always return "
++                "the value 1, which is likely not what you intended. "
++                "Did you mean to use a sigmoid instead?"
++            )
+         return backend.nn.softmax(x, axis=axis)
+ 
+ 
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.10/site-packages/pip (python 3.10)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-uo16urrb/keras.egg-info
+  writing /tmp/pip-modern-metadata-uo16urrb/keras.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-uo16urrb/keras.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-uo16urrb/keras.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-uo16urrb/keras.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-uo16urrb/keras.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-uo16urrb/keras.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-uo16urrb/keras.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-uo16urrb/keras-3.1.0.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: absl-py in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (2.1.0)
+Requirement already satisfied: numpy in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (1.26.4)
+Requirement already satisfied: rich in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (13.7.1)
+Requirement already satisfied: namex in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (0.0.7)
+Requirement already satisfied: h5py in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (3.10.0)
+Requirement already satisfied: dm-tree in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (0.1.8)
+Requirement already satisfied: ml-dtypes in /usr/local/lib/python3.10/site-packages (from keras==3.1.0) (0.3.2)
+WARNING: keras 3.1.0 does not provide the extra 'test'
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/site-packages (from rich->keras==3.1.0) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/site-packages (from rich->keras==3.1.0) (2.17.2)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/site-packages (from markdown-it-py>=2.2.0->rich->keras==3.1.0) (0.1.2)
+Building wheels for collected packages: keras
+  Building editable for keras (pyproject.toml): started
+  Running command Building editable for keras (pyproject.toml)
+  running editable_wheel
+  creating /tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info
+  writing /tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras-3.1.0.dist-info'
+  creating /tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras-3.1.0.dist-info/WHEEL
+  running build_py
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable___keras_3_1_0_finder.py'
+  adding '__editable__.keras-3.1.0.pth'
+  creating '/tmp/pip-wheel-5mmieleh/tmplwzmrehj/keras-3.1.0-0.editable-py3-none-any.whl' and adding '/tmp/tmpqks8gzmdkeras-3.1.0-0.editable-py3-none-any.whl' to it
+  adding 'keras-3.1.0.dist-info/LICENSE'
+  adding 'keras-3.1.0.dist-info/METADATA'
+  adding 'keras-3.1.0.dist-info/WHEEL'
+  adding 'keras-3.1.0.dist-info/top_level.txt'
+  adding 'keras-3.1.0.dist-info/RECORD'
+  /usr/local/lib/python3.10/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for keras (pyproject.toml): finished with status 'done'
+  Created wheel for keras: filename=keras-3.1.0-0.editable-py3-none-any.whl size=8423 sha256=395424f0b90ff928371f85eec439f1d75d930f4f34a1841782ac14c77d51f03a
+  Stored in directory: /tmp/pip-ephem-wheel-cache-7n02kfo8/wheels/0d/a6/cb/465a7b303d624cc531250fa27c75d038ddc29430bdb6ba7c9f
+Successfully built keras
+Installing collected packages: keras
+  Attempting uninstall: keras
+    Found existing installation: keras 3.1.0
+    Uninstalling keras-3.1.0:
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable__.keras-3.1.0.pth
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__editable___keras_3_1_0_finder.py
+      Removing file or directory /usr/local/lib/python3.10/site-packages/__pycache__/__editable___keras_3_1_0_finder.cpython-310.pyc
+      Removing file or directory /usr/local/lib/python3.10/site-packages/keras-3.1.0.dist-info/
+      Successfully uninstalled keras-3.1.0
+Successfully installed keras-3.1.0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ python -m pip install tensorflow-cpu torch jax jaxlib
+Requirement already satisfied: tensorflow-cpu in /usr/local/lib/python3.10/site-packages (2.16.1)
+Requirement already satisfied: torch in /usr/local/lib/python3.10/site-packages (2.7.0+cpu)
+Requirement already satisfied: jax in /usr/local/lib/python3.10/site-packages (0.4.25)
+Requirement already satisfied: jaxlib in /usr/local/lib/python3.10/site-packages (0.4.25)
+Requirement already satisfied: absl-py>=1.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.1.0)
+Requirement already satisfied: astunparse>=1.6.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.6.3)
+Requirement already satisfied: flatbuffers>=23.5.26 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (24.3.7)
+Requirement already satisfied: gast!=0.5.0,!=0.5.1,!=0.5.2,>=0.2.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.5.4)
+Requirement already satisfied: google-pasta>=0.1.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.2.0)
+Requirement already satisfied: h5py>=3.10.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.10.0)
+Requirement already satisfied: libclang>=13.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (16.0.6)
+Requirement already satisfied: ml-dtypes~=0.3.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.3.2)
+Requirement already satisfied: opt-einsum>=2.3.2 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.3.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (24.1)
+Requirement already satisfied: protobuf!=4.21.0,!=4.21.1,!=4.21.2,!=4.21.3,!=4.21.4,!=4.21.5,<5.0.0dev,>=3.20.3 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (4.25.3)
+Requirement already satisfied: requests<3,>=2.21.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.31.0)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (65.5.1)
+Requirement already satisfied: six>=1.12.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.16.0)
+Requirement already satisfied: termcolor>=1.1.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.4.0)
+Requirement already satisfied: typing-extensions>=3.6.6 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (4.12.2)
+Requirement already satisfied: wrapt>=1.11.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.16.0)
+Requirement already satisfied: grpcio<2.0,>=1.24.3 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.62.1)
+Requirement already satisfied: tensorboard<2.17,>=2.16 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (2.16.2)
+Requirement already satisfied: keras>=3.0.0 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (3.1.0)
+Requirement already satisfied: tensorflow-io-gcs-filesystem>=0.23.1 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (0.36.0)
+Requirement already satisfied: numpy<2.0.0,>=1.23.5 in /usr/local/lib/python3.10/site-packages (from tensorflow-cpu) (1.26.4)
+Requirement already satisfied: filelock in /usr/local/lib/python3.10/site-packages (from torch) (3.13.1)
+Requirement already satisfied: sympy>=1.13.3 in /usr/local/lib/python3.10/site-packages (from torch) (1.13.3)
+Requirement already satisfied: networkx in /usr/local/lib/python3.10/site-packages (from torch) (3.3)
+Requirement already satisfied: jinja2 in /usr/local/lib/python3.10/site-packages (from torch) (3.1.4)
+Requirement already satisfied: fsspec in /usr/local/lib/python3.10/site-packages (from torch) (2024.6.1)
+Requirement already satisfied: scipy>=1.9 in /usr/local/lib/python3.10/site-packages (from jax) (1.12.0)
+Requirement already satisfied: wheel<1.0,>=0.23.0 in /usr/local/lib/python3.10/site-packages (from astunparse>=1.6.0->tensorflow-cpu) (0.45.1)
+Requirement already satisfied: rich in /usr/local/lib/python3.10/site-packages (from keras>=3.0.0->tensorflow-cpu) (13.7.1)
+Requirement already satisfied: namex in /usr/local/lib/python3.10/site-packages (from keras>=3.0.0->tensorflow-cpu) (0.0.7)
+Requirement already satisfied: dm-tree in /usr/local/lib/python3.10/site-packages (from keras>=3.0.0->tensorflow-cpu) (0.1.8)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (3.3.2)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (3.6)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (2.2.1)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.10/site-packages (from requests<3,>=2.21.0->tensorflow-cpu) (2024.2.2)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /usr/local/lib/python3.10/site-packages (from sympy>=1.13.3->torch) (1.3.0)
+Requirement already satisfied: markdown>=2.6.8 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.17,>=2.16->tensorflow-cpu) (3.5.2)
+Requirement already satisfied: tensorboard-data-server<0.8.0,>=0.7.0 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.17,>=2.16->tensorflow-cpu) (0.7.2)
+Requirement already satisfied: werkzeug>=1.0.1 in /usr/local/lib/python3.10/site-packages (from tensorboard<2.17,>=2.16->tensorflow-cpu) (3.0.1)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.10/site-packages (from jinja2->torch) (2.1.5)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/site-packages (from rich->keras>=3.0.0->tensorflow-cpu) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/site-packages (from rich->keras>=3.0.0->tensorflow-cpu) (2.17.2)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/site-packages (from markdown-it-py>=2.2.0->rich->keras>=3.0.0->tensorflow-cpu) (0.1.2)
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout df705d4fc719ab617705197248804d689ad74767 keras/ops/nn_test.py
+Updated 0 paths from 64659d18b
++ git apply -v -
+Checking patch keras/ops/nn_test.py...
+Applied patch keras/ops/nn_test.py cleanly.
++ : '>>>>> Start Test Output'
++ SKIP_APPLICATIONS_TESTS=True
++ pytest -rA keras keras/ops/nn_test.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.1.1, pluggy-1.4.0 -- /usr/local/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-4.1.0
+collecting ... collected 206 items
+
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_average_pool PASSED    [  0%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_batch_normalization PASSED [  0%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_conv PASSED            [  1%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_conv_transpose PASSED  [  1%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_depthwise_conv PASSED  [  2%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_elu PASSED             [  2%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_gelu PASSED            [  3%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_hard_sigmoid PASSED    [  3%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_hard_silu PASSED       [  4%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_leaky_relu PASSED      [  4%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_log_sigmoid PASSED     [  5%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_log_softmax PASSED     [  5%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_max_pool PASSED        [  6%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_moments PASSED         [  6%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_multi_hot PASSED       [  7%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_multi_hot_dtype0 PASSED [  7%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_multi_hot_dtype1 PASSED [  8%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_normalize PASSED       [  8%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_one_hot PASSED         [  9%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_one_hot_dtype0 PASSED  [  9%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_one_hot_dtype1 PASSED  [ 10%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_relu PASSED            [ 10%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_relu6 PASSED           [ 11%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_selu PASSED            [ 11%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_separable_conv PASSED  [ 12%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_sigmoid PASSED         [ 12%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_silu PASSED            [ 13%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softmax PASSED         [ 13%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softmax_in_graph FAILED [ 14%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softplus PASSED        [ 14%]
+keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softsign PASSED        [ 15%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_average_pool PASSED     [ 15%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_batch_normalization PASSED [ 16%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_batched_and_unbatched_inputs_multi_hot PASSED [ 16%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_binary_crossentropy PASSED [ 16%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_categorical_crossentropy PASSED [ 17%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_conv PASSED             [ 17%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_conv_transpose PASSED   [ 18%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_ctc_loss PASSED         [ 18%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_depthwise_conv PASSED   [ 19%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_elu PASSED              [ 19%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_gelu PASSED             [ 20%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_hard_sigmoid PASSED     [ 20%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_hard_silu PASSED        [ 21%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_leaky_relu PASSED       [ 21%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_log_sigmoid PASSED      [ 22%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_log_softmax PASSED      [ 22%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_max_pool PASSED         [ 23%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_moments PASSED          [ 23%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_normalize PASSED        [ 24%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_one_hot PASSED          [ 24%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_relu PASSED             [ 25%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_relu6 PASSED            [ 25%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_selu PASSED             [ 26%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_separable_conv PASSED   [ 26%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_sigmoid PASSED          [ 27%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_silu PASSED             [ 27%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_softmax PASSED          [ 28%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_softplus PASSED         [ 28%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_softsign PASSED         [ 29%]
+keras/ops/nn_test.py::NNOpsStaticShapeTest::test_sparse_categorical_crossentropy PASSED [ 29%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_average_pool_same_padding PASSED [ 30%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_average_pool_valid_padding PASSED [ 30%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_batch_normalization PASSED [ 31%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_binary_crossentropy PASSED [ 31%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_categorical_crossentropy PASSED [ 32%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d0 PASSED         [ 32%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d1 PASSED         [ 33%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d10 PASSED        [ 33%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d11 SKIPPED       [ 33%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d2 PASSED         [ 34%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d3 PASSED         [ 34%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d4 PASSED         [ 35%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d5 SKIPPED        [ 35%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d6 PASSED         [ 36%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d7 SKIPPED        [ 36%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d8 PASSED         [ 37%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d9 SKIPPED        [ 37%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d0 PASSED         [ 38%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d1 PASSED         [ 38%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d2 PASSED         [ 39%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d3 PASSED         [ 39%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d4 PASSED         [ 40%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d5 PASSED         [ 40%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_20 PASSED [ 41%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_21 PASSED [ 41%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_22 PASSED [ 42%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_23 PASSED [ 42%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d0 PASSED         [ 43%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d1 PASSED         [ 43%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d2 PASSED         [ 44%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d3 PASSED         [ 44%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d4 PASSED         [ 45%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d5 PASSED         [ 45%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_1d0 PASSED [ 46%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_1d1 PASSED [ 46%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d0 PASSED [ 47%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d1 PASSED [ 47%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d2 PASSED [ 48%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d3 PASSED [ 48%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_ctc_loss PASSED         [ 49%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d0 PASSED [ 49%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d1 PASSED [ 50%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d10 PASSED [ 50%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d11 PASSED [ 50%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d2 PASSED [ 51%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d3 PASSED [ 51%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d4 PASSED [ 52%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d5 PASSED [ 52%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d6 PASSED [ 53%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d7 PASSED [ 53%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d8 PASSED [ 54%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d9 PASSED [ 54%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_elu PASSED              [ 55%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_gelu PASSED             [ 55%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_hard_sigmoid PASSED     [ 56%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_hard_silu PASSED        [ 56%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_leaky_relu PASSED       [ 57%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_log_sigmoid PASSED      [ 57%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_log_softmax PASSED      [ 58%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_max_pool PASSED         [ 58%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments PASSED          [ 59%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments_sync PASSED     [ 59%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments_sync_with_distribution_strategy0 FAILED [ 60%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments_sync_with_distribution_strategy1 FAILED [ 60%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_multi_hot PASSED        [ 61%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_normalize PASSED        [ 61%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_one_hot PASSED          [ 62%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_relu PASSED             [ 62%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_relu6 PASSED            [ 63%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_selu PASSED             [ 63%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d0 PASSED [ 64%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d1 PASSED [ 64%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d2 PASSED [ 65%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d3 PASSED [ 65%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d4 PASSED [ 66%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d5 PASSED [ 66%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d6 PASSED [ 66%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d7 PASSED [ 67%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_sigmoid PASSED          [ 67%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_silu PASSED             [ 68%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_softmax PASSED          [ 68%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_softplus PASSED         [ 69%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_softsign PASSED         [ 69%]
+keras/ops/nn_test.py::NNOpsCorrectnessTest::test_sparse_categorical_crossentropy PASSED [ 70%]
+keras/ops/nn_test.py::TestLogitRecovery::test_logit_recovery_binary_crossentropy FAILED [ 70%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_bfloat16 PASSED           [ 71%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_float16 PASSED            [ 71%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_float32 PASSED            [ 72%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_float64 PASSED            [ 72%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_bfloat16 PASSED          [ 73%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_float16 PASSED           [ 73%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_float32 PASSED           [ 74%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_float64 PASSED           [ 74%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_bfloat16 PASSED  [ 75%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_float16 PASSED   [ 75%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_float32 PASSED   [ 76%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_float64 PASSED   [ 76%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_bfloat16 PASSED     [ 77%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_float16 PASSED      [ 77%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_float32 PASSED      [ 78%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_float64 PASSED      [ 78%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_bfloat16 PASSED    [ 79%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_float16 PASSED     [ 79%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_float32 PASSED     [ 80%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_float64 PASSED     [ 80%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_bfloat16 PASSED   [ 81%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_float16 PASSED    [ 81%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_float32 PASSED    [ 82%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_float64 PASSED    [ 82%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_bfloat16 PASSED   [ 83%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_float16 PASSED    [ 83%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_float32 PASSED    [ 83%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_float64 PASSED    [ 84%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_bfloat16 PASSED         [ 84%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_float16 PASSED          [ 85%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_float32 PASSED          [ 85%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_float64 PASSED          [ 86%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_bfloat16 PASSED          [ 86%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_float16 PASSED           [ 87%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_float32 PASSED           [ 87%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_float64 PASSED           [ 88%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_bfloat16 PASSED          [ 88%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_float16 PASSED           [ 89%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_float32 PASSED           [ 89%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_float64 PASSED           [ 90%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_bfloat16 PASSED       [ 90%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_float16 PASSED        [ 91%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_float32 PASSED        [ 91%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_float64 PASSED        [ 92%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_bfloat16 PASSED          [ 92%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_float16 PASSED           [ 93%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_float32 PASSED           [ 93%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_float64 PASSED           [ 94%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_bfloat16 PASSED       [ 94%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_float16 PASSED        [ 95%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_float32 PASSED        [ 95%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_float64 PASSED        [ 96%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_bfloat16 PASSED      [ 96%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_float16 PASSED       [ 97%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_float32 PASSED       [ 97%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_float64 PASSED       [ 98%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_bfloat16 PASSED      [ 98%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_float16 PASSED       [ 99%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_float32 PASSED       [ 99%]
+keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_float64 PASSED       [100%]
+
+=================================== FAILURES ===================================
+_________________ NNOpsDynamicShapeTest.test_softmax_in_graph __________________
+
+self = <keras.ops.nn_test.NNOpsDynamicShapeTest testMethod=test_softmax_in_graph>
+
+    def test_softmax_in_graph(self):
+        class SoftmaxLayer(keras.Layer):
+            def call(self, x):
+                return ops.softmax(x, axis=-1)
+    
+        class Model(keras.Model):
+            def __init__(self):
+                x = keras.Input(shape=(None,))
+                y = SoftmaxLayer()(x)
+                super().__init__(inputs=x, outputs=y)
+    
+        # Make sure Keras is able to compile the model graph
+        model = Model()
+        x = ops.array([[1.0, 2.0, 3.0, 4.0]])
+>       model.predict(x)
+
+keras/ops/nn_test.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+keras/utils/traceback_utils.py:113: in error_handler
+    return fn(*args, **kwargs)
+keras/backend/tensorflow/trainer.py:514: in predict
+    batch_outputs = self.predict_function(data)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:153: in error_handler
+    raise e.with_traceback(filtered_tb) from None
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+x = <KerasTensor shape=(1, 4), dtype=float32, sparse=False, name=keras_tensor_2>
+
+    def convert(x):
+      """Converts a function output to a Tensor."""
+      if x is None:
+        return None
+      if op_return_value is not None and isinstance(x, ops.Operation):
+        # TODO(b/79881896): we currently can't capture external control deps, so
+        # this won't work if x needs to be captured (i.e. if python_func returns
+        # captured Operations).
+        with ops.control_dependencies([x]):
+          x = array_ops.identity(op_return_value)
+      elif not isinstance(x, tensor_array_ops.TensorArray):
+        try:
+          x = ops.convert_to_tensor_or_composite(x)
+        except (ValueError, TypeError):
+>         raise TypeError(
+              "To be compatible with tf.function, Python functions "
+              "must return zero or more Tensors or ExtensionTypes or None "
+              f"values; in compilation of {str(python_func)}, found return "
+              f"value of type {type(x).__name__}, which is not a Tensor or "
+              "ExtensionType.")
+E         TypeError: To be compatible with tf.function, Python functions must return zero or more Tensors or ExtensionTypes or None values; in compilation of <function TensorFlowTrainer.make_predict_function.<locals>.one_step_on_data_distributed at 0x7fcdc6104d30>, found return value of type KerasTensor, which is not a Tensor or ExtensionType.
+
+/usr/local/lib/python3.10/site-packages/tensorflow/python/framework/func_graph.py:1048: TypeError
+______ NNOpsCorrectnessTest.test_moments_sync_with_distribution_strategy0 ______
+
+self = <keras.ops.nn_test.NNOpsCorrectnessTest testMethod=test_moments_sync_with_distribution_strategy0>
+dtype = 'float16'
+
+    @parameterized.product(dtype=["float16", "float32"])
+    @pytest.mark.skipif(
+        backend.backend() != "tensorflow",
+        reason="synchronized=True only implemented for TF backend",
+    )
+    def test_moments_sync_with_distribution_strategy(self, dtype):
+        from keras.utils.module_utils import tensorflow as tf
+    
+        # Config 2 CPUs for testing.
+        logical_cpus = tf.config.list_logical_devices("CPU")
+        if len(logical_cpus) == 1:
+            from tensorflow.python.eager import context
+    
+            context._reset_context()
+            tf.config.set_logical_device_configuration(
+                tf.config.list_physical_devices("CPU")[0],
+                [
+                    tf.config.LogicalDeviceConfiguration(),
+                    tf.config.LogicalDeviceConfiguration(),
+                ],
+            )
+    
+        @tf.function()
+        def test_on_moments(inputs):
+            return knn.moments(
+                inputs, axes=-1, keepdims=True, synchronized=True
+            )
+    
+        # Test output of moments.
+        inputs = tf.constant([5.0, 9.0, 1.0, 3.0], dtype=dtype)
+        strategy = tf.distribute.MirroredStrategy(["CPU:0", "CPU:1"])
+        with strategy.scope():
+>           mean, variance = strategy.run(test_on_moments, args=(inputs,))
+
+keras/ops/nn_test.py:1811: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/distribute_lib.py:1673: in run
+    return self._extended.call_for_each_replica(fn, args=args, kwargs=kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/distribute_lib.py:3263: in call_for_each_replica
+    return self._call_for_each_replica(fn, args, kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/mirrored_strategy.py:700: in _call_for_each_replica
+    return mirrored_run.call_for_each_replica(
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/mirrored_run.py:84: in call_for_each_replica
+    return wrapped(*args, **kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:153: in error_handler
+    raise e.with_traceback(filtered_tb) from None
+/tmp/__autograph_generated_filehn3qv2l1.py:14: in tf__wrapped_fn
+    retval_ = ag__.converted_call(ag__.ld(call_for_each_replica), (ag__.ld(strategy), ag__.ld(fn).python_function, ag__.ld(args), ag__.ld(kwargs)), None, fscope)
+keras/ops/nn_test.py:1803: in test_on_moments
+    return knn.moments(
+keras/ops/nn.py:1702: in moments
+    return Moments(axes, keepdims, synchronized=synchronized).symbolic_call(
+keras/ops/operation.py:60: in symbolic_call
+    outputs = self.compute_output_spec(*args, **kwargs)
+keras/ops/nn.py:1657: in compute_output_spec
+    reduce_shape(x.shape, axis=self.axes, keepdims=self.keepdims),
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+shape = [4], axis = -1, keepdims = True
+
+    def reduce_shape(shape, axis=None, keepdims=False):
+        shape = list(shape)
+        if axis is None:
+            if keepdims:
+                return tuple([1 for _ in shape])
+            else:
+                return tuple([])
+    
+        if keepdims:
+>           for ax in axis:
+E           TypeError: in user code:
+E           
+E               File "/testbed/keras/ops/nn_test.py", line 1803, in test_on_moments  **
+E                   return knn.moments(
+E               File "/testbed/keras/ops/nn.py", line 1702, in moments
+E                   return Moments(axes, keepdims, synchronized=synchronized).symbolic_call(
+E               File "/testbed/keras/ops/operation.py", line 60, in symbolic_call
+E                   outputs = self.compute_output_spec(*args, **kwargs)
+E               File "/testbed/keras/ops/nn.py", line 1657, in compute_output_spec
+E                   reduce_shape(x.shape, axis=self.axes, keepdims=self.keepdims),
+E               File "/testbed/keras/ops/operation_utils.py", line 361, in reduce_shape
+E                   for ax in axis:
+E           
+E               TypeError: 'int' object is not iterable
+
+keras/ops/operation_utils.py:361: TypeError
+______ NNOpsCorrectnessTest.test_moments_sync_with_distribution_strategy1 ______
+
+self = <keras.ops.nn_test.NNOpsCorrectnessTest testMethod=test_moments_sync_with_distribution_strategy1>
+dtype = 'float32'
+
+    @parameterized.product(dtype=["float16", "float32"])
+    @pytest.mark.skipif(
+        backend.backend() != "tensorflow",
+        reason="synchronized=True only implemented for TF backend",
+    )
+    def test_moments_sync_with_distribution_strategy(self, dtype):
+        from keras.utils.module_utils import tensorflow as tf
+    
+        # Config 2 CPUs for testing.
+        logical_cpus = tf.config.list_logical_devices("CPU")
+        if len(logical_cpus) == 1:
+            from tensorflow.python.eager import context
+    
+            context._reset_context()
+            tf.config.set_logical_device_configuration(
+                tf.config.list_physical_devices("CPU")[0],
+                [
+                    tf.config.LogicalDeviceConfiguration(),
+                    tf.config.LogicalDeviceConfiguration(),
+                ],
+            )
+    
+        @tf.function()
+        def test_on_moments(inputs):
+            return knn.moments(
+                inputs, axes=-1, keepdims=True, synchronized=True
+            )
+    
+        # Test output of moments.
+        inputs = tf.constant([5.0, 9.0, 1.0, 3.0], dtype=dtype)
+        strategy = tf.distribute.MirroredStrategy(["CPU:0", "CPU:1"])
+        with strategy.scope():
+>           mean, variance = strategy.run(test_on_moments, args=(inputs,))
+
+keras/ops/nn_test.py:1811: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/distribute_lib.py:1673: in run
+    return self._extended.call_for_each_replica(fn, args=args, kwargs=kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/distribute_lib.py:3263: in call_for_each_replica
+    return self._call_for_each_replica(fn, args, kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/mirrored_strategy.py:700: in _call_for_each_replica
+    return mirrored_run.call_for_each_replica(
+/usr/local/lib/python3.10/site-packages/tensorflow/python/distribute/mirrored_run.py:84: in call_for_each_replica
+    return wrapped(*args, **kwargs)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:153: in error_handler
+    raise e.with_traceback(filtered_tb) from None
+/tmp/__autograph_generated_filehn3qv2l1.py:14: in tf__wrapped_fn
+    retval_ = ag__.converted_call(ag__.ld(call_for_each_replica), (ag__.ld(strategy), ag__.ld(fn).python_function, ag__.ld(args), ag__.ld(kwargs)), None, fscope)
+keras/ops/nn_test.py:1803: in test_on_moments
+    return knn.moments(
+keras/ops/nn.py:1702: in moments
+    return Moments(axes, keepdims, synchronized=synchronized).symbolic_call(
+keras/ops/operation.py:60: in symbolic_call
+    outputs = self.compute_output_spec(*args, **kwargs)
+keras/ops/nn.py:1657: in compute_output_spec
+    reduce_shape(x.shape, axis=self.axes, keepdims=self.keepdims),
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+shape = [4], axis = -1, keepdims = True
+
+    def reduce_shape(shape, axis=None, keepdims=False):
+        shape = list(shape)
+        if axis is None:
+            if keepdims:
+                return tuple([1 for _ in shape])
+            else:
+                return tuple([])
+    
+        if keepdims:
+>           for ax in axis:
+E           TypeError: in user code:
+E           
+E               File "/testbed/keras/ops/nn_test.py", line 1803, in test_on_moments  **
+E                   return knn.moments(
+E               File "/testbed/keras/ops/nn.py", line 1702, in moments
+E                   return Moments(axes, keepdims, synchronized=synchronized).symbolic_call(
+E               File "/testbed/keras/ops/operation.py", line 60, in symbolic_call
+E                   outputs = self.compute_output_spec(*args, **kwargs)
+E               File "/testbed/keras/ops/nn.py", line 1657, in compute_output_spec
+E                   reduce_shape(x.shape, axis=self.axes, keepdims=self.keepdims),
+E               File "/testbed/keras/ops/operation_utils.py", line 361, in reduce_shape
+E                   for ax in axis:
+E           
+E               TypeError: 'int' object is not iterable
+
+keras/ops/operation_utils.py:361: TypeError
+__________ TestLogitRecovery.test_logit_recovery_binary_crossentropy ___________
+
+self = <keras.ops.nn_test.TestLogitRecovery testMethod=test_logit_recovery_binary_crossentropy>
+
+    def test_logit_recovery_binary_crossentropy(self):
+        layer = layers.Dense(
+            4, activation="sigmoid", use_bias=False, kernel_initializer="ones"
+        )
+        loss = losses.BinaryCrossentropy()
+        x = np.array([[1.4, 1.6, 0.8]])
+        y = np.array([[0.2, 0.6, 0.1, 0.3]])
+        loss_value = loss(y, layer(x))
+        self.assertAllClose(loss_value, 2.682124)
+    
+        model = models.Sequential([layer])
+        model.compile(loss="binary_crossentropy", optimizer="sgd")
+>       out = model.evaluate(x, y)
+
+keras/ops/nn_test.py:1918: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+keras/utils/traceback_utils.py:113: in error_handler
+    return fn(*args, **kwargs)
+keras/backend/tensorflow/trainer.py:436: in evaluate
+    logs = self.test_function(iterator)
+/usr/local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:153: in error_handler
+    raise e.with_traceback(filtered_tb) from None
+keras/backend/tensorflow/trainer.py:165: in one_step_on_iterator
+    outputs = self.distribute_strategy.run(
+keras/backend/tensorflow/trainer.py:153: in one_step_on_data
+    return self.test_step(data)
+keras/backend/tensorflow/trainer.py:84: in test_step
+    loss = self.compute_loss(
+keras/trainers/trainer.py:322: in compute_loss
+    loss = self._compile_loss(y, y_pred, sample_weight)
+keras/trainers/compile_utils.py:605: in __call__
+    return self.call(y_true, y_pred, sample_weight)
+keras/trainers/compile_utils.py:641: in call
+    loss(y_t, y_p, sample_weight), dtype=backend.floatx()
+keras/losses/loss.py:35: in __call__
+    y_pred = tree.map_structure(
+keras/utils/tree.py:13: in map_structure
+    return tree.map_structure(func, *structures, **kwargs)
+/usr/local/lib/python3.10/site-packages/tree/__init__.py:435: in map_structure
+    [func(*args) for args in zip(*map(flatten, structures))])
+/usr/local/lib/python3.10/site-packages/tree/__init__.py:435: in <listcomp>
+    [func(*args) for args in zip(*map(flatten, structures))])
+keras/losses/loss.py:36: in <lambda>
+    lambda x: ops.convert_to_tensor(x, dtype=self.dtype), y_pred
+keras/ops/core.py:495: in convert_to_tensor
+    return backend.convert_to_tensor(x, dtype=dtype, sparse=sparse)
+keras/backend/tensorflow/core.py:113: in convert_to_tensor
+    return tf.convert_to_tensor(x, dtype=dtype)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <KerasTensor shape=(None, 4), dtype=float32, sparse=False, name=keras_tensor_2>
+dtype = tf.float32, name = None
+
+    def __tf_tensor__(self, dtype=None, name=None):
+>       raise ValueError(
+            "A KerasTensor cannot be used as input to a TensorFlow function. "
+            "A KerasTensor is a symbolic placeholder for a shape and dtype, "
+            "used when constructing Keras Functional models "
+            "or Keras Functions. You can only use it as input to a Keras layer "
+            "or a Keras operation (from the namespaces `keras.layers` "
+            "and `keras.operations`). "
+            "You are likely doing something like:\n\n"
+            "```\n"
+            "x = Input(...)\n"
+            "...\n"
+            "tf_fn(x)  # Invalid.\n"
+            "```\n\n"
+            "What you should do instead is wrap `tf_fn` in a layer:\n\n"
+            "```\n"
+            "class MyLayer(Layer):\n"
+            "    def call(self, x):\n"
+            "        return tf_fn(x)\n\n"
+            "x = MyLayer()(x)\n"
+            "```\n"
+        )
+E       ValueError: A KerasTensor cannot be used as input to a TensorFlow function. A KerasTensor is a symbolic placeholder for a shape and dtype, used when constructing Keras Functional models or Keras Functions. You can only use it as input to a Keras layer or a Keras operation (from the namespaces `keras.layers` and `keras.operations`). You are likely doing something like:
+E       
+E       ```
+E       x = Input(...)
+E       ...
+E       tf_fn(x)  # Invalid.
+E       ```
+E       
+E       What you should do instead is wrap `tf_fn` in a layer:
+E       
+E       ```
+E       class MyLayer(Layer):
+E           def call(self, x):
+E               return tf_fn(x)
+E       
+E       x = MyLayer()(x)
+E       ```
+
+keras/backend/common/keras_tensor.py:91: ValueError
+==================================== PASSES ====================================
+__________________ NNOpsCorrectnessTest.test_conv_2d_group_20 __________________
+----------------------------- Captured stderr call -----------------------------
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1775833108.766824      54 service.cc:145] XLA service 0x562ec8d87bd0 initialized for platform Host (this does not guarantee that XLA will be used). Devices:
+I0000 00:00:1775833108.766868      54 service.cc:153]   StreamExecutor device (0): Host, Default Version
+I0000 00:00:1775833108.781900      54 device_compiler.h:188] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d0 _________________
+----------------------------- Captured stdout call -----------------------------
+1 valid 1
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d1 _________________
+----------------------------- Captured stdout call -----------------------------
+1 valid (2, 2)
+________________ NNOpsCorrectnessTest.test_depthwise_conv_2d10 _________________
+----------------------------- Captured stdout call -----------------------------
+(2, 2) same 1
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d2 _________________
+----------------------------- Captured stdout call -----------------------------
+1 same 1
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d3 _________________
+----------------------------- Captured stdout call -----------------------------
+1 same (2, 2)
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d4 _________________
+----------------------------- Captured stdout call -----------------------------
+(1, 1) valid 1
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d5 _________________
+----------------------------- Captured stdout call -----------------------------
+(1, 1) valid (2, 2)
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d6 _________________
+----------------------------- Captured stdout call -----------------------------
+(1, 1) same 1
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d7 _________________
+----------------------------- Captured stdout call -----------------------------
+(1, 1) same (2, 2)
+_________________ NNOpsCorrectnessTest.test_depthwise_conv_2d8 _________________
+----------------------------- Captured stdout call -----------------------------
+(2, 2) valid 1
+______________________ NNOpsCorrectnessTest.test_moments _______________________
+----------------------------- Captured stderr call -----------------------------
+2026-04-10 14:58:29.093580: E tensorflow/core/util/util.cc:131] oneDNN supports DT_HALF only on platforms with AVX-512. Falling back to the default Eigen-based implementation if present.
+=========================== short test summary info ============================
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_average_pool
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_batch_normalization
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_conv
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_conv_transpose
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_depthwise_conv
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_elu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_gelu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_hard_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_hard_silu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_leaky_relu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_log_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_log_softmax
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_max_pool
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_moments
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_multi_hot
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_multi_hot_dtype0
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_multi_hot_dtype1
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_normalize
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_one_hot
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_one_hot_dtype0
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_one_hot_dtype1
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_relu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_relu6
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_selu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_separable_conv
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_silu
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softmax
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softplus
+PASSED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softsign
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_average_pool
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_batch_normalization
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_batched_and_unbatched_inputs_multi_hot
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_binary_crossentropy
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_categorical_crossentropy
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_conv
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_conv_transpose
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_ctc_loss
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_depthwise_conv
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_elu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_gelu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_hard_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_hard_silu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_leaky_relu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_log_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_log_softmax
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_max_pool
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_moments
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_normalize
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_one_hot
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_relu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_relu6
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_selu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_separable_conv
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_silu
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_softmax
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_softplus
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_softsign
+PASSED keras/ops/nn_test.py::NNOpsStaticShapeTest::test_sparse_categorical_crossentropy
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_average_pool_same_padding
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_average_pool_valid_padding
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_batch_normalization
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_binary_crossentropy
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_categorical_crossentropy
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d10
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d2
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d3
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d4
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d6
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_1d8
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d2
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d3
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d4
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d5
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_20
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_21
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_22
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_2d_group_23
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d2
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d3
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d4
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_3d5
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_1d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_1d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d2
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_conv_transpose_2d3
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_ctc_loss
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d10
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d11
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d2
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d3
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d4
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d5
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d6
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d7
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d8
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_depthwise_conv_2d9
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_elu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_gelu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_hard_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_hard_silu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_leaky_relu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_log_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_log_softmax
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_max_pool
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments_sync
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_multi_hot
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_normalize
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_one_hot
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_relu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_relu6
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_selu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d0
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d1
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d2
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d3
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d4
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d5
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d6
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_separable_conv_2d7
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_sigmoid
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_silu
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_softmax
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_softplus
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_softsign
+PASSED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_sparse_categorical_crossentropy
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_elu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_gelu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_sigmoid_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_hard_silu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_leaky_relu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_sigmoid_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_log_softmax_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu6_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_relu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_selu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_sigmoid_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_silu_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softmax_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softplus_float64
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_bfloat16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_float16
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_float32
+PASSED keras/ops/nn_test.py::NNOpsDtypeTest::test_softsign_float64
+SKIPPED [4] keras/ops/nn_test.py:1313: Unsupported configuration
+FAILED keras/ops/nn_test.py::NNOpsDynamicShapeTest::test_softmax_in_graph - T...
+FAILED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments_sync_with_distribution_strategy0
+FAILED keras/ops/nn_test.py::NNOpsCorrectnessTest::test_moments_sync_with_distribution_strategy1
+FAILED keras/ops/nn_test.py::TestLogitRecovery::test_logit_recovery_binary_crossentropy
+=================== 4 failed, 198 passed, 4 skipped in 4.88s ===================
++ : '>>>>> End Test Output'
++ git checkout df705d4fc719ab617705197248804d689ad74767 keras/ops/nn_test.py
+Updated 1 path from 64659d18b

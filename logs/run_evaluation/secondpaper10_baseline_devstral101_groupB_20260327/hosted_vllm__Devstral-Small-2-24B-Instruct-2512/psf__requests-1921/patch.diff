@@ -1,0 +1,93 @@
+diff --git a/requests/cookies.py b/requests/cookies.py
+index 831c49c..52e1d8d 100644
+--- a/requests/cookies.py
++++ b/requests/cookies.py
+@@ -156,7 +156,7 @@ class CookieConflictError(RuntimeError):
+     Use .get and .set and include domain and path args in order to be more specific."""
+ 
+ 
+-class RequestsCookieJar(cookielib.CookieJar, collections.MutableMapping):
++class RequestsCookieJar(cookielib.CookieJar, collections.abc.MutableMapping):
+     """Compatibility class; is a cookielib.CookieJar, but exposes a dict interface.
+ 
+     This is the CookieJar we create by default for requests and sessions that
+diff --git a/requests/packages/urllib3/_collections.py b/requests/packages/urllib3/_collections.py
+index 5907b0d..f34956f 100644
+--- a/requests/packages/urllib3/_collections.py
++++ b/requests/packages/urllib3/_collections.py
+@@ -4,7 +4,7 @@
+ # This module is part of urllib3 and is released under
+ # the MIT License: http://www.opensource.org/licenses/mit-license.php
+ 
+-from collections import MutableMapping
++from collections.abc import MutableMapping
+ try:
+     from threading import RLock
+ except ImportError: # Platform-specific: No threads available
+diff --git a/requests/sessions.py b/requests/sessions.py
+index a023e4e..043e140 100644
+--- a/requests/sessions.py
++++ b/requests/sessions.py
+@@ -9,7 +9,7 @@ requests (cookies, auth, proxies).
+ 
+ """
+ import os
+-from collections import Mapping
++from collections.abc import Mapping
+ from datetime import datetime
+ 
+ from .compat import cookielib, OrderedDict, urljoin, urlparse, builtin_str
+diff --git a/requests/structures.py b/requests/structures.py
+index a175913..4c95e16 100644
+--- a/requests/structures.py
++++ b/requests/structures.py
+@@ -9,10 +9,9 @@ Data structures that power Requests.
+ """
+ 
+ import os
+-import collections
++import collections.abc
+ from itertools import islice
+ 
+-
+ class IteratorProxy(object):
+     """docstring for IteratorProxy"""
+     def __init__(self, i):
+@@ -33,8 +32,7 @@ class IteratorProxy(object):
+     def read(self, n):
+         return "".join(islice(self.i, None, n))
+ 
+-
+-class CaseInsensitiveDict(collections.MutableMapping):
++class CaseInsensitiveDict(collections.abc.MutableMapping):
+     """
+     A case-insensitive ``dict``-like object.
+ 
+@@ -71,6 +69,10 @@ class CaseInsensitiveDict(collections.MutableMapping):
+     def __setitem__(self, key, value):
+         # Use the lowercased key for lookups, but store the actual
+         # key alongside the value.
++        # If the value is None, delete the key instead of setting it
++        if value is None:
++            self._store.pop(key.lower(), None)
++            return
+         self._store[key.lower()] = (key, value)
+ 
+     def __getitem__(self, key):
+@@ -94,7 +96,7 @@ class CaseInsensitiveDict(collections.MutableMapping):
+         )
+ 
+     def __eq__(self, other):
+-        if isinstance(other, collections.Mapping):
++        if isinstance(other, collections.abc.Mapping):
+             other = CaseInsensitiveDict(other)
+         else:
+             return NotImplemented
+@@ -108,7 +110,6 @@ class CaseInsensitiveDict(collections.MutableMapping):
+     def __repr__(self):
+         return '%s(%r)' % (self.__class__.__name__, dict(self.items()))
+ 
+-
+ class LookupDict(dict):
+     """Dictionary lookup object."""
+ 

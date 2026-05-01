@@ -1,0 +1,118 @@
+diff --git a/src/instructlab/model/evaluate.py b/src/instructlab/model/evaluate.py
+index 92ff92cc..84c2d617 100644
+--- a/src/instructlab/model/evaluate.py
++++ b/src/instructlab/model/evaluate.py
+@@ -167,32 +167,42 @@ def display_error_rate(error_rate) -> None:
+ 
+ 
+ def display_branch_eval_summary(
+-    improvements: list[tuple[str, float]],
+-    regressions: list[tuple[str, float]],
++    model_scores: dict[str, float],
++    base_model_scores: dict[str, float],
++    improvements: list[str],
++    regressions: list[str],
+     no_changes: list[str],
+     new=None,
+ ):
+-    """takes in results lists from mt_bench_branch benchmark evaluation
++    """takes in results from branch benchmark evaluation
+     prints out diff between the branches to the user
+     """
+     if len(improvements) > 0:
+-        improvements.sort(key=sort_score, reverse=True)
++        improvements.sort(key=lambda x: model_scores[x] - base_model_scores[x], reverse=True)
+         print("\n### IMPROVEMENTS:")
+-        for index, improvement in enumerate(improvements):
+-            task, delta = improvement
+-            print(f"{index+1}. {task} (+{delta})")
++        for index, task in enumerate(improvements):
++            model_score = model_scores[task]
++            base_score = base_model_scores[task]
++            delta = model_score - base_score
++            delta_display = f"+{round(delta, 2)}" if delta >= 0 else f"{round(delta, 2)}"
++            print(f"{index+1}. {task} ({round(model_score, 2)} -> {round(base_score, 2)}, {delta_display})")
+ 
+     if len(regressions) > 0:
+-        regressions.sort(key=sort_score)
++        regressions.sort(key=lambda x: model_scores[x] - base_model_scores[x])
+         print("\n### REGRESSIONS:")
+-        for index, regression in enumerate(regressions):
+-            task, delta = regression
+-            print(f"{index+1}. {task} ({delta})")
++        for index, task in enumerate(regressions):
++            model_score = model_scores[task]
++            base_score = base_model_scores[task]
++            delta = model_score - base_score
++            delta_display = f"+{round(delta, 2)}" if delta >= 0 else f"{round(delta, 2)}"
++            print(f"{index+1}. {task} ({round(model_score, 2)} -> {round(base_score, 2)}, {delta_display})")
+ 
+     if len(no_changes) > 0:
+         print("\n### NO CHANGE:")
+         for index, task in enumerate(no_changes):
+-            print(f"{index+1}. {task}")
++            model_score = model_scores[task]
++            base_score = base_model_scores[task]
++            print(f"{index+1}. {task} ({round(model_score, 2)} -> {round(base_score, 2)})")
+ 
+     if new is not None and len(new) > 0:
+         print("\n### NEW:")
+@@ -684,21 +694,25 @@ def evaluate(
+             print("# SKILL EVALUATION REPORT\n")
+             display_models(model, base_model)
+ 
++            # Create dictionaries of full scores
++            model_scores = qna_to_avg_scores
++            base_model_scores = base_qna_to_avg_scores
++
+             improvements, regressions, no_changes, new_qnas = [], [], [], []
+             for qna, avg_score in qna_to_avg_scores.items():
+                 base_avg_score = base_qna_to_avg_scores.get(qna)
+                 if base_avg_score is not None:
+                     if avg_score > base_avg_score:
+-                        improvements.append((qna, round(avg_score - base_avg_score, 2)))
++                        improvements.append(qna)
+                     elif avg_score == base_avg_score:
+                         no_changes.append(qna)
+                     else:
+-                        regressions.append((qna, round(avg_score - base_avg_score, 2)))
++                        regressions.append(qna)
+                 else:
+-                    new_qnas.append((qna))
++                    new_qnas.append(qna)
+ 
+             # display summary of evaluation before exiting
+-            display_branch_eval_summary(improvements, regressions, no_changes, new_qnas)
++            display_branch_eval_summary(model_scores, base_model_scores, improvements, regressions, no_changes, new_qnas)
+             display_error_rate((error_rate + base_error_rate) / 2)
+ 
+         elif benchmark == Benchmark.MMLU:
+@@ -802,21 +816,24 @@ def evaluate(
+ 
+             print(f"{delta_display} (across {len(individual_scores)})")
+ 
++            # Create dictionaries of full scores
++            model_scores = {task: score["score"] for task, score in individual_scores.items()}
++            base_model_scores = {task: score["score"] for task, score in base_individual_scores.items()}
++
+             improvements, regressions, no_changes = [], [], []
+             for task, score in individual_scores.items():
+                 base_score = base_individual_scores[task]
+                 s = score["score"]
+                 b_s = base_score["score"]
+-                d = round(s - b_s, 2)
+                 if s > b_s:
+-                    improvements.append((task, d))
++                    improvements.append(task)
+                 elif b_s > s:
+-                    regressions.append((task, d))
++                    regressions.append(task)
+                 else:
+                     no_changes.append(task)
+ 
+             # display summary of evaluation before exiting
+-            display_branch_eval_summary(improvements, regressions, no_changes)
++            display_branch_eval_summary(model_scores, base_model_scores, improvements, regressions, no_changes)
+     except EvalError as ee:
+         print(ee.message)
+         raise click.exceptions.Exit(1)

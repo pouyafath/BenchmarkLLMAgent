@@ -1,0 +1,33 @@
+diff --git a/django/core/mail/message.py b/django/core/mail/message.py
+index e393b4cf5c..1fda3636a2 100644
+--- a/django/core/mail/message.py
++++ b/django/core/mail/message.py
+@@ -111,6 +111,19 @@ def sanitize_address(addr, encoding):
+     return str(parsed_address)
+ 
+ 
++def make_msgid_with_idna_domain(domain):
++    """
++    Create a Message-ID using the domain, converting non-ASCII domains to Punycode.
++
++    This ensures that the Message-ID header can be encoded with any charset,
++    including non-Unicode charsets like iso-8859-1.
++    """
++    try:
++        domain.encode('ascii')
++    except UnicodeEncodeError:
++        domain = domain.encode('idna').decode('ascii')
++    return make_msgid(domain=domain)
++
+ class MIMEMixin:
+     def as_string(self, unixfrom=False, linesep='\n'):
+         """Return the entire formatted message as a string.
+@@ -257,7 +270,7 @@ class EmailMessage:
+             msg['Date'] = formatdate(localtime=settings.EMAIL_USE_LOCALTIME)
+         if 'message-id' not in header_names:
+             # Use cached DNS_NAME for performance
+-            msg['Message-ID'] = make_msgid(domain=DNS_NAME)
++            msg['Message-ID'] = make_msgid_with_idna_domain(str(DNS_NAME))
+         for name, value in self.extra_headers.items():
+             if name.lower() != 'from':  # From is already handled
+                 msg[name] = value

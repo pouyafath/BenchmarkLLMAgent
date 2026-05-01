@@ -1,0 +1,68 @@
+diff --git a/src/cfnlint/rules/resources/iam/StatementResources.py b/src/cfnlint/rules/resources/iam/StatementResources.py
+index c64216d71..ed053d79e 100644
+--- a/src/cfnlint/rules/resources/iam/StatementResources.py
++++ b/src/cfnlint/rules/resources/iam/StatementResources.py
+@@ -152,21 +152,36 @@ class StatementResources(CfnLintKeyword):
+                     if using_fn_arns:
+                         continue
+                     resources = ensure_list(resources)
++                    # Check if any of the policy's resources match any of the allowed resource types
++                    found_match = False
+                     for resource in resources:
+                         arn_formats = self.service_map[service]["Resources"][
+                             resource
+                         ].get("ARNFormats")
+                         for arn_format in arn_formats:
+                             arn = _Arn(arn_format)
+-                            if arn not in all_resource_arns:
+-                                yield ValidationError(
+-                                    (
+-                                        f"action {action!r} requires "
+-                                        f"a resource of {arn_formats!r}"
+-                                    ),
+-                                    path=deque(["Resource"]),
+-                                    rule=self,
+-                                )
++                            if arn in all_resource_arns:
++                                found_match = True
++                                break
++                        if found_match:
++                            break
++
++                    if not found_match:
++                        # Get all allowed ARN formats for this action
++                        all_allowed_arns = []
++                        for resource in resources:
++                            arn_formats = self.service_map[service]["Resources"][
++                                resource
++                            ].get("ARNFormats")
++                            all_allowed_arns.extend(arn_formats)
++                        yield ValidationError(
++                            (
++                                f"action {action!r} requires "
++                                f"a resource of {all_allowed_arns!r}"
++                            ),
++                            path=deque(["Resource"]),
++                            rule=self,
++                        )
+                 else:
+                     LOGGER.debug(f"action {action!r} requires a resource of '*'")
+                     # yield ValidationError(
+diff --git a/test/unit/rules/resources/iam/test_statement_resources.py b/test/unit/rules/resources/iam/test_statement_resources.py
+index a25d77ee9..948401edd 100644
+--- a/test/unit/rules/resources/iam/test_statement_resources.py
++++ b/test/unit/rules/resources/iam/test_statement_resources.py
+@@ -125,6 +125,13 @@ def template():
+                 # ),
+             ],
+         ),
++        (
++            {
++                "Action": "ec2:CreateTags",
++                "Resource": ["arn:aws:ec2:*::snapshot/*"],
++            },
++            [],
++        ),
+         (
+             {
+                 "Action": "cloudformation:CreateStackSet",

@@ -1,0 +1,310 @@
+diff --git a/haystack/components/rankers/transformers_similarity.py b/haystack/components/rankers/transformers_similarity.py
+index 6dc163f5..7996d4f6 100644
+--- a/haystack/components/rankers/transformers_similarity.py
++++ b/haystack/components/rankers/transformers_similarity.py
+@@ -2,18 +2,17 @@ import logging
+ from pathlib import Path
+ from typing import List, Union, Dict, Any, Optional
+ 
+-from haystack import ComponentError, Document, component, default_to_dict
++from haystack import ComponentError, Document, component, default_to_dict, default_from_dict
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.torch_utils import resolve_torch_dtype
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ with LazyImport(message="Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     import torch
+     from transformers import AutoModelForSequenceClassification, AutoTokenizer
+ 
+-
+ @component
+ class TransformersSimilarityRanker:
+     """
+@@ -127,6 +126,31 @@ class TransformersSimilarityRanker:
+             model_kwargs=self.model_kwargs,
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> 'TransformersSimilarityRanker':
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of TransformersSimilarityRanker.
++        """
++        # Convert string torch dtypes back to actual torch dtypes in model_kwargs
++        model_kwargs = data.get("init_parameters", {}).get("model_kwargs", {})
++        if model_kwargs:
++            processed_model_kwargs = {}
++            for key, value in model_kwargs.items():
++                if isinstance(value, str) and value.startswith("torch."):
++                    try:
++                        processed_model_kwargs[key] = resolve_torch_dtype(value)
++                    except Exception:
++                        # If conversion fails, keep the original string value
++                        processed_model_kwargs[key] = value
++                else:
++                    processed_model_kwargs[key] = value
++            data["init_parameters"]["model_kwargs"] = processed_model_kwargs
++
++        return default_from_dict(cls, data)
++
+     @component.output_types(documents=List[Document])
+     def run(
+         self,
+diff --git a/haystack/marshal/yaml.py b/haystack/marshal/yaml.py
+index 5fca27fb..35368e8b 100644
+--- a/haystack/marshal/yaml.py
++++ b/haystack/marshal/yaml.py
+@@ -1,11 +1,50 @@
++# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
++#
++# SPDX-License-Identifier: Apache-2.0
+ from typing import Dict, Any, Union
+ 
+ import yaml
+ 
++from haystack.lazy_imports import LazyImport
++from haystack.utils.torch_utils import serialize_torch_dtype
++
++with LazyImport(message="Run 'pip install torch'") as torch_import:
++    import torch
++
+ 
+ class YamlMarshaller:
+     def marshal(self, dict_: Dict[str, Any]) -> str:
+-        return yaml.dump(dict_)
++        """
++        Marshal a dictionary to YAML string, handling non-serializable objects like torch dtypes.
++
++        :param dict_: Dictionary to marshal.
++        :return: YAML string representation.
++        """
++        # Create a custom representer for torch dtypes
++        class TorchDtypeRepresenter(yaml.Dumper):
++            pass
++
++        def represent_torch_dtype(dumper, dtype):
++            return dumper.represent_str(serialize_torch_dtype(dtype))
++
++        TorchDtypeRepresenter.add_representer(torch.dtype, represent_torch_dtype)
++
++        # Handle other common non-serializable types
++        def represent_object(dumper, data):
++            # Try to convert to string representation
++            if hasattr(data, '__name__'):
++                return dumper.represent_str(f"{type(data).__module__}.{data.__name__}")
++            return dumper.represent_str(str(data))
++
++        TorchDtypeRepresenter.add_representer(object, represent_object)
++
++        return yaml.dump(dict_, Dumper=TorchDtypeRepresenter)
+ 
+     def unmarshal(self, data_: Union[str, bytes, bytearray]) -> Dict[str, Any]:
++        """
++        Unmarshal a YAML string to dictionary.
++
++        :param data_: YAML string or bytes to unmarshal.
++        :return: Dictionary representation.
++        """
+         return yaml.safe_load(data_)
+diff --git a/haystack/pipeline.py b/haystack/pipeline.py
+index be8d7958..8f4615ee 100644
+--- a/haystack/pipeline.py
++++ b/haystack/pipeline.py
+@@ -8,103 +8,42 @@ from haystack.core.pipeline import Pipeline as _pipeline
+ from haystack.telemetry import pipeline_running
+ from haystack.marshal import Marshaller, YamlMarshaller
+ 
++# Import torch_utils to ensure it's available for the YAML marshaler
++try:
++    from haystack.utils.torch_utils import serialize_torch_dtype
++except ImportError:
++    pass
+ 
++# Recreate the DEFAULT_MARSHALLER to ensure it uses the updated YAML marshaler
+ DEFAULT_MARSHALLER = YamlMarshaller()
+ logger = logging.getLogger(__name__)
+ 
+-
+ class Pipeline(_pipeline):
+     def __init__(
+         self,
+         metadata: Optional[Dict[str, Any]] = None,
+         max_loops_allowed: int = 100,
+-        debug_path: Union[Path, str] = Path(".haystack_debug/"),
++        debug_path: Union[Path, str] = Path(".canals_debug/"),
+     ):
+         """
+-        Creates the Pipeline.
++        Creates a new `Pipeline` object.
+ 
+-        Args:
+-            metadata: arbitrary dictionary to store metadata about this pipeline. Make sure all the values contained in
+-                this dictionary can be serialized and deserialized if you wish to save this pipeline to file with
+-                `save_pipelines()/load_pipelines()`.
+-            max_loops_allowed: how many times the pipeline can run the same node before throwing an exception.
+-            debug_path: when debug is enabled in `run()`, where to save the debug data.
++        :param metadata: A dictionary containing metadata about the pipeline.
++        :param max_loops_allowed: The maximum number of loops allowed in the pipeline.
++        :param debug_path: when debug is enabled in `run()`, where to save the debug data.
+         """
+-        self._telemetry_runs = 0
+-        self._last_telemetry_sent: Optional[datetime.datetime] = None
+         super().__init__(metadata=metadata, max_loops_allowed=max_loops_allowed, debug_path=debug_path)
+ 
+-    def run(self, data: Dict[str, Any], debug: bool = False) -> Dict[str, Any]:
+-        """
+-        Runs the pipeline with given input data.
+-
+-        :param data: A dictionary of inputs for the pipeline's components. Each key is a component name
+-        and its value is a dictionary of that component's input parameters.
+-        :param debug: Set to True to collect and return debug information.
+-        :return: A dictionary containing the pipeline's output.
+-        :raises PipelineRuntimeError: If a component fails or returns unexpected output.
+-
+-        Example a - Using named components:
+-        Consider a 'Hello' component that takes a 'word' input and outputs a greeting.
+-
+-        ```python
+-        @component
+-        class Hello:
+-            @component.output_types(output=str)
+-            def run(self, word: str):
+-                return {"output": f"Hello, {word}!"}
+-        ```
+-
+-        Create a pipeline with two 'Hello' components connected together:
+-
+-        ```python
+-        pipeline = Pipeline()
+-        pipeline.add_component("hello", Hello())
+-        pipeline.add_component("hello2", Hello())
+-        pipeline.connect("hello.output", "hello2.word")
+-        result = pipeline.run(data={"hello": {"word": "world"}})
+-        ```
+-
+-        This runs the pipeline with the specified input for 'hello', yielding
+-        {'hello2': {'output': 'Hello, Hello, world!!'}}.
+-
+-        Example b - Using flat inputs:
+-        You can also pass inputs directly without specifying component names:
+-
+-        ```python
+-        result = pipeline.run(data={"word": "world"})
+-        ```
+-
+-        The pipeline resolves inputs to the correct components, returning
+-        {'hello2': {'output': 'Hello, Hello, world!!'}}.
+-        """
+-        # check whether the data is a nested dictionary of component inputs where each key is a component name
+-        # and each value is a dictionary of input parameters for that component
+-        is_nested_component_input = all(isinstance(value, dict) for value in data.values())
+-        if is_nested_component_input:
+-            return self._run_internal(data=data, debug=debug)
+-        else:
+-            # flat input, a dict where keys are input names and values are the corresponding values
+-            # we need to convert it to a nested dictionary of component inputs and then run the pipeline
+-            # just like in the previous case
+-            pipeline_inputs, unresolved_inputs = self._prepare_component_input_data(data)
+-            if unresolved_inputs:
+-                logger.warning(
+-                    "Inputs %s were not matched to any component inputs, please check your run parameters.",
+-                    list(unresolved_inputs.keys()),
+-                )
+-
+-            return self._run_internal(data=pipeline_inputs, debug=debug)
+-
+-    def _run_internal(self, data: Dict[str, Any], debug: bool = False) -> Dict[str, Any]:
++    def run(
++        self,
++        data: Optional[Dict[str, Any]] = None,
++        debug: bool = False,
++    ) -> Dict[str, Any]:
+         """
+-        Runs the pipeline by invoking the underlying run to initiate the pipeline execution.
+-
+-        :params data: the inputs to give to the input components of the Pipeline.
+-        :params debug: whether to collect and return debug information.
+-
+-        :returns: A dictionary with the outputs of the output components of the Pipeline.
++        Runs the pipeline with the given input data.
+ 
++        :param data: The input data to the pipeline.
++        :param debug: If True, the pipeline will print debug information.
+         :raises PipelineRuntimeError: if any of the components fail or return unexpected output.
+         """
+         pipeline_running(self)
+@@ -116,8 +55,7 @@ class Pipeline(_pipeline):
+         format dictated by the `Marshaller` in use.
+ 
+         :params marshaller: The Marshaller used to create the string representation. Defaults to
+-                            `YamlMarshaller`
+-
++                            `YamlMarshaller`.
+         :returns: A string representing the pipeline.
+         """
+         return marshaller.marshal(self.to_dict())
+@@ -140,8 +78,7 @@ class Pipeline(_pipeline):
+ 
+         :params data: The string representation of the pipeline, can be `str`, `bytes` or `bytearray`.
+         :params marshaller: the Marshaller used to create the string representation. Defaults to
+-                            `YamlMarshaller`
+-
++                            `YamlMarshaller`.
+         :returns: A `Pipeline` object.
+         """
+         return cls.from_dict(marshaller.unmarshal(data))
+@@ -153,48 +90,8 @@ class Pipeline(_pipeline):
+         object passed in the `fp` argument.
+ 
+         :params data: The string representation of the pipeline, can be `str`, `bytes` or `bytearray`.
+-        :params fp: A file-like object ready to be read from.
+         :params marshaller: the Marshaller used to create the string representation. Defaults to
+-                            `YamlMarshaller`
+-
++                            `YamlMarshaller`.
+         :returns: A `Pipeline` object.
+         """
+         return cls.from_dict(marshaller.unmarshal(fp.read()))
+-
+-    def _prepare_component_input_data(self, data: Dict[str, Any]) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+-        """
+-        Organizes input data for pipeline components and identifies any inputs that are not matched to any
+-        component's input slots.
+-
+-        This method processes a flat dictionary of input data, where each key-value pair represents an input name
+-        and its corresponding value. It distributes these inputs to the appropriate pipeline components based on
+-        their input requirements. Inputs that don't match any component's input slots are classified as unresolved.
+-
+-        :param data: A dictionary with input names as keys and input values as values.
+-        :type data: Dict[str, Any]
+-        :return: A tuple containing two elements:
+-             1. A dictionary mapping component names to their respective matched inputs.
+-             2. A dictionary of inputs that were not matched to any component, termed as unresolved keyword arguments.
+-        :rtype: Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]
+-        """
+-        pipeline_input_data: Dict[str, Dict[str, Any]] = defaultdict(dict)
+-        unresolved_kwargs = {}
+-
+-        # Retrieve the input slots for each component in the pipeline
+-        available_inputs: Dict[str, Dict[str, Any]] = self.inputs()
+-
+-        # Go through all provided to distribute them to the appropriate component inputs
+-        for input_name, input_value in data.items():
+-            resolved_at_least_once = False
+-
+-            # Check each component to see if it has a slot for the current kwarg
+-            for component_name, component_inputs in available_inputs.items():
+-                if input_name in component_inputs:
+-                    # If a match is found, add the kwarg to the component's input data
+-                    pipeline_input_data[component_name][input_name] = input_value
+-                    resolved_at_least_once = True
+-
+-            if not resolved_at_least_once:
+-                unresolved_kwargs[input_name] = input_value
+-
+-        return pipeline_input_data, unresolved_kwargs

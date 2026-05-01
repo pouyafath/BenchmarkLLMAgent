@@ -1,0 +1,34 @@
+diff --git a/cli/lab.py b/cli/lab.py
+index fae3867a..5e7c045f 100755
+--- a/cli/lab.py
++++ b/cli/lab.py
+@@ -149,11 +149,17 @@ def init(
+         except FileNotFoundError:
+             taxonomy_contents = []
+         if taxonomy_contents:
+-            clone_taxonomy_repo = False
++            # Check if the existing directory is a proper git repository
++            try:
++                Repo(taxonomy_path)
++                # It's a valid git repo, don't need to clone
++                clone_taxonomy_repo = False
++            except (GitError, ValueError):
++                # Not a valid git repository, need to clone
++                clone_taxonomy_repo = True
+         else:
+-            clone_taxonomy_repo = click.confirm(
+-                f"`{taxonomy_path}` seems to not exists or is empty. Should I clone {repository} for you?"
+-            )
++            # Always try to clone by default, as the taxonomy repo is required for proper functionality
++            clone_taxonomy_repo = True
+ 
+     # clone taxonomy repo if it needs to be cloned
+     if clone_taxonomy_repo:
+@@ -167,6 +173,7 @@ def init(
+             click.secho(f"Failed to clone taxonomy repo: {exc}", fg="red")
+             raise click.exceptions.Exit(1)
+ 
++    # If we get here, the clone succeeded or was not needed
+     # check if models dir exists, and if so ask for which model to use
+     models_dir = dirname(model_path)
+     if exists(models_dir):

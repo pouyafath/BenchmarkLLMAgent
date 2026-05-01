@@ -1,0 +1,28 @@
+diff --git a/keras/src/backend/common/variables.py b/keras/src/backend/common/variables.py
+index 156d50eba..bce3b1a3c 100644
+--- a/keras/src/backend/common/variables.py
++++ b/keras/src/backend/common/variables.py
+@@ -507,7 +507,8 @@ def initialize_all_variables():
+ def standardize_dtype(dtype):
+     if dtype is None:
+         return config.floatx()
+-    dtype = dtypes.PYTHON_DTYPES_MAP.get(dtype, dtype)
++        if isinstance(dtype, keras.DTypePolicy): dtype = str(dtype)
++        dtype = dtypes.PYTHON_DTYPES_MAP.get(dtype, dtype)
+     if hasattr(dtype, "name"):
+         dtype = dtype.name
+     elif hasattr(dtype, "__str__") and (
+diff --git a/keras/src/losses/loss.py b/keras/src/losses/loss.py
+index a35ecf7d4..4e7ab5c89 100644
+--- a/keras/src/losses/loss.py
++++ b/keras/src/losses/loss.py
+@@ -27,7 +27,8 @@ class Loss(KerasSaveable):
+     def __init__(self, name=None, reduction="sum_over_batch_size", dtype=None):
+         self.name = name or auto_name(self.__class__.__name__)
+         self.reduction = standardize_reduction(reduction)
+-        self.dtype = dtype or backend.floatx()
++        if isinstance(dtype, keras.DTypePolicy): self.dtype = dtype
++        else: self.dtype = backend.standardize_dtype(dtype or backend.floatx())
+ 
+     def __call__(self, y_true, y_pred, sample_weight=None):
+         in_mask = getattr(y_pred, "_keras_mask", None)

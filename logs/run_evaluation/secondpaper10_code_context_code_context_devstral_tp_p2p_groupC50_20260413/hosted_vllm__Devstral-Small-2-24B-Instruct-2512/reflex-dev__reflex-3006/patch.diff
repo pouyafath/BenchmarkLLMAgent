@@ -1,0 +1,52 @@
+diff --git a/reflex/app.py b/reflex/app.py
+index ef8780b4..209468ae 100644
+--- a/reflex/app.py
++++ b/reflex/app.py
+@@ -160,6 +160,8 @@ class App(Base):
+     # The radix theme for the entire app
+     theme: Optional[Component] = themes.theme(accent_color="blue")
+ 
++    # Packages to transpile in Next.js
++    transpile_packages: List[str] = []
+     def __init__(self, *args, **kwargs):
+         """Initialize the app.
+ 
+@@ -768,6 +770,10 @@ class App(Base):
+         # Get the env mode.
+         config = get_config()
+ 
++        # Update config with transpile_packages from app instance
++        if self.transpile_packages:
++            config.transpile_packages = self.transpile_packages
++
+         # Store the compile results.
+         compile_results = []
+ 
+diff --git a/reflex/config.py b/reflex/config.py
+index f10b38e9..19f4ac1c 100644
+--- a/reflex/config.py
++++ b/reflex/config.py
+@@ -196,6 +196,8 @@ class Config(Base):
+     # Additional frontend packages to install.
+     frontend_packages: List[str] = []
+ 
++    # Packages to transpile in Next.js
++    transpile_packages: List[str] = []
+     # The hosting service backend URL.
+     cp_backend_url: str = Hosting.CP_BACKEND_URL
+     # The hosting service frontend URL.
+diff --git a/reflex/utils/prerequisites.py b/reflex/utils/prerequisites.py
+index 0502be60..eb3a5b83 100644
+--- a/reflex/utils/prerequisites.py
++++ b/reflex/utils/prerequisites.py
+@@ -552,6 +552,10 @@ def _update_next_config(config, export=False):
+         next_config["output"] = "export"
+         next_config["distDir"] = constants.Dirs.STATIC
+ 
++    # Add transpile_packages if specified
++    if config.transpile_packages:
++        next_config["transpilePackages"] = config.transpile_packages
++
+     next_config_json = re.sub(r'"([^"]+)"(?=:)', r"\1", json.dumps(next_config))
+     return f"module.exports = {next_config_json};"
+ 

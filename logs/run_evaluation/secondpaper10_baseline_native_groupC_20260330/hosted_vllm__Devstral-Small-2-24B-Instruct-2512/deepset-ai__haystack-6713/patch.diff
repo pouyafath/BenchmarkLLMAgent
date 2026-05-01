@@ -1,0 +1,83 @@
+diff --git a/haystack/utils/torch_utils.py b/haystack/utils/torch_utils.py
+new file mode 100644
+index 00000000..e61f5e03
+--- /dev/null
++++ b/haystack/utils/torch_utils.py
+@@ -0,0 +1,77 @@
++# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
++#
++# SPDX-License-Identifier: Apache-2.0
++"""
++Utility functions for handling torch-related operations.
++"""
++from typing import Any, Dict
++
++def serialize_torch_dtype(value: Any) -> Any:
++    """
++    Convert torch dtypes to their string representation for serialization.
++
++    :param value: The value to potentially convert.
++    :return: The value if not a torch dtype, otherwise its string representation.
++    """
++    # Check if this looks like a torch dtype
++    if hasattr(value, '__class__') and hasattr(value.__class__, '__module__'):
++        module = value.__class__.__module__
++        if module == 'torch':
++            # torch dtypes have __str__ method that returns the string representation
++            return str(value)
++    return value
++
++def deserialize_torch_dtype(value: Any) -> Any:
++    """
++    Convert string representation of torch dtype back to actual torch dtype.
++
++    :param value: The value to potentially convert.
++    :return: The value if not a string representation of torch dtype, otherwise the actual dtype.
++    """
++    if isinstance(value, str):
++        # Check if this is a string representation of a torch dtype
++        if value.startswith('torch.') and hasattr(__import__('torch'), value.split('.')[1]):
++            try:
++                torch_module = __import__('torch')
++                dtype_name = value.split('.')[1]
++                return getattr(torch_module, dtype_name)
++            except (ImportError, AttributeError):
++                pass
++    return value
++
++def serialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
++    """
++    Serialize model_kwargs by converting torch dtypes to strings.
++
++    :param model_kwargs: Dictionary of model kwargs, potentially containing torch dtypes.
++    :return: Dictionary with torch dtypes converted to strings.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    serialized_kwargs = {}
++    for key, value in model_kwargs.items():
++        if key == 'torch_dtype':
++            serialized_value = serialize_torch_dtype(value)
++            serialized_kwargs[key] = serialized_value
++        else:
++            serialized_kwargs[key] = value
++    return serialized_kwargs
++
++def deserialize_model_kwargs(model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
++    """
++    Deserialize model_kwargs by converting string torch dtypes back to actual dtypes.
++
++    :param model_kwargs: Dictionary of model kwargs, potentially containing string torch dtypes.
++    :return: Dictionary with string torch dtypes converted back to actual dtypes.
++    """
++    if not model_kwargs:
++        return model_kwargs
++
++    deserialized_kwargs = {}
++    for key, value in model_kwargs.items():
++        if key == 'torch_dtype':
++            deserialized_kwargs[key] = deserialize_torch_dtype(value)
++        else:
++            deserialized_kwargs[key] = value
++    return deserialized_kwargs

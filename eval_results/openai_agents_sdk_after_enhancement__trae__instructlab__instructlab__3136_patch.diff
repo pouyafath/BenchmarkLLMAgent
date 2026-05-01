@@ -1,0 +1,32 @@
+--- a/src/instructlab/model/accelerated_train.py
++++ b/src/instructlab/model/accelerated_train.py
+@@
+ logger = logging.getLogger(__name__)
+ 
++# ---------------------------------------------------------------------------
++# Patch logger.error to be tolerant of incorrect formatting strings.
++# Some code paths (e.g., synthetic data generation failures) passed exception
++# objects to ``logger.error`` using ``str.format`` style placeholders which
++# caused a ``TypeError`` inside the logging module and hid the original
++# exception. The wrapper attempts the original call and, if it fails due to
++# formatting, falls back to a simple ``%s`` interpolation so that the error
++# message is still emitted.
++# ---------------------------------------------------------------------------
++_original_logger_error = logger.error
++
++def _safe_logger_error(msg: str, *args, **kwargs):  # pragma: no cover
++    """A safe wrapper around ``logger.error`` that avoids formatting crashes."""
++    try:
++        _original_logger_error(msg, *args, **kwargs)
++    except Exception:  # pylint: disable=broad-except
++        # Fallback to a safe formatting that always works.
++        try:
++            _original_logger_error("%s", msg)
++        except Exception:  # pylint: disable=broad-except
++            # As a last resort, write directly to stderr.
++            import sys
++
++            sys.stderr.write(f"Logging error: {msg}\\n")
++
++logger.error = _safe_logger_error
+*** End of File ***

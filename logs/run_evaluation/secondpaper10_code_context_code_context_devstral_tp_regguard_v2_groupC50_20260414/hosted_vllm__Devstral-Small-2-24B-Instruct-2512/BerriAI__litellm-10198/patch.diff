@@ -1,0 +1,118 @@
+diff --git a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+index d4c74f491..99073d8a9 100644
+--- a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
++++ b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+@@ -387,6 +387,10 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+         thinking_enabled = thinking_param.get("type") == "enabled"
+         thinking_budget = thinking_param.get("budget_tokens")
+ 
++        # If thinking is disabled or budget is 0, don't include thoughts
++        if not thinking_enabled or thinking_budget == 0:
++            return {"includeThoughts": False}
++
+         params: GeminiThinkingConfig = {}
+         if thinking_enabled:
+             params["includeThoughts"] = True
+@@ -507,6 +511,26 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+             "europe-west9",
+         ]
+ 
++    @staticmethod
++    def is_candidate_token_count_inclusive(usage_metadata: dict) -> bool:
++        """
++        Check if candidatesTokenCount is inclusive of thoughtsTokenCount.
++
++        Returns True if candidatesTokenCount already includes thoughtsTokenCount,
++        False otherwise.
++        """
++        prompt_tokens = usage_metadata.get("promptTokenCount", 0)
++        candidates_tokens = usage_metadata.get("candidatesTokenCount", 0)
++        total_tokens = usage_metadata.get("totalTokenCount", 0)
++        thoughts_tokens = usage_metadata.get("thoughtsTokenCount", 0)
++
++        # If there are no thoughts tokens, it's trivially inclusive
++        if thoughts_tokens == 0:
++            return True
++
++        # Check if total = prompt + candidates (inclusive case)
++        return total_tokens == prompt_tokens + candidates_tokens
++
+     @staticmethod
+     def get_model_for_vertex_ai_url(model: str) -> str:
+         """
+@@ -689,13 +713,9 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+ 
+         ## GET USAGE ##
+         usage = Usage(
+-            prompt_tokens=completion_response["usageMetadata"].get(
+-                "promptTokenCount", 0
+-            ),
+-            completion_tokens=completion_response["usageMetadata"].get(
+-                "candidatesTokenCount", 0
+-            ),
+-            total_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0),
++            prompt_tokens=usage_metadata.get("promptTokenCount", 0),
++            completion_tokens=completion_tokens,
++            total_tokens=usage_metadata.get("totalTokenCount", 0),
+         )
+ 
+         setattr(model_response, "usage", usage)
+@@ -727,13 +747,9 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+ 
+         ## GET USAGE ##
+         usage = Usage(
+-            prompt_tokens=completion_response["usageMetadata"].get(
+-                "promptTokenCount", 0
+-            ),
+-            completion_tokens=completion_response["usageMetadata"].get(
+-                "candidatesTokenCount", 0
+-            ),
+-            total_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0),
++            prompt_tokens=usage_metadata.get("promptTokenCount", 0),
++            completion_tokens=completion_tokens,
++            total_tokens=usage_metadata.get("totalTokenCount", 0),
+         )
+ 
+         setattr(model_response, "usage", usage)
+@@ -749,6 +765,24 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+         text_tokens: Optional[int] = None
+         prompt_tokens_details: Optional[PromptTokensDetailsWrapper] = None
+         reasoning_tokens: Optional[int] = None
++
++        usage_metadata = completion_response["usageMetadata"]
++
++        # Check if candidate token count is inclusive of thoughts token count
++        is_inclusive = self.is_candidate_token_count_inclusive(usage_metadata)
++
++        # Calculate completion tokens
++        if is_inclusive:
++            # candidatesTokenCount already includes thoughtsTokenCount
++            completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
++        else:
++            # candidatesTokenCount does not include thoughtsTokenCount
++            completion_tokens = usage_metadata.get("candidatesTokenCount", 0) + usage_metadata.get("thoughtsTokenCount", 0)
++
++        # Extract reasoning tokens if present
++        if "thoughtsTokenCount" in usage_metadata:
++            reasoning_tokens = usage_metadata["thoughtsTokenCount"]
++
+         if "cachedContentTokenCount" in completion_response["usageMetadata"]:
+             cached_tokens = completion_response["usageMetadata"][
+                 "cachedContentTokenCount"
+@@ -770,13 +804,9 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+         )
+         ## GET USAGE ##
+         usage = Usage(
+-            prompt_tokens=completion_response["usageMetadata"].get(
+-                "promptTokenCount", 0
+-            ),
+-            completion_tokens=completion_response["usageMetadata"].get(
+-                "candidatesTokenCount", 0
+-            ),
+-            total_tokens=completion_response["usageMetadata"].get("totalTokenCount", 0),
++            prompt_tokens=usage_metadata.get("promptTokenCount", 0),
++            completion_tokens=completion_tokens,
++            total_tokens=usage_metadata.get("totalTokenCount", 0),
+             prompt_tokens_details=prompt_tokens_details,
+             reasoning_tokens=reasoning_tokens,
+         )

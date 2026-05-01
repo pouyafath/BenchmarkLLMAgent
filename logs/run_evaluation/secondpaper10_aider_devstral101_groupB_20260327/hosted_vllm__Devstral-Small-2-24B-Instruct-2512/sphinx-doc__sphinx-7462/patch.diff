@@ -1,0 +1,57 @@
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index cfca54225..2e010bdfe 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -436,6 +436,9 @@ class Documenter:
+                           RemovedInSphinx40Warning)
+         docstring = getdoc(self.object, self.get_attr,
+                            self.env.config.autodoc_inherit_docstrings)
++        if not isinstance(docstring, str):
++            # Ignore non-string __doc__
++            docstring = None
+         if docstring:
+             tab_width = self.directive.state.document.settings.tab_width
+             return [prepare_docstring(docstring, ignore, tab_width)]
+@@ -1243,20 +1246,24 @@ class ClassDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # type:
+             initdocstring = getdoc(__init__, self.get_attr,
+                                    self.env.config.autodoc_inherit_docstrings)
+             # for new-style classes, no __init__ means default __init__
+-            if (initdocstring is not None and
+-                (initdocstring == object.__init__.__doc__ or  # for pypy
+-                 initdocstring.strip() == object.__init__.__doc__)):  # for !pypy
+-                initdocstring = None
++            if initdocstring is not None:
++                if not isinstance(initdocstring, str):
++                    initdocstring = None
++                if initdocstring and (initdocstring == object.__init__.__doc__ or  # for pypy
++                                     initdocstring.strip() == object.__init__.__doc__):  # for !pypy
++                    initdocstring = None
+             if not initdocstring:
+                 # try __new__
+                 __new__ = self.get_attr(self.object, '__new__', None)
+                 initdocstring = getdoc(__new__, self.get_attr,
+                                        self.env.config.autodoc_inherit_docstrings)
+                 # for new-style classes, no __new__ means default __new__
+-                if (initdocstring is not None and
+-                    (initdocstring == object.__new__.__doc__ or  # for pypy
+-                     initdocstring.strip() == object.__new__.__doc__)):  # for !pypy
+-                    initdocstring = None
++                if initdocstring is not None:
++                    if not isinstance(initdocstring, str):
++                        initdocstring = None
++                    if initdocstring and (initdocstring == object.__new__.__doc__ or  # for pypy
++                                         initdocstring.strip() == object.__new__.__doc__):  # for !pypy
++                        initdocstring = None
+             if initdocstring:
+                 if content == 'init':
+                     docstrings = [initdocstring]
+@@ -1264,7 +1271,8 @@ class ClassDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # type:
+                     docstrings.append(initdocstring)
+ 
+         tab_width = self.directive.state.document.settings.tab_width
+-        return [prepare_docstring(docstring, ignore, tab_width) for docstring in docstrings]
++        return [prepare_docstring(docstring, ignore, tab_width)
++                for docstring in docstrings if isinstance(docstring, str)]
+ 
+     def add_content(self, more_content: Any, no_docstring: bool = False) -> None:
+         if self.doc_as_attr:

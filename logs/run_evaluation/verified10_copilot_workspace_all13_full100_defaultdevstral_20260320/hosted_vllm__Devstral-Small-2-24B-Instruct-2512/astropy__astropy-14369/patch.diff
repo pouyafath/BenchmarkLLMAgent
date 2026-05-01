@@ -1,0 +1,77 @@
+diff --git a/astropy/units/format/cds.py b/astropy/units/format/cds.py
+index 307e987ed..27b7237ce 100644
+--- a/astropy/units/format/cds.py
++++ b/astropy/units/format/cds.py
+@@ -348,8 +348,6 @@ class CDS(Base):
+ 
+             pairs = list(zip(unit.bases, unit.powers))
+             if len(pairs) > 0:
+-                pairs.sort(key=operator.itemgetter(1), reverse=True)
+-
+                 s += cls._format_unit_list(pairs)
+ 
+         elif isinstance(unit, core.NamedUnit):
+diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py
+index 0b60a4fc0..672ab084e 100644
+--- a/astropy/units/quantity.py
++++ b/astropy/units/quantity.py
+@@ -826,7 +826,7 @@ class Quantity(np.ndarray):
+         if obj is None:
+             obj = self.view(np.ndarray)
+         else:
+-            obj = np.array(obj, copy=False, subok=True)
++            obj = np.asarray(obj, subok=True)
+ 
+         # Take the view, set the unit, and update possible other properties
+         # such as ``info``, ``wrap_angle`` in `Longitude`, etc.
+diff --git a/astropy/units/quantity_helper/function_helpers.py b/astropy/units/quantity_helper/function_helpers.py
+index 5d36b4702..a0afa8670 100644
+--- a/astropy/units/quantity_helper/function_helpers.py
++++ b/astropy/units/quantity_helper/function_helpers.py
+@@ -76,7 +76,7 @@ SUBCLASS_SAFE_FUNCTIONS |= {
+     np.split, np.array_split, np.hsplit, np.vsplit, np.dsplit,
+     np.stack, np.column_stack, np.hstack, np.vstack, np.dstack,
+     np.amax, np.amin, np.ptp, np.sum, np.cumsum,
+-    np.prod, np.product, np.cumprod, np.cumproduct,
++    np.prod, np.cumprod,
+     np.round, np.around,
+     np.fix, np.angle, np.i0, np.clip,
+     np.isposinf, np.isneginf, np.isreal, np.iscomplex,
+@@ -84,8 +84,8 @@ SUBCLASS_SAFE_FUNCTIONS |= {
+     np.nanmax, np.nanmin, np.nanargmin, np.nanargmax, np.nanmean,
+     np.nanmedian, np.nansum, np.nancumsum, np.nanstd, np.nanvar,
+     np.nanprod, np.nancumprod,
+-    np.einsum_path, np.trapz, np.linspace,
+-    np.sort, np.msort, np.partition, np.meshgrid,
++    np.einsum_path, np.linspace,
++    np.sort, np.partition, np.meshgrid,
+     np.common_type, np.result_type, np.can_cast, np.min_scalar_type,
+     np.iscomplexobj, np.isrealobj,
+     np.shares_memory, np.may_share_memory,
+@@ -102,7 +102,7 @@ UNSUPPORTED_FUNCTIONS |= {
+     np.packbits, np.unpackbits, np.unravel_index,
+     np.ravel_multi_index, np.ix_, np.cov, np.corrcoef,
+     np.busday_count, np.busday_offset, np.datetime_as_string,
+-    np.is_busday, np.all, np.any, np.sometrue, np.alltrue,
++    np.is_busday, np.all, np.any,
+ }  # fmt: skip
+ 
+ # Could be supported if we had a natural logarithm unit.
+@@ -169,7 +169,7 @@ dispatched_function = FunctionAssigner(DISPATCHED_FUNCTIONS)
+ # fmt: off
+ @function_helper(
+     helps={
+-        np.copy, np.asfarray, np.real_if_close, np.sort_complex, np.resize,
++        np.copy, np.real_if_close, np.sort_complex, np.resize,
+         np.fft.fft, np.fft.ifft, np.fft.rfft, np.fft.irfft,
+         np.fft.fft2, np.fft.ifft2, np.fft.rfft2, np.fft.irfft2,
+         np.fft.fftn, np.fft.ifftn, np.fft.rfftn, np.fft.irfftn,
+@@ -902,7 +902,7 @@ def twosetop(ar1, ar2, *args, **kwargs):
+     return (ar1, ar2) + args, kwargs, unit, None
+ 
+ 
+-@function_helper(helps=(np.isin, np.in1d))
++@function_helper(helps=(np.isin,))
+ def setcheckop(ar1, ar2, *args, **kwargs):
+     # This tests whether ar1 is in ar2, so we should change the unit of
+     # a1 to that of a2.

@@ -1,0 +1,72 @@
+diff --git a/supervisor/store/git.py b/supervisor/store/git.py
+index 1cf3b055..e7c06fd3 100644
+--- a/supervisor/store/git.py
++++ b/supervisor/store/git.py
+@@ -18,7 +18,6 @@ from .validate import RE_REPOSITORY
+ 
+ _LOGGER: logging.Logger = logging.getLogger(__name__)
+ 
+-
+ class GitRepo(CoreSysAttributes):
+     """Manage Add-on Git repository."""
+ 
+@@ -62,6 +61,31 @@ class GitRepo(CoreSysAttributes):
+             except (
+                 git.InvalidGitRepositoryError,
+                 git.NoSuchPathError,
++            ) as err:
++                # If the directory exists but is not a valid git repository,
++                # it might be empty or corrupted. Try to clone it again.
++                # Only do this if the directory is empty (no files in it).
++                if self.path.is_dir() and not any(self.path.iterdir()):
++                    _LOGGER.warning(
++                        "Repository directory %s exists but is empty. Attempting to clone.",
++                        self.path,
++                    )
++                    try:
++                        await self.clone()
++                        return
++                    except StoreJobError:
++                        # If the clone fails due to job conditions (e.g., no internet),
++                        # fall through to raise StoreGitError
++                        _LOGGER.error(
++                            "Failed to clone %s due to job conditions. Directory exists but is empty.",
++                            self.path,
++                        )
++                        pass
++
++                _LOGGER.error("Can't load %s", self.path)
++                raise StoreGitError() from err
++
++            except (
+                 git.CommandError,
+                 UnicodeDecodeError,
+             ) as err:
+@@ -197,7 +221,6 @@ class GitRepo(CoreSysAttributes):
+         async with self.lock:
+             await self.sys_run_in_executor(_remove_git_dir, self.path)
+ 
+-
+ class GitRepoHassIO(GitRepo):
+     """Supervisor add-ons repository."""
+ 
+@@ -207,7 +230,6 @@ class GitRepoHassIO(GitRepo):
+         """Initialize Git Supervisor add-on repository."""
+         super().__init__(coresys, coresys.config.path_addons_core, URL_HASSIO_ADDONS)
+ 
+-
+ class GitRepoCustom(GitRepo):
+     """Custom add-ons repository."""
+ 
+diff --git a/tests/store/test_repository_git.py b/tests/store/test_repository_git.py
+index 09c7c185..9f689d66 100644
+--- a/tests/store/test_repository_git.py
++++ b/tests/store/test_repository_git.py
+@@ -96,6 +96,7 @@ async def test_git_load_error(coresys: CoreSys, tmp_path: Path, git_errors: Exce
+ 
+     with (
+         patch("pathlib.Path.is_dir", return_value=True),
++        patch("pathlib.Path.iterdir", return_value=[tmp_path / "some_file"]),
+         patch.object(
+             GitRepo, "sys_run_in_executor", new_callable=AsyncMock
+         ) as run_in_executor,

@@ -1,0 +1,45 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 6c9e9d3707..f433106a6d 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -1735,7 +1735,8 @@ class Model(metaclass=ModelBase):
+         for field in related_fields:
+             _cls = cls
+             fld = None
+-            for part in field.split(LOOKUP_SEP):
++            parts = field.split(LOOKUP_SEP)
++            for i, part in enumerate(parts):
+                 try:
+                     # pk is an alias that won't be found by opts.get_field.
+                     if part == 'pk':
+@@ -1747,15 +1748,22 @@ class Model(metaclass=ModelBase):
+                     else:
+                         _cls = None
+                 except (FieldDoesNotExist, AttributeError):
+-                    if fld is None or fld.get_transform(part) is None:
+-                        errors.append(
+-                            checks.Error(
+-                                "'ordering' refers to the nonexistent field, "
+-                                "related field, or lookup '%s'." % field,
+-                                obj=cls,
+-                                id='models.E015',
++                    # If we're in the middle of traversal (i < len(parts) - 1),
++                    # report an error.
++                    # If we're at the last part (i == len(parts) - 1), we need to
++                    # check if we have a valid field to apply the lookup to.
++                    # If _cls is None and fld is None, it means the field path is invalid.
++                    if i < len(parts) - 1 or (_cls is None and fld is None):
++                        if fld is None or fld.get_transform(part) is None:
++                            errors.append(
++                                checks.Error(
++                                    "'ordering' refers to the nonexistent field, "
++                                    "related field, or lookup '%s'." % field,
++                                    obj=cls,
++                                    id='models.E015',
++                                )
+                             )
+-                        )
++                            break
+ 
+         # Skip ordering on pk. This is always a valid order_by field
+         # but is an alias and therefore won't be found by opts.get_field.

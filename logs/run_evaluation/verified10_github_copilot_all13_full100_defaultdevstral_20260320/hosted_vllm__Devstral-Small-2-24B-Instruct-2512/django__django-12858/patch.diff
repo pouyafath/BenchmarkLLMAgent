@@ -1,0 +1,50 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 6c9e9d3707..076d42282c 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -1735,6 +1735,7 @@ class Model(metaclass=ModelBase):
+         for field in related_fields:
+             _cls = cls
+             fld = None
++            valid = True
+             for part in field.split(LOOKUP_SEP):
+                 try:
+                     # pk is an alias that won't be found by opts.get_field.
+@@ -1745,17 +1746,27 @@ class Model(metaclass=ModelBase):
+                     if fld.is_relation:
+                         _cls = fld.get_path_info()[-1].to_opts.model
+                     else:
+-                        _cls = None
++                        # For non-relation fields, keep _cls as the current model
++                        # so we can check lookups on this field
++                        pass
+                 except (FieldDoesNotExist, AttributeError):
+-                    if fld is None or fld.get_transform(part) is None:
+-                        errors.append(
+-                            checks.Error(
+-                                "'ordering' refers to the nonexistent field, "
+-                                "related field, or lookup '%s'." % field,
+-                                obj=cls,
+-                                id='models.E015',
+-                            )
+-                        )
++                    # If we have a field and the current part is a valid lookup/transform for it,
++                    # then it's valid ordering. This handles cases like 'field__isnull', 'field__contains', etc.
++                    if fld is not None and (fld.get_transform(part) is not None or fld.get_lookup(part) is not None):
++                        # This is a valid lookup, continue to next part
++                        continue
++                    # If we don't have a field or it's not a valid lookup, report error
++                    valid = False
++                    break
++            if not valid:
++                errors.append(
++                    checks.Error(
++                        "'ordering' refers to the nonexistent field, "
++                        "related field, or lookup '%s'." % field,
++                        obj=cls,
++                        id='models.E015',
++                    )
++                )
+ 
+         # Skip ordering on pk. This is always a valid order_by field
+         # but is an alias and therefore won't be found by opts.get_field.

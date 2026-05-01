@@ -1,0 +1,35 @@
+diff --git a/sklearn/svm/_base.py b/sklearn/svm/_base.py
+index f5b35f39a..d41670392 100644
+--- a/sklearn/svm/_base.py
++++ b/sklearn/svm/_base.py
+@@ -1190,10 +1190,26 @@ def _fit_liblinear(
+                 " class: %r" % classes_[0]
+             )
+ 
+-        class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
+-    else:
+-        class_weight_ = np.empty(0, dtype=np.float64)
+-        y_ind = y
++        # Handle class_weight computation with sample_weight support
++        if class_weight == "balanced":
++            if sample_weight is not None:
++                # Compute class weights using weighted class frequencies
++                le = LabelEncoder()
++                y_ind = le.fit_transform(y)
++                if not all(np.isin(classes_, le.classes_)):
++                    raise ValueError("classes should have valid labels that are in y")
++                
++                # Compute weighted class frequencies
++                class_counts = np.bincount(y_ind, weights=sample_weight)
++                total_weight = np.sum(sample_weight)
++                recip_freq = total_weight / (len(le.classes_) * class_counts.astype(np.float64))
++                class_weight_ = recip_freq[le.transform(classes_)]
++            else:
++                class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
++        elif class_weight is not None:
++            class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
++        else:
++            class_weight_ = np.empty(0, dtype=np.float64)
+     liblinear.set_verbosity_wrap(verbose)
+     rnd = check_random_state(random_state)
+     if verbose:

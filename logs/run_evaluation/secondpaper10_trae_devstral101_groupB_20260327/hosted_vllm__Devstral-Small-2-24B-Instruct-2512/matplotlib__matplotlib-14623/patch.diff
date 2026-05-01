@@ -1,0 +1,24 @@
+diff --git a/lib/matplotlib/scale.py b/lib/matplotlib/scale.py
+index b482a664b..3c53296bc 100644
+--- a/lib/matplotlib/scale.py
++++ b/lib/matplotlib/scale.py
+@@ -425,9 +425,16 @@ class LogScale(ScaleBase):
+             minpos = 1e-300  # This value should rarely if ever
+                              # end up with a visible effect.
+ 
+-        return (minpos if vmin <= 0 else vmin,
+-                minpos if vmax <= 0 else vmax)
+-
++        # Handle the case where vmin > vmax (axis inversion)
++        if vmin > vmax:
++            # Ensure both values are positive, but preserve the order for inversion
++            vmin_pos = minpos if vmin <= 0 else vmin
++            vmax_pos = minpos if vmax <= 0 else vmax
++            return (vmin_pos, vmax_pos)
++        else:
++            # Normal case: vmin <= vmax
++            return (minpos if vmin <= 0 else vmin,
++                    minpos if vmax <= 0 else vmax)
+ 
+ class FuncScaleLog(LogScale):
+     """

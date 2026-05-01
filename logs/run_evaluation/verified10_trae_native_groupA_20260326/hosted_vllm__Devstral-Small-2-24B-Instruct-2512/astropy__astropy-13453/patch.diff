@@ -1,0 +1,48 @@
+--- /testbed/astropy/io/ascii/html.py.backup	2026-03-27 01:47:30.183103723 +0000
++++ /testbed/astropy/io/ascii/html.py	2026-03-27 01:47:49.458982754 +0000
+@@ -353,7 +353,8 @@
+         if isinstance(self.data.fill_values, tuple):
+             self.data.fill_values = [self.data.fill_values]
+ 
+-        self.data._set_fill_values(cols)
++        # Get string values with proper formatting applied
++        col_str_vals = self.data.str_vals()
+ 
+         lines = []
+ 
+@@ -423,23 +424,27 @@
+                         # requires that the weakref info._parent be maintained.
+                         new_cols = []
+ 
+-                        for col, col_escaped in zip(cols, cols_escaped):
++                        # Get the string values for each column (already formatted)
++                        col_str_iters = []
++                        for i, col in enumerate(cols):
++                            col_str_vals_i = col_str_vals[i]
++                            col_escaped = cols_escaped[i]
++
+                             if len(col.shape) > 1 and self.html['multicol']:
+                                 span = col.shape[1]
+-                                for i in range(span):
++                                for j in range(span):
+                                     # Split up multicolumns into separate columns
+-                                    new_col = Column([el[i] for el in col])
++                                    new_col = Column([el[j] for el in col])
+ 
+-                                    new_col_iter_str_vals = self.fill_values(
+-                                        col, new_col.info.iter_str_vals())
++                                    # Get the corresponding string values for this sub-column
++                                    new_col_str_vals = [col_str_vals_i[k][j] for k in range(len(col_str_vals_i))]
++                                    new_col_iter_str_vals = self.fill_values(col, new_col_str_vals)
+                                     col_str_iters.append(new_col_iter_str_vals)
+                                     new_cols_escaped.append(col_escaped)
+                                     new_cols.append(new_col)
+                             else:
+-
+-                                col_iter_str_vals = self.fill_values(col, col.info.iter_str_vals())
++                                col_iter_str_vals = self.fill_values(col, col_str_vals_i)
+                                 col_str_iters.append(col_iter_str_vals)
+-
+                                 new_cols_escaped.append(col_escaped)
+ 
+                     for row in zip(*col_str_iters):

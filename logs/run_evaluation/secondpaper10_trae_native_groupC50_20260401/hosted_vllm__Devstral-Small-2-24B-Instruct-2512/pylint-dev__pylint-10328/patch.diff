@@ -1,0 +1,44 @@
+diff --git a/pylint/checkers/refactoring/implicit_booleaness_checker.py b/pylint/checkers/refactoring/implicit_booleaness_checker.py
+index abcbdd594..e7855f6de 100644
+--- a/pylint/checkers/refactoring/implicit_booleaness_checker.py
++++ b/pylint/checkers/refactoring/implicit_booleaness_checker.py
+@@ -189,6 +189,27 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         ):
+             self._check_compare_to_str_or_zero(node)
+ 
++
++    def _is_in_boolean_context(self, node: nodes.NodeNG) -> bool:
++        """Check if a node is used in a boolean context.
++
++        Returns True if the node is used in a context where a boolean value
++        is expected (if, while, assert, boolean operations), False otherwise.
++        """
++        current = node.parent
++        while current is not None:
++            if isinstance(current, (nodes.If, nodes.While, nodes.Assert)):
++                return True
++            if isinstance(current, nodes.BoolOp):
++                return True
++            # If we reach an assignment or other non-boolean context, stop
++            if isinstance(current, (nodes.Assign, nodes.AugAssign, nodes.AnnAssign)):
++                return False
++            if hasattr(current, 'parent'):
++                current = current.parent
++            else:
++                break
++        return False
+     def _check_compare_to_str_or_zero(self, node: nodes.Compare) -> None:
+         # Skip check for chained comparisons
+         if len(node.ops) != 1:
+@@ -255,6 +276,11 @@ class ImplicitBooleanessChecker(checkers.BaseChecker):
+         self, node: nodes.Compare
+     ) -> None:
+         """Check for left side and right side of the node for empty literals."""
++
++        # Only suggest simplification when used in a boolean context
++        # Don't suggest for assignments like `res = z != []`
++        if not self._is_in_boolean_context(node):
++            return
+         # Skip check for chained comparisons
+         if len(node.ops) != 1:
+             return

@@ -1,0 +1,77 @@
+diff --git a/sklearn/utils/deprecation.py b/sklearn/utils/deprecation.py
+index 4045dcc7d..4cf6b0fce 100644
+--- a/sklearn/utils/deprecation.py
++++ b/sklearn/utils/deprecation.py
+@@ -1,5 +1,6 @@
+ import warnings
+ import functools
++import inspect
+ 
+ __all__ = ["deprecated"]
+ 
+@@ -16,7 +17,7 @@ class deprecated:
+ 
+     >>> from sklearn.utils import deprecated
+     >>> deprecated() # doctest: +ELLIPSIS
+-    <sklearn.utils.deprecation.deprecated object at ...>
++    <sklearn.utils.deprecated object at ...>
+ 
+     >>> @deprecated()
+     ... def some_function(): pass
+@@ -50,17 +51,40 @@ class deprecated:
+         if self.extra:
+             msg += "; %s" % self.extra
+ 
+-        # FIXME: we should probably reset __new__ for full generality
++        # Check if the class has a custom __new__ method
++        has_custom_new = (cls.__new__ is not object.__new__)
++
+         init = cls.__init__
+ 
+-        def wrapped(*args, **kwargs):
+-            warnings.warn(msg, category=DeprecationWarning)
+-            return init(*args, **kwargs)
+-        cls.__init__ = wrapped
++        # Check the signature of the original __init__ to see what arguments it accepts
++        init_sig = inspect.signature(init)
++        init_params = list(init_sig.parameters.keys())
+ 
+-        wrapped.__name__ = '__init__'
+-        wrapped.__doc__ = self._update_doc(init.__doc__)
+-        wrapped.deprecated_original = init
++        def wrapped_init(self, *args, **kwargs):
++            warnings.warn(msg, category=DeprecationWarning)
++            # Only pass arguments that the original __init__ accepts
++            if len(init_params) == 1:  # Only 'self'
++                return init(self)
++            else:
++                return init(self, *args, **kwargs)
++
++        # If the class has a custom __new__, wrap it to ensure deprecation warning
++        if has_custom_new:
++            original_new = cls.__new__
++
++            def wrapped_new(cls, *args, **kwargs):
++                warnings.warn(msg, category=DeprecationWarning)
++                return original_new(cls, *args, **kwargs)
++
++            cls.__new__ = wrapped_new
++            wrapped_new.__name__ = '__new__'
++            wrapped_new.__doc__ = original_new.__doc__
++            wrapped_new.deprecated_original = original_new
++
++        cls.__init__ = wrapped_init
++        wrapped_init.__name__ = '__init__'
++        wrapped_init.__doc__ = self._update_doc(init.__doc__)
++        wrapped_init.deprecated_original = init
+ 
+         return cls
+ 
+@@ -91,7 +115,6 @@ class deprecated:
+             newdoc = "%s\n\n%s" % (newdoc, olddoc)
+         return newdoc
+ 
+-
+ def _is_deprecated(func):
+     """Helper to check if func is wraped by our deprecated decorator"""
+     closures = getattr(func, '__closure__', [])

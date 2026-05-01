@@ -1,0 +1,47 @@
+diff --git a/src/streamlink/plugins/bilibili.py b/src/streamlink/plugins/bilibili.py
+index 1a5a1121..892b8a22 100644
+--- a/src/streamlink/plugins/bilibili.py
++++ b/src/streamlink/plugins/bilibili.py
+@@ -12,9 +12,20 @@ from streamlink.plugin import Plugin, pluginmatcher
+ from streamlink.plugin.api import validate
+ from streamlink.stream.hls import HLSStream
+ 
+-
+ log = logging.getLogger(__name__)
+ 
++# Bilibili quality level mapping
++QUALITY_NAMES = {
++    10000: "source",
++    400: "4k",
++    250: "1080p60",
++    220: "1080p_plus",
++    150: "1080p",
++    80: "720p",
++    40: "480p",
++    16: "360p",
++    10: "144p",
++}
+ 
+ @pluginmatcher(
+     re.compile(r"https?://live\.bilibili\.com/(?P<channel>[^/]+)"),
+@@ -47,6 +58,7 @@ class Bilibili(Plugin):
+                                                     "extra": str,
+                                                 },
+                                             ],
++                                            "current_qn": int,
+                                         },
+                                     ],
+                                     validate.filter(lambda item: item["codec_name"] == "avc"),
+@@ -162,9 +174,10 @@ class Bilibili(Plugin):
+         for stream in streams or []:
+             for stream_format in stream["format"]:
+                 for codec in stream_format["codec"]:
++                    quality = codec.get("current_qn", 0)
++                    quality_name = QUALITY_NAMES.get(quality, f"qn{quality}")
+                     for url_info in codec["url_info"]:
+                         url = f"{url_info['host']}{codec['base_url']}{url_info['extra']}"
+-                        yield "live", HLSStream(self.session, url)
+-
++                        yield quality_name, HLSStream(self.session, url)
+ 
+ __plugin__ = Bilibili

@@ -1,0 +1,39 @@
+diff --git a/lib/matplotlib/offsetbox.py b/lib/matplotlib/offsetbox.py
+index 13af941552..613fc5703f 100644
+--- a/lib/matplotlib/offsetbox.py
++++ b/lib/matplotlib/offsetbox.py
+@@ -234,7 +234,8 @@ class OffsetBox(martist.Artist):
+         """
+         super().set_figure(fig)
+         for c in self.get_children():
+-            c.set_figure(fig)
++            if c is not None:
++                c.set_figure(fig)
+ 
+     @martist.Artist.axes.setter
+     def axes(self, ax):
+@@ -395,6 +396,10 @@ class OffsetBox(martist.Artist):
+     def get_window_extent(self, renderer=None):
+         # docstring inherited
+         if renderer is None:
++            if self.figure is None:
++                raise RuntimeError(
++                    "Cannot get window extent without a renderer and no figure set. "
++                    "This may occur when the OffsetBox is not properly attached to a figure.")
+             renderer = self.figure._get_renderer()
+         bbox = self.get_bbox(renderer)
+         try:  # Some subclasses redefine get_offset to take no args.
+diff --git a/lib/mpl_toolkits/axes_grid1/inset_locator.py b/lib/mpl_toolkits/axes_grid1/inset_locator.py
+index 9d35051074..4e7907a76e 100644
+--- a/lib/mpl_toolkits/axes_grid1/inset_locator.py
++++ b/lib/mpl_toolkits/axes_grid1/inset_locator.py
+@@ -70,6 +70,9 @@ class AnchoredLocatorBase(AnchoredOffsetbox):
+ 
+     def __call__(self, ax, renderer):
+         self.axes = ax
++        # Ensure the figure is set on the OffsetBox for get_window_extent to work
++        if self.figure is None:
++            self.set_figure(ax.figure)
+         bbox = self.get_window_extent(renderer)
+         px, py = self.get_offset(bbox.width, bbox.height, 0, 0, renderer)
+         bbox_canvas = Bbox.from_bounds(px, py, bbox.width, bbox.height)

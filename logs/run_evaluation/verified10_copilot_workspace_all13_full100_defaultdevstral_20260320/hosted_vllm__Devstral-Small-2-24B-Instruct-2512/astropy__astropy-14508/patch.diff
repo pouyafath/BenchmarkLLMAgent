@@ -1,0 +1,82 @@
+diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py
+index 118bfced8..464730f5d 100644
+--- a/astropy/io/fits/card.py
++++ b/astropy/io/fits/card.py
+@@ -13,11 +13,9 @@ from .verify import VerifyError, VerifyWarning, _ErrList, _Verify
+ 
+ __all__ = ["Card", "Undefined"]
+ 
+-
+ FIX_FP_TABLE = str.maketrans("de", "DE")
+ FIX_FP_TABLE2 = str.maketrans("dD", "eE")
+ 
+-
+ CARD_LENGTH = 80
+ BLANK_CARD = " " * CARD_LENGTH
+ KEYWORD_LENGTH = 8  # The max length for FITS-standard keywords
+@@ -26,7 +24,6 @@ VALUE_INDICATOR = "= "  # The standard FITS value indicator
+ VALUE_INDICATOR_LEN = len(VALUE_INDICATOR)
+ HIERARCH_VALUE_INDICATOR = "="  # HIERARCH cards may use a shortened indicator
+ 
+-
+ class Undefined:
+     """Undefined value."""
+ 
+@@ -34,10 +31,8 @@ class Undefined:
+         # This __init__ is required to be here for Sphinx documentation
+         pass
+ 
+-
+ UNDEFINED = Undefined()
+ 
+-
+ class Card(_Verify):
+     length = CARD_LENGTH
+     """The length of a Card image; should always be 80 for valid FITS files."""
+@@ -1242,7 +1237,6 @@ class Card(_Verify):
+ 
+             yield card
+ 
+-
+ def _int_or_float(s):
+     """
+     Converts an a string to an int if possible, or to a float.
+@@ -1261,7 +1255,6 @@ def _int_or_float(s):
+         except (ValueError, TypeError) as e:
+             raise ValueError(str(e))
+ 
+-
+ def _format_value(value):
+     """
+     Converts a card value to its appropriate string representation as
+@@ -1296,9 +1289,21 @@ def _format_value(value):
+     else:
+         return ""
+ 
+-
+ def _format_float(value):
+     """Format a floating number to make sure it gets the decimal point."""
++    # Try str(value) first, as it may be more compact
++    value_str = str(value)
++
++    # If str(value) doesn't have a decimal point and doesn't have an exponent,
++    # add .0 to ensure it's clearly a float
++    if "." not in value_str and "E" not in value_str and "e" not in value_str:
++        value_str += ".0"
++
++    # If the result is within 20 characters, return it
++    if len(value_str) <= 20:
++        return value_str
++
++    # Otherwise fall back to the more precise format
+     value_str = f"{value:.16G}"
+     if "." not in value_str and "E" not in value_str:
+         value_str += ".0"
+@@ -1327,7 +1332,6 @@ def _format_float(value):
+ 
+     return value_str
+ 
+-
+ def _pad(input):
+     """Pad blank space to the input string to be multiple of 80."""
+     _len = len(input)

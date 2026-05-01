@@ -1,0 +1,115 @@
+diff --git a/autogen/agentchat/contrib/img_utils.py b/autogen/agentchat/contrib/img_utils.py
+index 4fc08f8..131f745 100644
+--- a/autogen/agentchat/contrib/img_utils.py
++++ b/autogen/agentchat/contrib/img_utils.py
+@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
+ import requests
+ from PIL import Image
+ 
+-
+ def get_image_data(image_file: str, use_b64=True) -> bytes:
+     if image_file.startswith("http://") or image_file.startswith("https://"):
+         response = requests.get(image_file)
+@@ -25,6 +24,27 @@ def get_image_data(image_file: str, use_b64=True) -> bytes:
+     else:
+         return content
+ 
++def _extract_image_path_from_tag(img_tag):
++    """Extract image path from img tag, handling both <img path> and <img src="path"> formats"""
++    # First try to match <img src="..."> or <img src='...'>
++    src_pattern = re.compile(r'<img\s+src=(["\'])(.*?)\1>', re.IGNORECASE)
++    match = src_pattern.search(img_tag)
++    if match:
++        return match.group(2)
++
++    # Then try to match <img src=...> without quotes (unquoted attribute)
++    src_unquoted_pattern = re.compile(r'<img\s+src=([^\s>]+)', re.IGNORECASE)
++    match = src_unquoted_pattern.search(img_tag)
++    if match:
++        return match.group(1)
++
++    # Then try to match <img ...> where the rest is the path
++    simple_pattern = re.compile(r'<img\s+([^>]+)>', re.IGNORECASE)
++    match = simple_pattern.search(img_tag)
++    if match:
++        return match.group(1).strip()
++
++    return None
+ 
+ def llava_formatter(prompt: str, order_image_tokens: bool = False) -> Tuple[str, List[str]]:
+     """
+@@ -52,15 +72,20 @@ def llava_formatter(prompt: str, order_image_tokens: bool = False) -> Tuple[str,
+     for match in img_tag_pattern.finditer(prompt):
+         image_location = match.group(1)
+ 
++        # Extract the actual image path, handling both <img path> and <img src="path"> formats
++        actual_image_path = _extract_image_path_from_tag(match.group(0))
++        if actual_image_path is None:
++            actual_image_path = image_location
++
+         try:
+-            img_data = get_image_data(image_location)
++            img_data = get_image_data(actual_image_path)
+         except Exception as e:
+             # Remove the token
+-            print(f"Warning! Unable to load image from {image_location}, because of {e}")
++            print(f"Warning! Unable to load image from {actual_image_path}, because of {e}")
+             new_prompt = new_prompt.replace(match.group(0), "", 1)
+             continue
+ 
+-        image_locations.append(image_location)
++        image_locations.append(actual_image_path)
+         images.append(img_data)
+ 
+         # Increment the image count and replace the tag in the prompt
+@@ -71,7 +96,6 @@ def llava_formatter(prompt: str, order_image_tokens: bool = False) -> Tuple[str,
+ 
+     return new_prompt, images
+ 
+-
+ def convert_base64_to_data_uri(base64_image):
+     def _get_mime_type_from_data_uri(base64_image):
+         # Decode the base64 string
+@@ -91,7 +115,6 @@ def convert_base64_to_data_uri(base64_image):
+     data_uri = f"data:{mime_type};base64,{base64_image}"
+     return data_uri
+ 
+-
+ def gpt4v_formatter(prompt: str) -> List[Union[str, dict]]:
+     """
+     Formats the input prompt by replacing image tags and returns a list of text and images.
+@@ -113,11 +136,16 @@ def gpt4v_formatter(prompt: str) -> List[Union[str, dict]]:
+     for match in img_tag_pattern.finditer(prompt):
+         image_location = match.group(1)
+ 
++        # Extract the actual image path, handling both <img path> and <img src="path"> formats
++        actual_image_path = _extract_image_path_from_tag(match.group(0))
++        if actual_image_path is None:
++            actual_image_path = image_location
++
+         try:
+-            img_data = get_image_data(image_location)
++            img_data = get_image_data(actual_image_path)
+         except Exception as e:
+             # Warning and skip this token
+-            print(f"Warning! Unable to load image from {image_location}, because {e}")
++            print(f"Warning! Unable to load image from {actual_image_path}, because {e}")
+             continue
+ 
+         # Add text before this image tag to output list
+@@ -133,7 +161,6 @@ def gpt4v_formatter(prompt: str) -> List[Union[str, dict]]:
+     output.append({"type": "text", "text": prompt[last_index:]})
+     return output
+ 
+-
+ def extract_img_paths(paragraph: str) -> list:
+     """
+     Extract image paths (URLs or local paths) from a text paragraph.
+@@ -153,7 +180,6 @@ def extract_img_paths(paragraph: str) -> list:
+     img_paths = re.findall(img_path_pattern, paragraph)
+     return img_paths
+ 
+-
+ def _to_pil(data: str) -> Image.Image:
+     """
+     Converts a base64 encoded image data string to a PIL Image object.

@@ -1,0 +1,420 @@
+diff --git a/dspy/predict/program_of_thought.py b/dspy/predict/program_of_thought.py
+index a854bacc..44f9d34e 100644
+--- a/dspy/predict/program_of_thought.py
++++ b/dspy/predict/program_of_thought.py
+@@ -118,8 +118,8 @@ class ProgramOfThought(Module):
+             instr = [
+                 f"You will be given {mode_inputs} and you will respond with {mode_outputs}.",
+                 f"Generating executable Python code that programmatically computes the correct {mode_outputs}.",
+-                "After you're done with the computation and think you have the answer, make sure to provide your answer by calling the preloaded function `FINAL()`.",
+-                f'You should structure your answer in a dict object, like {{"field_a": answer_a, ...}}, evaluates to the correct value mapping for {final_outputs}.',
++                "After you're done with the computation and think you have the final output, make sure to submit your output by calling the preloaded function `SUBMIT()`.",
++                f'You must structure your output in a dict, like {{"field_a": value_a, ...}}, with the correct value mapping for the field(s): {final_outputs}.',
+             ]
+         elif mode == "regenerate":
+             instr = [
+diff --git a/dspy/predict/rlm.py b/dspy/predict/rlm.py
+index 0517a43d..7e27d1ef 100644
+--- a/dspy/predict/rlm.py
++++ b/dspy/predict/rlm.py
+@@ -48,8 +48,7 @@ Available:
+ - `llm_query(prompt)` - query a sub-LLM (~500K char capacity) for semantic analysis
+ - `llm_query_batched(prompts)` - query multiple prompts concurrently (much faster for multiple queries)
+ - `print()` - ALWAYS print to see results
+-- `FINAL({final_output_names})` - submit final answer when done
+-- `FINAL_VAR({final_var_output_names})` - submit final answer using variable names
++- `SUBMIT({final_output_names})` - submit final output when done
+ - Standard libraries: re, json, collections, math, etc.
+ 
+ IMPORTANT: This is ITERATIVE. Each code block you write will execute, you'll see the output, then you decide what to do next. Do NOT try to solve everything in one step.
+@@ -58,8 +57,10 @@ IMPORTANT: This is ITERATIVE. Each code block you write will execute, you'll see
+ 2. ITERATE - Write small code snippets, observe outputs, then decide next steps. State persists between iterations.
+ 3. VERIFY BEFORE SUBMITTING - If results seem wrong (zeros, empty, unexpected), reconsider your approach.
+ 4. USE llm_query FOR SEMANTICS - String matching finds WHERE things are; llm_query understands WHAT things mean.
++5. MINIMIZE RETYPING (INPUTS & OUTPUTS) - When values are long, precise, or error-prone (IDs, numbers, code, quotes), re-access them via variables and parse/compute in code instead of retyping. Use small, targeted prints to sanity-check, but avoid manual copying when variables can carry the exact value.
++6. SUBMIT ONLY AFTER SEEING OUTPUTS - SUBMIT ends the current run immediately. If you need to inspect printed output, run it in one step, review the result, then call SUBMIT in a later step.
+ 
+-You have max {max_llm_calls} sub-LLM calls. When done, call FINAL() or FINAL_VAR() with your answer."""
++You have max {max_llm_calls} sub-LLM calls. When done, call SUBMIT() with your output."""
+ 
+ # Pattern to match markdown code fences: ```python\n...\n``` or ```\n...\n```
+ _CODE_FENCE_PATTERN = re.compile(r"^```(?:python|py)?\s*\n(.*?)\n```\s*$", re.DOTALL)
+@@ -143,7 +144,7 @@ class RLM(Module):
+     # =========================================================================
+ 
+     # Reserved tool names that conflict with built-in sandbox functions
+-    _RESERVED_TOOL_NAMES = frozenset({"llm_query", "llm_query_batched", "FINAL", "FINAL_VAR", "print"})
++    _RESERVED_TOOL_NAMES = frozenset({"llm_query", "llm_query_batched", "SUBMIT", "print"})
+ 
+     def _validate_tools(self, tools: dict[str, Callable]) -> None:
+         """Validate user-provided tools have valid names and are callable."""
+@@ -250,12 +251,9 @@ class RLM(Module):
+         """Build the action and extract signatures from templates."""
+         inputs_str = ", ".join(f"`{n}`" for n in self.signature.input_fields)
+ 
+-        # Simple names for FINAL() examples
++        # Simple names for SUBMIT() examples
+         final_output_names = ", ".join(self.signature.output_fields.keys())
+ 
+-        # Final output names for FINAL_VAR() examples
+-        final_var_output_names = ", ".join(f"`{n}`" for n in self.signature.output_fields.keys())
+-
+         output_fields = "\n".join(
+             f"- {translate_field_type(n, f)}"
+             for n, f in self.signature.output_fields.items()
+@@ -269,10 +267,10 @@ class RLM(Module):
+ 
+         action_sig = (
+             dspy.Signature({}, task_instructions + ACTION_INSTRUCTIONS_TEMPLATE.format(
+-                inputs=inputs_str, final_output_names=final_output_names, final_var_output_names=final_var_output_names, output_fields=output_fields,
++                inputs=inputs_str, final_output_names=final_output_names, output_fields=output_fields,
+                 max_llm_calls=self.max_llm_calls,
+             ) + tool_docs)
+-            .append("variables_info", dspy.InputField(desc="Metadata about the variables available in the REPL"), type_=list[REPLVariable])
++            .append("variables_info", dspy.InputField(desc="Metadata about the variables available in the REPL"), type_=str)
+             .append("repl_history", dspy.InputField(desc="Previous REPL code executions and their outputs"), type_=REPLHistory)
+             .append("iteration", dspy.InputField(desc="Current iteration number (1-indexed) out of max_iterations"), type_=str)
+             .append("reasoning", dspy.OutputField(desc="Think step-by-step: what do you know? What remains? Plan your next action."), type_=str)
+@@ -295,7 +293,7 @@ class RLM(Module):
+             full_extract_instructions,
+         )
+         extract_sig = extract_sig.prepend("repl_history", dspy.InputField(desc="Your REPL interactions so far"), type_=REPLHistory)
+-        extract_sig = extract_sig.prepend("variables_info", dspy.InputField(desc="Metadata about the variables available in the REPL"), type_=list[REPLVariable])
++        extract_sig = extract_sig.prepend("variables_info", dspy.InputField(desc="Metadata about the variables available in the REPL"), type_=str)
+ 
+         return action_sig, extract_sig
+ 
+@@ -389,10 +387,11 @@ class RLM(Module):
+         output_field_names: list[str],
+     ) -> Prediction:
+         """Use extract module to get final answer when max iterations reached."""
+-        logger.warning("RLM reached max iterations, using extract to get final answer")
++        logger.warning("RLM reached max iterations, using extract to get final output")
+ 
++        variables_info = [variable.format() for variable in variables]
+         extract_pred = self.extract(
+-            variables_info=variables,
++            variables_info=variables_info,
+             repl_history=history,
+         )
+ 
+@@ -417,7 +416,7 @@ class RLM(Module):
+         # Validate all required output fields are present
+         missing = set(output_field_names) - set(raw_answer.keys())
+         if missing:
+-            return None, f"[Error] Missing output fields: {sorted(missing)}. Use FINAL({', '.join(output_field_names)})"
++            return None, f"[Error] Missing output fields: {sorted(missing)}. Use SUBMIT({', '.join(output_field_names)})"
+ 
+         # Parse and validate each output field
+         parsed_outputs = {}
+@@ -498,8 +497,9 @@ class RLM(Module):
+         output_field_names: list[str],
+     ) -> Prediction | REPLHistory:
+         """Execute one iteration. Returns Prediction if done, else updated REPLHistory."""
++        variables_info = [variable.format() for variable in variables]
+         action = self.generate_action(
+-            variables_info=variables,
++            variables_info=variables_info,
+             repl_history=history,
+             iteration=f"{iteration + 1}/{self.max_iterations}",
+         )
+@@ -560,10 +560,11 @@ class RLM(Module):
+         output_field_names: list[str],
+     ) -> Prediction:
+         """Async version: Use extract module when max iterations reached."""
+-        logger.warning("RLM reached max iterations, using extract to get final answer")
++        logger.warning("RLM reached max iterations, using extract to get final output")
+ 
++        variables_info = [variable.format() for variable in variables]
+         extract_pred = await self.extract.acall(
+-            variables_info=variables,
++            variables_info=variables_info,
+             repl_history=history,
+         )
+ 
+@@ -583,8 +584,9 @@ class RLM(Module):
+         output_field_names: list[str],
+     ) -> Prediction | REPLHistory:
+         """Async version: Execute one iteration."""
++        variables_info = [variable.format() for variable in variables]
+         pred = await self.generate_action.acall(
+-            variables_info=variables,
++            variables_info=variables_info,
+             repl_history=history,
+             iteration=f"{iteration + 1}/{self.max_iterations}",
+         )
+diff --git a/dspy/primitives/code_interpreter.py b/dspy/primitives/code_interpreter.py
+index 9565faf6..3838074f 100644
+--- a/dspy/primitives/code_interpreter.py
++++ b/dspy/primitives/code_interpreter.py
+@@ -9,7 +9,7 @@ code-executing modules to work with different interpreter implementations:
+ 
+ from typing import Any, Callable, Protocol, runtime_checkable
+ 
+-# Types that can be used directly in Python function signatures for FINAL()
++# Types that can be used directly in Python function signatures for SUBMIT()
+ SIMPLE_TYPES = (str, int, float, bool, list, dict, type(None))
+ 
+ 
+@@ -22,7 +22,7 @@ class CodeInterpreterError(RuntimeError):
+ 
+ 
+ class FinalAnswerResult:
+-    """Returned by interpreter.execute() when FINAL() or FINAL_VAR() is called.
++    """Returned by interpreter.execute() when SUBMIT() is called.
+ 
+     This signals that the code execution loop should terminate and return
+     the contained answer to the caller.
+@@ -107,7 +107,7 @@ class CodeInterpreter(Protocol):
+ 
+         Returns:
+             One of:
+-            - FinalAnswerResult: If FINAL() or FINAL_VAR() was called in code
++            - FinalAnswerResult: If SUBMIT() was called in code
+             - str: Captured stdout from print() statements
+             - list: Multiple output lines
+             - None: If no output was produced
+diff --git a/dspy/primitives/python_interpreter.py b/dspy/primitives/python_interpreter.py
+index 4782f92a..b492058d 100644
+--- a/dspy/primitives/python_interpreter.py
++++ b/dspy/primitives/python_interpreter.py
+@@ -71,7 +71,7 @@ class PythonInterpreter:
+             tools: Dictionary mapping tool names to callable functions.
+                    Each function should accept keyword arguments and return a string.
+                    Tools are callable directly from sandbox code by name.
+-            output_fields: List of output field definitions for typed FINAL signature.
++            output_fields: List of output field definitions for typed SUBMIT signature.
+                    Each dict should have 'name' and optionally 'type' keys.
+         """
+         if isinstance(deno_command, dict):
+diff --git a/dspy/primitives/runner.js b/dspy/primitives/runner.js
+index 22be7e8a..28d9f5a2 100644
+--- a/dspy/primitives/runner.js
++++ b/dspy/primitives/runner.js
+@@ -8,7 +8,7 @@ import { readLines } from "https://deno.land/std@0.186.0/io/mod.ts";
+ // =============================================================================
+ 
+ // Setup code run before each user code execution.
+-// Captures stdout, defines FINAL/FINAL_VAR for early termination, and
++// Captures stdout, defines SUBMIT for early termination, and
+ // provides a helper to extract exception args across the JS/Python boundary.
+ const PYTHON_SETUP_CODE = `
+ import sys, io, json
+@@ -23,17 +23,11 @@ class FinalAnswer(BaseException):
+     # Control-flow exception to signal completion (like StopIteration)
+     pass
+ 
+-# Default FINAL/FINAL_VAR for single-output signatures (e.g., Program of Thought).
++# Default SUBMIT for single-output signatures (e.g., Program of Thought).
+ # Only define if not already registered with typed signatures.
+-if 'FINAL' not in dir():
+-    def FINAL(answer):
++if 'SUBMIT' not in dir():
++    def SUBMIT(answer):
+         raise FinalAnswer({"answer": answer})
+-
+-if 'FINAL_VAR' not in dir():
+-    def FINAL_VAR(var_name):
+-        if var_name in globals():
+-            raise FinalAnswer({"answer": globals()[var_name]})
+-        raise NameError(f"Variable '{var_name}' not found")
+ `;
+ 
+ // Generate a tool wrapper function with typed signature.
+@@ -78,13 +72,13 @@ def ${toolName}(${signature}):
+ `;
+ };
+ 
+-// Generate FINAL function with output field signature.
++// Generate SUBMIT function with output field signature.
+ // Outputs is an array of {name, type?} objects.
+-const makeFinalWrapper = (outputs) => {
++const makeSubmitWrapper = (outputs) => {
+   if (!outputs || outputs.length === 0) {
+-    // Fallback to single-arg FINAL if no outputs defined
++    // Fallback to single-arg SUBMIT if no outputs defined
+     return `
+-def FINAL(answer):
++def SUBMIT(answer):
+     raise FinalAnswer({"answer": answer})
+ `;
+   }
+@@ -97,51 +91,11 @@ def FINAL(answer):
+   const dictParts = outputs.map(o => `"${o.name}": ${o.name}`);
+ 
+   return `
+-def FINAL(${sigParts.join(', ')}):
++def SUBMIT(${sigParts.join(', ')}):
+     raise FinalAnswer({${dictParts.join(', ')}})
+ `;
+ };
+ 
+-// Generate FINAL_VAR function with positional args mapped to output fields.
+-// Usage: FINAL_VAR("var1", "var2") maps to output fields in order.
+-const makeFinalVarWrapper = (outputs) => {
+-  if (!outputs || outputs.length === 0) {
+-    // Single-output fallback: FINAL_VAR("var_name")
+-    return `
+-def FINAL_VAR(var_name):
+-    if var_name not in globals():
+-        raise NameError(f"Variable '{var_name}' not found")
+-    raise FinalAnswer({"answer": globals()[var_name]})
+-`;
+-  }
+-
+-  // Multi-output: positional args mapped to fields in order
+-  const fieldNames = outputs.map(o => `"${o.name}"`);
+-  const expectedCount = outputs.length;
+-  const fieldList = fieldNames.join(', ');
+-
+-  return `
+-def FINAL_VAR(*var_names):
+-    """Pass variable names positionally, mapped to output fields in order.
+-
+-    Output fields: ${outputs.map(o => o.name).join(', ')}
+-    Usage: FINAL_VAR(${outputs.map(o => `"${o.name}_var"`).join(', ')})
+-    """
+-    _output_fields = [${fieldList}]
+-    if len(var_names) != ${expectedCount}:
+-        raise ValueError(
+-            f"FINAL_VAR expects ${expectedCount} variable names for output fields {_output_fields}, "
+-            f"got {len(var_names)}"
+-        )
+-    _result = {}
+-    for field_name, var_name in zip(_output_fields, var_names):
+-        if var_name not in globals():
+-            raise NameError(f"Variable '{var_name}' not found for output field '{field_name}'")
+-        _result[field_name] = globals()[var_name]
+-    raise FinalAnswer(_result)
+-`;
+-};
+-
+ // Global handler to prevent uncaught promise rejections from crashing Deno
+ // These can occur during async Python <-> JS interop
+ globalThis.addEventListener("unhandledrejection", (event) => {
+@@ -287,10 +241,9 @@ while (true) {
+       }
+     }
+ 
+-    // Register FINAL/FINAL_VAR with output signature
++    // Register SUBMIT with output signature
+     if (input.register_outputs) {
+-      pyodide.runPython(makeFinalWrapper(input.register_outputs));
+-      pyodide.runPython(makeFinalVarWrapper(input.register_outputs));
++      pyodide.runPython(makeSubmitWrapper(input.register_outputs));
+     }
+ 
+     console.log(JSON.stringify({
+@@ -332,4 +285,4 @@ while (true) {
+     }
+     console.log(JSON.stringify({ error: errorMessage, errorArgs, errorType }));
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/dspy/teleprompt/gepa/gepa.py b/dspy/teleprompt/gepa/gepa.py
+index c4485069..d0427ffe 100644
+--- a/dspy/teleprompt/gepa/gepa.py
++++ b/dspy/teleprompt/gepa/gepa.py
+@@ -653,7 +653,7 @@ class GEPA(Teleprompter):
+             valset=valset,
+             adapter=adapter,
+             # Reflection-based configuration
+-            reflection_lm=(lambda x: self.reflection_lm(x)[0]) if self.reflection_lm is not None else None,
++            reflection_lm=(lambda x: adapter.stripped_lm_call(x)[0]) if self.reflection_lm is not None else None,
+             candidate_selection_strategy=self.candidate_selection_strategy,
+             skip_perfect_score=self.skip_perfect_score,
+             reflection_minibatch_size=self.reflection_minibatch_size,
+diff --git a/dspy/teleprompt/gepa/gepa_utils.py b/dspy/teleprompt/gepa/gepa_utils.py
+index 6f4fa09c..c9fa3e18 100644
+--- a/dspy/teleprompt/gepa/gepa_utils.py
++++ b/dspy/teleprompt/gepa/gepa_utils.py
+@@ -146,7 +146,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                     base_instruction = candidate[name]
+                     dataset_with_feedback = reflective_dataset[name]
+                     results[name] = InstructionProposalSignature.run(
+-                        lm=(lambda x: reflection_lm(x)[0]),
++                        lm=(lambda x: self.stripped_lm_call(x)[0]),
+                         input_dict={
+                             "current_instruction_doc": base_instruction,
+                             "dataset_with_feedback": dataset_with_feedback,
+@@ -431,6 +431,23 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+ 
+         return ret_d
+ 
++    # Always return strings from the LM outputs
++    # Even when it returns a dict with e.g., "text" and "reasoning" fields
++    def stripped_lm_call(self, x: str) -> list[str]:
++        raw_outputs = self.reflection_lm(x)
++        outputs = []
++        for raw_output in raw_outputs:
++            if type(raw_output) == str:
++                outputs.append(raw_output)
++            elif type(raw_output) == dict:
++                if "text" not in raw_output:
++                    raise KeyError("Missing 'text' field in the output from the base LM!")
++                outputs.append(raw_output["text"])
++            else:
++                raise TypeError("Unexpected output type from the base LM! Expected str or dict")
++
++        return outputs
++
+     # TODO: Generic tool module optimization - pending DSPy trace lineage improvements
+     # Currently only ReAct modules are supported for tool optimization.
+     # Re-enable _update_candidate_tools when DSPy provides better tool→trace lineage.
+diff --git a/dspy/utils/dummies.py b/dspy/utils/dummies.py
+index fb96f2c8..019f0fc0 100644
+--- a/dspy/utils/dummies.py
++++ b/dspy/utils/dummies.py
+@@ -67,12 +67,19 @@ class DummyLM(LM):
+ 
+     """
+ 
+-    def __init__(self, answers: list[dict[str, Any]] | dict[str, dict[str, Any]], follow_examples: bool = False, adapter=None):
++    def __init__(
++        self,
++        answers: list[dict[str, Any]] | dict[str, dict[str, Any]],
++        follow_examples: bool = False,
++        reasoning: bool = False,
++        adapter=None,
++    ):
+         super().__init__("dummy", "chat", 0.0, 1000, True)
+         self.answers = answers
+         if isinstance(answers, list):
+             self.answers = iter(answers)
+         self.follow_examples = follow_examples
++        self.reasoning = reasoning
+ 
+         # Set adapter, defaulting to ChatAdapter
+         if adapter is None:
+@@ -122,16 +129,23 @@ class DummyLM(LM):
+             kwargs = {**self.kwargs, **kwargs}
+ 
+             if self.follow_examples:
+-                outputs.append(self._use_example(messages))
++                current_output = self._use_example(messages)
+             elif isinstance(self.answers, dict):
+-                outputs.append(
+-                    next(
+-                        (format_answer_fields(v) for k, v in self.answers.items() if k in messages[-1]["content"]),
+-                        "No more responses",
+-                    )
++                current_output = next(
++                    (format_answer_fields(v) for k, v in self.answers.items() if k in messages[-1]["content"]),
++                    "No more responses",
+                 )
+             else:
+-                outputs.append(format_answer_fields(next(self.answers, {"answer": "No more responses"})))
++                current_output = format_answer_fields(next(self.answers, {"answer": "No more responses"}))
++
++            # Mock reasoning
++            if self.reasoning:
++                current_output = {
++                    "text": current_output,
++                    "reasoning_content": "Some reasoning",
++                }
++            # Store the output
++            outputs.append(current_output)
+ 
+             # Logging, with removed api key & where `cost` is None on cache hit.
+             kwargs = {k: v for k, v in kwargs.items() if not k.startswith("api_")}

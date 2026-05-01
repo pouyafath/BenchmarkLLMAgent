@@ -1,0 +1,62 @@
+diff --git a/lib/matplotlib/scale.py b/lib/matplotlib/scale.py
+index b482a664b..2b989a1b3 100644
+--- a/lib/matplotlib/scale.py
++++ b/lib/matplotlib/scale.py
+@@ -425,8 +425,19 @@ class LogScale(ScaleBase):
+             minpos = 1e-300  # This value should rarely if ever
+                              # end up with a visible effect.
+ 
+-        return (minpos if vmin <= 0 else vmin,
+-                minpos if vmax <= 0 else vmax)
++        # Handle inverted axis (vmin > vmax)
++        was_inverted = vmin > vmax
++        if was_inverted:
++            vmin, vmax = vmax, vmin
++
++        vmin = minpos if vmin <= 0 else vmin
++        vmax = minpos if vmax <= 0 else vmax
++
++        # Restore inverted order if needed
++        if was_inverted:
++            vmin, vmax = vmax, vmin
++
++        return vmin, vmax
+ 
+ 
+ class FuncScaleLog(LogScale):
+@@ -700,8 +711,20 @@ class LogitScale(ScaleBase):
+         if not np.isfinite(minpos):
+             minpos = 1e-7    # This value should rarely if ever
+                              # end up with a visible effect.
+-        return (minpos if vmin <= 0 else vmin,
+-                1 - minpos if vmax >= 1 else vmax)
++
++        # Handle inverted axis (vmin > vmax)
++        was_inverted = vmin > vmax
++        if was_inverted:
++            vmin, vmax = vmax, vmin
++
++        vmin = minpos if vmin <= 0 else vmin
++        vmax = 1 - minpos if vmax >= 1 else vmax
++
++        # Restore inverted order if needed
++        if was_inverted:
++            vmin, vmax = vmax, vmin
++
++        return vmin, vmax
+ 
+ 
+ _scale_mapping = {
+diff --git a/lib/matplotlib/ticker.py b/lib/matplotlib/ticker.py
+index 209a3f92c..a791b4acd 100644
+--- a/lib/matplotlib/ticker.py
++++ b/lib/matplotlib/ticker.py
+@@ -2379,8 +2379,6 @@ class LogLocator(Locator):
+         if not np.isfinite(vmin) or not np.isfinite(vmax):
+             return 1, 10  # initial range, no data plotted yet
+ 
+-        if vmin > vmax:
+-            vmin, vmax = vmax, vmin
+         if vmax <= 0:
+             cbook._warn_external(
+                 "Data has no positive values, and therefore cannot be "

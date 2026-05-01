@@ -1,0 +1,95 @@
+diff --git a/pylint/checkers/base/basic_error_checker.py b/pylint/checkers/base/basic_error_checker.py
+index e58be2309..8e169ba3e 100644
+--- a/pylint/checkers/base/basic_error_checker.py
++++ b/pylint/checkers/base/basic_error_checker.py
+@@ -285,7 +285,7 @@ class BasicErrorChecker(_BasicChecker):
+                     self.add_message("return-in-init", node=node)
+         # Check for duplicate names by clustering args with same name for detailed report
+         arg_clusters = {}
+-        arguments: Iterator[Any] = filter(None, [node.args.args, node.args.kwonlyargs])
++        arguments: Iterator[Any] = filter(None, [node.args.args, node.args.kwonlyargs, node.args.posonlyargs])
+         for arg in itertools.chain.from_iterable(arguments):
+             if arg.name in arg_clusters:
+                 self.add_message(
+@@ -297,6 +297,27 @@ class BasicErrorChecker(_BasicChecker):
+             else:
+                 arg_clusters[arg.name] = arg
+ 
++        # Check vararg and kwarg for duplicates
++        if node.args.vararg and node.args.vararg in arg_clusters:
++            self.add_message(
++                "duplicate-argument-name",
++                node=node,
++                args=(node.args.vararg,),
++                confidence=HIGH,
++            )
++        elif node.args.vararg:
++            arg_clusters[node.args.vararg] = node.args.vararg
++
++        if node.args.kwarg and node.args.kwarg in arg_clusters:
++            self.add_message(
++                "duplicate-argument-name",
++                node=node,
++                args=(node.args.kwarg,),
++                confidence=HIGH,
++            )
++        elif node.args.kwarg:
++            arg_clusters[node.args.kwarg] = node.args.kwarg
++
+     visit_asyncfunctiondef = visit_functiondef
+ 
+     def _check_name_used_prior_global(self, node: nodes.FunctionDef) -> None:
+diff --git a/tests/functional/d/duplicate/duplicate_argument_name.py b/tests/functional/d/duplicate/duplicate_argument_name.py
+index c0c68b43b..511718bd4 100644
+--- a/tests/functional/d/duplicate/duplicate_argument_name.py
++++ b/tests/functional/d/duplicate/duplicate_argument_name.py
+@@ -1,14 +1,27 @@
+ """Check for duplicate function arguments."""
+ 
++# pylint: disable=missing-docstring, line-too-long, unused-argument
+ 
+ def foo1(_, _): # [duplicate-argument-name]
+-    """Function with duplicate argument name."""
++    ...
+ 
+ def foo2(_abc, *, _abc): # [duplicate-argument-name]
+-    """Function with duplicate argument name."""
++    ...
+ 
+ def foo3(_, _=3): # [duplicate-argument-name]
+-    """Function with duplicate argument name."""
++    ...
+ 
+ def foo4(_, *, _): # [duplicate-argument-name]
+-    """Function with duplicate argument name."""
++    ...
++
++def foo5(_, *_, _=3): # [duplicate-argument-name, duplicate-argument-name]
++    ...
++
++def foo6(a, *a): # [duplicate-argument-name]
++    ...
++
++def foo7(a, /, a): # [duplicate-argument-name]
++    ...
++
++def foo8(a, **a): # [duplicate-argument-name]
++    ...
+diff --git a/tests/functional/d/duplicate/duplicate_argument_name.txt b/tests/functional/d/duplicate/duplicate_argument_name.txt
+index 2925c5ac4..233eb61c5 100644
+--- a/tests/functional/d/duplicate/duplicate_argument_name.txt
++++ b/tests/functional/d/duplicate/duplicate_argument_name.txt
+@@ -1,4 +1,9 @@
+-duplicate-argument-name:4:12:4:13:foo1:Duplicate argument name _ in function definition:HIGH
+-duplicate-argument-name:7:18:7:22:foo2:Duplicate argument name _abc in function definition:HIGH
+-duplicate-argument-name:10:12:10:13:foo3:Duplicate argument name _ in function definition:HIGH
+-duplicate-argument-name:13:15:13:16:foo4:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:5:12:5:13:foo1:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:8:18:8:22:foo2:Duplicate argument name _abc in function definition:HIGH
++duplicate-argument-name:11:12:11:13:foo3:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:14:15:14:16:foo4:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:17:16:17:17:foo5:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:17:0:17:8:foo5:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:20:0:20:8:foo6:Duplicate argument name a in function definition:HIGH
++duplicate-argument-name:23:9:23:10:foo7:Duplicate argument name a in function definition:HIGH
++duplicate-argument-name:26:0:26:8:foo8:Duplicate argument name a in function definition:HIGH

@@ -1,0 +1,45 @@
+{
+  "issue_id": "pytest-dev/pytest#5787",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "exception serialization should include chained exceptions",
+  "original_body": "exception serialization should include chained exceptions\ngiven some simple tests:\r\n```\r\ndef test_chained_exception_with_from():\r\n    try:\r\n        try:\r\n            raise ValueError(11)\r\n        except Exception as e1:\r\n            raise ValueError(12) from e1\r\n    except Exception as e2:\r\n        raise ValueError(13) from e2\r\n\r\n\r\ndef test_chained_exception_without_from():\r\n    try:\r\n        try:\r\n            raise ValueError(21)\r\n        except Exception:\r\n            raise ValueError(22)\r\n    except Exception:\r\n        raise ValueError(23)\r\n```\r\nwhen run without xdist it displays whole exception trace nicely :\r\n```\r\n================ FAILURES ==========================\r\n__________________________ test_chained_exception_with_from _______________________\r\n\r\n    def test_chained_exception_with_from():\r\n        try:\r\n            try:\r\n>               raise ValueError(11)\r\nE               ValueError: 11\r\n\r\nbasic/test_basic.py:80: ValueError\r\n\r\nThe above exception was the direct cause of the following exception:\r\n\r\n    def test_chained_exception_with_from():\r\n        try:\r\n            try:\r\n                raise ValueError(11)\r\n            except Exception as e1:\r\n>               raise ValueError(12) from e1\r\nE               ValueError: 12\r\n\r\nbasic/test_basic.py:82: ValueError\r\n\r\nThe above exception was the direct cause of the following exception:\r\n\r\n    def test_chained_exception_with_from():\r\n        try:\r\n            try:\r\n                raise ValueError(11)\r\n            except Exception as e1:\r\n                raise ValueError(12) from e1\r\n        except Exception as e2:\r\n>           raise ValueError(13) from e2\r\nE           ValueError: 13\r\n\r\nbasic/test_basic.py:84: ValueError\r\n\r\n\r\n_____________________ test_chained_exception_without_from ____________________________\r\n\r\n    def test_chained_exception_without_from():\r\n        try:\r\n            try:\r\n>               raise ValueError(21)\r\nE               ValueError: 21\r\n\r\nbasic/test_basic.py:90: ValueError\r\n\r\nDuring handling of the above exception, another exception occurred:\r\n\r\n    def test_chained_exception_without_from():\r\n        try:\r\n            try:\r\n                raise ValueError(21)\r\n            except Exception:\r\n>               raise ValueError(22)\r\nE               ValueError: 22\r\n\r\nbasic/test_basic.py:92: ValueError\r\n\r\nDuring handling of the above exception, another exception occurred:\r\n\r\n    def test_chained_exception_without_from():\r\n        try:\r\n            try:\r\n                raise ValueError(21)\r\n            except Exception:\r\n                raise ValueError(22)\r\n        except Exception:\r\n>           raise ValueError(23)\r\nE           ValueError: 23\r\n\r\nbasic/test_basic.py:94: ValueError\r\n\r\n```\r\n\r\nbut when run with xdist (`-n auto`), it just displays the last one:\r\n```\r\n============ FAILURES ================\r\n_____________ test_chained_exception_with_from _______________________________\r\n[gw0] linux -- Python 3.6.7 /home/mulawa/developement/omcp/has/test/py/.tox/sct/bin/python3.6\r\n\r\n    def test_chained_exception_with_from():\r\n        try:\r\n            try:\r\n                raise ValueError(11)\r\n            except Exception as e1:\r\n                raise ValueError(12) from e1\r\n        except Exception as e2:\r\n>           raise ValueError(13) from e2\r\nE           ValueError: 13\r\n\r\nbasic/test_basic.py:84: ValueError\r\n\r\n____________ test_chained_exception_without_from ____________\r\n[gw1] linux -- Python 3.6.7 /home/mulawa/developement/omcp/has/test/py/.tox/sct/bin/python3.6\r\n\r\n    def test_chained_exception_without_from():\r\n        try:\r\n            try:\r\n                raise ValueError(21)\r\n            except Exception:\r\n                raise ValueError(22)\r\n        except Exception:\r\n>           raise ValueError(23)\r\nE           ValueError: 23\r\n\r\nbasic/test_basic.py:94: ValueError\r\n\r\n```\r\n\r\nmy setup:\r\n```\r\npytest           4.0.2       \r\npytest-xdist     1.25.0\r\n```\n",
+  "enhanced_title": "Exception serialization in pytest-xdist should preserve chained exceptions",
+  "enhanced_body": "## Problem Summary\nWhen running tests with pytest-xdist, chained exceptions are not properly serialized and displayed, showing only the final exception instead of the complete exception chain. This differs from the behavior when running tests without xdist.\n\n## Reproduction Steps\n1. Create a test file with chained exceptions (both with and without `from` clause)\n2. Run tests with `pytest -n auto` (using xdist)\n3. Observe that only the final exception is displayed\n4. Run tests without xdist (`pytest`)\n5. Observe that the complete exception chain is displayed\n\n## Expected Behavior\nWhen running tests with xdist, the exception display should match the behavior without xdist, showing:\n- The complete chain of exceptions\n- Proper \"direct cause\" or \"during handling\" annotations\n- All exception messages and tracebacks\n\n## Actual Behavior\nWith xdist, only the final exception in the chain is displayed, losing context about the exception chain.\n\n## Test Cases\n```python\ndef test_chained_exception_with_from():\n    try:\n        try:\n            raise ValueError(11)\n        except Exception as e1:\n            raise ValueError(12) from e1\n    except Exception as e2:\n        raise ValueError(13) from e2\n\ndef test_chained_exception_without_from():\n    try:\n        try:\n            raise ValueError(21)\n        except Exception:\n            raise ValueError(22)\n    except Exception:\n        raise ValueError(23)\n```\n\n## Environment\n- pytest: 4.0.2\n- pytest-xdist: 1.25.0\n- Python: 3.6.7\n\n## Affected Components\nBased on the hints, this issue likely affects:\n- `pytest-xdist` serialization/deserialization of exceptions\n- Exception formatting in the xdist worker nodes\n- The `pytest` core exception handling when receiving results from workers\n\n## Additional Context\nThe issue occurs because xdist serializes exceptions when transferring them between worker nodes and the controller. The current serialization mechanism doesn't preserve the complete exception chain information.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp28giv44n/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

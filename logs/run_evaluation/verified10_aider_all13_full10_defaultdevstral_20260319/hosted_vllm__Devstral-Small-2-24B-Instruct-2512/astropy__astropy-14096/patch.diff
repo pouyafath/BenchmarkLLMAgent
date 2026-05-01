@@ -1,0 +1,30 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..fb7ad5757 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -895,9 +895,22 @@ class SkyCoord(ShapedLikeNDArray):
+                 return self.transform_to(attr)
+ 
+         # Fail
+-        raise AttributeError(
+-            f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+-        )
++        cls = type(self)
++        # Check if this is a property/method that exists (including inherited)
++        if (attr in cls.__dict__ or
++            any(attr in c.__dict__ for c in cls.__mro__[1:]) or
++            (hasattr(cls, "annotations") and attr in cls.__annotations__)):
++            # This is a property/method - try to get it and let any AttributeError propagate
++            try:
++                return object.__getattribute__(self, attr)
++            except AttributeError:
++                # Re-raise the AttributeError from the property
++                raise
++        else:
++            # Attribute doesn't exist - raise our custom error
++            raise AttributeError(
++                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
++            )
+ 
+     def __setattr__(self, attr, val):
+         # This is to make anything available through __getattr__ immutable

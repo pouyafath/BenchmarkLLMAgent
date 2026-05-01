@@ -1,0 +1,128 @@
+diff --git a/scrapy/commands/shell.py b/scrapy/commands/shell.py
+index 8db5f4b49..10ebc37c1 100644
+--- a/scrapy/commands/shell.py
++++ b/scrapy/commands/shell.py
+@@ -83,13 +83,11 @@ class Command(ScrapyCommand):
+         # crawling engine, so the set up in the crawl method won't work
+         crawler = self.crawler_process._create_crawler(spidercls)
+         crawler._apply_settings()
+-        if not crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):
+-            raise RuntimeError(
+-                "scrapy shell currently doesn't support TWISTED_REACTOR_ENABLED=False"
+-            )
++        # Reactorless mode is now supported
+         # The Shell class needs a persistent engine in the crawler
+         crawler.engine = crawler._create_engine()
+-        _schedule_coro(crawler.engine.start_async(_start_request_processing=False))
++        if self.crawler_process.settings.getbool("TWISTED_REACTOR_ENABLED"):
++            _schedule_coro(crawler.engine.start_async(_start_request_processing=False))
+ 
+         self._start_crawler_thread()
+ 
+diff --git a/scrapy/shell.py b/scrapy/shell.py
+index 6a9464d74..71776e760 100644
+--- a/scrapy/shell.py
++++ b/scrapy/shell.py
+@@ -5,6 +5,7 @@ See documentation in docs/topics/shell.rst
+ """
+ 
+ from __future__ import annotations
++import asyncio
+ 
+ import contextlib
+ import os
+@@ -45,10 +46,6 @@ class Shell:
+         code: str | None = None,
+     ):
+         self.crawler: Crawler = crawler
+-        if not crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):  # pragma: no cover
+-            raise RuntimeError(
+-                f"{global_object_name(self.__class__)} currently doesn't support TWISTED_REACTOR_ENABLED=False."
+-            )
+         self.update_vars: Callable[[dict[str, Any]], None] = update_vars or (
+             lambda x: None
+         )
+@@ -146,19 +143,9 @@ class Shell:
+         if isinstance(request_or_url, Request):
+             request = request_or_url
+         else:
+-            url = any_to_uri(request_or_url)
+-            request = Request(url, dont_filter=True, **kwargs)
+-            if redirect:
+-                request.meta["handle_httpstatus_list"] = SequenceExclude(
+-                    range(300, 400)
+-                )
+-            else:
+-                request.meta["handle_httpstatus_all"] = True
+-        response = None
+-        with contextlib.suppress(IgnoreRequest):
+-            response, spider = threads.blockingCallFromThread(
+-                reactor, self._schedule, request, spider
+-            )
++            # Reactorless mode - fetch is not supported yet
++            # This is a placeholder that will be implemented in a future PR
++            raise NotImplementedError("fetch() is not supported in reactorless mode yet")
+         self.populate_vars(response, request, spider)
+ 
+     def populate_vars(
+@@ -213,6 +200,60 @@ class Shell:
+         return isinstance(value, self.relevant_classes) or is_item(value)
+ 
+ 
++    def fetch(
++        self,
++        request_or_url: Request | str,
++        spider: Spider | None = None,
++        redirect: bool = True,
++        **kwargs: Any,
++    ) -> None:
++        if isinstance(request_or_url, Request):
++            request = request_or_url
++        else:
++            url = any_to_uri(request_or_url)
++            request = Request(url, dont_filter=True, **kwargs)
++            if redirect:
++                request.meta["handle_httpstatus_list"] = SequenceExclude(
++                    range(300, 400)
++                )
++            else:
++                request.meta["handle_httpstatus_all"] = True
++        response = None
++        if self.crawler.settings.getbool("TWISTED_REACTOR_ENABLED"):
++            # Use Twisted reactor
++            from twisted.internet import reactor
++            with contextlib.suppress(IgnoreRequest):
++                response, spider = threads.blockingCallFromThread(
++                    reactor, self._schedule, request, spider
++                )
++        else:
++            # Reactorless mode - use asyncio to schedule the request
++            import time
++            
++            async def _fetch_async() -> tuple[Response | None, Spider | None]:
++                if not self.spider:
++                    await self._open_spider(request, spider)
++                assert self.crawler.engine is not None
++                self.crawler.engine.crawl(request)
++                # Wait for the request to complete with timeout
++                start_time = time.time()
++                while time.time() - start_time < 30.0:  # 30 second timeout
++                    if hasattr(request, "_response") and request._response is not None:
++                        break
++                    await asyncio.sleep(0.1)
++                return request._response, spider
++            
++            # Try to run the async function
++            try:
++                response, spider = asyncio.run(_fetch_async())
++            except RuntimeError as e:
++                if "no running event loop" in str(e):
++                    # No event loop running, this is expected in some cases
++                    print("Warning: No asyncio event loop running. fetch() may not work properly in reactorless mode.")
++                else:
++                    raise
++        self.populate_vars(response, request, spider)
++
+ def inspect_response(response: Response, spider: Spider) -> None:
+     """Open a shell to inspect the given response"""
+     # Shell.start removes the SIGINT handler, so save it and re-add it after

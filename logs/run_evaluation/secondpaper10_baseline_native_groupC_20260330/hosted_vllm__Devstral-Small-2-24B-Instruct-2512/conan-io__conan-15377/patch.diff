@@ -1,0 +1,35 @@
+diff --git a/conan/tools/scm/git.py b/conan/tools/scm/git.py
+index 77d0e6dbb..93ba4eafd 100644
+--- a/conan/tools/scm/git.py
++++ b/conan/tools/scm/git.py
+@@ -1,7 +1,7 @@
+ import fnmatch
+ import os
+ 
+-from conan.tools.files import chdir
++from conan.tools.files import chdir, update_conandata
+ from conan.errors import ConanException
+ from conans.model.conf import ConfDefinition
+ from conans.util.files import mkdir
+@@ -227,6 +227,21 @@ class Git:
+         self._conanfile.output.info("Checkout: {}".format(commit))
+         self.run('checkout {}'.format(commit))
+ 
++
++    def update_conandata_scm(self, key="scm", remote="origin", repository=False):
++        """
++        Captures the current git URL and commit, and updates the conandata.yml file
++        with this information. This is a convenience method that combines
++        :meth:`get_url_and_commit` and :func:`conan.tools.files.update_conandata`.
++
++        :param key: Key to use in conandata.yml (default: "scm").
++        :param remote: Name of the remote git repository ('origin' by default).
++        :param repository: By default gets the commit of the defined folder, use repo=True to get
++                     the commit of the repository instead.
++        """
++        url, commit = self.get_url_and_commit(remote=remote, repository=repository)
++        update_conandata(self._conanfile, {key: {"commit": commit, "url": url}})
++
+     def included_files(self):
+         """
+         Run ``git ls-files --full-name --others --cached --exclude-standard`` to the get the list

@@ -1,0 +1,99 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,1 +1,3 @@
+-from typing import Any, Callable, Dict, Set
++from typing import Any, Callable, Dict, Set
++import threading
++from collections import defaultdict
+@@ -102,2 +104,29 @@
+-    def __init__(self, *args, **kwargs):
+-        super().__init__(*args, **kwargs)
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++        # Cache for @var values
++        self._var_cache: Dict[str, Any] = {}
++        # Dependency graph: var -> set of vars that depend on it
++        self._var_dependencies: Dict[str, Set[str]] = defaultdict(set)
++
++    # Thread‑local storage to track which var is currently being computed
++    _var_compute_context = threading.local()
++
++    def _record_dependency(self, var_name: str) -> None:
++        """Record that the currently computing var depends on ``var_name``."""
++        current = getattr(self._var_compute_context, "current", None)
++        if current and current != var_name:
++            self._var_dependencies[current].add(var_name)
++
++    def _invalidate_dependents(self, var_name: str, _visited: Set[str] | None = None) -> None:
++        """Recursively invalidate cached values of vars that depend on ``var_name``."""
++        if _visited is None:
++            _visited = set()
++        if var_name in _visited:
++            return
++        _visited.add(var_name)
++        for dependent in self._var_dependencies.get(var_name, set()):
++            if dependent in self._var_cache:
++                del self._var_cache[dependent]
++            self._invalidate_dependents(dependent, _visited)
++        # Once invalidated, clear the dependency edges for this var
++        self._var_dependencies[var_name].clear()
+@@ -204,16 +233,42 @@
+-    @staticmethod
+-    def var(cache: bool = False) -> Callable[[Callable[[Any], Any]], Any]:
+-        def decorator(func: Callable[[Any], Any]) -> Any:
+-            name = func.__name__
+-
+-            @property
+-            def wrapper(self):
+-                if cache and name in self._var_cache:
+-                    return self._var_cache[name]
+-                value = func(self)
+-                if cache:
+-                    self._var_cache[name] = value
+-                return value
+-
+-            return wrapper
+-        return decorator
++    @staticmethod
++    def var(cache: bool = False) -> Callable[[Callable[[Any], Any]], Any]:
++        """
++        Decorator for defining reactive variables on a ``State`` subclass.
++
++        When ``cache`` is ``True`` the result of the function is cached until
++        any of its dependencies change. Dependencies are other ``@var`` values
++        accessed during the function execution. The dependency graph is
++        automatically built and used to invalidate dependent caches.
++        """
++
++        def decorator(func: Callable[[Any], Any]) -> Any:
++            name = func.__name__
++
++            @property
++            def wrapper(self: "State"):
++                # Record dependency if this var is accessed while another var is computing
++                self._record_dependency(name)
++
++                # Return cached value if available
++                if cache and name in self._var_cache:
++                    return self._var_cache[name]
++
++                # Set up context to track dependencies during computation
++                prev = getattr(self._var_compute_context, "current", None)
++                self._var_compute_context.current = name
++                try:
++                    value = func(self)
++                finally:
++                    # Restore previous context
++                    self._var_compute_context.current = prev
++
++                # Cache the computed value
++                if cache:
++                    self._var_cache[name] = value
++                    # Invalidate any vars that depend on this one, because its value may have changed
++                    self._invalidate_dependents(name)
++                return value
++
++            return wrapper
++
++        return decorator

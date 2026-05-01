@@ -1,0 +1,42 @@
+diff --git a/django/db/backends/base/operations.py b/django/db/backends/base/operations.py
+index 2e283a3193..f29bef38af 100644
+--- a/django/db/backends/base/operations.py
++++ b/django/db/backends/base/operations.py
+@@ -580,7 +580,36 @@ class BaseDatabaseOperations:
+ 
+     def convert_durationfield_value(self, value, expression, connection):
+         if value is not None:
+-            return datetime.timedelta(0, 0, value)
++            # Handle integer microseconds (direct field values)
++            if isinstance(value, int):
++                return datetime.timedelta(0, 0, value)
++            # Handle string representations (expression results)
++            elif isinstance(value, str):
++                from django.utils.dateparse import parse_duration
++                # Strip quotes if present
++                if value.startswith("'") and value.endswith("'"):
++                    value = value[1:-1]
++                elif value.startswith('"') and value.endswith('"'):
++                    value = value[1:-1]
++                try:
++                    return parse_duration(value)
++                except (ValueError, TypeError):
++                    # If parsing fails, try to convert to int first
++                    # (in case it's a string of digits representing microseconds)
++                    try:
++                        return datetime.timedelta(0, 0, int(value))
++                    except (ValueError, TypeError):
++                        # If all else fails, return None
++                        return None
++            # Handle timedelta objects directly
++            elif isinstance(value, datetime.timedelta):
++                return value
++            # Handle decimal objects (might come from database)
++            elif isinstance(value, decimal.Decimal):
++                try:
++                    return datetime.timedelta(0, 0, int(value))
++                except (ValueError, TypeError):
++                    return None
+ 
+     def check_expression_support(self, expression):
+         """

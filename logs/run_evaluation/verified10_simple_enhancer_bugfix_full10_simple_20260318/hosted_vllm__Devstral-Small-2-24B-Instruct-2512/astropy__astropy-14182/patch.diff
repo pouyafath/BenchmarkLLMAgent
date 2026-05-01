@@ -1,0 +1,51 @@
+diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py
+index abdeba8ef..95f107202 100644
+--- a/astropy/io/ascii/rst.py
++++ b/astropy/io/ascii/rst.py
+@@ -57,10 +57,43 @@ class RST(FixedWidth):
+     data_class = SimpleRSTData
+     header_class = SimpleRSTHeader
+ 
+-    def __init__(self):
+-        super().__init__(delimiter_pad=None, bookend=False)
++    def __init__(self, header_rows=None):
++        if header_rows is None:
++            header_rows = ["name"]
++        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
+ 
+     def write(self, lines):
+         lines = super().write(lines)
+-        lines = [lines[1]] + lines + [lines[1]]
++
++        # For RST format, we need to add position lines around the header and data
++        # The structure from FixedWidth.write is: [header_rows..., position_line, data_lines...]
++        # We need to add a position line at the beginning and end
++
++        # Calculate the widths from the existing lines
++        if not lines:
++            return lines
++
++        # Find the maximum width needed for each column
++        # Assume all lines have the same number of columns
++        num_cols = len(lines[0].split()) if lines[0].strip() else 1
++
++        # Calculate column widths by looking at the widest line
++        col_widths = []
++        for line in lines:
++            if not line.strip():
++                continue
++            parts = line.split()
++            if len(parts) != num_cols:
++                continue
++            for i, part in enumerate(parts):
++                while i >= len(col_widths):
++                    col_widths.append(0)
++                if len(part) > col_widths[i]:
++                    col_widths[i] = len(part)
++
++        # Create position line
++        position_line = " ".join("=" * width for width in col_widths)
++
++        # Add position lines: one at the beginning and one at the end
++        lines = [position_line] + lines + [position_line]
+         return lines

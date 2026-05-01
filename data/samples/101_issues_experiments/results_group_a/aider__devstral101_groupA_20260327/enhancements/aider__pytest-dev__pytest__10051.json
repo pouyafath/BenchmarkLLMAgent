@@ -1,0 +1,42 @@
+{
+  "issue_id": "pytest-dev/pytest#10051",
+  "agent": "aider",
+  "cache_key": "acabfd4634067932",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "aider"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "caplog.get_records and caplog.clear conflict",
+  "original_body": "caplog.get_records and caplog.clear conflict\n# Description\r\n\r\n`caplog.get_records()` gets decoupled from actual caplog records when `caplog.clear()` is called. As a result, after `caplog.clear()` is called, `caplog.get_records()` is frozen: it does not get cleared, nor does it get new records.\r\n\r\nDuring test set up it is [set to the same list](https://github.com/pytest-dev/pytest/blob/28e8c8582ea947704655a3c3f2d57184831336fd/src/_pytest/logging.py#L699) as `caplog.records`, but the latter gets [replaced rather than cleared](https://github.com/pytest-dev/pytest/blob/28e8c8582ea947704655a3c3f2d57184831336fd/src/_pytest/logging.py#L345) in `caplog.clear()`, which diverges the two objects.\r\n\r\n# Reproductive example\r\n```python\r\nimport logging\r\n\r\ndef test(caplog) -> None:\r\n    def verify_consistency() -> None:\r\n        assert caplog.get_records(\"call\") == caplog.records\r\n\r\n    verify_consistency()\r\n    logging.warning(\"test\")\r\n    verify_consistency()\r\n    caplog.clear()\r\n    verify_consistency()  # fails: assert [<LogRecord: ...y, 8, \"test\">] == []\r\n```\r\n\r\n# Environment details\r\nArch Linux, Python 3.9.10:\r\n```\r\nPackage    Version\r\n---------- -------\r\nattrs      21.4.0\r\niniconfig  1.1.1\r\npackaging  21.3\r\npip        22.0.4\r\npluggy     1.0.0\r\npy         1.11.0\r\npyparsing  3.0.8\r\npytest     7.1.1\r\nsetuptools 60.10.0\r\ntomli      2.0.1\r\nwheel      0.37.1\r\n```\n",
+  "enhanced_title": "caplog.get_records() and caplog.clear() inconsistency causes frozen records",
+  "enhanced_body": "## Issue Description\n\nThe `caplog.get_records()` method becomes decoupled from the actual caplog records after `caplog.clear()` is called. This causes `caplog.get_records()` to become \"frozen\" - it neither gets cleared nor receives new records.\n\n## Root Cause\n\nDuring test setup, `caplog.get_records()` is set to reference the same list as `caplog.records` (see [src/_pytest/logging.py#L699](https://github.com/pytest-dev/pytest/blob/28e8c8582ea947704655a3c3f2d57184831336fd/src/_pytest/logging.py#L699)). However, when `caplog.clear()` is called, it replaces rather than clears the `caplog.records` list (see [src/_pytest/logging.py#L345](https://github.com/pytest-dev/pytest/blob/28e8c8582ea947704655a3c3f2d57184831336fd/src/_pytest/logging.py#L345)), creating a divergence between the two objects.\n\n## Reproduction Steps\n\n1. Create a test using the caplog fixture\n2. Verify initial consistency between `caplog.get_records(\"call\")` and `caplog.records`\n3. Log a warning message\n4. Verify consistency again (should still match)\n5. Call `caplog.clear()`\n6. Verify consistency (this will fail)\n\n## Expected Behavior\n\nAfter calling `caplog.clear()`, both `caplog.get_records()` and `caplog.records` should return empty lists, and subsequent log records should be properly captured.\n\n## Actual Behavior\n\nAfter `caplog.clear()`:\n- `caplog.records` returns an empty list (correct)\n- `caplog.get_records()` returns the old records (incorrect)\n- New log records are not captured by `caplog.get_records()`\n\n## Environment Details\n\n- OS: Arch Linux\n- Python: 3.9.10\n- pytest: 7.1.1\n\n## Example Test Case\n\n```python\nimport logging\n\ndef test(caplog) -> None:\n    def verify_consistency() -> None:\n        assert caplog.get_records(\"call\") == caplog.records\n\n    verify_consistency()\n    logging.warning(\"test\")\n    verify_consistency()\n    caplog.clear()\n    verify_consistency()  # Fails with: assert [<LogRecord: ...y, 8, \"test\">] == []\n```\n\n## Suggested Fix\n\nThe `caplog.clear()` method should either:\n1. Clear the existing list instead of replacing it, or\n2. Update the reference in `caplog.get_records()` to point to the new list\n\nThis would maintain consistency between the two methods throughout the test lifecycle.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "aider",
+    "model": "openai/Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "aider_returncode": 0,
+    "aider_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\nWarning: Input is not a terminal (fd=0).\n",
+    "aider_stdout_preview": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nAider v0.86.2\nModel: openai/Devstral-Small-2-24B-Instruct-2512 with whole edit format\nGit repo: none\nRepo-map: disabled\nAdded issue.md to the chat.\n\nissue.md                                                                        \n\n                                                                                \n@@ -1,5 +1,6 @@                                                                 \n # GitHub Issue           ",
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "returncode": 0,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

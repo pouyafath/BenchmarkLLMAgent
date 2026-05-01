@@ -1,0 +1,87 @@
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..2fdcc0ac 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -215,6 +215,14 @@ class App(Scaffold):
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
+ 
++    #: A list of secret keys for gradual rotation. If provided, this takes precedence
++    #: over :attr:`secret_key`. The first key is used for signing, and subsequent keys
++    #: are used to verify existing sessions signed with older keys.
++    #:
++    #: This attribute can also be configured from the config with the
++    #: :data:`SECRET_KEYS` configuration key. Defaults to ``None``.
++    secret_keys = ConfigAttribute[t.Union[list, None]]("SECRET_KEYS")
++
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+     #: permanent session survive for roughly one month.
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..711d2e17 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -101,8 +101,8 @@ class NullSession(SecureCookieSession):
+     def _fail(self, *args: t.Any, **kwargs: t.Any) -> t.NoReturn:
+         raise RuntimeError(
+             "The session is unavailable because no secret "
+-            "key was set.  Set the secret_key on the "
+-            "application to something unique and secret."
++            "key was set.  Set the secret_key or secret_keys "
++            "on the application to something unique and secret."
+         )
+ 
+     __setitem__ = __delitem__ = clear = pop = popitem = update = setdefault = _fail  # type: ignore # noqa: B950
+@@ -313,17 +313,41 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
+-            return None
+-        signer_kwargs = dict(
+-            key_derivation=self.key_derivation, digest_method=self.digest_method
+-        )
+-        return URLSafeTimedSerializer(
+-            app.secret_key,
+-            salt=self.salt,
+-            serializer=self.serializer,
+-            signer_kwargs=signer_kwargs,
+-        )
++        # Check if secret_keys is provided (takes precedence over secret_key)
++        secret_keys = None
++        try:
++            secret_keys = app.secret_keys
++        except (KeyError, AttributeError):
++            # SECRET_KEYS not set in config, fall back to single secret_key
++            pass
++
++        if secret_keys is None:
++            # Use single secret_key
++            secret_key = app.secret_key
++            if not secret_key:
++                return None
++            return URLSafeTimedSerializer(
++                secret_key,
++                salt=self.salt,
++                serializer=self.serializer,
++                signer_kwargs=dict(
++                    key_derivation=self.key_derivation, digest_method=self.digest_method
++                ),
++            )
++        else:
++            # secret_keys should be a list
++            if isinstance(secret_keys, list) and len(secret_keys) > 0:
++                # Use multiple keys - last key is for signing, others for verification
++                return URLSafeTimedSerializer(
++                    secret_keys,
++                    salt=self.salt,
++                    serializer=self.serializer,
++                    signer_kwargs=dict(
++                        key_derivation=self.key_derivation, digest_method=self.digest_method
++                    ),
++                )
++            else:
++                return None
+ 
+     def open_session(self, app: Flask, request: Request) -> SecureCookieSession | None:
+         s = self.get_signing_serializer(app)

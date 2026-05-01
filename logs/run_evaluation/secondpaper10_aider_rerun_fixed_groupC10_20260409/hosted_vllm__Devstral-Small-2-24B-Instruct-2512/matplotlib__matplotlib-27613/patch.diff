@@ -1,0 +1,53 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..1faf8361ca 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -201,6 +201,39 @@ validate_string = _make_type_validator(str)
+ validate_string_or_None = _make_type_validator(str, allow_none=True)
+ validate_stringlist = _listify_validator(
+     validate_string, doc='return a list of strings')
++def validate_marker(s):
++    """
++    Validate a marker value, accepting both string marker names and numeric marker constants.
++    """
++    from matplotlib import markers as mk
++
++    # If it's already a string, validate it as a string
++    if isinstance(s, str):
++        return validate_string(s)
++
++    # If it's a numeric value, check if it's a valid marker constant
++    try:
++        # Get the marker constants from the markers module
++        marker_constants = {}
++        for attr_name in dir(mk):
++            if attr_name.isupper() and not attr_name.startswith('_'):
++                attr_value = getattr(mk, attr_name)
++                if isinstance(attr_value, int):
++                    marker_constants[attr_value] = attr_name
++
++        # Check if the numeric value is a valid marker constant
++        if s in marker_constants:
++            # Return the numeric value as-is, matplotlib will handle it internally
++            return s
++
++        # If the numeric value doesn't correspond to a known marker constant, raise an error
++        raise ValueError(f'Could not convert {s!r} to a valid marker')
++    except Exception:
++        raise ValueError(f'Could not convert {s!r} to a valid marker')
++
++validate_markerlist = _listify_validator(
++    validate_marker, doc='return a list of marker specifications')
++
+ validate_int = _make_type_validator(int)
+ validate_int_or_None = _make_type_validator(int, allow_none=True)
+ validate_float = _make_type_validator(float)
+@@ -645,7 +678,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }

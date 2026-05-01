@@ -1,0 +1,45 @@
+{
+  "issue_id": "matplotlib/matplotlib#20488",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "test_huge_range_log is failing...",
+  "original_body": "test_huge_range_log is failing...\n<!--To help us understand and resolve your issue, please fill out the form to the best of your ability.-->\r\n<!--You can feel free to delete the sections that do not apply.-->\r\n\r\n### Bug report\r\n\r\n`lib/matplotlib/tests/test_image.py::test_huge_range_log` is failing quite a few of the CI runs with a Value Error.  \r\n\r\nI cannot reproduce locally, so I assume there was a numpy change somewhere...\r\n\r\nThis test came in #18458\r\n\r\n\r\n```\r\nlib/matplotlib/image.py:638: in draw\r\n    im, l, b, trans = self.make_image(\r\nlib/matplotlib/image.py:924: in make_image\r\n    return self._make_image(self._A, bbox, transformed_bbox, clip,\r\nlib/matplotlib/image.py:542: in _make_image\r\n    output = self.norm(resampled_masked)\r\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \r\n\r\nself = <matplotlib.colors.LogNorm object at 0x7f057193f430>\r\nvalue = masked_array(\r\n  data=[[--, --, --, ..., --, --, --],\r\n        [--, --, --, ..., --, --, --],\r\n        [--, --, --, ..., ... False, False, ..., False, False, False],\r\n        [False, False, False, ..., False, False, False]],\r\n  fill_value=1e+20)\r\nclip = False\r\n\r\n    def __call__(self, value, clip=None):\r\n        value, is_scalar = self.process_value(value)\r\n        self.autoscale_None(value)\r\n        if self.vmin > self.vmax:\r\n            raise ValueError(\"vmin must be less or equal to vmax\")\r\n        if self.vmin == self.vmax:\r\n            return np.full_like(value, 0)\r\n        if clip is None:\r\n            clip = self.clip\r\n        if clip:\r\n            value = np.clip(value, self.vmin, self.vmax)\r\n        t_value = self._trf.transform(value).reshape(np.shape(value))\r\n        t_vmin, t_vmax = self._trf.transform([self.vmin, self.vmax])\r\n        if not np.isfinite([t_vmin, t_vmax]).all():\r\n>           raise ValueError(\"Invalid vmin or vmax\")\r\nE           ValueError: Invalid vmin or vmax\r\nlib/matplotlib/colors.py:1477: ValueError\r\n```\r\n\r\n\n",
+  "enhanced_title": "test_huge_range_log fails with ValueError due to invalid vmin/vmax in LogNorm",
+  "enhanced_body": "## Summary\nThe test `test_huge_range_log` in `lib/matplotlib/tests/test_image.py` is failing intermittently in CI runs with a `ValueError: Invalid vmin or vmax` when using `LogNorm`. The issue appears to be related to recent numpy changes.\n\n## Expected Behavior\nThe test should pass consistently across all CI runs, properly handling logarithmic normalization of image data with a huge range.\n\n## Actual Behavior\nThe test fails with:\n```\nValueError: Invalid vmin or vmax\n```\nin `lib/matplotlib/colors.py:1477` when `LogNorm` checks if transformed vmin/vmax values are finite.\n\n## Reproduction Steps\nTo reproduce this issue, you would need to:\n1. Have matplotlib installed in development mode\n2. Run the test using matplotlib's test runner\n\n## Environment Details\n- Test introduced in PR #18458\n- Failing in CI but not consistently reproducible locally\n- Likely related to numpy version changes affecting numerical stability\n- The error occurs when processing masked array data with extreme value ranges (fill_value=1e+20)\n\n## Affected Components\n- `lib/matplotlib/colors.py` (LogNorm implementation)\n- `lib/matplotlib/image.py` (image drawing and normalization)\n- `lib/matplotlib/tests/test_image.py` (test case)\n\n## Error Details\nThe error occurs in the LogNorm's `__call__` method when checking:\n```python\nif not np.isfinite([t_vmin, t_vmax]).all():\n    raise ValueError(\"Invalid vmin or vmax\")\n```\n\nThis suggests that for some input data ranges, the logarithmic transformation produces non-finite values (inf or nan) for either vmin or vmax.\n\n## Suggested Investigation\n1. Check what values are being passed to LogNorm in the failing cases\n2. Verify if numpy version differences affect the numerical stability of the calculations\n3. Examine if the test data or normalization parameters need adjustment\n4. Consider adding more robust handling of edge cases in LogNorm\n5. Add debug logging to capture the actual vmin/vmax values when the error occurs\n\n## Additional Context\nThe test was added in PR #18458 to handle huge value ranges in logarithmic scale. The intermittent failures suggest this is a numerical stability issue rather than a logical error in the implementation.\n\n```bash\npython -m pytest lib/matplotlib/tests/test_image.py::test_huge_range_log -v\n```",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpva7ng32e/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

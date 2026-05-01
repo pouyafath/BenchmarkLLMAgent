@@ -1,0 +1,98 @@
+diff --git a/sphinx/ext/napoleon/docstring.py b/sphinx/ext/napoleon/docstring.py
+index b3daa06f1..1f3148032 100644
+--- a/sphinx/ext/napoleon/docstring.py
++++ b/sphinx/ext/napoleon/docstring.py
+@@ -408,49 +408,63 @@ class GoogleDocstring:
+         has_desc = any(_desc)
+         separator = ' -- ' if has_desc else ''
+         if _name:
+-            if _type:
++            # Check if name contains multiple parameters separated by commas
++            if ',' in _name:
++                # Split the name by commas
++                param_names = [name.strip() for name in _name.split(',')]
++
++                # Handle type - if it contains commas, split it too
++                if _type and ',' in _type:
++                    param_types = [t.strip() for t in _type.split(',')]
++                else:
++                    # If only one type for multiple parameters, use it for all
++                    param_types = [t.strip() for t in [_type] * len(param_names)]
++
++                # Format the parameter names
++                param_name_str = ', '.join([f'**{name}**' for name in param_names])
++
++                # Format the type annotation
++                if param_types and all(param_types):
++                    if '`' in _type:  # Check if original type uses backticks
++                        type_str = ', '.join([f'({t})' for t in param_types])
++                    else:
++                        # Check if all types are the same (single type for multiple params)
++                        if len(set(param_types)) == 1:
++                            # Single type for all parameters
++                            type_str = f'(*{param_types[0]}*)'
++                        else:
++                            # Multiple different types
++                            type_parts = [f'*{t}*' for t in param_types]
++                            type_str = f'({", ".join(type_parts)})'
++                    combined_field = f'{param_name_str} {type_str}'
++                else:
++                    combined_field = param_name_str
++
++                if separator:
++                    combined_field += separator
++            elif _type:
+                 if '`' in _type:
+-                    field = '**%s** (%s)%s' % (_name, _type, separator)
++                    combined_field = f'**{_name}** ({_type}){separator}'
+                 else:
+-                    field = '**%s** (*%s*)%s' % (_name, _type, separator)
++                    combined_field = f'**{_name}** (*{_type}*){separator}'
+             else:
+-                field = '**%s**%s' % (_name, separator)
++                combined_field = f'**{_name}**{separator}'
+         elif _type:
+             if '`' in _type:
+-                field = '%s%s' % (_type, separator)
++                combined_field = f'{_type}{separator}'
+             else:
+-                field = '*%s*%s' % (_type, separator)
++                combined_field = f'*{_type}*{separator}'
+         else:
+-            field = ''
++            combined_field = ''
+ 
+         if has_desc:
+             _desc = self._fix_field_desc(_desc)
+             if _desc[0]:
+-                return [field + _desc[0]] + _desc[1:]
++                return [combined_field + _desc[0]] + _desc[1:]
+             else:
+-                return [field] + _desc
++                return [combined_field] + _desc
+         else:
+-            return [field]
+-
+-    def _format_fields(self, field_type: str, fields: List[Tuple[str, str, List[str]]]
+-                       ) -> List[str]:
+-        field_type = ':%s:' % field_type.strip()
+-        padding = ' ' * len(field_type)
+-        multi = len(fields) > 1
+-        lines = []  # type: List[str]
+-        for _name, _type, _desc in fields:
+-            field = self._format_field(_name, _type, _desc)
+-            if multi:
+-                if lines:
+-                    lines.extend(self._format_block(padding + ' * ', field))
+-                else:
+-                    lines.extend(self._format_block(field_type + ' * ', field))
+-            else:
+-                lines.extend(self._format_block(field_type + ' ', field))
+-        if lines and lines[-1]:
+-            lines.append('')
+-        return lines
+-
++            return [combined_field]
+     def _get_current_indent(self, peek_ahead: int = 0) -> int:
+         line = self._line_iter.peek(peek_ahead + 1)[peek_ahead]
+         while line != self._line_iter.sentinel:

@@ -1,0 +1,45 @@
+diff --git a/gateway/platforms/discord.py b/gateway/platforms/discord.py
+index 79e70592..33bdee31 100644
+--- a/gateway/platforms/discord.py
++++ b/gateway/platforms/discord.py
+@@ -77,6 +77,31 @@ def _clean_discord_id(entry: str) -> str:
+     return entry.strip()
+ 
+ 
++def _strip_discord_mentions(content: str) -> str:
++    """Strip all Discord mention syntax from *content*.
++
++    Removes:
++    - User mentions: ``<@123>`` or ``<@!123>``
++    - Role mentions: ``<@&123>``
++    - Channel mentions: ``<#123>``
++    - Everyone/here mentions: ``@everyone`` and ``@here``
++
++    Returns the cleaned content with all mention syntax removed.
++    """
++    if not content:
++        return content
++
++    # Remove user mentions: <@123> or <@!123>
++    content = re.sub(r'<@!?\d+>', '', content)
++    # Remove role mentions: <@&123>
++    content = re.sub(r'<@&\d+>', '', content)
++    # Remove channel mentions: <#123>
++    content = re.sub(r'<#\d+>', '', content)
++    # Remove @everyone and @here
++    content = re.sub(r'@(everyone|here)', '', content, flags=re.IGNORECASE)
++
++    return content.strip()
++
+ def check_discord_requirements() -> bool:
+     """Check if Discord dependencies are available."""
+     return DISCORD_AVAILABLE
+@@ -2389,6 +2414,8 @@ class DiscordAdapter(BasePlatformAdapter):
+         """
+         # Build a short thread name from the message
+         content = (message.content or "").strip()
++        # Strip Discord mention syntax (user, role, channel mentions) for clean thread names
++        content = _strip_discord_mentions(content)
+         thread_name = content[:80] if content else "Hermes"
+         if len(content) > 80:
+             thread_name = thread_name[:77] + "..."

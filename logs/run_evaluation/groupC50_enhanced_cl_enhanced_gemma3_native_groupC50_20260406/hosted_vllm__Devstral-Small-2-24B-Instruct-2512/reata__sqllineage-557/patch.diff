@@ -1,0 +1,221 @@
+diff --git a/sqllineage/core/transformer.py b/sqllineage/core/transformer.py
+new file mode 100644
+index 0000000..ea90437
+--- /dev/null
++++ b/sqllineage/core/transformer.py
+@@ -0,0 +1,215 @@
++from typing import List, Optional, Tuple
++from sqllineage.core.metadata_provider import MetaDataProvider
++from sqllineage.core.models import Table, Column
++from sqllineage.core.parser.sqlfluff.analyzer import SqlFluffLineageAnalyzer
++from sqllineage.core.parser.sqlfluff.extractors.create_insert import CreateInsertExtractor
++from sqllineage.core.parser.sqlfluff.models import SqlFluffTable
++from sqllineage.utils.entities import AnalyzerContext
++
++class SQLTransformer:
++    """
++    SQL Transformer for automatic column mapping in INSERT statements
++    """
++
++    def __init__(self, dialect: str = "ansi"):
++        self.dialect = dialect
++        self.analyzer = SqlFluffLineageAnalyzer(dialect)
++
++    def transform_insert_statement(self, sql: str, metadata_provider: MetaDataProvider) -> str:
++        """
++        Transform INSERT statement to include explicit column mappings based on metadata.
++
++        Args:
++            sql: The original INSERT SQL statement
++            metadata_provider: MetaDataProvider to get target table schema
++
++        Returns:
++            Transformed SQL with explicit column mappings
++        """
++        # Parse the SQL to extract target table information
++        try:
++            statement_segment = self.analyzer._list_specific_statement_segment(sql)[0]
++        except Exception as e:
++            # If parsing fails, return original SQL
++            return sql
++
++        # Use the CreateInsertExtractor to analyze the statement
++        extractor = CreateInsertExtractor(self.dialect, metadata_provider)
++        holder = extractor.extract(statement_segment, AnalyzerContext())
++
++        # Get the target table from the holder
++        target_tables = list(holder.write)
++        if not target_tables:
++            return sql
++
++        target_table = target_tables[0]
++
++        # Get target table columns from metadata provider
++        try:
++            target_columns_from_metadata = metadata_provider.get_table_columns(target_table)
++            target_column_names_from_metadata = [col.raw_name for col in target_columns_from_metadata]
++
++            # Get the write columns from the holder (these are the columns that would be created based on the SELECT)
++            write_columns = holder.write_columns
++            write_column_names = [col.raw_name for col in write_columns]
++
++            if write_column_names and target_column_names_from_metadata:
++                # Check if the INSERT statement already has explicit column list
++                if not self._has_explicit_column_list(sql):
++                    # Map source columns to target columns based on name similarity
++                    column_mapping = self._map_columns(write_column_names, target_column_names_from_metadata)
++
++                    if column_mapping:
++                        # Transform the SQL to add explicit column list
++                        mapped_target_columns = [target_column_names_from_metadata[i] for i in column_mapping]
++                        return self._add_column_list_to_insert(sql, mapped_target_columns)
++        except Exception as e:
++            # If any error occurs, return original SQL
++            return sql
++
++        return sql
++
++    def _has_explicit_column_list(self, sql: str) -> bool:
++        """
++        Check if the INSERT statement already has an explicit column list.
++        """
++        # Simple heuristic: check if there's a bracketed section after "INSERT INTO table"
++        sql_upper = sql.upper()
++        insert_into_pos = sql_upper.find("INSERT INTO")
++        if insert_into_pos == -1:
++            return False
++
++        # Look for opening parenthesis after the table name
++        after_table = sql[insert_into_pos + len("INSERT INTO"):]
++        paren_pos = after_table.find("(")
++        if paren_pos == -1:
++            return False
++
++        # Make sure it's not part of a subquery
++        # This is a simple check - might need refinement
++        return True
++
++    def _add_column_list_to_insert(self, sql: str, column_names: List[str]) -> str:
++        """
++        Add explicit column list to INSERT statement.
++
++        Args:
++            sql: Original INSERT SQL
++            column_names: List of target column names
++
++        Returns:
++            Transformed SQL with column list
++        """
++        # Find the position to insert the column list
++        sql_upper = sql.upper()
++        insert_into_pos = sql_upper.find("INSERT INTO")
++        if insert_into_pos == -1:
++            return sql
++
++        # Find the table name end
++        after_insert_into = sql[insert_into_pos + len("INSERT INTO"):]
++        table_end_pos = 0
++
++        # Skip whitespace
++        while table_end_pos < len(after_insert_into) and after_insert_into[table_end_pos].isspace():
++            table_end_pos += 1
++
++        # Find the end of the table name (could be qualified)
++        while (table_end_pos < len(after_insert_into) and
++               not after_insert_into[table_end_pos].isspace() and
++               after_insert_into[table_end_pos] not in "("):
++            table_end_pos += 1
++
++        # Insert the column list
++        table_part = after_insert_into[:table_end_pos]
++        remaining_part = after_insert_into[table_end_pos:]
++
++        # Add parentheses around column names
++        column_list = f"({', '.join(column_names)})"
++
++        return sql[:insert_into_pos + len("INSERT INTO")] + table_part + column_list + remaining_part
++
++    def _map_columns(self, source_columns: List[str], target_columns: List[str]) -> List[int]:
++        """
++        Map source column names to target column names based on name similarity.
++
++        Args:
++            source_columns: List of source column names
++            target_columns: List of target column names
++
++        Returns:
++            List of indices indicating which target column corresponds to each source column
++        """
++        if len(source_columns) != len(target_columns):
++            return []
++
++        # Simple name-based mapping: try to find similar names
++        mapping = []
++        used_target_indices = set()
++
++        for source_col in source_columns:
++            # Try to find the best matching target column
++            best_match = None
++            best_score = 0
++
++            for i, target_col in enumerate(target_columns):
++                if i in used_target_indices:
++                    continue
++
++                # Calculate similarity score
++                score = self._calculate_similarity_score(source_col, target_col)
++
++                if score > best_score:
++                    best_score = score
++                    best_match = i
++
++            if best_match is not None:
++                mapping.append(best_match)
++                used_target_indices.add(best_match)
++            else:
++                # If no good match found, use the next available target column
++                for i in range(len(target_columns)):
++                    if i not in used_target_indices:
++                        mapping.append(i)
++                        used_target_indices.add(i)
++                        break
++
++        return mapping
++
++    def _calculate_similarity_score(self, source: str, target: str) -> float:
++        """
++        Calculate similarity score between two column names.
++
++        Args:
++            source: Source column name
++            target: Target column name
++
++        Returns:
++            Similarity score (0-1)
++        """
++        source_lower = source.lower()
++        target_lower = target.lower()
++
++        # Exact match
++        if source_lower == target_lower:
++            return 1.0
++
++        # Check if source name contains target name or vice versa
++        if target_lower in source_lower or source_lower in target_lower:
++            return 0.8
++
++        # Check for common abbreviations or name variations
++        # This is a simple heuristic that could be enhanced
++        if len(source) > 3 and len(target) > 3:
++            # Check if they share a common root (first 3-4 characters)
++            common_prefix_len = 0
++            for i in range(min(len(source_lower), len(target_lower))):
++                if source_lower[i] == target_lower[i]:
++                    common_prefix_len += 1
++                else:
++                    break
++
++            if common_prefix_len >= 3:
++                return 0.7
++
++        return 0.0

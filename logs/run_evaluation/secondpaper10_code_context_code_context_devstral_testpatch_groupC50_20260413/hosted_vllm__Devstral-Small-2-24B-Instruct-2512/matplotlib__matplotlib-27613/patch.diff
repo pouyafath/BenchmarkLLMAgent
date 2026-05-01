@@ -1,0 +1,95 @@
+diff --git a/lib/matplotlib/rcsetup.py b/lib/matplotlib/rcsetup.py
+index cf4dd07a6b..49adf69d9c 100644
+--- a/lib/matplotlib/rcsetup.py
++++ b/lib/matplotlib/rcsetup.py
+@@ -201,6 +201,45 @@ validate_string = _make_type_validator(str)
+ validate_string_or_None = _make_type_validator(str, allow_none=True)
+ validate_stringlist = _listify_validator(
+     validate_string, doc='return a list of strings')
++
++def validate_marker(s):
++    """
++    Validate a marker specification.
++    
++    Parameters
++    ----------
++    s : str, int, or other marker specification
++        A valid marker specification (string like "." or integer like 5 for CARETRIGHT)
++    
++    Returns
++    -------
++    validated_marker : str or int
++        The validated marker specification
++    """
++    # Valid marker strings and integers
++    # Based on matplotlib.markers module
++    valid_markers = {
++        # String markers
++        ".", ",", "o", "v", "^", "<", ">", "1", "2", "3", "4", "8", "s", "p", "*",
++        "h", "H", "+", "x", "D", "d", "|", "_", "P", "X",
++        # Numeric markers (TICKLEFT=0, TICKRIGHT=1, etc.)
++        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
++        # Special values
++        "None", "none", " ", ""
++    }
++
++    if isinstance(s, str) or isinstance(s, int):
++        if s in valid_markers:
++            return s
++        else:
++            raise ValueError(f"Could not convert {s!r} to a valid marker")
++    else:
++        raise ValueError(f"Could not convert {s!r} to a valid marker")
++
++
++validate_markerlist = _listify_validator(
++    validate_marker, doc='return a list of markers')
++
+ validate_int = _make_type_validator(int)
+ validate_int_or_None = _make_type_validator(int, allow_none=True)
+ validate_float = _make_type_validator(float)
+@@ -645,7 +684,7 @@ _prop_validators = {
+         'markeredgecolor': validate_colorlist,
+         'markevery': validate_markeverylist,
+         'alpha': validate_floatlist,
+-        'marker': validate_stringlist,
++        'marker': validate_markerlist,
+         'hatch': validate_hatchlist,
+         'dashes': validate_dashlist,
+     }
+@@ -908,7 +947,7 @@ _validators = {
+     "lines.linewidth":       validate_float,  # line width in points
+     "lines.linestyle":       _validate_linestyle,  # solid line
+     "lines.color":           validate_color,  # first color in color cycle
+-    "lines.marker":          validate_string,  # marker name
++    "lines.marker": validate_marker,  # marker name
+     "lines.markerfacecolor": validate_color_or_auto,  # default color
+     "lines.markeredgecolor": validate_color_or_auto,  # default color
+     "lines.markeredgewidth": validate_float,
+@@ -957,7 +996,7 @@ _validators = {
+     "boxplot.meanline":    validate_bool,
+ 
+     "boxplot.flierprops.color":           validate_color,
+-    "boxplot.flierprops.marker":          validate_string,
++    "boxplot.flierprops.marker": validate_marker,
+     "boxplot.flierprops.markerfacecolor": validate_color_or_auto,
+     "boxplot.flierprops.markeredgecolor": validate_color,
+     "boxplot.flierprops.markeredgewidth": validate_float,
+@@ -982,7 +1021,7 @@ _validators = {
+     "boxplot.medianprops.linestyle": _validate_linestyle,
+ 
+     "boxplot.meanprops.color":           validate_color,
+-    "boxplot.meanprops.marker":          validate_string,
++    "boxplot.meanprops.marker": validate_marker,
+     "boxplot.meanprops.markerfacecolor": validate_color,
+     "boxplot.meanprops.markeredgecolor": validate_color,
+     "boxplot.meanprops.markersize":      validate_float,
+@@ -1107,7 +1146,7 @@ _validators = {
+     "axes3d.zaxis.panecolor":    validate_color,  # 3d background pane
+ 
+     # scatter props
+-    "scatter.marker":     validate_string,
++    "scatter.marker": validate_marker,
+     "scatter.edgecolors": validate_string,
+ 
+     "date.epoch": _validate_date,

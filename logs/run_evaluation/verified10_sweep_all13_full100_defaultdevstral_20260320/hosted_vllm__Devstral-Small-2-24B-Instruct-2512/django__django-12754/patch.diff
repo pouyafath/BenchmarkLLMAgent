@@ -1,0 +1,36 @@
+diff --git a/django/db/migrations/autodetector.py b/django/db/migrations/autodetector.py
+index 30616c0172..cbb11da96d 100644
+--- a/django/db/migrations/autodetector.py
++++ b/django/db/migrations/autodetector.py
+@@ -559,6 +559,15 @@ class MigrationAutodetector:
+                 (app_label, model_name, None, False),
+             ]
+             # Depend on all bases
++            # Depend on fields removed from base classes
++            for base in model_state.bases:
++                if isinstance(base, str) and "." in base:
++                    base_app_label, base_name = base.split(".", 1)
++                    # Check if any fields in this model were removed from the base class
++                    for field_name in model_state.fields:
++                        old_field_key = (base_app_label, base_name.lower(), field_name)
++                        if old_field_key in self.old_field_keys and old_field_key not in self.new_field_keys:
++                            dependencies.append((base_app_label, base_name, field_name, False))
+             for base in model_state.bases:
+                 if isinstance(base, str) and "." in base:
+                     base_app_label, base_name = base.split(".", 1)
+@@ -688,6 +697,15 @@ class MigrationAutodetector:
+                 (app_label, model_name, None, False),
+             ]
+             # Depend on all bases
++            # Depend on fields removed from base classes
++            for base in model_state.bases:
++                if isinstance(base, str) and "." in base:
++                    base_app_label, base_name = base.split(".", 1)
++                    # Check if any fields in this model were removed from the base class
++                    for field_name in model_state.fields:
++                        old_field_key = (base_app_label, base_name.lower(), field_name)
++                        if old_field_key in self.old_field_keys and old_field_key not in self.new_field_keys:
++                            dependencies.append((base_app_label, base_name, field_name, False))
+             for base in model_state.bases:
+                 if isinstance(base, str) and "." in base:
+                     base_app_label, base_name = base.split(".", 1)

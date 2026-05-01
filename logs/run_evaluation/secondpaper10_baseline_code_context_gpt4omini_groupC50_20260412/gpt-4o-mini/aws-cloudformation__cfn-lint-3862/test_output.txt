@@ -1,0 +1,502 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 168 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/cfnlint/config.py
+	modified:   src/cfnlint/runner.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 30ecbc1fe4ffe2dd3690071f891352e15419b874
+Author: Kevin DeJong <kddejong@amazon.com>
+Date:   Mon Dec 9 11:42:38 2024 -0800
+
+    Replace parameters when both transforms (#3861)
+
+diff --git a/src/cfnlint/template/transforms/_sam.py b/src/cfnlint/template/transforms/_sam.py
+index 26fd206fa..4bb8b4a96 100644
+--- a/src/cfnlint/template/transforms/_sam.py
++++ b/src/cfnlint/template/transforms/_sam.py
+@@ -17,7 +17,7 @@ from samtranslator.translator.translator import Translator
+ 
+ from cfnlint.data import Serverless
+ from cfnlint.decode.utils import convert_dict
+-from cfnlint.helpers import load_resource
++from cfnlint.helpers import ensure_list, is_function, load_resource
+ from cfnlint.template.transforms._types import TransformResult
+ 
+ LOGGER = logging.getLogger("cfnlint")
+@@ -100,11 +100,10 @@ class Transform:
+                     Transform._update_to_s3_uri("CodeUri", resource_dict)
+                 auto_publish_alias = resource_dict.get("AutoPublishAlias")
+                 if isinstance(auto_publish_alias, dict):
+-                    if len(auto_publish_alias) == 1:
+-                        for k, v in auto_publish_alias.items():
+-                            if k == "Ref":
+-                                if v in self._template.get("Parameters"):
+-                                    self._parameters[v] = "Alias"
++                    k, v = is_function(auto_publish_alias)
++                    if k == "Ref":
++                        if v in self._template.get("Parameters"):
++                            self._parameters[v] = "Alias"
+                 if isinstance(resource_dict.get("AutoPublishCodeSha256"), dict):
+                     resource_dict["AutoPublishCodeSha256"] = "fakesha"
+             if resource_type in ["AWS::Serverless::LayerVersion"]:
+@@ -130,6 +129,33 @@ class Transform:
+             ):
+                 Transform._update_to_s3_uri("DefinitionUri", resource_dict)
+ 
++    def _find_and_replace(self, item, parameters):
++
++        k, v = is_function(item)
++        if k == "Ref":
++            if v in parameters:
++                return parameters[v]
++        if isinstance(item, dict):
++            for k, v in item.items():
++                item[k] = self._find_and_replace(v, parameters)
++        if isinstance(item, list):
++            for i, v in enumerate(item):
++                item[i] = self._find_and_replace(v, parameters)
++
++        return item
++
++    def _replace_variables_with_language_extension(self):
++        transforms = self._template.get("Transform", [])
++
++        transforms = ensure_list(transforms)
++        if "AWS::LanguageExtensions" in transforms:
++            parameters = {}
++            for k, v in self._template.get("Parameters", {}).items():
++                if isinstance(v, dict) and v.get("Default"):
++                    parameters[k] = v.get("Default")
++
++            self._template = self._find_and_replace(self._template, parameters)
++
+     def transform_template(self):
+         """
+         Transform the Template using the Serverless Application Model.
+@@ -144,6 +170,7 @@ class Transform:
+                 managed_policy_map=self._managed_policy_map, sam_parser=self._sam_parser
+             )
+ 
++            self._replace_variables_with_language_extension()
+             self._replace_local_codeuri()
+ 
+             # Tell SAM to use the region we're linting in, this has to be
+diff --git a/test/fixtures/templates/good/transform/language_extension.yaml b/test/fixtures/templates/good/transform/language_extension.yaml
+index e2ef9ff74..9f6a401a8 100644
+--- a/test/fixtures/templates/good/transform/language_extension.yaml
++++ b/test/fixtures/templates/good/transform/language_extension.yaml
+@@ -7,6 +7,9 @@ Conditions:
+ Parameters:
+   DBPolicy:
+     Type: String
++  AutoPublishAliasParameter:
++    Type: String
++    Default: TestAliasRef
+ Mappings:
+   StackIdMap01:
+     teststack1:
+@@ -38,3 +41,25 @@ Resources:
+         - "Retain"
+         - "Delete"
+     DeletionPolicy: "Retain"
++  TestStateMachine:
++    Type: AWS::Serverless::StateMachine
++    Properties:
++      Name: StateMachine
++      AutoPublishAlias: !Ref AutoPublishAliasParameter
++      Definition:
++        StartAt: MyLambdaState
++        States:
++          MyLambdaState:
++            Type: Task
++            Resource: arn:aws:lambda:us-east-1:<REDACTED>:function:print-event
++            End: true
++
++  TestLambdaFunction:
++    Type: AWS::Serverless::Function
++    Properties:
++      Handler: index.handler
++      Runtime: python3.9
++      InlineCode: |
++        def handler(event, context):
++          print("Hello, world!")
++      AutoPublishAlias: !Ref AutoPublishAliasParameter
++ git -c core.fileMode=false diff 30ecbc1fe4ffe2dd3690071f891352e15419b874
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..e9d0ba70a 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -733,6 +733,7 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+ 
+     @property
+     def templates(self):
++        found_files = []
+         """
+ 
+         Returns a list of Cloudformation templates to lint.
+@@ -761,7 +762,7 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+ 
+         # If we're still haven't returned, we've got templates to lint.
+         # Build up list of templates to lint.
+-        self.templates_to_process = True
++        self.templates_to_process = found_files
+ 
+         if isinstance(filenames, str):
+             filenames = [filenames]
+diff --git a/src/cfnlint/runner.py b/src/cfnlint/runner.py
+index e1954650c..5302e15b5 100644
+--- a/src/cfnlint/runner.py
++++ b/src/cfnlint/runner.py
+@@ -449,6 +449,7 @@ class Runner:
+ 
+ 
+ def main() -> None:
++    print("Starting cfn-lint...")
+     config = ConfigMixIn(sys.argv[1:])
+     runner = Runner(config)
+     runner.cli()
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info
+  writing /tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info/dependency_links.txt
+  writing top-level names to /tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE'
+  adding license file 'NOTICE'
+  writing manifest file '/tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-wpbhpz_b/UNKNOWN.dist-info'
+  Preparing metadata (pyproject.toml): finished with status 'done'
+WARNING: unknown 0.0.0 does not provide the extra 'test'
+Installing collected packages: UNKNOWN
+  DEPRECATION: Legacy editable install of UNKNOWN[test]==0.0.0 from file:///testbed (setup.py develop) is deprecated. pip 25.1 will enforce this behaviour change. A possible replacement is to add a pyproject.toml or enable --use-pep517, and use setuptools >= 64. If the resulting installation is not behaving as expected, try using --config-settings editable_mode=compat. Please consult the setuptools documentation for more information. Discussion can be found at https://github.com/pypa/pip/issues/11457
+  Running setup.py develop for UNKNOWN
+    Running command python setup.py develop
+    running develop
+    running egg_info
+    creating UNKNOWN.egg-info
+    writing UNKNOWN.egg-info/PKG-INFO
+    writing dependency_links to UNKNOWN.egg-info/dependency_links.txt
+    writing top-level names to UNKNOWN.egg-info/top_level.txt
+    writing manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    reading manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    adding license file 'LICENSE'
+    adding license file 'NOTICE'
+    writing manifest file 'UNKNOWN.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.8/site-packages/UNKNOWN.egg-link (link to .)
+    Adding UNKNOWN 0.0.0 to easy-install.pth file
+
+    Installed /testbed
+Successfully installed UNKNOWN
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 30ecbc1fe4ffe2dd3690071f891352e15419b874 test/unit/module/config/test_config_mixin.py test/unit/module/maintenance/test_update_documentation.py test/unit/module/runner/test_runner.py
+Updated 0 paths from db30e6639
++ git apply -v -
+Checking patch test/unit/module/config/test_config_mixin.py...
+Checking patch test/unit/module/maintenance/test_update_documentation.py...
+Checking patch test/unit/module/runner/test_runner.py...
+Applied patch test/unit/module/config/test_config_mixin.py cleanly.
+Applied patch test/unit/module/maintenance/test_update_documentation.py cleanly.
+Applied patch test/unit/module/runner/test_runner.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA test/unit/module/config/test_config_mixin.py test/unit/module/maintenance/test_update_documentation.py test/unit/module/runner/test_runner.py
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-8.3.4, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+collected 19 items
+
+test/unit/module/config/test_config_mixin.py ....FF........              [ 73%]
+test/unit/module/maintenance/test_update_documentation.py F              [ 78%]
+test/unit/module/runner/test_runner.py ...F                              [100%]
+
+=================================== FAILURES ===================================
+_______________ TestConfigMixIn.test_config_expand_paths_nomatch _______________
+
+self = <test.unit.module.config.test_config_mixin.TestConfigMixIn testMethod=test_config_expand_paths_nomatch>
+yaml_mock = <MagicMock name='_read_config' id='139750848421024'>
+
+    @patch("cfnlint.config.ConfigFileArgs._read_config", create=True)
+    def test_config_expand_paths_nomatch(self, yaml_mock):
+        """Test precedence in"""
+    
+        filename = "test/fixtures/templates/nonexistant/*.yaml"
+        yaml_mock.side_effect = [
+            {"templates": [filename]},
+            {},
+        ]
+        config = cfnlint.config.ConfigMixIn([])
+    
+        with self.assertRaises(ValueError):
+>           self.assertEqual(len(config.templates), 1)
+E           AssertionError: 0 != 1
+
+test/unit/module/config/test_config_mixin.py:212: AssertionError
+_____ TestConfigMixIn.test_config_expand_paths_nomatch_ignore_bad_template _____
+
+self = <test.unit.module.config.test_config_mixin.TestConfigMixIn testMethod=test_config_expand_paths_nomatch_ignore_bad_template>
+yaml_mock = <MagicMock name='_read_config' id='139750848373472'>
+
+    @patch("cfnlint.config.ConfigFileArgs._read_config", create=True)
+    def test_config_expand_paths_nomatch_ignore_bad_template(self, yaml_mock):
+        """Test precedence in"""
+    
+        filename = "test/fixtures/templates/nonexistant/*.yaml"
+        yaml_mock.side_effect = [
+            {"templates": [filename], "ignore_bad_template": True},
+            {},
+        ]
+>       config = cfnlint.config.ConfigMixIn([])
+
+test/unit/module/config/test_config_mixin.py:223: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cfnlint/config.py:631: in __init__
+    ConfigFileArgs.__init__(
+src/cfnlint/config.py:79: in __init__
+    self.load()
+src/cfnlint/config.py:150: in load
+    self.validate_config(user_config, self.schema)
+src/cfnlint/config.py:182: in validate_config
+    validator.validate(config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = create.<locals>.Validator(_type_checker=<TypeChecker types={'array', 'boolean', 'date', 'integer', 'null', 'number', '...s={}, transforms=Transforms(_transforms=[]), is_resolved_value=False, resolve_pseudo_parameters=True), fn_resolvers={})
+instance = {'ignore_bad_template': True, 'templates': ['test/fixtures/templates/nonexistant/*.yaml']}
+
+    def validate(self, instance: Any) -> None:
+        """
+        Check if the instance is valid under the current `schema`.
+    
+        Raises:
+    
+            `cfnlint.jsonschema.exceptions.ValidationError`:
+    
+                if the instance is invalid
+    
+        >>> schema = {"maxItems" : 2}
+        >>> StandardValidator(schema).validate([2, 3, 4])
+        Traceback (most recent call last):
+            ...
+        ValidationError: [2, 3, 4] is too long
+        """
+        for error in self.iter_errors(instance):
+>           raise error
+E           cfnlint.jsonschema.exceptions.ValidationError: ("Additional properties are not allowed ('ignore_bad_template' was unexpected. Did you mean 'ignore_templates'?)", <unset>, ['ignore_bad_template'], None, (), <unset>, <unset>, <unset>, (), None)
+
+src/cfnlint/jsonschema/validators.py:294: ValidationError
+___________________ TestUpdateDocumentation.test_update_docs ___________________
+
+self = <test.unit.module.maintenance.test_update_documentation.TestUpdateDocumentation testMethod=test_update_docs>
+
+    def test_update_docs(self):
+        collection = Rules.create_from_directory(_DEFAULT_RULESDIR + "/errors")
+        builtin_module_name = "builtins"
+    
+        mo = mock_open(read_data=self.TEST_TEXT)
+        mo.return_value.__iter__ = lambda self: self
+        mo.return_value.__iter__ = lambda self: iter(self.readline, "")
+        with patch("{}.open".format(builtin_module_name), mo) as mock_builtin_open:
+            cfnlint.maintenance.update_documentation(collection)
+    
+            expected_calls = [
+                call("\n"),
+                call("Regular Text\n"),
+                call("## Rules\n"),
+                call(
+                    "(_This documentation is generated by running `cfn-lint"
+                    " --update-documentation`, do not alter this manually_)\n\n"
+                ),
+                call(
+                    "The following **{}** rules are applied by this linter:\n\n".format(
+                        len(collection) + 3
+                    )
+                ),
+                call(
+                    "| Rule ID  | Title | Description | Config<br />(Name:Type:Default)"
+                    " | Source | Tags |\n"
+                ),
+                call(
+                    "| -------- | ----- | ----------- | ---------- | ------ | ---- |\n"
+                ),
+                call(
+                    '| [E0000<a name="E0000"></a>]'
+                    "(../src/cfnlint/rules/errors/parse.py) |"
+                    " Parsing error found when parsing the template | Checks for"
+                    " JSON/YAML formatting errors in your template |  |"
+                    " [Source](https://github.com/aws-cloudformation/cfn-lint) |"
+                    " `base` |\n"
+                ),
+                call(
+                    '| [E0001<a name="E0001"></a>]'
+                    "(../src/cfnlint/rules/errors/transform.py) |"
+                    " Error found when transforming the template | Errors found when"
+                    " performing transformation on the template |  |"
+                    " [Source](https://github.com/aws-cloudformation/cfn-lint) |"
+                    " `base`,`transform` |\n"
+                ),
+                call(
+                    '| [E0002<a name="E0002"></a>]'
+                    "(../src/cfnlint/rules/errors/rule.py) |"
+                    " Error processing rule on the template | Errors found when"
+                    " processing a rule on the template |  |"
+                    " [Source](https://github.com/aws-cloudformation/cfn-lint) |"
+                    " `base`,`rule` |\n"
+                ),
+                call(
+                    '| [E0003<a name="E0003"></a>]'
+                    "(../src/cfnlint/rules/errors/config.py) | "
+                    "Error with cfn-lint configuration | "
+                    "Error as a result of the cfn-lint configuration |  | "
+                    "[Source](https://github.com/aws-cloudformation/cfn-lint) "
+                    "| `base`,`rule` |\n"
+                ),
+                call("\n\\* experimental rules\n"),
+            ]
+>           mock_builtin_open.return_value.write.assert_has_calls(expected_calls)
+
+test/unit/module/maintenance/test_update_documentation.py:90: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='open().write' id='139750846094256'>
+calls = [call('\n'), call('Regular Text\n'), call('## Rules\n'), call('(_This documentation is generated by running `cfn-lint ...his linter:\n\n'), call('| Rule ID  | Title | Description | Config<br />(Name:Type:Default) | Source | Tags |\n'), ...]
+any_order = False
+
+    def assert_has_calls(self, calls, any_order=False):
+        """assert the mock has been called with the specified calls.
+        The `mock_calls` list is checked for the calls.
+    
+        If `any_order` is False (the default) then the calls must be
+        sequential. There can be extra calls before or after the
+        specified calls.
+    
+        If `any_order` is True then the calls can be in any order, but
+        they must all appear in `mock_calls`."""
+        expected = [self._call_matcher(c) for c in calls]
+        cause = next((e for e in expected if isinstance(e, Exception)), None)
+        all_calls = _CallList(self._call_matcher(c) for c in self.mock_calls)
+        if not any_order:
+            if expected not in all_calls:
+                if cause is None:
+                    problem = 'Calls not found.'
+                else:
+                    problem = ('Error processing expected calls.\n'
+                               'Errors: {}').format(
+                                   [e if isinstance(e, Exception) else None
+                                    for e in expected])
+>               raise AssertionError(
+                    f'{problem}\n'
+                    f'Expected: {_CallList(calls)}'
+                    f'{self._calls_repr(prefix="Actual").rstrip(".")}'
+                ) from cause
+E               AssertionError: Calls not found.
+E               Expected: [call('\n'),
+E                call('Regular Text\n'),
+E                call('## Rules\n'),
+E                call('(_This documentation is generated by running `cfn-lint --update-documentation`, do not alter this manually_)\n\n'),
+E                call('The following **6** rules are applied by this linter:\n\n'),
+E                call('| Rule ID  | Title | Description | Config<br />(Name:Type:Default) | Source | Tags |\n'),
+E                call('| -------- | ----- | ----------- | ---------- | ------ | ---- |\n'),
+E                call('| [E0000<a name="E0000"></a>](../src/cfnlint/rules/errors/parse.py) | Parsing error found when parsing the template | Checks for JSON/YAML formatting errors in your template |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base` |\n'),
+E                call('| [E0001<a name="E0001"></a>](../src/cfnlint/rules/errors/transform.py) | Error found when transforming the template | Errors found when performing transformation on the template |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base`,`transform` |\n'),
+E                call('| [E0002<a name="E0002"></a>](../src/cfnlint/rules/errors/rule.py) | Error processing rule on the template | Errors found when processing a rule on the template |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base`,`rule` |\n'),
+E                call('| [E0003<a name="E0003"></a>](../src/cfnlint/rules/errors/config.py) | Error with cfn-lint configuration | Error as a result of the cfn-lint configuration |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base`,`rule` |\n'),
+E                call('\n\\* experimental rules\n')]
+E               Actual: [call('\n'),
+E                call('Regular Text\n'),
+E                call('## Rules\n'),
+E                call('(_This documentation is generated by running `cfn-lint --update-documentation`, do not alter this manually_)\n\n'),
+E                call('The following **6** rules are applied by this linter:\n\n'),
+E                call('| Rule ID  | Title | Description | Config<br />(Name:Type:Default) | Source | Tags |\n'),
+E                call('| -------- | ----- | ----------- | ---------- | ------ | ---- |\n'),
+E                call('| [E0000<a name="E0000"></a>](../src/cfnlint/rules/errors/parse.py) | Parsing error found when parsing the template | Checks for JSON/YAML formatting errors in your template |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base` |\n'),
+E                call('| [E0001<a name="E0001"></a>](../src/cfnlint/rules/errors/transform.py) | Error found when transforming the template | Errors found when performing transformation on the template |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base`,`transform` |\n'),
+E                call('| [E0002<a name="E0002"></a>](../src/cfnlint/rules/errors/rule.py) | Error processing rule on the template | Errors found when processing a rule on the template |  | [Source](https://github.com/aws-cloudformation/cfn-lint) | `base`,`rule` |\n'),
+E                call('\n\\* experimental rules\n')]
+
+/usr/local/lib/python3.8/unittest/mock.py:950: AssertionError
+______________________________ test_no_templates _______________________________
+
+    def test_no_templates():
+        params = ["--template", "does-not-exist.yaml"]
+    
+        config = ConfigMixIn(params)
+        with patch("sys.exit") as exit:
+            with patch("sys.stdout", new=StringIO()) as out:
+                exit.assert_not_called()
+                Runner(config)
+>               assert out.getvalue().strip() == (
+                    "E0003 does-not-exist.yaml could not "
+                    "be processed by glob.glob\nNone:1:1"
+                )
+E               AssertionError: assert '' == 'E0003 does-n...lob\nNone:1:1'
+E                 
+E                 - E0003 does-not-exist.yaml could not be processed by glob.glob
+E                 - None:1:1
+
+test/unit/module/runner/test_runner.py:107: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_all_regions
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_default_region
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_expand_ignore_templates
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_expand_paths
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_file_output
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_file_output_mixin
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_force_with_update_specs
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_merge
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_mix_in
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_precedence
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_region_from_AWS_DEFAULT_REGION_envvar
+PASSED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_region_from_AWS_REGION_envvar
+PASSED test/unit/module/runner/test_runner.py::test_init_schemas[Test no changes to the schema-None-None-False]
+PASSED test/unit/module/runner/test_runner.py::test_init_schemas[Test patching registry resources-path/to/registry/schemas-patch.json-False]
+PASSED test/unit/module/runner/test_runner.py::test_init_schemas[Test registry resource with no patching-path/to/registry/schemas-None-False]
+FAILED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_expand_paths_nomatch
+FAILED test/unit/module/config/test_config_mixin.py::TestConfigMixIn::test_config_expand_paths_nomatch_ignore_bad_template
+FAILED test/unit/module/maintenance/test_update_documentation.py::TestUpdateDocumentation::test_update_docs
+FAILED test/unit/module/runner/test_runner.py::test_no_templates - AssertionE...
+========================= 4 failed, 15 passed in 1.43s =========================
++ : '>>>>> End Test Output'
++ git checkout 30ecbc1fe4ffe2dd3690071f891352e15419b874 test/unit/module/config/test_config_mixin.py test/unit/module/maintenance/test_update_documentation.py test/unit/module/runner/test_runner.py
+Updated 3 paths from db30e6639

@@ -1,0 +1,48 @@
+diff --git a/torchtune/datasets/_packed.py b/torchtune/datasets/_packed.py
+--- a/torchtune/datasets/_packed.py
++++ b/torchtune/datasets/_packed.py
+@@ -1,14 +1,38 @@
+         # Return the length of the first sample in next pack if we are splitting across packs,
+         # otherwise return the length of the last sample in the current pack
+         next_seq_len = (
+             len(current_pack["tokens"][boundary:])
+             if self.split_across_pack
+             else current_pack["seq_lens"][-1]
+         )
+ 
+-        return {
+-            "tokens": current_pack["tokens"][boundary:],
+-            "labels": current_pack["labels"][boundary:],
+-            "input_pos": current_pack["input_pos"][boundary:],
+-            "seq_lens": current_pack["seq_lens"][boundary:],
+-        }
++        # NOTE: ``current_pack["seq_lens"]`` stores the original lengths of the
++        # samples *before* any splitting. When we split a long sample across
++        # packs we need to recompute the ``seq_lens`` for the remainder of the
++        # sample so that downstream logic (e.g. mask/position‑id generation) has
++        # the correct length information. The previous implementation sliced the
++        # ``seq_lens`` list directly, which resulted in an empty list for the
++        # remainder when the original sample spanned multiple packs. This caused
++        # mismatches between the token count and the recorded sequence lengths,
++        # ultimately leading to a ``torch.arange`` runtime error when the
++        # remainder itself exceeded ``max_seq_len`` (i.e. when the original
++        # sequence length was > 2 * ``max_seq_len``).
++        #
++        # We now construct the ``seq_lens`` for the next pack explicitly:
++        #   * If we are splitting across packs, the remainder is a single
++        #     continuation of the original sample, so its length is simply the
++        #     number of tokens left after the boundary.
++        #   * If we are *not* splitting across packs, the remainder consists of
++        #     the untouched last sample, whose length is already stored in
++        #     ``next_seq_len``.
++        # This guarantees that ``seq_lens`` always reflects the true sample
++        # boundaries for the pack being returned.
++
++        next_seq_lens = [next_seq_len] if next_seq_len > 0 else []
++
++        return {
++            "tokens": current_pack["tokens"][boundary:],
++            "labels": current_pack["labels"][boundary:],
++            "input_pos": current_pack["input_pos"][boundary:],
++            "seq_lens": next_seq_lens,
++        }

@@ -1,0 +1,34 @@
+diff --git a/llama_deploy/apiserver/config_parser.py b/llama_deploy/apiserver/config_parser.py
+index 774efa1..1f47e09 100644
+--- a/llama_deploy/apiserver/config_parser.py
++++ b/llama_deploy/apiserver/config_parser.py
+@@ -60,6 +60,7 @@ class Service(BaseModel):
+     port: int | None = None
+     python_dependencies: list[str] | None = Field(None, alias="python-dependencies")
+     ts_dependencies: dict[str, str] | None = Field(None, alias="ts-dependencies")
++    env: dict[str, str] | None = None
+ 
+ 
+ class Config(BaseModel):
+diff --git a/llama_deploy/apiserver/deployment.py b/llama_deploy/apiserver/deployment.py
+index 80243b0..6414d81 100644
+--- a/llama_deploy/apiserver/deployment.py
++++ b/llama_deploy/apiserver/deployment.py
+@@ -1,4 +1,5 @@
+ import asyncio
++import os
+ import importlib
+ import subprocess
+ import sys
+@@ -152,6 +153,11 @@ class Deployment:
+             source_manager.sync(source.name, str(destination.resolve()))
+ 
+             # Install dependencies
++
++            # Set environment variables if specified
++            if service_config.env:
++                for key, value in service_config.env.items():
++                    os.environ[key] = value
+             self._install_dependencies(service_config)
+ 
+             # Search for a workflow instance in the service path

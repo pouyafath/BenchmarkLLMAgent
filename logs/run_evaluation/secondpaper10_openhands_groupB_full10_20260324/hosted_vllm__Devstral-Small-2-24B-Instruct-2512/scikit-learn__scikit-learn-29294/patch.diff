@@ -1,0 +1,82 @@
+diff --git a/sklearn/covariance/_graph_lasso.py b/sklearn/covariance/_graph_lasso.py
+index 73fa4f1fd..2213914a5 100644
+--- a/sklearn/covariance/_graph_lasso.py
++++ b/sklearn/covariance/_graph_lasso.py
+@@ -79,6 +79,7 @@ def _graphical_lasso(
+     max_iter=100,
+     verbose=False,
+     eps=np.finfo(np.float64).eps,
++    warn=True,
+ ):
+     _, n_features = emp_cov.shape
+     if alpha == 0:
+@@ -189,11 +190,12 @@ def _graphical_lasso(
+                     "Non SPD result: the system is too ill-conditioned for this solver"
+                 )
+         else:
+-            warnings.warn(
+-                "graphical_lasso: did not converge after %i iteration: dual gap: %.3e"
+-                % (max_iter, d_gap),
+-                ConvergenceWarning,
+-            )
++            if warn:
++                warnings.warn(
++                    "graphical_lasso: did not converge after %i iteration: dual gap: %.3e"
++                    % (max_iter, d_gap),
++                    ConvergenceWarning,
++                )
+     except FloatingPointError as e:
+         e.args = (e.args[0] + ". The system is too ill-conditioned for this solver",)
+         raise e
+@@ -593,8 +595,8 @@ def graphical_lasso_path(
+     tol=1e-4,
+     enet_tol=1e-4,
+     max_iter=100,
+-    verbose=False,
+     eps=np.finfo(np.float64).eps,
++    warn=True,
+ ):
+     """l1-penalized covariance estimator along a path of decreasing alphas
+ 
+@@ -684,6 +686,7 @@ def graphical_lasso_path(
+                 max_iter=max_iter,
+                 verbose=inner_verbose,
+                 eps=eps,
++                warn=False,
+             )
+             covariances_.append(covariance_)
+             precisions_.append(precision_)
+@@ -1002,11 +1005,6 @@ class GraphicalLassoCV(BaseGraphicalLasso):
+ 
+         t0 = time.time()
+         for i in range(n_refinements):
+-            with warnings.catch_warnings():
+-                # No need to see the convergence warnings on this grid:
+-                # they will always be points that will not converge
+-                # during the cross-validation
+-                warnings.simplefilter("ignore", ConvergenceWarning)
+                 # Compute the cross-validated loss on the current grid
+ 
+                 # NOTE: Warm-restarting graphical_lasso_path has been tried,
+@@ -1024,15 +1022,15 @@ class GraphicalLassoCV(BaseGraphicalLasso):
+                         verbose=inner_verbose,
+                         eps=self.eps,
+                     )
+-                    for train, test in cv.split(X, y, **routed_params.splitter.split)
++            for train, test in cv.split(X, y, **routed_params.splitter.split)
+                 )
+ 
+             # Little danse to transform the list in what we need
+-            covs, _, scores = zip(*this_path)
+-            covs = zip(*covs)
+-            scores = zip(*scores)
+-            path.extend(zip(alphas, scores, covs))
+-            path = sorted(path, key=operator.itemgetter(0), reverse=True)
++                covs, _, scores = zip(*this_path)
++                covs = zip(*covs)
++                scores = zip(*scores)
++                path.extend(zip(alphas, scores, covs))
++                path = sorted(path, key=operator.itemgetter(0), reverse=True)
+ 
+             # Find the maximum (avoid using built in 'max' function to
+             # have a fully-reproducible selection of the smallest alpha

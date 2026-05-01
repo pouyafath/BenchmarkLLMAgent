@@ -1,0 +1,60 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..cad7c41c 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -10,7 +10,7 @@ from inspect import iscoroutinefunction
+ from itertools import chain
+ from types import TracebackType
+ from urllib.parse import quote as _url_quote
+-
++from urllib.parse import urlparse
+ import click
+ from werkzeug.datastructures import Headers
+ from werkzeug.datastructures import ImmutableDict
+@@ -449,6 +449,30 @@ class Flask(App):
+                 server_name=self.config["SERVER_NAME"],
+                 subdomain=subdomain,
+             )
++
++        def _get_canonical_url_info() -> tuple[str | None, str | None, str | None]:
++            """Parse CANONICAL_URL into server_name, script_name, and url_scheme.
++
++            Returns (server_name, script_name, url_scheme) or (None, None, None)
++            if CANONICAL_URL is not set or invalid.
++            """
++            canonical_url = self.config.get("CANONICAL_URL")
++            if not canonical_url:
++                return None, None, None
++
++            try:
++                parsed = urlparse(canonical_url)
++                if not parsed.netloc:
++                    return None, None, None
++
++                server_name = parsed.netloc
++                script_name = parsed.path or "/"
++                url_scheme = parsed.scheme or self.config["PREFERRED_URL_SCHEME"]
++
++                return server_name, script_name, url_scheme
++            except (ValueError, AttributeError):
++                return None, None, None
++
+         # We need at the very least the server name to be set for this
+         # to work.
+         if self.config["SERVER_NAME"] is not None:
+@@ -457,6 +481,15 @@ class Flask(App):
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )
++        else:
++            # Try to use CANONICAL_URL for URL generation outside request context
++            server_name, script_name, url_scheme = _get_canonical_url_info()
++            if server_name is not None:
++                return self.url_map.bind(
++                    server_name,
++                    script_name=script_name or self.config["APPLICATION_ROOT"],
++                    url_scheme=url_scheme or self.config["PREFERRED_URL_SCHEME"],
++                )
+ 
+         return None
+ 

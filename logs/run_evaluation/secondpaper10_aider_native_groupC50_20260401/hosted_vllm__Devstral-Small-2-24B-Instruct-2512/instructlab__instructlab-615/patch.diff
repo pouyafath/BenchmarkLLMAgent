@@ -1,0 +1,293 @@
+diff --git a/src/instructlab/configuration.py b/src/instructlab/configuration.py
+index 61c6edf3..06f97f18 100644
+--- a/src/instructlab/configuration.py
++++ b/src/instructlab/configuration.py
+@@ -13,14 +13,61 @@ import typing
+ 
+ # Third Party
+ # pylint: disable=ungrouped-imports
+-from instructlab.training import (
+-    DeepSpeedOptions,
+-    DistributedBackend,
+-    FSDPOptions,
+-    LoraOptions,
+-    TorchrunArgs,
+-    TrainingArgs,
+-)
++try:
++    from instructlab.training import (
++        DeepSpeedOptions,
++        DistributedBackend,
++        FSDPOptions,
++        LoraOptions,
++        TorchrunArgs,
++        TrainingArgs,
++    )
++    TRAINING_AVAILABLE = True
++except ImportError:
++    # Provide stub classes for when instructlab-training is not installed
++    from enum import Enum
++    from typing import Any
++
++    TRAINING_AVAILABLE = False
++
++    class DistributedBackend(str, Enum):
++        FSDP = "fsdp"
++        DEEPSPEED = "deepspeed"
++
++        def __str__(self):
++            return self.value
++
++        @classmethod
++        def _missing_(cls, value):
++            # Allow string values to be used
++            if isinstance(value, str):
++                for member in cls:
++                    if member.value == value:
++                        return member
++            return None
++
++    class TrainingArgs:
++        def __init__(self, **kwargs: Any):
++            self.distributed_backend = kwargs.get("distributed_backend")
++            self.deepspeed_options = kwargs.get("deepspeed_options")
++            self.fsdp_options = kwargs.get("fsdp_options")
++            self.lora = kwargs.get("lora")
++
++    class TorchrunArgs:
++        def __init__(self, **kwargs: Any):
++            pass
++
++    class DeepSpeedOptions:
++        def __init__(self, **kwargs: Any):
++            pass
++
++    class FSDPOptions:
++        def __init__(self, **kwargs: Any):
++            pass
++
++    class LoraOptions:
++        def __init__(self, **kwargs: Any):
++            pass
+ from pydantic import (
+     BaseModel,
+     ConfigDict,
+@@ -51,6 +98,13 @@ from .defaults import (
+ yaml = YAML()
+ yaml.indent(mapping=2, sequence=4, offset=2)
+ 
++# Add custom representer for DistributedBackend enum
++def enum_representer(dumper, data):
++    return dumper.represent_str(str(data))
++
++if 'DistributedBackend' in globals():
++    yaml.representer.add_representer(DistributedBackend, enum_representer)
++
+ # Enable fast-download using external dependency "hf_transfer"
+ # Used by the "ilab model download" command
+ os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+@@ -548,7 +602,8 @@ class _train(BaseModel):
+     model_config = ConfigDict(
+         extra="ignore",
+         protected_namespaces=(),
+-        use_enum_values=True,  # populate models with the value property of enums, rather than the raw enum.
++        use_enum_values=TRAINING_AVAILABLE,  # populate models with the value property of enums, rather than the raw enum.
++        arbitrary_types_allowed=not TRAINING_AVAILABLE,  # Allow custom types when instructlab-training is not installed
+     )
+     pipeline: str = Field(
+         default="full",
+diff --git a/src/instructlab/model/accelerated_train.py b/src/instructlab/model/accelerated_train.py
+index c6b234b2..6cbd8868 100644
+--- a/src/instructlab/model/accelerated_train.py
++++ b/src/instructlab/model/accelerated_train.py
+@@ -9,7 +9,24 @@ import typing
+ 
+ # Third Party
+ # pylint: disable=ungrouped-imports
+-from instructlab.training import DistributedBackend, TorchrunArgs, TrainingArgs
++try:
++    from instructlab.training import DistributedBackend, TorchrunArgs, TrainingArgs
++except ImportError:
++    # Provide stubs for when instructlab-training is not installed
++    from enum import Enum
++    from typing import Any
++
++    class DistributedBackend(str, Enum):
++        FSDP = "fsdp"
++        DEEPSPEED = "deepspeed"
++
++    class TrainingArgs:
++        def __init__(self, **kwargs: Any):
++            self.distributed_backend = kwargs.get("distributed_backend")
++
++    class TorchrunArgs:
++        def __init__(self, **kwargs: Any):
++            pass
+ import click
+ 
+ # First Party
+@@ -225,9 +242,12 @@ def accelerated_train(
+         )
+     else:
+         # Third Party
+-        from instructlab.training import (
+-            run_training,  # pylint: disable=no-name-in-module
+-        )
++        try:
++            from instructlab.training import (
++                run_training,  # pylint: disable=no-name-in-module
++            )
++        except ImportError:
++            run_training = None
+ 
+         try:
+             run_training(train_args=train_args, torch_args=torch_args)
+@@ -514,7 +534,10 @@ def _training_phase(
+     """A single step of phased training that supports key param overriding."""
+ 
+     # Third Party
+-    from instructlab.training import run_training  # pylint: disable=no-name-in-module
++    try:
++        from instructlab.training import run_training  # pylint: disable=no-name-in-module
++    except ImportError:
++        run_training = None
+ 
+     logger.debug(
+         f"Phased Training -- training phase -- Overriding data_path: {train_args.data_path} with {data_path}"
+diff --git a/src/instructlab/model/backends/common.py b/src/instructlab/model/backends/common.py
+index 5e90d2bb..0c647c0f 100644
+--- a/src/instructlab/model/backends/common.py
++++ b/src/instructlab/model/backends/common.py
+@@ -8,13 +8,19 @@ import socket
+ import typing
+ 
+ # Third Party
+-from instructlab.training.chat_templates import (
+-    ibm_generic_tmpl as granite,  # type: ignore[import-untyped]
+-)
+-from instructlab.training.chat_templates import (
+-    ibm_legacy_tmpl as granite_llama,  # type: ignore
+-)
+-from instructlab.training.chat_templates import mistral_tmpl as mistral  # type: ignore
++try:
++    from instructlab.training.chat_templates import (
++        ibm_generic_tmpl as granite,  # type: ignore[import-untyped]
++    )
++    from instructlab.training.chat_templates import (
++        ibm_legacy_tmpl as granite_llama,  # type: ignore
++    )
++    from instructlab.training.chat_templates import mistral_tmpl as mistral  # type: ignore
++except ImportError:
++    # Provide stubs for when instructlab-training is not installed
++    granite = None
++    granite_llama = None
++    mistral = None
+ 
+ # First Party
+ from instructlab.common import SupportedModelArchitectures
+@@ -31,26 +37,28 @@ CHAT_TEMPLATE_AUTO = "auto"
+ CHAT_TEMPLATE_TOKENIZER = "tokenizer"
+ LLAMA_CPP = "llama-cpp"
+ VLLM = "vllm"
+-templates = [
+-    {
+-        "family": "granite",
+-        "arch": SupportedModelArchitectures.GRANITE,
+-        "template": granite.CHAT_TEMPLATE,
+-        "special_tokens": granite.SPECIAL_TOKENS,
+-    },
+-    {
+-        "family": "granite",
+-        "arch": SupportedModelArchitectures.LLAMA,
+-        "template": granite_llama.CHAT_TEMPLATE,
+-        "special_tokens": granite_llama.SPECIAL_TOKENS,
+-    },
+-    {
+-        "family": "mixtral",
+-        "arch": "mixtral",
+-        "template": mistral.CHAT_TEMPLATE,
+-        "special_tokens": mistral.SPECIAL_TOKENS,
+-    },
+-]
++templates = []
++if granite is not None:
++    templates = [
++        {
++            "family": "granite",
++            "arch": SupportedModelArchitectures.GRANITE,
++            "template": granite.CHAT_TEMPLATE,
++            "special_tokens": granite.SPECIAL_TOKENS,
++        },
++        {
++            "family": "granite",
++            "arch": SupportedModelArchitectures.LLAMA,
++            "template": granite_llama.CHAT_TEMPLATE,
++            "special_tokens": granite_llama.SPECIAL_TOKENS,
++        },
++        {
++            "family": "mixtral",
++            "arch": "mixtral",
++            "template": mistral.CHAT_TEMPLATE,
++            "special_tokens": mistral.SPECIAL_TOKENS,
++        },
++    ]
+ 
+ 
+ class Closeable(typing.Protocol):
+diff --git a/src/instructlab/model/full_train.py b/src/instructlab/model/full_train.py
+index 735abfb7..2f2f7699 100644
+--- a/src/instructlab/model/full_train.py
++++ b/src/instructlab/model/full_train.py
+@@ -111,7 +111,10 @@ def setup_model(
+ ):
+     # pylint: disable=no-name-in-module
+     # Third Party
+-    from instructlab.training import multipack_sampler
++    try:
++        from instructlab.training import multipack_sampler
++    except ImportError:
++        multipack_sampler = None
+     from torch.utils.data import DataLoader
+ 
+     collate_fn = partial(pad_collate_fn, pad_token_id=tokenizer.pad_token_id)
+@@ -215,9 +218,16 @@ def train(train_args, device, optimize_memory):
+ 
+     # pylint: disable=no-name-in-module
+     # Third Party
+-    from instructlab.training import config
+-    from instructlab.training import data_process as dp
+-    from instructlab.training import multipack_sampler, token_dataset, tokenizer_utils
++    try:
++        from instructlab.training import config
++        from instructlab.training import data_process as dp
++        from instructlab.training import multipack_sampler, token_dataset, tokenizer_utils
++    except ImportError:
++        config = None
++        dp = None
++        multipack_sampler = None
++        token_dataset = None
++        tokenizer_utils = None
+     import torch
+ 
+     dp.main(
+diff --git a/src/instructlab/utils.py b/src/instructlab/utils.py
+index 040b52be..6b0b041d 100644
+--- a/src/instructlab/utils.py
++++ b/src/instructlab/utils.py
+@@ -28,9 +28,13 @@ from instructlab.schema.taxonomy import (
+     TaxonomyParser,
+     TaxonomyReadingException,
+ )
+-from instructlab.training.chat_templates import (
+-    ibm_legacy_tmpl as granite_llama,  # type: ignore
+-)
++try:
++    from instructlab.training.chat_templates import (
++        ibm_legacy_tmpl as granite_llama,  # type: ignore
++    )
++except ImportError:
++    # Provide stub for when instructlab-training is not installed
++    granite_llama = None
+ from packaging import version
+ import click
+ import git

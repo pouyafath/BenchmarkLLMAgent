@@ -1,0 +1,59 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..65737ef21 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -245,13 +245,50 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+     def world_to_pixel_values(self, *world_arrays):
+         world_arrays = tuple(map(np.asanyarray, world_arrays))
+         world_arrays_new = []
+-        iworld_curr = -1
++
++        # Get the correct world coordinate values for dropped dimensions
++        dropped_world_values = []
++        dropped_world_dims = [i for i in range(self._wcs.world_n_dim) if i not in self._world_keep]
++
++        for iworld in dropped_world_dims:
++            # Find the pixel dimension correlated with this world dimension
++            correlated_pixel_dims = np.where(self._wcs.axis_correlation_matrix[iworld])[0]
++
++            # Find which of these pixel dimensions were sliced
++            sliced_pixel_dims = [ip for ip in correlated_pixel_dims if ip not in self._pixel_keep]
++
++            if sliced_pixel_dims:
++                # Get the slice value for this pixel dimension
++                slice_value = self._slices_pixel[sliced_pixel_dims[0]]
++
++                if isinstance(slice_value, int):
++                    # Create pixel coordinates with the slice value and zeros for other dimensions
++                    pixel_coords = [0] * self._wcs.pixel_n_dim
++                    pixel_coords[sliced_pixel_dims[0]] = slice_value
++
++                    # Convert to world coordinates
++                    world_coords = self._wcs.pixel_to_world_values(*pixel_coords)
++                    dropped_world_values.append(world_coords[iworld])
++                else:
++                    # If it's a slice (not an integer), we can't determine the world value
++                    dropped_world_values.append(1.0)
++            else:
++                dropped_world_values.append(1.0)
++
++        # Build the world arrays for the full WCS
++        # We need to interleave the kept world arrays with the dropped world values
++        dropped_iter = iter(dropped_world_values)
++        iworld_kept = 0
+         for iworld in range(self._wcs.world_n_dim):
+             if iworld in self._world_keep:
+-                iworld_curr += 1
+-                world_arrays_new.append(world_arrays[iworld_curr])
++                if iworld_kept < len(world_arrays):
++                    world_arrays_new.append(world_arrays[iworld_kept])
++                    iworld_kept += 1
++                else:
++                    # If we don't have enough kept world arrays, fill with a default value
++                    world_arrays_new.append(0.0)
+             else:
+-                world_arrays_new.append(1.)
++                world_arrays_new.append(next(dropped_iter))
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

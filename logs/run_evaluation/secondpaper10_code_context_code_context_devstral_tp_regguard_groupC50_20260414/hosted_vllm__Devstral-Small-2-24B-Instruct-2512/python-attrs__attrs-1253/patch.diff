@@ -1,0 +1,30 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 0114582..3db158f 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -607,10 +607,24 @@ def _make_cached_property_getattr(cached_properties, original_getattr, cls):
+         "    def __getattr__(self, item, cached_properties=cached_properties, original_getattr=original_getattr, _cached_setattr_get=_cached_setattr_get):",
+         "         func = cached_properties.get(item)",
+         "         if func is not None:",
+-        "              result = func(self)",
++        "              try:",
++        "                  result = func(self)",
++        "              except AttributeError:",
++        "                  raise",
+         "              _setter = _cached_setattr_get(self)",
+         "              _setter(item, result)",
+         "              return result",
++        "         # Check if the attribute exists in the class and is a descriptor",
++        "         # (e.g., property, cached_property) that might raise AttributeError",
++        "         try:",
++        "             class_attr = type(self).__dict__.get(item)",
++        "         except TypeError:",
++        "             class_attr = None",
++        "         if class_attr is not None and hasattr(class_attr, '__get__'):",
++        "             try:",
++        "                 result = class_attr.__get__(self, type(self))",
++        "             except AttributeError:",
++        "                 raise",
+     ]
+     if original_getattr is not None:
+         lines.append(

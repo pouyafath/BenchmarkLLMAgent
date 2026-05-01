@@ -1,0 +1,50 @@
+diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+index 7bd46eeb6..4debd1f4e 100644
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -293,6 +293,24 @@ def _rewrite_test(fn, config):
+     tree = ast.parse(source, filename=fn)
+     rewrite_asserts(tree, source, fn, config)
+     co = compile(tree, fn, "exec", dont_inherit=True)
++    # Comprehensive location fixing for Python 3.11+ compatibility
++    # Fix all AST nodes to have proper lineno and col_offset
++    def _fix_all_node_locations(node):
++        if isinstance(node, ast.AST):
++            # Ensure required fields exist
++            if not hasattr(node, "lineno"):
++                node.lineno = 1
++            if not hasattr(node, "col_offset"):
++                node.col_offset = 0
++            # Recursively fix all child nodes
++            for field_name, field_value in ast.iter_fields(node):
++                if isinstance(field_value, list):
++                    for item in field_value:
++                        _fix_all_node_locations(item)
++                elif isinstance(field_value, ast.AST):
++                    _fix_all_node_locations(field_value)
++    
++    _fix_all_node_locations(tree)
+     return stat, co
+ 
+ 
+@@ -595,8 +613,8 @@ class AssertionRewriter(ast.NodeVisitor):
+         # Insert some special imports at the top of the module but after any
+         # docstrings and __future__ imports.
+         aliases = [
+-            ast.alias("builtins", "@py_builtins"),
+-            ast.alias("_pytest.assertion.rewrite", "@pytest_ar"),
++            ast.alias("builtins", "@py_builtins", lineno=1, col_offset=0),
++            ast.alias("_pytest.assertion.rewrite", "@pytest_ar", lineno=2, col_offset=0),
+         ]
+         doc = getattr(mod, "docstring", None)
+         expect_docstring = doc is None
+@@ -628,6 +646,9 @@ class AssertionRewriter(ast.NodeVisitor):
+             ast.Import([alias], lineno=lineno, col_offset=0) for alias in aliases
+         ]
+         mod.body[pos:pos] = imports
++        # Fix location information for imports
++        for imp in imports:
++            set_location(imp, lineno, 0)
+         # Collect asserts.
+         nodes = [mod]
+         while nodes:

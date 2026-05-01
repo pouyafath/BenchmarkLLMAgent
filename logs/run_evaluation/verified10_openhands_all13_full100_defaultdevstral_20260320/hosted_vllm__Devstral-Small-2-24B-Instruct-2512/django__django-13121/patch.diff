@@ -1,0 +1,35 @@
+diff --git a/django/db/backends/base/operations.py b/django/db/backends/base/operations.py
+index 2e283a3193..31ee87ff5f 100644
+--- a/django/db/backends/base/operations.py
++++ b/django/db/backends/base/operations.py
+@@ -580,6 +580,14 @@ class BaseDatabaseOperations:
+ 
+     def convert_durationfield_value(self, value, expression, connection):
+         if value is not None:
++            # Convert string or decimal to int for timedelta microseconds
++            if isinstance(value, str):
++                try:
++                    value = decimal.Decimal(value)
++                except decimal.InvalidOperation:
++                    pass
++            if isinstance(value, decimal.Decimal):
++                value = int(value)
+             return datetime.timedelta(0, 0, value)
+ 
+     def check_expression_support(self, expression):
+diff --git a/django/db/backends/sqlite3/base.py b/django/db/backends/sqlite3/base.py
+index 31e8a55a43..effc78f2b5 100644
+--- a/django/db/backends/sqlite3/base.py
++++ b/django/db/backends/sqlite3/base.py
+@@ -559,9 +559,8 @@ def _sqlite_format_dtdelta(conn, lhs, rhs):
+             out = real_lhs - real_rhs
+     except (ValueError, TypeError):
+         return None
+-    # typecast_timestamp returns a date or a datetime without timezone.
+-    # It will be formatted as "%Y-%m-%d" or "%Y-%m-%d %H:%M:%S[.%f]"
+-    return str(out)
++    # Return the total microseconds for proper DurationField handling
++    return (out.days * 86400 + out.seconds) * 1000000 + out.microseconds
+ 
+ 
+ @none_guard

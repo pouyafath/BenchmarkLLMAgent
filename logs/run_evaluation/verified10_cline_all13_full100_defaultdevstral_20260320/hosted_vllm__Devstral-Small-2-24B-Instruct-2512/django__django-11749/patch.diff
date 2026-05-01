@@ -1,0 +1,27 @@
+diff --git a/django/core/management/__init__.py b/django/core/management/__init__.py
+index 5f2e64761e..d101f1e3bd 100644
+--- a/django/core/management/__init__.py
++++ b/django/core/management/__init__.py
+@@ -132,10 +132,21 @@ def call_command(command_name, *args, **options):
+     parser_actions = list(get_actions(parser))
+     # Any required arguments which are passed in via **options must be passed
+     # to parse_args().
++    # Also handle mutually exclusive groups: if any action from a required group
++    # is provided in options, it must be passed to parse_args().
+     parse_args += [
+         '{}={}'.format(min(opt.option_strings), arg_options[opt.dest])
+-        for opt in parser_actions if opt.required and opt.dest in options
++        for opt in parser_actions if opt.dest in options and opt.required
+     ]
++    # Handle mutually exclusive groups: add arguments that are provided in options
++    # but are not individually required (e.g., boolean flags in required groups)
++    for opt in parser_actions:
++        if opt.dest in options and not opt.required:
++            # For non-required options, we need to handle them specially
++            if opt.nargs == 0:  # Boolean flags
++                parse_args.append(min(opt.option_strings))
++            else:  # Options with values
++                parse_args.append('{}={}'.format(min(opt.option_strings), arg_options[opt.dest]))
+     defaults = parser.parse_args(args=parse_args)
+     defaults = dict(defaults._get_kwargs(), **arg_options)
+     # Raise an error if any unknown options were passed.

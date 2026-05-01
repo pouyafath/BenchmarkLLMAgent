@@ -1,0 +1,43 @@
+diff --git a/astropy/modeling/core.py b/astropy/modeling/core.py
+index d3b172b6c..5bb8482dd 100644
+--- a/astropy/modeling/core.py
++++ b/astropy/modeling/core.py
+@@ -1574,7 +1574,7 @@ class Model(metaclass=_ModelMeta):
+         for name, unit in parameter_units.items():
+             parameter = getattr(model, name)
+             if parameter.unit is not None:
+-                parameter.value = parameter.quantity.to(unit).value
++                parameter.value = (parameter.value * parameter.unit).to(unit).value
+                 parameter._set_unit(None, force=True)
+ 
+         if isinstance(model, CompoundModel):
+diff --git a/astropy/modeling/functional_models.py b/astropy/modeling/functional_models.py
+index e8cd7bed1..c04aeff45 100644
+--- a/astropy/modeling/functional_models.py
++++ b/astropy/modeling/functional_models.py
+@@ -387,10 +387,10 @@ class Gaussian2D(Fittable2DModel):
+ 
+         a = factor * self.x_stddev
+         b = factor * self.y_stddev
+-        if self.theta.quantity is None:
++        if self.theta.unit is None:
+             theta = self.theta.value
+         else:
+-            theta = self.theta.quantity
++            theta = self.theta.value * self.theta.unit
+         dx, dy = ellipse_extent(a, b, theta)
+ 
+         return ((self.y_mean - dy, self.y_mean + dy),
+diff --git a/astropy/modeling/physical_models.py b/astropy/modeling/physical_models.py
+index 6dabf219e..1a6141f93 100644
+--- a/astropy/modeling/physical_models.py
++++ b/astropy/modeling/physical_models.py
+@@ -218,7 +218,7 @@ class BlackBody(Fittable1DModel):
+         """Bolometric flux."""
+         if self.scale.unit is not None:
+             # Will be dimensionless at this point, but may not be dimensionless_unscaled
+-            scale = self.scale.quantity.to(u.dimensionless_unscaled)
++            scale = (self.scale.value * self.scale.unit).to(u.dimensionless_unscaled)
+         else:
+             scale = self.scale.value
+ 

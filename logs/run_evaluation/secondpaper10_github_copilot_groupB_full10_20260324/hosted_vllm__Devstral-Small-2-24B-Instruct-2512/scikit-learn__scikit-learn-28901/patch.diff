@@ -1,0 +1,85 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..f553a7530 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -103,6 +103,11 @@ class Pipeline(_BaseComposition):
+         If True, the time elapsed while fitting each step will be printed as it
+         is completed.
+ 
++    transform_input : list of str, default=None
++        Enables transforming input arguments to fit (other than X) through pipeline steps
++        up to the step requiring them. Requires metadata routing.
++        Example: pipe.fit(X, y, X_val=(X_val0, X_val1), y_val=(y_val0, y_val1))
++
+     Attributes
+     ----------
+     named_steps : :class:`~sklearn.utils.Bunch`
+@@ -158,12 +163,14 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -461,7 +468,51 @@ class Pipeline(_BaseComposition):
+         self : object
+             Pipeline with fitted steps.
+         """
+-        routed_params = self._check_method_params(method="fit", props=params)
++        # Handle transform_input parameters
++        if self.transform_input is not None and _routing_enabled():
++            # Separate transform_input params from regular params
++            transform_input_params = {}
++            other_params = {}
++            for key, value in params.items():
++                if key in self.transform_input:
++                    transform_input_params[key] = value
++                else:
++                    other_params[key] = value
++
++            # Process regular params
++            routed_params = self._check_method_params(method="fit", props=other_params)
++
++            # Transform input parameters through the pipeline
++            transformed_input_params = {}
++            for param_name in self.transform_input:
++                if param_name in transform_input_params:
++                    param_value = transform_input_params[param_name]
++                    # Transform the parameter through the pipeline
++                    transformed_value = param_value
++                    for _, name, transformer in self._iter(with_final=False):
++                        if hasattr(transformer, "transform"):
++                            # Get the routing info for this transformer
++                            transformer_routed_params = process_routing(
++                                transformer, "transform", **{param_name: param_value}
++                            )
++                            # Apply transform
++                            transformed_value = transformer.transform(
++                                transformed_value, **transformer_routed_params.transform
++                            )
++                    transformed_input_params[param_name] = transformed_value
++
++            # Merge transformed input params back into routed_params for the final estimator
++            final_step_name = self.steps[-1][0]
++            if final_step_name in routed_params:
++                routed_params[final_step_name].fit.update(transformed_input_params)
++            else:
++                routed_params[final_step_name] = Bunch(fit=transformed_input_params)
++
++            # Also store transformed params for potential use in other methods
++            self._transformed_input_params_ = transformed_input_params
++        else:
++            # Original logic
++            routed_params = self._check_method_params(method="fit", props=params)
+         Xt = self._fit(X, y, routed_params)
+         with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+             if self._final_estimator != "passthrough":

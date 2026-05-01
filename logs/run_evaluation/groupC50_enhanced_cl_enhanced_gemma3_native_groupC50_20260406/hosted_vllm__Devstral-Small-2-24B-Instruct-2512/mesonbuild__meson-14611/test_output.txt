@@ -1,0 +1,315 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch master
+Your branch is behind 'origin/master' by 116 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   mesonbuild/options.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	test cases/common/98 subproject subdir/subprojects/subsubsub-1.0/
+	test cases/common/98 subproject subdir/subprojects/subsubsub.wrap
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 5463c644c86167fc8b4c6a9c389aaa6bd8b116ec
+Author: Arjan Molenaar <gaphor@gmail.com>
+Date:   Mon May 5 23:18:56 2025 +0200
+
+    vulkan: Add regression test with VULKAN_SDK variable
+    
+    Add test cases that target the Vulkan system dependeny resolver
+    explicitly.
+
+diff --git a/test cases/frameworks/18 vulkan/meson.build b/test cases/frameworks/18 vulkan/meson.build
+index 5cfe89f76..ab9f29130 100644
+--- a/test cases/frameworks/18 vulkan/meson.build	
++++ b/test cases/frameworks/18 vulkan/meson.build	
+@@ -1,6 +1,8 @@
+ project('vulkan test', 'c')
+ 
+-vulkan_dep = dependency('vulkan', required : false)
++method = get_option('method')
++
++vulkan_dep = dependency('vulkan', required : false, method : method)
+ if not vulkan_dep.found()
+   error('MESON_SKIP_TEST: vulkan not found.')
+ endif
+diff --git a/test cases/frameworks/18 vulkan/meson.options b/test cases/frameworks/18 vulkan/meson.options
+new file mode 100644
+index 000000000..962fbe20c
+--- /dev/null
++++ b/test cases/frameworks/18 vulkan/meson.options	
+@@ -0,0 +1,6 @@
++option(
++    'method',
++    type : 'combo',
++    choices : ['auto', 'pkg-config', 'system'],
++    value : 'auto',
++)
+diff --git a/test cases/frameworks/18 vulkan/test.json b/test cases/frameworks/18 vulkan/test.json
+index 66afb97c3..820f07565 100644
+--- a/test cases/frameworks/18 vulkan/test.json	
++++ b/test cases/frameworks/18 vulkan/test.json	
+@@ -1,3 +1,14 @@
+ {
++  "env": {
++    "VULKAN_SDK": "/usr"
++  },
++  "matrix": {
++    "options": {
++      "method": [
++        { "val": "pkg-config" },
++        { "val": "system" }
++      ]
++    }
++  },
+   "expect_skip_on_jobname": ["azure", "cygwin", "macos", "msys2"]
+ }
++ git -c core.fileMode=false diff 5463c644c86167fc8b4c6a9c389aaa6bd8b116ec
+diff --git a/mesonbuild/options.py b/mesonbuild/options.py
+index ac90b2292..60a88a1a6 100644
+--- a/mesonbuild/options.py
++++ b/mesonbuild/options.py
+@@ -817,6 +817,7 @@ class OptionStore:
+         # configuration dependent options like compiler options, or options for
+         # a different subproject
+         self.pending_options: T.Dict[OptionKey, ElementaryOptionValues] = {}
++        self._options_from_machine_files: T.Set[OptionKey] = set()
+ 
+     def clear_pending(self) -> None:
+         self.pending_options = {}
+@@ -1297,13 +1298,18 @@ class OptionStore:
+             if key.subproject:
+                 self.augments[key] = valstr
+             elif key in self.options:
++                self._options_from_machine_files.add(key)
+                 self.set_option(key, valstr, first_invocation)
+             else:
+                 proj_key = key.as_root()
+                 if proj_key in self.options:
++                    self._options_from_machine_files.add(proj_key)
+                     self.set_option(proj_key, valstr, first_invocation)
+                 else:
+-                    self.pending_options[key] = valstr
++                    # Don't add builtin options to pending_options as they should be treated as final
++                    # Command line options can still override them through the cmd_line_options processing
++                    if not self.is_builtin_option(key):
++                        self.pending_options[key] = valstr
+         for keystr, valstr in project_default_options.items():
+             # Ths is complicated by the fact that a string can have two meanings:
+             #
+@@ -1326,7 +1332,7 @@ class OptionStore:
+                 continue
+             if key.subproject:
+                 self.augments[key] = valstr
+-            elif key in self.options:
++            elif key in self.options and key not in self._options_from_machine_files:
+                 self.set_option(key, valstr, first_invocation)
+             else:
+                 # Setting a project option with default_options.
+@@ -1337,7 +1343,10 @@ class OptionStore:
+                 if self.is_project_option(proj_key):
+                     self.set_option(proj_key, valstr)
+                 else:
+-                    self.pending_options[key] = valstr
++                    # Don't add builtin options to pending_options as they should be treated as final
++                    # Command line options can still override them through the cmd_line_options processing
++                    if not self.is_builtin_option(key):
++                        self.pending_options[key] = valstr
+         for keystr, valstr in cmd_line_options.items():
+             if isinstance(keystr, str):
+                 key = OptionKey.from_string(keystr)
+@@ -1349,14 +1358,17 @@ class OptionStore:
+                 continue
+             if key.subproject:
+                 self.augments[key] = valstr
+-            elif key in self.options:
++            elif key in self.options or key in self._options_from_machine_files:
+                 self.set_option(key, valstr, True)
+             else:
+                 proj_key = key.as_root()
+                 if proj_key in self.options:
+                     self.set_option(proj_key, valstr, True)
+                 else:
+-                    self.pending_options[key] = valstr
++                    # Don't add builtin options to pending_options as they should be treated as final
++                    # Command line options can still override them through the cmd_line_options processing
++                    if not self.is_builtin_option(key):
++                        self.pending_options[key] = valstr
+ 
+     def accept_as_pending_option(self, key: OptionKey, known_subprojects: T.Optional[T.Union[T.Set[str], T.KeysView[str]]] = None) -> bool:
+         # Fail on unknown options that we can know must exist at this point in time.
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 24.0 from /usr/local/lib/python3.7/site-packages/pip (python 3.7)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-5o2753_v/meson.egg-info
+  writing /tmp/pip-modern-metadata-5o2753_v/meson.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-5o2753_v/meson.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-5o2753_v/meson.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-5o2753_v/meson.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-5o2753_v/meson.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-5o2753_v/meson.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-5o2753_v/meson.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'COPYING'
+  writing manifest file '/tmp/pip-modern-metadata-5o2753_v/meson.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-5o2753_v/meson-1.8.99.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+WARNING: meson 1.8.99 does not provide the extra 'test'
+Checking if build backend supports build_editable: started
+Running command Checking if build backend supports build_editable
+Checking if build backend supports build_editable: finished with status 'done'
+Building wheels for collected packages: meson
+  Building editable for meson (pyproject.toml): started
+  Running command Building editable for meson (pyproject.toml)
+  running editable_wheel
+  creating /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info
+  writing /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'COPYING'
+  writing manifest file '/tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson-1.8.99.dist-info'
+  creating /tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson-1.8.99.dist-info/WHEEL
+  running build_py
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable___meson_1_8_99_finder.py'
+  adding '__editable__.meson-1.8.99.pth'
+  creating '/tmp/pip-wheel-hdnolux5/.tmp-7z5bs7wv/meson-1.8.99-0.editable-py3-none-any.whl' and adding '/tmp/tmpumcsee3nmeson-1.8.99-0.editable-py3-none-any.whl' to it
+  adding 'meson-1.8.99.dist-info/COPYING'
+  adding 'meson-1.8.99.dist-info/METADATA'
+  adding 'meson-1.8.99.dist-info/WHEEL'
+  adding 'meson-1.8.99.dist-info/entry_points.txt'
+  adding 'meson-1.8.99.dist-info/top_level.txt'
+  adding 'meson-1.8.99.dist-info/RECORD'
+  /usr/local/lib/python3.7/site-packages/setuptools/command/editable_wheel.py:348: InformationOnly: Editable installation.
+  !!
+
+          ********************************************************************************
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+          ********************************************************************************
+
+  !!
+    wheel_obj.write_files(unpacked)
+  Building editable for meson (pyproject.toml): finished with status 'done'
+  Created wheel for meson: filename=meson-1.8.99-0.editable-py3-none-any.whl size=7324 sha256=f9ec2930e5a57dc06cb80d365d188148fbeb9b7707c8f40240fcc7c9c8a99d69
+  Stored in directory: /tmp/pip-ephem-wheel-cache-_mjvje_s/wheels/e5/8a/5e/337f591222d921a8cf8e8621cca3f625cf9011eb8c4874b673
+Successfully built meson
+Installing collected packages: meson
+  Attempting uninstall: meson
+    Found existing installation: meson 1.8.99
+    Uninstalling meson-1.8.99:
+      Removing file or directory /usr/local/bin/meson
+      Removing file or directory /usr/local/lib/python3.7/site-packages/__editable__.meson-1.8.99.pth
+      Removing file or directory /usr/local/lib/python3.7/site-packages/__editable___meson_1_8_99_finder.py
+      Removing file or directory /usr/local/lib/python3.7/site-packages/__pycache__/__editable___meson_1_8_99_finder.cpython-37.pyc
+      Removing file or directory /usr/local/lib/python3.7/site-packages/meson-1.8.99.dist-info/
+      Successfully uninstalled meson-1.8.99
+  changing mode of /usr/local/bin/meson to 755
+Successfully installed meson-1.8.99
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/1e/65/22725f8ba583376d0c300c3b9b52b9a67cfd93d786a80be73c167e45abc8/pip-24.1b1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/71/38/b0cb3d68b4776b6208a2f16b6d444a848a1fe465a78ce4b7dbbeb8a4fc58/pip-24.1b1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/c1/64/0f1528ed3dfd75a56e084caab3c8dbed596bf87a1dfc40cbc57166bb0c25/pip-24.1b2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/0b/b2/1d1eac32a16fd9478fb9bc6eb6b899f91e6fecceba194fa097c35d385e9a/pip-24.1b2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/25/49/2255373efd193c6fbd97dc22399e9c830a6517a0f02ca77fbc0bd83ac5cc/pip-24.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/df/60/7538a9cd4d76829c2f585b73d6e400c833a1769408451c813354c58de6cc/pip-24.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/f4/ab/e3c039b5ddba9335bd8f82d599eb310de1d2a2db0411b8d804d507405c74/pip-24.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/c0/d0/9641dc7b05877874c6418f8034ddefc809495e65caa14d38c7551cd114bb/pip-24.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/e7/54/0c1c068542cee73d8863336e974fc881e608d0170f3af15d0c0f28644531/pip-24.1.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/12/3d/d899257cace386bebb7bdf8a872d5fe3b935cc6381c3ddb76d3e5d99890d/pip-24.1.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/d4/55/90db48d85f7689ec6f81c0db0622d704306c5284850383c090e6c7195a5c/pip-24.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/4d/87/fb90046e096a03aeab235e139436b3fe804cdd447ed2093b0d70eba3f7f8/pip-24.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/ce/22/4bb91eb040e18eedaba1ba9db41ef909bc73d20023cea09024099909998a/pip-24.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/a3/63/dca2c8e2dbfbde322386caf6e674f97f46a6f11d496dc96b99594f8ecc33/pip-24.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/ef/7d/500c9ad20238fcfcb4cb9243eede163594d7020ce87bd9610c9e02771876/pip-24.3.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/f4/b1/b422acd212ad7eedddaf7981eee6e5de085154ff726459cf2da7c5a184c1/pip-24.3.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/85/8a/1ddf40be20103bcc605db840e9ade09c8e8c9f920a03e9cfe88eae97a058/pip-25.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/47/3e/68beeeeb306ea20ffd30b3ed993f531d16cd884ec4f60c9b1e238f69f2af/pip-25.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/c9/bc/b7db44f5f39f9d0494071bddae6880eb645970366d0a200022a1a93d57f5/pip-25.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.8'): https://files.pythonhosted.org/packages/70/53/b309b4a497b09655cb7e07088966881a57d082f48ac3cb54ea729fd2c6cf/pip-25.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.8)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.7.17 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 5463c644c86167fc8b4c6a9c389aaa6bd8b116ec unittests/optiontests.py
+Updated 0 paths from 46a0df4c9
++ git apply -v -
+Checking patch unittests/optiontests.py...
+Applied patch unittests/optiontests.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA unittests/optiontests.py
+============================= test session starts ==============================
+platform linux -- Python 3.7.17, pytest-7.4.4, pluggy-1.2.0
+rootdir: /testbed
+configfile: setup.cfg
+plugins: xdist-3.5.0, subtests-0.13.1
+collected 17 items
+
+unittests/optiontests.py .................                               [100%]
+
+==================================== PASSES ====================================
+_________________ OptionTests.test_deprecated_nonstring_value __________________
+----------------------------- Captured stdout call -----------------------------
+DEPRECATION: Option 'deprecated' value 'true' is replaced by '1'
+=========================== short test summary info ============================
+PASSED unittests/optiontests.py::OptionTests::test_augment_set_sub
+PASSED unittests/optiontests.py::OptionTests::test_augments
+PASSED unittests/optiontests.py::OptionTests::test_b_default
+PASSED unittests/optiontests.py::OptionTests::test_b_nonexistent
+PASSED unittests/optiontests.py::OptionTests::test_basic
+PASSED unittests/optiontests.py::OptionTests::test_deprecated_nonstring_value
+PASSED unittests/optiontests.py::OptionTests::test_machine_vs_project
+PASSED unittests/optiontests.py::OptionTests::test_parsing
+PASSED unittests/optiontests.py::OptionTests::test_project_nonyielding
+PASSED unittests/optiontests.py::OptionTests::test_project_yielding
+PASSED unittests/optiontests.py::OptionTests::test_project_yielding_not_defined_in_top_project
+PASSED unittests/optiontests.py::OptionTests::test_reconfigure_b_nonexistent
+PASSED unittests/optiontests.py::OptionTests::test_reset
+PASSED unittests/optiontests.py::OptionTests::test_subproject_for_system
+PASSED unittests/optiontests.py::OptionTests::test_subproject_nonexistent
+PASSED unittests/optiontests.py::OptionTests::test_subproject_system_option
+PASSED unittests/optiontests.py::OptionTests::test_toplevel_project
+============================== 17 passed in 0.10s ==============================
++ : '>>>>> End Test Output'
++ git checkout 5463c644c86167fc8b4c6a9c389aaa6bd8b116ec unittests/optiontests.py
+Updated 1 path from 46a0df4c9

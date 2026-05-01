@@ -1,0 +1,24 @@
+diff --git a/django/utils/html.py b/django/utils/html.py
+index 9c519978f5..0a88f6d637 100644
+--- a/django/utils/html.py
++++ b/django/utils/html.py
+@@ -3,6 +3,7 @@
+ import json
+ import re
+ from html.parser import HTMLParser
++import html  # Added for stdlib html.escape
+ from urllib.parse import (
+     parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit,
+ )
+@@ -43,7 +44,10 @@ def escape(text):
+     This may result in double-escaping. If this is a concern, use
+     conditional_escape() instead.
+     """
+-    return mark_safe(str(text).translate(_html_escapes))
++    # Use stdlib html.escape for better performance, then convert &#x27; to &#39;
++    # for backward compatibility
++    result = html.escape(str(text))
++    return mark_safe(result.replace('&#x27;', '&#39;'))
+ 
+ 
+ _js_escapes = {

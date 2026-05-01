@@ -1,0 +1,125 @@
+diff --git a/src/datamodel_code_generator/model/base.py b/src/datamodel_code_generator/model/base.py
+index e2cefcae..8111a668 100644
+--- a/src/datamodel_code_generator/model/base.py
++++ b/src/datamodel_code_generator/model/base.py
+@@ -276,7 +276,9 @@ class DataModel(TemplateBase, Nullable, ABC):
+         nullable: bool = False,
+         keyword_only: bool = False,
+         treat_dot_as_module: bool = False,
++        frozen: bool = False,
+     ) -> None:
++        self.frozen = frozen
+         self.keyword_only = keyword_only
+         if not self.TEMPLATE_FILE_PATH:
+             msg = "TEMPLATE_FILE_PATH is undefined"
+@@ -434,5 +436,6 @@ class DataModel(TemplateBase, Nullable, ABC):
+             methods=self.methods,
+             description=self.description,
+             keyword_only=self.keyword_only,
++            frozen=self.frozen,
+             **self.extra_template_data,
+         )
+diff --git a/src/datamodel_code_generator/model/dataclass.py b/src/datamodel_code_generator/model/dataclass.py
+index 190c6f63..aa7249e4 100644
+--- a/src/datamodel_code_generator/model/dataclass.py
++++ b/src/datamodel_code_generator/model/dataclass.py
+@@ -54,6 +54,7 @@ class DataClass(DataModel):
+         nullable: bool = False,
+         keyword_only: bool = False,
+         treat_dot_as_module: bool = False,
++        frozen: bool = False,
+     ) -> None:
+         super().__init__(
+             reference=reference,
+@@ -70,6 +71,7 @@ class DataClass(DataModel):
+             nullable=nullable,
+             keyword_only=keyword_only,
+             treat_dot_as_module=treat_dot_as_module,
++            frozen=frozen,
+         )
+ 
+ 
+diff --git a/src/datamodel_code_generator/model/template/dataclass.jinja2 b/src/datamodel_code_generator/model/template/dataclass.jinja2
+index 632026b5..aad4bedf 100644
+--- a/src/datamodel_code_generator/model/template/dataclass.jinja2
++++ b/src/datamodel_code_generator/model/template/dataclass.jinja2
+@@ -1,7 +1,7 @@
+ {% for decorator in decorators -%}
+ {{ decorator }}
+ {% endfor -%}
+-@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}
++@dataclass{%- if frozen -%}(frozen=True){%- elif keyword_only -%}(kw_only=True){%- endif %}
+ {%- if base_class %}
+ class {{ class_name }}({{ base_class }}):
+ {%- else %}
+diff --git a/src/datamodel_code_generator/parser/graphql.py b/src/datamodel_code_generator/parser/graphql.py
+index 107a5164..b9954664 100644
+--- a/src/datamodel_code_generator/parser/graphql.py
++++ b/src/datamodel_code_generator/parser/graphql.py
+@@ -452,6 +452,7 @@ class GraphQLParser(Parser):
+             custom_base_class=self.base_class,
+             custom_template_dir=self.custom_template_dir,
+             extra_template_data=self.extra_template_data,
++            frozen=self.enable_faux_immutability,
+             path=self.current_source_path,
+             description=obj.description,
+             keyword_only=self.keyword_only,
+diff --git a/src/datamodel_code_generator/parser/jsonschema.py b/src/datamodel_code_generator/parser/jsonschema.py
+index 09cfc0af..74dc8333 100644
+--- a/src/datamodel_code_generator/parser/jsonschema.py
++++ b/src/datamodel_code_generator/parser/jsonschema.py
+@@ -746,15 +746,21 @@ class JsonSchemaParser(Parser):
+         data_model_type = self.data_model_type(
+             reference=reference,
+             fields=fields,
++            decorators=None,
+             base_classes=base_classes,
+             custom_base_class=obj.custom_base_path or self.base_class,
+             custom_template_dir=self.custom_template_dir,
+             extra_template_data=self.extra_template_data,
++            methods=None,
+             path=self.current_source_path,
+             description=obj.description if self.use_schema_description else None,
++            default=UNDEFINED,
++            nullable=False,
+             keyword_only=self.keyword_only,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
++        if self.enable_faux_immutability:
++            data_model_type.frozen = True
+         self.results.append(data_model_type)
+ 
+         return self.data_type(reference=reference)
+@@ -985,15 +991,20 @@ class JsonSchemaParser(Parser):
+         data_model_type = data_model_type_class(
+             reference=reference,
+             fields=fields,
++            decorators=None,
++            base_classes=[],
+             custom_base_class=obj.custom_base_path or self.base_class,
+             custom_template_dir=self.custom_template_dir,
+             extra_template_data=self.extra_template_data,
+             path=self.current_source_path,
+             description=obj.description if self.use_schema_description else None,
++            default=UNDEFINED,
+             nullable=obj.type_has_null,
+             keyword_only=self.keyword_only,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
++        if self.enable_faux_immutability and hasattr(data_model_type, 'frozen'):
++            data_model_type.frozen = True
+         self.results.append(data_model_type)
+         return self.data_type(reference=reference)
+ 
+diff --git a/src/datamodel_code_generator/parser/openapi.py b/src/datamodel_code_generator/parser/openapi.py
+index ec8bec14..4c438674 100644
+--- a/src/datamodel_code_generator/parser/openapi.py
++++ b/src/datamodel_code_generator/parser/openapi.py
+@@ -489,6 +489,7 @@ class OpenAPIParser(JsonSchemaParser):
+                     reference=reference,
+                     custom_base_class=self.base_class,
+                     custom_template_dir=self.custom_template_dir,
++                frozen=self.enable_faux_immutability,
+                     keyword_only=self.keyword_only,
+                     treat_dot_as_module=self.treat_dot_as_module,
+                 )

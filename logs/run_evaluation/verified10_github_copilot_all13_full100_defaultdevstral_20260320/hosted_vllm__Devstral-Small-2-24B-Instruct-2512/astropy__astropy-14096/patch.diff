@@ -1,0 +1,29 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..ecdba6505 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -895,9 +895,21 @@ class SkyCoord(ShapedLikeNDArray):
+                 return self.transform_to(attr)
+ 
+         # Fail
+-        raise AttributeError(
+-            f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+-        )
++        # Only raise our custom error if the attribute doesn't exist on the class at all
++        # (i.e., it's not a property, method, or other descriptor).
++        # If it exists but raises AttributeError when accessed (e.g., property accessing missing attr),
++        # let that original error propagate.
++        if attr not in dir(self.__class__):
++            raise AttributeError(
++                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
++            )
++        # If we get here, the attribute exists on the class but raised AttributeError when accessed.
++        # Try to access it directly to get the original error message.
++        try:
++            return object.__getattribute__(self, attr)
++        except AttributeError:
++            # Re-raise the original AttributeError from the descriptor/propery
++            raise
+ 
+     def __setattr__(self, attr, val):
+         # This is to make anything available through __getattr__ immutable

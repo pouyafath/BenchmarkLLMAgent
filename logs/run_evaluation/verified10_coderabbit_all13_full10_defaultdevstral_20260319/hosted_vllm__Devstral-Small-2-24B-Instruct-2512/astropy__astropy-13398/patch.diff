@@ -1,0 +1,293 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..17b524478 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -48,6 +48,7 @@ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
++from . import itrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+ 
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..e873771ed
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,275 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS.
++"""
++
++import numpy as np
++import erfa
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                UnitSphericalRepresentation,
++                                                CartesianRepresentation)
++
++from .itrs import ITRS
++from .altaz import AltAz
++from .hadec import HADec
++from .utils import PIOVER2
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Compute the transformation matrix from topocentric ITRS to the observed frame.
++
++    This matrix converts from a topocentric ITRS coordinate system (where the
++    origin is at the observer's location) to the observed frame coordinates.
++    """
++    # Get the observer's location in ITRS
++    observer_itrs = observed_frame.location.get_itrs(observed_frame.obstime)
++
++    # Get the observer's position in Cartesian coordinates
++    obs_cart = observer_itrs.cartesian
++
++    # For AltAz, we need to compute the local horizontal frame
++    if isinstance(observed_frame, AltAz):
++        # Get the observer's latitude and longitude
++        lat = observer_itrs.earth_location.lat
++        lon = observer_itrs.earth_location.lon
++
++        # Convert to radians
++        lat_rad = lat.to_value(u.radian)
++        lon_rad = lon.to_value(u.radian)
++
++        # Local horizontal frame basis vectors (ITRS to local horizontal)
++        # z-axis: zenith direction (local vertical)
++        zenith_x = np.cos(lat_rad) * np.cos(lon_rad)
++        zenith_y = np.cos(lat_rad) * np.sin(lon_rad)
++        zenith_z = np.sin(lat_rad)
++
++        # x-axis: south direction (in the local horizontal plane)
++        south_x = np.sin(lat_rad) * np.cos(lon_rad)
++        south_y = np.sin(lat_rad) * np.sin(lon_rad)
++        south_z = -np.cos(lat_rad)
++
++        # y-axis: east direction (completes the right-handed system)
++        east_x = -np.sin(lon_rad)
++        east_y = np.cos(lon_rad)
++        east_z = 0.0
++
++        # Create the transformation matrix: ITRS -> local horizontal
++        # Columns are the basis vectors of the target frame in ITRS coordinates
++        mat = np.array([
++            [south_x, east_x, zenith_x],
++            [south_y, east_y, zenith_y],
++            [south_z, east_z, zenith_z]
++        ])
++
++        return mat
++
++    elif isinstance(observed_frame, HADec):
++        # For HADec, we need the local equatorial frame
++        lat = observer_itrs.earth_location.lat
++        lon = observer_itrs.earth_location.lon
++
++        # Convert to radians
++        lat_rad = lat.to_value(u.radian)
++        lon_rad = lon.to_value(u.radian)
++
++        # Local equatorial frame basis vectors (ITRS to local equatorial)
++        # z-axis: north celestial pole
++        pole_x = np.cos(lat_rad)
++        pole_y = 0.0
++        pole_z = np.sin(lat_rad)
++
++        # x-axis: vernal equinox direction (projected onto local horizon)
++        eq_x = -np.sin(lat_rad) * np.cos(lon_rad)
++        eq_y = -np.sin(lat_rad) * np.sin(lon_rad)
++        eq_z = np.cos(lat_rad)
++
++        # y-axis: east direction in equatorial coordinates
++        east_x = -np.sin(lon_rad)
++        east_y = np.cos(lon_rad)
++        east_z = 0.0
++
++        # Create the transformation matrix: ITRS -> local equatorial
++        mat = np.array([
++            [eq_x, east_x, pole_x],
++            [eq_y, east_y, pole_y],
++            [eq_z, east_z, pole_z]
++        ])
++
++        return mat
++
++    else:
++        raise ValueError(f"Unsupported observed frame type: {type(observed_frame)}")
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_observed(itrs_coo, observed_frame):
++    """
++    Transform ITRS coordinates to observed frames (AltAz or HADec) without geocentric aberration.
++
++    This transformation operates entirely within ITRS and treats ITRS positions as time-invariant.
++    It adopts the output frame's obstime and location for the transformation.
++    """
++    # Get the observer's location in ITRS at the observed frame's time
++    observer_itrs = observed_frame.location.get_itrs(observed_frame.obstime)
++
++    # Convert both coordinates to Cartesian representations
++    itrs_cart = itrs_coo.cartesian
++    observer_cart = observer_itrs.cartesian
++
++    # Subtract observer position to get topocentric coordinates (in ITRS)
++    topocentric_cart = itrs_cart - observer_cart
++
++    # Get the transformation matrix from topocentric ITRS to observed frame
++    transform_mat = itrs_to_observed_mat(observed_frame)
++
++    # Apply the transformation
++    # The matrix transforms from ITRS coordinates to the observed frame coordinates
++    observed_cart = topocentric_cart.transform(transform_mat)
++
++    # Convert to spherical representation for the observed frame
++    if isinstance(observed_frame, AltAz):
++        # For AltAz: lon=azimuth, lat=altitude (90°-zenith)
++        # The transformation gives us: [south, east, zenith] components
++        # We need to convert to azimuth (east of north) and altitude
++
++        # Calculate azimuth (east of north)
++        # arctan2(east, south) gives angle east of south, so add 90° to get east of north
++        az_rad = np.arctan2(observed_cart.y.value, observed_cart.x.value)
++        az_rad = az_rad + np.pi/2  # Convert to east of north (azimuth)
++
++        # Altitude is the angle from the horizontal plane
++        # zenith component is the vertical component
++        alt_rad = np.arcsin(observed_cart.z.value / observed_cart.norm().value)
++
++        # Ensure angles are in valid ranges
++        az_rad = az_rad % (2*np.pi)
++        alt_rad = np.clip(alt_rad, -np.pi/2, np.pi/2)
++
++        # Create spherical representation
++        if itrs_coo.cartesian.x.unit == u.one:
++            rep = UnitSphericalRepresentation(
++                lon=u.Quantity(az_rad, u.radian, copy=False),
++                lat=u.Quantity(alt_rad, u.radian, copy=False),
++                copy=False
++            )
++        else:
++            rep = SphericalRepresentation(
++                lon=u.Quantity(az_rad, u.radian, copy=False),
++                lat=u.Quantity(alt_rad, u.radian, copy=False),
++                distance=topocentric_cart.norm(),
++                copy=False
++            )
++
++    elif isinstance(observed_frame, HADec):
++        # For HADec: lon=hour angle, lat=declination
++        # The transformation gives us: [vernal equinox, east, north] components
++        # We need to convert to hour angle and declination
++
++        # Hour angle is the angle from the meridian (positive west)
++        # This is similar to right ascension but measured from local meridian
++        ha_rad = np.arctan2(observed_cart.y.value, observed_cart.x.value)
++
++        # Declination is the angle from the celestial equator
++        dec_rad = np.arcsin(observed_cart.z.value / observed_cart.norm().value)
++
++        # Ensure angles are in valid ranges
++        ha_rad = ha_rad % (2*np.pi)
++        dec_rad = np.clip(dec_rad, -np.pi/2, np.pi/2)
++
++        # Create spherical representation
++        if itrs_coo.cartesian.x.unit == u.one:
++            rep = UnitSphericalRepresentation(
++                lon=u.Quantity(ha_rad, u.radian, copy=False),
++                lat=u.Quantity(dec_rad, u.radian, copy=False),
++                copy=False
++            )
++        else:
++            rep = SphericalRepresentation(
++                lon=u.Quantity(ha_rad, u.radian, copy=False),
++                lat=u.Quantity(dec_rad, u.radian, copy=False),
++                distance=topocentric_cart.norm(),
++                copy=False
++            )
++
++    return observed_frame.realize_frame(rep)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def observed_to_itrs(observed_coo, itrs_frame):
++    """
++    Transform observed frames (AltAz or HADec) back to ITRS.
++
++    This is the inverse of itrs_to_observed.
++    """
++    # Get the observer's location in ITRS at the observed coordinate's time
++    observer_itrs = observed_coo.location.get_itrs(observed_coo.obstime)
++
++    # Convert observed coordinates to Cartesian
++    observed_cart = observed_coo.cartesian
++
++    # Get the inverse transformation matrix
++    if isinstance(observed_coo, AltAz):
++        # For AltAz: convert azimuth/altitude to ITRS coordinates
++        az = observed_coo.az.to_value(u.radian)
++        alt = observed_coo.alt.to_value(u.radian)
++
++        # Get observer location
++        lat = observer_itrs.earth_location.lat.to_value(u.radian)
++        lon = observer_itrs.earth_location.lon.to_value(u.radian)
++
++        # Convert azimuth to east of south
++        az_south = az - np.pi/2
++
++        # Compute ITRS coordinates from local horizontal
++        # x = sin(alt) * cos(az_south)
++        # y = sin(alt) * sin(az_south)
++        # z = cos(alt)
++        x = np.sin(alt) * np.cos(az_south)
++        y = np.sin(alt) * np.sin(az_south)
++        z = np.cos(alt)
++
++        # Rotate to geocentric coordinates
++        # Apply the inverse of the local horizontal transformation
++        # This is the transpose of the original matrix
++        topocentric_cart = CartesianRepresentation(
++            x=u.Quantity(x, observed_cart.x.unit, copy=False),
++            y=u.Quantity(y, observed_cart.y.unit, copy=False),
++            z=u.Quantity(z, observed_cart.z.unit, copy=False),
++            copy=False
++        )
++
++    elif isinstance(observed_coo, HADec):
++        # For HADec: convert hour angle/declination to ITRS coordinates
++        ha = observed_coo.ha.to_value(u.radian)
++        dec = observed_coo.dec.to_value(u.radian)
++
++        # Get observer location
++        lat = observer_itrs.earth_location.lat.to_value(u.radian)
++        lon = observer_itrs.earth_location.lon.to_value(u.radian)
++
++        # Compute ITRS coordinates from local equatorial
++        # x = cos(dec) * cos(ha)
++        # y = cos(dec) * sin(ha)
++        # z = sin(dec)
++        x = np.cos(dec) * np.cos(ha)
++        y = np.cos(dec) * np.sin(ha)
++        z = np.sin(dec)
++
++        # Rotate to geocentric coordinates
++        topocentric_cart = CartesianRepresentation(
++            x=u.Quantity(x, observed_cart.x.unit, copy=False),
++            y=u.Quantity(y, observed_cart.y.unit, copy=False),
++            z=u.Quantity(z, observed_cart.z.unit, copy=False),
++            copy=False
++        )
++
++    # Add observer position to get geocentric coordinates
++    observer_cart = observer_itrs.cartesian
++    geocentric_cart = topocentric_cart + observer_cart
++
++    # Create ITRS frame
++    return itrs_frame.realize_frame(geocentric_cart)

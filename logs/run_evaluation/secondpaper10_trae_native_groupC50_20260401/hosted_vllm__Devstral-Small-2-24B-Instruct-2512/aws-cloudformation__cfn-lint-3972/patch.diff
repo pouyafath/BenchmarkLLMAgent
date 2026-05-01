@@ -1,0 +1,69 @@
+diff --git a/src/cfnlint/rules/resources/codebuild/ProjectName.py b/src/cfnlint/rules/resources/codebuild/ProjectName.py
+new file mode 100644
+index 000000000..11d391e11
+--- /dev/null
++++ b/src/cfnlint/rules/resources/codebuild/ProjectName.py
+@@ -0,0 +1,51 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from typing import Dict, Set
++
++from cfnlint.rules import CloudFormationLintRule, RuleMatch
++from cfnlint.template import Template
++
++
++class ProjectName(CloudFormationLintRule):
++    id = "E3059"
++    shortdesc = "CodeBuild Project names must be unique"
++    description = "AWS::CodeBuild::Project resources must have unique Name properties"
++    source_url = "https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html"
++    tags = ["resources", "codebuild"]
++
++    def match(self, cfn: Template) -> list:
++        matches = []
++        name_to_resources = {}
++
++        # Get all CodeBuild projects
++        codebuild_projects = cfn.get_resources(resource_type="AWS::CodeBuild::Project")
++
++        for resource_name, resource_props in codebuild_projects.items():
++            properties = resource_props.get("Properties", {})
++            name = properties.get("Name")
++
++            # Skip if Name is not specified (it will be auto-generated)
++            if name is None:
++                continue
++
++            # Check if we've seen this name before
++            if name in name_to_resources:
++                name_to_resources[name].append(resource_name)
++            else:
++                name_to_resources[name] = [resource_name]
++
++        # Report duplicates
++        for name, resources in name_to_resources.items():
++            if len(resources) > 1:
++                for resource in resources:
++                    matches.append(
++                        RuleMatch(
++                            ["Resources", resource, "Properties", "Name"],
++                            f"CodeBuild Project Name '{name}' must be unique across resources. Found in: {resources}"
++                        )
++                    )
++
++        return matches
+diff --git a/src/cfnlint/rules/resources/codebuild/__init__.py b/src/cfnlint/rules/resources/codebuild/__init__.py
+new file mode 100644
+index 000000000..9b241d686
+--- /dev/null
++++ b/src/cfnlint/rules/resources/codebuild/__init__.py
+@@ -0,0 +1,6 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from .ProjectName import ProjectName

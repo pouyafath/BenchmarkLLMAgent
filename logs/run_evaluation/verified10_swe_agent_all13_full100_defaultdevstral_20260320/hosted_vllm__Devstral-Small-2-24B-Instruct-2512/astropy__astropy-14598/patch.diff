@@ -1,0 +1,35 @@
+diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py
+index 1b3285ddc..fc89b3354 100644
+--- a/astropy/io/fits/card.py
++++ b/astropy/io/fits/card.py
+@@ -768,7 +768,14 @@ class Card(_Verify):
+         if m.group("bool") is not None:
+             value = m.group("bool") == "T"
+         elif m.group("strg") is not None:
+-            value = re.sub("''", "'", m.group("strg"))
++            captured = m.group("strg")
++            # Handle empty string case: if captured is exactly '"', it represents ''''
++            # which is an empty string in FITS format
++            if captured == "\'":
++                value = ""
++            else:
++                # For non-empty strings, convert '' escape sequences to single quotes
++                value = re.sub("\'\'", "\'", captured)
+         elif m.group("numr") is not None:
+             #  Check for numbers with leading 0s.
+             numr = self._number_NFSC_RE.match(m.group("numr"))
+@@ -859,7 +866,13 @@ class Card(_Verify):
+                     return kw, vc
+ 
+                 value = m.group("strg") or ""
+-                value = value.rstrip().replace("''", "'")
++                value = value.rstrip()
++                # Handle empty string case: if value is empty after stripping, keep it empty
++                if value == "":
++                    pass  # Keep as empty string
++                else:
++                    # For non-empty strings, convert escape sequences to single quotes
++                    value = value.replace("''", "'")
+                 if value and value[-1] == "&":
+                     value = value[:-1]
+                 values.append(value)

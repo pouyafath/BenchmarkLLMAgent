@@ -1,0 +1,199 @@
+diff --git a/haystack/components/converters/pypdf.py b/haystack/components/converters/pypdf.py
+index f6ed4faf..489d1d9e 100644
+--- a/haystack/components/converters/pypdf.py
++++ b/haystack/components/converters/pypdf.py
+@@ -1,8 +1,9 @@
+ import io
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Protocol, Union
++from warnings import warn
+ 
+-from haystack import Document, component, default_to_dict, logging
++from haystack import Document, component, default_to_dict, default_from_dict, logging
+ from haystack.components.converters.utils import get_bytestream_from_source, normalize_metadata
+ from haystack.dataclasses import ByteStream
+ from haystack.lazy_imports import LazyImport
+@@ -22,6 +23,27 @@ class PyPDFConverter(Protocol):
+     def convert(self, reader: "PdfReader") -> Document:
+         ...
+ 
++    def to_dict(self) -> Dict[str, Any]:
++        """
++        Serializes the converter to a dictionary.
++
++        :returns:
++            Dictionary with serialized data.
++        """
++        ...
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "PyPDFConverter":
++        """
++        Deserializes the converter from a dictionary.
++
++        :param data:
++            Dictionary with serialized data.
++        :returns:
++            Deserialized converter instance.
++        """
++        ...
++
+ 
+ class DefaultConverter:
+     """
+@@ -33,9 +55,30 @@ class DefaultConverter:
+         text = "\f".join(page.extract_text() for page in reader.pages)
+         return Document(content=text)
+ 
++    def to_dict(self) -> Dict[str, Any]:
++        """
++        Serializes the converter to a dictionary.
++
++        :returns:
++            Dictionary with serialized data.
++        """
++        return default_to_dict(self)
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "DefaultConverter":
++        """
++        Deserializes the converter from a dictionary.
++
++        :param data:
++            Dictionary with serialized data.
++        :returns:
++            Deserialized converter instance.
++        """
++        return default_from_dict(cls, data)
++
+ 
+-# This registry is used to store converters names and instances.
+-# It can be used to register custom converters.
++# This registry is kept for backward compatibility but is deprecated.
++# Users should now pass converter instances directly to PyPDFToDocument.
+ CONVERTERS_REGISTRY: Dict[str, PyPDFConverter] = {"default": DefaultConverter()}
+ 
+ 
+@@ -57,25 +100,72 @@ class PyPDFToDocument:
+     print(documents[0].content)
+     # 'This is a text from the PDF file.'
+     ```
++
++    Usage with custom converter:
++    ```python
++    from haystack.components.converters.pypdf import PyPDFToDocument, PyPDFConverter
++
++    class MyCustomConverter:
++        def convert(self, reader) -> Document:
++            return Document(content="custom content")
++
++        def to_dict(self) -> Dict[str, Any]:
++            return {"type": "my_custom_converter"}
++
++        @classmethod
++        def from_dict(cls, data: Dict[str, Any]) -> "MyCustomConverter":
++            return cls()
++
++    converter = PyPDFToDocument(converter=MyCustomConverter())
++    results = converter.run(sources=["sample.pdf"])
++    documents = results["documents"]
++    ```
+     """
+ 
+-    def __init__(self, converter_name: str = "default"):
++    def __init__(
++        self,
++        converter: Optional[PyPDFConverter] = None,
++        converter_name: Optional[str] = None,
++    ):
+         """
+         Create an PyPDFToDocument component.
+ 
++        :param converter:
++            An instance of a PyPDFConverter to use for conversion.
++            If not provided, a DefaultConverter will be used.
+         :param converter_name:
+-            Name of the registered converter to use.
++            Name of a registered converter to use (deprecated, use `converter` parameter instead).
+         """
+         pypdf_import.check()
+ 
+-        try:
+-            converter = CONVERTERS_REGISTRY[converter_name]
+-        except KeyError:
+-            msg = (
+-                f"Invalid converter_name: {converter_name}.\n Available converters: {list(CONVERTERS_REGISTRY.keys())}"
++        if converter is not None and converter_name is not None:
++            raise ValueError("Cannot specify both 'converter' and 'converter_name'. Use 'converter' parameter instead.")
++
++        if converter_name is not None:
++            warn(
++                "The 'converter_name' parameter is deprecated and will be removed in a future version. "
++                "Use the 'converter' parameter to pass a converter instance directly instead.",
++                DeprecationWarning,
++                stacklevel=2,
+             )
+-            raise ValueError(msg) from KeyError
+-        self.converter_name = converter_name
++            try:
++                converter = CONVERTERS_REGISTRY[converter_name]
++            except KeyError:
++                msg = (
++                    f"Invalid converter_name: {converter_name}.\n Available converters: {list(CONVERTERS_REGISTRY.keys())}"
++                )
++                raise ValueError(msg) from KeyError
++
++        if converter is None:
++            converter = DefaultConverter()
++            self.converter_name = "default"
++        else:
++            # Determine converter_name based on the converter type
++            if isinstance(converter, DefaultConverter):
++                self.converter_name = "default"
++            else:
++                self.converter_name = "custom"
++
+         self._converter: PyPDFConverter = converter
+ 
+     def to_dict(self):
+@@ -85,8 +175,38 @@ class PyPDFToDocument:
+         :returns:
+             Dictionary with serialized data.
+         """
+-        # do not serialize the _converter instance
+-        return default_to_dict(self, converter_name=self.converter_name)
++        return default_to_dict(self, converter=self._converter.to_dict())
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "PyPDFToDocument":
++        """
++        Deserializes the component from a dictionary.
++
++        :param data:
++            Dictionary with serialized data.
++        :returns:
++            Deserialized component instance.
++        """
++        init_params = data.get("init_parameters", {})
++
++        # Deserialize the converter
++        converter_data = init_params.get("converter")
++        if converter_data:
++            converter_type = converter_data.get("type")
++            if converter_type == "haystack.components.converters.pypdf.DefaultConverter":
++                converter = DefaultConverter.from_dict(converter_data)
++            else:
++                # For custom converters, we need to handle the deserialization
++                # This is a simplified approach - in practice, users would need to register
++                # their custom converter classes or use a more sophisticated deserialization mechanism
++                raise NotImplementedError(
++                    f"Deserialization of custom converter type '{converter_type}' is not supported. "
++                    "Please implement a custom from_dict method for your converter class."
++                )
++        else:
++            converter = None
++
++        return cls(converter=converter)
+ 
+     @component.output_types(documents=List[Document])
+     def run(

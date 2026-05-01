@@ -1,0 +1,23 @@
+diff --git a/supervisor/store/git.py b/supervisor/store/git.py
+index 1cf3b055..ebcf8200 100644
+--- a/supervisor/store/git.py
++++ b/supervisor/store/git.py
+@@ -62,6 +62,18 @@ class GitRepo(CoreSysAttributes):
+             except (
+                 git.InvalidGitRepositoryError,
+                 git.NoSuchPathError,
++            ) as err:
++                # If the directory still exists but is not a valid git repo, try to clone
++                # Check if .git directory exists to determine if it's a valid repo
++                if self.path.is_dir() and not (self.path / ".git").is_dir():
++                    _LOGGER.warning("Repository at %s is invalid, attempting to clone", self.path)
++                    await self.clone()
++                    return
++                # If directory doesn't exist or is corrupted, just raise the error
++                _LOGGER.error("Can't load %s", self.path)
++                raise StoreGitError() from err
++
++            except (
+                 git.CommandError,
+                 UnicodeDecodeError,
+             ) as err:

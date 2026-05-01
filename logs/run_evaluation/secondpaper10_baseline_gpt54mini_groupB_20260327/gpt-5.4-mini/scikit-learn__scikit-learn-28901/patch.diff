@@ -1,0 +1,32 @@
+diff --git a/sklearn/pipeline.py b/sklearn/pipeline.py
+index 47faefcfd..f348edc8a 100644
+--- a/sklearn/pipeline.py
++++ b/sklearn/pipeline.py
+@@ -158,12 +158,18 @@ class Pipeline(_BaseComposition):
+         "steps": [list, Hidden(tuple)],
+         "memory": [None, str, HasMethods(["cache"])],
+         "verbose": ["boolean"],
++        "transform_input": [None, list],
+     }
+ 
+-    def __init__(self, steps, *, memory=None, verbose=False):
++    def __init__(self, steps, *, memory=None, verbose=False, transform_input=None):
+         self.steps = steps
+         self.memory = memory
+         self.verbose = verbose
++        if transform_input is not None and not _routing_enabled():
++            raise ValueError(
++                "transform_input is only supported when metadata routing is enabled"
++            )
++        self.transform_input = transform_input
+ 
+     def set_output(self, *, transform=None):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+@@ -412,6 +418,7 @@ class Pipeline(_BaseComposition):
+             # transformer. This is necessary when loading the transformer
+             # from the cache.
+             self.steps[step_idx] = (name, fitted_transformer)
++
+         return X
+ 
+     @_fit_context(

@@ -1,0 +1,56 @@
+diff --git a/xarray/coding/variables.py b/xarray/coding/variables.py
+index b035ff82..bdb3c76d 100644
+--- a/xarray/coding/variables.py
++++ b/xarray/coding/variables.py
+@@ -292,21 +292,22 @@ class UnsignedIntegerCoder(VariableCoder):
+         # https://www.unidata.ucar.edu/software/netcdf/docs/BestPractices.html
+         #     "_Unsigned = "true" to indicate that
+         #      integer data should be treated as unsigned"
+-        if encoding.get("_Unsigned", "false") == "true":
++        if attrs.get("_Unsigned", "false") == "true":
+             pop_to(encoding, attrs, "_Unsigned")
+-            signed_dtype = np.dtype("i%s" % data.dtype.itemsize)
++            unsigned_dtype = np.dtype("u%s" % data.dtype.itemsize)
+             if "_FillValue" in attrs:
+-                new_fill = signed_dtype.type(attrs["_FillValue"])
++                new_fill = unsigned_dtype.type(attrs["_FillValue"])
+                 attrs["_FillValue"] = new_fill
+-            data = duck_array_ops.around(data).astype(signed_dtype)
++            data = duck_array_ops.around(data).astype(unsigned_dtype)
+ 
+         return Variable(dims, data, attrs, encoding)
+ 
+     def decode(self, variable, name=None):
+         dims, data, attrs, encoding = unpack_for_decoding(variable)
+ 
+-        if "_Unsigned" in attrs:
++        if "_Unsigned" in attrs or "_Unsigned" in encoding:
+             unsigned = pop_to(attrs, encoding, "_Unsigned")
++            unsigned = pop_to(encoding, attrs, "_Unsigned")
+ 
+             if data.dtype.kind == "i":
+                 if unsigned == "true":
+@@ -316,6 +317,23 @@ class UnsignedIntegerCoder(VariableCoder):
+                     if "_FillValue" in attrs:
+                         new_fill = unsigned_dtype.type(attrs["_FillValue"])
+                         attrs["_FillValue"] = new_fill
++            elif data.dtype.kind == "u":
++                if unsigned == "false":
++                    signed_dtype = np.dtype("i%s" % data.dtype.itemsize)
++                    transform = partial(np.asarray, dtype=signed_dtype)
++                    data = lazy_elemwise_func(data, transform, signed_dtype)
++                    if "_FillValue" in attrs:
++                        new_fill = signed_dtype.type(attrs["_FillValue"])
++                        attrs["_FillValue"] = new_fill
++                elif unsigned == "true":
++                    # Unsigned data with _Unsigned="true" means it was originally signed
++                    # and should be converted back to signed representation
++                    signed_dtype = np.dtype("i%s" % data.dtype.itemsize)
++                    transform = partial(np.asarray, dtype=signed_dtype)
++                    data = lazy_elemwise_func(data, transform, signed_dtype)
++                    if "_FillValue" in attrs:
++                        new_fill = signed_dtype.type(attrs["_FillValue"])
++                        attrs["_FillValue"] = new_fill
+             else:
+                 warnings.warn(
+                     "variable %r has _Unsigned attribute but is not "

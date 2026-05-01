@@ -1,0 +1,40 @@
+diff --git a/sklearn/ensemble/_voting.py b/sklearn/ensemble/_voting.py
+index bcf2d7497..250eacd7f 100644
+--- a/sklearn/ensemble/_voting.py
++++ b/sklearn/ensemble/_voting.py
+@@ -20,6 +20,7 @@ from ..base import (
+     TransformerMixin,
+     _fit_context,
+     clone,
++    BaseEstimator,
+ )
+ from ..exceptions import NotFittedError
+ from ..preprocessing import LabelEncoder
+@@ -342,6 +343,27 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
+         verbose=False,
+     ):
+         super().__init__(estimators=estimators)
++
++        # Validate estimators format
++        if not isinstance(estimators, (list, tuple)):
++            raise ValueError(
++                "estimators must be a list or tuple of (str, estimator) pairs"
++            )
++        for item in estimators:
++            if not isinstance(item, (tuple, list)) or len(item) != 2:
++                raise ValueError(
++                    "Each estimator must be a (str, estimator) pair"
++                )
++            if not isinstance(item[0], str):
++                raise ValueError(
++                    "First element of each estimator pair must be a string"
++                )
++            # Allow "drop" as a special value, otherwise require BaseEstimator
++            if item[1] != "drop" and not isinstance(item[1], BaseEstimator):
++                raise ValueError(
++                    "Second element of each estimator pair must be an estimator or 'drop'"
++                )
++
+         self.voting = voting
+         self.weights = weights
+         self.n_jobs = n_jobs

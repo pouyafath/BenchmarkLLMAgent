@@ -1,0 +1,42 @@
+diff --git a/lib/matplotlib/backends/registry.py b/lib/matplotlib/backends/registry.py
+index 47d5f65e35..a6291e1c4c 100644
+--- a/lib/matplotlib/backends/registry.py
++++ b/lib/matplotlib/backends/registry.py
+@@ -95,13 +95,19 @@ class BackendRegistry:
+     def _backend_module_name(self, backend):
+         # Return name of module containing the specified backend.
+         # Does not check if the backend is valid, use is_valid_backend for that.
+-        backend = backend.lower()
++        # For module:// backends, preserve case; for built-in backends, normalize to lowercase.
++        if backend.startswith("module://"):
++            # Preserve case for module:// backends
++            backend_name = backend[9:]
++        else:
++            # Normalize built-in backend names to lowercase
++            backend_name = backend.lower()
+ 
+         # Check if have specific name to module mapping.
+-        backend = self._name_to_module.get(backend, backend)
++        backend_name = self._name_to_module.get(backend_name, backend_name)
+ 
+-        return (backend[9:] if backend.startswith("module://")
+-                else f"matplotlib.backends.backend_{backend}")
++        return (backend_name if backend.startswith("module://")
++                else f"matplotlib.backends.backend_{backend_name}")
+ 
+     def _clear(self):
+         # Clear all dynamically-added data, used for testing only.
+@@ -342,7 +348,12 @@ class BackendRegistry:
+             The GUI framework, which will be None for a backend that is non-interactive.
+         """
+         if isinstance(backend, str):
+-            backend = backend.lower()
++            # For module:// backends, preserve case; for built-in backends, normalize to lowercase.
++            if backend.startswith("module://"):
++                backend_name = backend
++            else:
++                backend_name = backend.lower()
++            backend = backend_name
+         else:  # Might be _auto_backend_sentinel or None
+             # Use whatever is already running...
+             from matplotlib import get_backend

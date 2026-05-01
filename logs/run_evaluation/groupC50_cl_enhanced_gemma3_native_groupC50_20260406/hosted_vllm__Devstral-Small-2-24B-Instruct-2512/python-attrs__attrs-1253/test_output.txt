@@ -1,0 +1,338 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 180 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/attr/_make.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 82a14627fddbd0b2d802fbc574fa3b1ef010a801
+Author: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+Date:   Tue Apr 2 05:26:05 2024 +0200
+
+    [pre-commit.ci] pre-commit autoupdate (#1274)
+    
+    updates:
+    - [github.com/astral-sh/ruff-pre-commit: v0.3.3 → v0.3.5](https://github.com/astral-sh/ruff-pre-commit/compare/v0.3.3...v0.3.5)
+    
+    Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+diff --git a/.pre-commit-config.yaml b/.pre-commit-config.yaml
+index 3ba83b1..84d3442 100644
+--- a/.pre-commit-config.yaml
++++ b/.pre-commit-config.yaml
+@@ -9,7 +9,7 @@ repos:
+       - id: black
+ 
+   - repo: https://github.com/astral-sh/ruff-pre-commit
+-    rev: v0.3.3
++    rev: v0.3.5
+     hooks:
+       - id: ruff
+         args: [--fix, --exit-non-zero-on-fix]
++ git -c core.fileMode=false diff 82a14627fddbd0b2d802fbc574fa3b1ef010a801
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 0114582..eaf882d 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -607,7 +607,33 @@ def _make_cached_property_getattr(cached_properties, original_getattr, cls):
+         "    def __getattr__(self, item, cached_properties=cached_properties, original_getattr=original_getattr, _cached_setattr_get=_cached_setattr_get):",
+         "         func = cached_properties.get(item)",
+         "         if func is not None:",
+-        "              result = func(self)",
++        "              try:",
++        "                  result = func(self)",
++        "              except AttributeError:",
++        "                  # When func(self) raises AttributeError, we need to determine",
++        "                  # if it was because the attribute truly doesn't exist,",
++        "                  # or if it was intentionally raised by a property/method.",
++        "                  # We do this by checking if the attribute exists in the class",
++        "                  # without triggering property access.",
++        "                  attr_exists = False",
++        "                  try:",
++        "                      # Check if attribute exists in class without triggering property",
++        "                      if item in self.__class__.__dict__:",
++        "                          attr_exists = True",
++        "                      else:",
++        "                          # Check bases in MRO",
++        "                          for base in self.__class__.__mro__[1:]:",
++        "                              if item in base.__dict__:",
++        "                                  attr_exists = True",
++        "                                  break",
++        "                  except Exception:",
++        "                      pass",
++        "                  if attr_exists:",
++        "                      # Attribute exists but raised AttributeError intentionally",
++        "                      raise",
++        "                  else:",
++        "                      # Attribute truly doesn't exist",
++        "                      result = None",
+         "              _setter = _cached_setattr_get(self)",
+         "              _setter(item, result)",
+         "              return result",
+@@ -622,7 +648,30 @@ def _make_cached_property_getattr(cached_properties, original_getattr, cls):
+                 "         if hasattr(super(), '__getattr__'):",
+                 "              return super().__getattr__(item)",
+                 "         original_error = f\"'{self.__class__.__name__}' object has no attribute '{item}'\"",
+-                "         raise AttributeError(original_error)",
++            "         # Check if the attribute exists as a descriptor in the class",
++            "         # If it does, it might have raised AttributeError intentionally",
++            "         # In that case, we should not override it with 'attribute not found'",
++            "         cls = self.__class__",
++            "         if item in cls.__dict__:",
++            "             descriptor = cls.__dict__[item]",
++            "             if hasattr(descriptor, '__get__'):",
++            "                 # Its a descriptor, try to call it directly",
++            "                 try:",
++            "                     return descriptor.__get__(self, cls)",
++            "                 except AttributeError:",
++            "                     # Descriptor raised AttributeError, re-raise it",
++            "                     raise",
++            "         # Check base classes in MRO",
++            "         for base in cls.__mro__[1:]:",
++            "             if item in base.__dict__:",
++            "                 descriptor = base.__dict__[item]",
++            "                 if hasattr(descriptor, '__get__'):",
++            "                     try:",
++            "                         return descriptor.__get__(self, cls)",
++            "                     except AttributeError:",
++            "                         raise",
++            "         original_error = f\"'{self.__class__.__name__}' object has no attribute '{item}'\"",
++            "         raise AttributeError(original_error)",
+             ]
+         )
+ 
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/cli/base_command.py", line 106, in _run_wrapper
+    status = _inner_run()
+             ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/cli/base_command.py", line 97, in _inner_run
+    return self.run(options, args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/cli/req_command.py", line 67, in wrapper
+    return func(self, options, args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/commands/install.py", line 386, in run
+    requirement_set = resolver.resolve(
+                      ^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 76, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+           ^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+                                           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 329, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+                ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 339, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/operations/prepare.py", line 698, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/operations/prepare.py", line 72, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/functools.py", line 1001, in __get__
+    val = self.func(instance)
+          ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/cli/base_command.py", line 106, in _run_wrapper
+    status = _inner_run()
+             ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/cli/base_command.py", line 97, in _inner_run
+    return self.run(options, args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/cli/req_command.py", line 67, in wrapper
+    return func(self, options, args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/commands/install.py", line 386, in run
+    requirement_set = resolver.resolve(
+                      ^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/resolver.py", line 76, in resolve
+    collected = self.factory.collect_root_requirements(root_reqs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 545, in collect_root_requirements
+    reqs = list(
+           ^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 501, in _make_requirements_from_install_req
+    cand = self._make_base_candidate_from_link(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/factory.py", line 212, in _make_base_candidate_from_link
+    self._editable_candidate_cache[link] = EditableCandidate(
+                                           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 329, in __init__
+    super().__init__(
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 159, in __init__
+    self.dist = self._prepare()
+                ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 236, in _prepare
+    dist = self._prepare_distribution()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/resolution/resolvelib/candidates.py", line 339, in _prepare_distribution
+    return self._factory.preparer.prepare_editable_requirement(self._ireq)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/operations/prepare.py", line 698, in prepare_editable_requirement
+    dist = _get_prepared_distribution(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/operations/prepare.py", line 72, in _get_prepared_distribution
+    abstract_dist.prepare_distribution_metadata(
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/distributions/sdist.py", line 69, in prepare_distribution_metadata
+    self.req.prepare_metadata()
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/req/req_install.py", line 567, in prepare_metadata
+    and self.supports_pyproject_editable
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/functools.py", line 1001, in __get__
+    val = self.func(instance)
+          ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_internal/req/req_install.py", line 258, in supports_pyproject_editable
+    return "build_editable" in self.pep517_backend._supported_features()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 180, in _supported_features
+    return self._call_hook("_supported_features", {})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_impl.py", line 402, in _call_hook
+    raise BackendUnavailable(
+pip._vendor.pyproject_hooks._impl.BackendUnavailable: Cannot import 'hatchling.build'
++ git checkout 82a14627fddbd0b2d802fbc574fa3b1ef010a801 tests/test_slots.py
+Updated 0 paths from 6814545
++ git apply -v -
+Checking patch tests/test_slots.py...
+Applied patch tests/test_slots.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA tests/test_slots.py
+============================= test session starts ==============================
+platform linux -- Python 3.11.12, pytest-8.1.0, pluggy-1.4.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: mypy-plugins-3.1.0, xdist-3.5.0, hypothesis-6.98.17
+collected 53 items
+
+tests/test_slots.py .............s...................................... [ 98%]
+.                                                                        [100%]
+
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/_pytest/nodes.py:93
+  /usr/local/lib/python3.11/site-packages/_pytest/nodes.py:93: PytestDeprecationWarning: <class 'pytest_mypy_plugins.collect.YamlTestFile'> is not using a cooperative constructor and only takes {'path', 'parent'}.
+  See https://docs.pytest.org/en/stable/deprecations.html#constructors-of-custom-pytest-node-subclasses-should-take-kwargs for more details.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_slots.py::test_slots_being_used
+PASSED tests/test_slots.py::test_basic_attr_funcs
+PASSED tests/test_slots.py::test_inheritance_from_nonslots
+PASSED tests/test_slots.py::test_nonslots_these
+PASSED tests/test_slots.py::test_inheritance_from_slots
+PASSED tests/test_slots.py::test_inheritance_from_slots_with_attribute_override
+PASSED tests/test_slots.py::test_inherited_slot_reuses_slot_descriptor
+PASSED tests/test_slots.py::test_bare_inheritance_from_slots
+PASSED tests/test_slots.py::TestClosureCellRewriting::test_closure_cell_rewriting
+PASSED tests/test_slots.py::TestClosureCellRewriting::test_inheritance
+PASSED tests/test_slots.py::TestClosureCellRewriting::test_cls_static[True]
+PASSED tests/test_slots.py::TestClosureCellRewriting::test_cls_static[False]
+PASSED tests/test_slots.py::test_not_weakrefable
+PASSED tests/test_slots.py::test_weakrefable
+PASSED tests/test_slots.py::test_weakref_does_not_add_a_field
+PASSED tests/test_slots.py::tests_weakref_does_not_add_when_inheriting_with_weakref
+PASSED tests/test_slots.py::tests_weakref_does_not_add_with_weakref_attribute
+PASSED tests/test_slots.py::test_slots_empty_cell
+PASSED tests/test_slots.py::TestPickle::test_pickleable_by_default[0]
+PASSED tests/test_slots.py::TestPickle::test_pickleable_by_default[1]
+PASSED tests/test_slots.py::TestPickle::test_pickleable_by_default[2]
+PASSED tests/test_slots.py::TestPickle::test_pickleable_by_default[3]
+PASSED tests/test_slots.py::TestPickle::test_pickleable_by_default[4]
+PASSED tests/test_slots.py::TestPickle::test_no_getstate_setstate_for_dict_classes
+PASSED tests/test_slots.py::TestPickle::test_no_getstate_setstate_if_option_false
+PASSED tests/test_slots.py::TestPickle::test_getstate_set_state_force_true[cls0]
+PASSED tests/test_slots.py::TestPickle::test_getstate_set_state_force_true[cls1]
+PASSED tests/test_slots.py::test_slots_super_property_get
+PASSED tests/test_slots.py::test_slots_super_property_get_shortcut
+PASSED tests/test_slots.py::test_slots_cached_property_allows_call
+PASSED tests/test_slots.py::test_slots_cached_property_class_does_not_have__dict__
+PASSED tests/test_slots.py::test_slots_cached_property_works_on_frozen_isntances
+PASSED tests/test_slots.py::test_slots_cached_property_infers_type
+PASSED tests/test_slots.py::test_slots_cached_property_with_empty_getattr_raises_attribute_error_of_requested
+PASSED tests/test_slots.py::test_slots_cached_property_raising_attributeerror
+PASSED tests/test_slots.py::test_slots_cached_property_with_getattr_calls_getattr_for_missing_attributes
+PASSED tests/test_slots.py::test_slots_getattr_in_superclass__is_called_for_missing_attributes_when_cached_property_present
+PASSED tests/test_slots.py::test_slots_getattr_in_subclass_gets_superclass_cached_property
+PASSED tests/test_slots.py::test_slots_sub_class_with_independent_cached_properties_both_work
+PASSED tests/test_slots.py::test_slots_with_multiple_cached_property_subclasses_works
+PASSED tests/test_slots.py::test_slotted_cached_property_can_access_super
+PASSED tests/test_slots.py::test_slots_sub_class_avoids_duplicated_slots
+PASSED tests/test_slots.py::test_slots_sub_class_with_actual_slot
+PASSED tests/test_slots.py::test_slots_cached_property_is_not_called_at_construction
+PASSED tests/test_slots.py::test_slots_cached_property_repeat_call_only_once
+PASSED tests/test_slots.py::test_slots_cached_property_called_independent_across_instances
+PASSED tests/test_slots.py::test_slots_cached_properties_work_independently
+PASSED tests/test_slots.py::test_slots_unpickle_after_attr_removed
+PASSED tests/test_slots.py::test_slots_unpickle_after_attr_added[True]
+PASSED tests/test_slots.py::test_slots_unpickle_after_attr_added[False]
+PASSED tests/test_slots.py::test_slots_unpickle_is_backward_compatible[True]
+PASSED tests/test_slots.py::test_slots_unpickle_is_backward_compatible[False]
+SKIPPED [1] tests/test_slots.py:497: slots without weakref_slot should only work on PyPy
+=================== 52 passed, 1 skipped, 1 warning in 0.19s ===================
++ : '>>>>> End Test Output'
++ git checkout 82a14627fddbd0b2d802fbc574fa3b1ef010a801 tests/test_slots.py
+Updated 1 path from 6814545

@@ -1,0 +1,41 @@
+diff --git a/xarray/core/dataarray.py b/xarray/core/dataarray.py
+index f993888c..dd3688ee 100644
+--- a/xarray/core/dataarray.py
++++ b/xarray/core/dataarray.py
+@@ -398,7 +398,7 @@ class DataArray(AbstractArray, DataWithCoords):
+             for k in variables:
+                 variables[k] = variables[k].copy(deep=False)
+         coord_names = set(self._coords)
+-        dataset = Dataset._from_vars_and_coord_names(variables, coord_names)
++        dataset = Dataset._from_vars_and_coord_names(variables, coord_names, attrs=self.attrs)
+         return dataset
+ 
+     def to_dataset(
+diff --git a/xarray/core/merge.py b/xarray/core/merge.py
+index 9c909aa1..58f40889 100644
+--- a/xarray/core/merge.py
++++ b/xarray/core/merge.py
+@@ -578,8 +578,10 @@ def merge(objects, compat='no_conflicts', join='outer', fill_value=dtypes.NA):
+     variables, coord_names, dims = merge_core(dict_like_objects, compat, join,
+                                               fill_value=fill_value)
+     # TODO: don't always recompute indexes
++    # Preserve attributes from the first object, similar to concat
++    merged_attrs = dict_like_objects[0].attrs
+     merged = Dataset._construct_direct(
+-        variables, coord_names, dims, indexes=None)
++        variables, coord_names, dims, attrs=merged_attrs, indexes=None)
+ 
+     return merged
+ 
+diff --git a/xarray/tests/test_options.py b/xarray/tests/test_options.py
+index 34bcba58..a31fa760 100644
+--- a/xarray/tests/test_options.py
++++ b/xarray/tests/test_options.py
+@@ -156,7 +156,6 @@ class TestAttrRetention:
+         result = concat([ds1, ds2], dim='dim1')
+         assert result.attrs == original_attrs
+ 
+-    @pytest.mark.xfail
+     def test_merge_attr_retention(self):
+         da1 = create_test_dataarray_attrs(var='var1')
+         da2 = create_test_dataarray_attrs(var='var2')

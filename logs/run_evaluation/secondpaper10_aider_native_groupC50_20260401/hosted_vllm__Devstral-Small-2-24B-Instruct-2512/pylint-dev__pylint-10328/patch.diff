@@ -1,0 +1,186 @@
+diff --git a/pylint/config/argument.py b/pylint/config/argument.py
+index 87d6b8383..c901a3847 100644
+--- a/pylint/config/argument.py
++++ b/pylint/config/argument.py
+@@ -16,23 +16,17 @@ import re
+ from collections.abc import Callable, Sequence
+ from glob import glob
+ from re import Pattern
+-from typing import Any, Literal
++from typing import Any, Literal, Union
+ 
+ from pylint import interfaces
+ from pylint import utils as pylint_utils
+ from pylint.config.callback_actions import _CallbackAction
+ from pylint.config.deprecation_actions import _NewNamesAction, _OldNamesAction
+ 
+-_ArgumentTypes = (
+-    str
+-    | int
+-    | float
+-    | bool
+-    | Pattern[str]
+-    | Sequence[str]
+-    | Sequence[Pattern[str]]
+-    | tuple[int, ...]
+-)
++_ArgumentTypes = Union[
++    str, int, float, bool, Pattern[str], Sequence[str],
++    Sequence[Pattern[str]], tuple[int, ...]
++]
+ """List of possible argument types."""
+ 
+ 
+diff --git a/pylint/reporters/json_reporter.py b/pylint/reporters/json_reporter.py
+index 77c57af28..846d1c1ea 100644
+--- a/pylint/reporters/json_reporter.py
++++ b/pylint/reporters/json_reporter.py
+@@ -7,7 +7,7 @@
+ from __future__ import annotations
+ 
+ import json
+-from typing import TYPE_CHECKING, TypedDict
++from typing import TYPE_CHECKING, TypedDict, Union
+ 
+ from pylint.interfaces import CONFIDENCE_MAP, UNDEFINED
+ from pylint.message import Message
+@@ -27,8 +27,8 @@ OldJsonExport = TypedDict(
+         "obj": str,
+         "line": int,
+         "column": int,
+-        "endLine": int | None,
+-        "endColumn": int | None,
++        "endLine": Union[int, None],
++        "endColumn": Union[int, None],
+         "path": str,
+         "symbol": str,
+         "message": str,
+@@ -104,9 +104,9 @@ class JSONMessage(TypedDict):
+     path: str
+     absolutePath: str
+     line: int
+-    endLine: int | None
++    endLine: Union[int, None]
+     column: int
+-    endColumn: int | None
++    endColumn: Union[int, None]
+     obj: str
+ 
+ 
+diff --git a/pylint/typing.py b/pylint/typing.py
+index 5c5912032..fc3a70988 100644
+--- a/pylint/typing.py
++++ b/pylint/typing.py
+@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable, Sequence
+ from pathlib import Path
+ from re import Pattern
+ from typing import (
++    Union,
+     TYPE_CHECKING,
+     Any,
+     Literal,
+@@ -70,17 +71,17 @@ class MessageLocationTuple(NamedTuple):
+     obj: str
+     line: int
+     column: int
+-    end_line: int | None = None
+-    end_column: int | None = None
++    end_line: Union[int, None] = None
++    end_column: Union[int, None] = None
+ 
+ 
+ class ManagedMessage(NamedTuple):
+     """Tuple with information about a managed message of the linter."""
+ 
+-    name: str | None
++    name: Union[str, None]
+     msgid: str
+     symbol: str
+-    line: int | None
++    line: Union[int, None]
+     is_disabled: bool
+ 
+ 
+@@ -92,20 +93,18 @@ MessageTypesFullName = Literal[
+ 
+ OptionDict = dict[
+     str,
+-    None
+-    | str
+-    | bool
+-    | int
+-    | Pattern[str]
+-    | Iterable[str | int | Pattern[str]]
+-    | type["_CallbackAction"]
+-    | Callable[[Any], Any]
+-    | Callable[[Any, Any, Any, Any], Any],
++    Union[
++        None, str, bool, int, Pattern[str],
++        Iterable[Union[str, int, Pattern[str]]],
++        type["_CallbackAction"],
++        Callable[[Any], Any],
++        Callable[[Any, Any, Any, Any], Any],
++    ],
+ ]
+ Options = tuple[tuple[str, OptionDict], ...]
+ 
+ 
+-ReportsCallable = Callable[["Section", "LinterStats", "LinterStats | None"], None]
++ReportsCallable = Callable[["Section", "LinterStats", "Union[LinterStats, None]"], None]
+ """Callable to create a report."""
+ 
+ 
+@@ -121,18 +120,18 @@ class ExtraMessageOptions(TypedDict, total=False):
+ 
+ 
+ MessageDefinitionTuple = (
+-    tuple[str, str, str] | tuple[str, str, str, ExtraMessageOptions]
++    Union[tuple[str, str, str], tuple[str, str, str, ExtraMessageOptions]]
+ )
+ DirectoryNamespaceDict = dict[Path, tuple[argparse.Namespace, "DirectoryNamespaceDict"]]
+ 
+ 
+ class GetProjectCallable(Protocol):
+     def __call__(
+-        self, module: str, name: str | None = "No Name"
++        self, module: str, name: Union[str, None] = "No Name"
+     ) -> Project: ...  # pragma: no cover
+ 
+ 
+ class GeneratorFactory(Protocol):
+     def __call__(
+-        self, config: PyreverseConfig | None = None, args: Sequence[str] | None = None
++        self, config: Union[PyreverseConfig, None] = None, args: Sequence[str] | None = None
+     ) -> DiaDefGenerator: ...
+diff --git a/pylint/utils/utils.py b/pylint/utils/utils.py
+index ebd6e00db..a930ef39e 100644
+--- a/pylint/utils/utils.py
++++ b/pylint/utils/utils.py
+@@ -15,7 +15,7 @@ from collections import deque
+ from collections.abc import Iterable, Sequence
+ from io import BufferedReader, BytesIO
+ from re import Pattern
+-from typing import TYPE_CHECKING, Any, Literal, TextIO, TypeVar
++from typing import TYPE_CHECKING, Any, Literal, TextIO, TypeVar, Union
+ 
+ from astroid import modutils, nodes
+ 
+@@ -43,14 +43,10 @@ GLOBAL_OPTION_PATTERN = Literal[
+ ]
+ GLOBAL_OPTION_PATTERN_LIST = Literal["exclude-too-few-public-methods", "ignore-paths"]
+ GLOBAL_OPTION_TUPLE_INT = Literal["py-version"]
+-GLOBAL_OPTION_NAMES = (
+-    GLOBAL_OPTION_BOOL
+-    | GLOBAL_OPTION_INT
+-    | GLOBAL_OPTION_LIST
+-    | GLOBAL_OPTION_PATTERN
+-    | GLOBAL_OPTION_PATTERN_LIST
+-    | GLOBAL_OPTION_TUPLE_INT
+-)
++GLOBAL_OPTION_NAMES = Union[
++    GLOBAL_OPTION_BOOL, GLOBAL_OPTION_INT, GLOBAL_OPTION_LIST, GLOBAL_OPTION_PATTERN,
++    GLOBAL_OPTION_PATTERN_LIST, GLOBAL_OPTION_TUPLE_INT
++]
+ T_GlobalOptionReturnTypes = TypeVar(
+     "T_GlobalOptionReturnTypes",
+     bool,

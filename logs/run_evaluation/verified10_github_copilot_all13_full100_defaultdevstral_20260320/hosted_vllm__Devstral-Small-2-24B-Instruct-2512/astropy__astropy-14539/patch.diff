@@ -1,0 +1,27 @@
+diff --git a/astropy/io/fits/diff.py b/astropy/io/fits/diff.py
+index 100cdf1b8..e17fd6144 100644
+--- a/astropy/io/fits/diff.py
++++ b/astropy/io/fits/diff.py
+@@ -1460,7 +1460,21 @@ class TableDataDiff(_BaseDiff):
+                     ],
+                 )
+             else:
+-                diffs = np.where(arra != arrb)
++                # Check if we have _VLF (Variable Length Field) objects
++                # These are used for variable-length columns that don't have 'P' in the format
++                if type(arra).__name__ == "_VLF":
++                    # For _VLF objects, use element-wise comparison
++                    diffs = (
++                        [
++                            idx
++                            for idx in range(len(arra))
++                            if not np.allclose(
++                                arra[idx], arrb[idx], rtol=self.rtol, atol=self.atol
++                            )
++                        ],
++                    )
++                else:
++                    diffs = np.where(arra != arrb)
+ 
+             self.diff_total += len(set(diffs[0]))
+ 

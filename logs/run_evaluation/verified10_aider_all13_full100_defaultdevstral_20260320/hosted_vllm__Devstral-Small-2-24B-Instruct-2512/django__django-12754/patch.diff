@@ -1,0 +1,44 @@
+diff --git a/django/db/migrations/autodetector.py b/django/db/migrations/autodetector.py
+index 30616c0172..28c724275f 100644
+--- a/django/db/migrations/autodetector.py
++++ b/django/db/migrations/autodetector.py
+@@ -888,6 +888,31 @@ class MigrationAutodetector:
+             self._generate_removed_field(app_label, model_name, field_name)
+ 
+     def _generate_removed_field(self, app_label, model_name, field_name):
++        # Check if this model is a base class of any newly created model
++        # If so, we need to remove the field before creating the subclass
++        beginning = False
++        for new_app_label, new_model_name in self.new_model_keys - self.old_model_keys:
++            if new_app_label == app_label:
++                try:
++                    new_model_state = self.to_state.models[new_app_label, new_model_name]
++                    # Check if the model being modified is a base class
++                    for base in new_model_state.bases:
++                        if isinstance(base, str) and "." in base:
++                            base_app_label, base_name = base.split(".", 1)
++                            if base_app_label == app_label and base_name == model_name:
++                                beginning = True
++                                break
++                        elif hasattr(base, '_meta'):
++                            # Handle model class bases
++                            if base._meta.app_label == app_label and base._meta.object_name == model_name:
++                                beginning = True
++                                break
++                    if beginning:
++                        break
++                except (KeyError, AttributeError):
++                    # Model might not be available yet, continue checking
++                    pass
++
+         self.add_operation(
+             app_label,
+             operations.RemoveField(
+@@ -901,6 +926,7 @@ class MigrationAutodetector:
+                 (app_label, model_name, field_name, "order_wrt_unset"),
+                 (app_label, model_name, field_name, "foo_together_change"),
+             ],
++            beginning=beginning,
+         )
+ 
+     def generate_altered_fields(self):

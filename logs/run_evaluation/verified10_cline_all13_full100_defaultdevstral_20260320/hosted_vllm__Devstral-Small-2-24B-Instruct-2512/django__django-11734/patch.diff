@@ -1,0 +1,78 @@
+diff --git a/django/db/models/expressions.py b/django/db/models/expressions.py
+index 2b59dd301a..741700f74b 100644
+--- a/django/db/models/expressions.py
++++ b/django/db/models/expressions.py
+@@ -552,11 +552,16 @@ class ResolvedOuterRef(F):
+     """
+     contains_aggregate = False
+ 
+-    def as_sql(self, *args, **kwargs):
+-        raise ValueError(
+-            'This queryset contains a reference to an outer query and may '
+-            'only be used in a subquery.'
+-        )
++    def as_sql(self, compiler, connection, *args, **kwargs):
++        # Check if this is being used in a subquery context
++        if hasattr(compiler, "query") and getattr(compiler.query, "subquery", False):
++            # If this is a subquery, delegate to the parent F class
++            return super().as_sql(compiler, connection, *args, **kwargs)
++        else:
++            raise ValueError(
++                "This queryset contains a reference to an outer query and may "
++                "only be used in a subquery."
++            )
+ 
+     def relabeled_clone(self, relabels):
+         return self
+diff --git a/tests/queries/test_qs_combinators.py b/tests/queries/test_qs_combinators.py
+index 668d5e6ad6..8e68045d3e 100644
+--- a/tests/queries/test_qs_combinators.py
++++ b/tests/queries/test_qs_combinators.py
+@@ -1,5 +1,5 @@
+ from django.db import connection
+-from django.db.models import Exists, F, IntegerField, OuterRef, Value
++from django.db.models import Exists, F, IntegerField, OuterRef, Q, Value
+ from django.db.utils import DatabaseError, NotSupportedError
+ from django.test import TestCase, skipIfDBFeature, skipUnlessDBFeature
+ 
+@@ -285,3 +285,40 @@ class QuerySetSetOperationTests(TestCase):
+                         msg % (operation, combinator),
+                     ):
+                         getattr(getattr(qs, combinator)(qs), operation)()
++
++
++
++    def test_exists_with_exclude_and_outerref(self):
++        """Test that OuterRef works correctly with exclude() and ~Q() in Exists subqueries."""
++        # This test verifies the fix for the issue where exclude() and ~Q()
++        # with OuterRef in Exists subqueries would raise ValueError.
++
++        # Test exclude() with OuterRef - should not raise an error
++        try:
++            qs = Number.objects.annotate(
++                has_other_numbers=Exists(Number.objects.exclude(num=OuterRef('pk')))
++            ).filter(has_other_numbers=True)
++            # Just verify it doesn't raise an error and returns a queryset
++            self.assertIsInstance(qs, type(Number.objects.all()))
++        except ValueError as e:
++            self.fail(f"exclude() with OuterRef in Exists raised ValueError: {e}")
++
++        # Test ~Q() with OuterRef - should not raise an error
++        try:
++            qs = Number.objects.annotate(
++                has_other_numbers=Exists(Number.objects.filter(~Q(num=OuterRef('pk'))))
++            ).filter(has_other_numbers=True)
++            # Just verify it doesn't raise an error and returns a queryset
++            self.assertIsInstance(qs, type(Number.objects.all()))
++        except ValueError as e:
++            self.fail(f"~Q() with OuterRef in Exists raised ValueError: {e}")
++
++        # Test filter() with OuterRef (should continue to work)
++        try:
++            qs = Number.objects.annotate(
++                has_self_match=Exists(Number.objects.filter(num=OuterRef('pk')))
++            ).filter(has_self_match=True)
++            # Just verify it doesn't raise an error and returns a queryset
++            self.assertIsInstance(qs, type(Number.objects.all()))
++        except ValueError as e:
++            self.fail(f"filter() with OuterRef in Exists raised ValueError: {e}")

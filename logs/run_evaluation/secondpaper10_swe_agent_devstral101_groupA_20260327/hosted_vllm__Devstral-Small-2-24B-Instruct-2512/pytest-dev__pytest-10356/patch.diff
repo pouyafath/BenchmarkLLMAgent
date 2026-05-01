@@ -1,0 +1,71 @@
+diff --git a/src/_pytest/mark/structures.py b/src/_pytest/mark/structures.py
+index 800a25c92..b12d6595f 100644
+--- a/src/_pytest/mark/structures.py
++++ b/src/_pytest/mark/structures.py
+@@ -357,10 +357,33 @@ class MarkDecorator:
+ 
+ def get_unpacked_marks(obj: object) -> Iterable[Mark]:
+     """Obtain the unpacked marks that are stored on an object."""
+-    mark_list = getattr(obj, "pytestmark", [])
+-    if not isinstance(mark_list, list):
+-        mark_list = [mark_list]
+-    return normalize_mark_list(mark_list)
++    # For classes, traverse the MRO to collect pytestmark from all parent classes
++    if inspect.isclass(obj):
++        # Use a dict to track marks by name, with MRO order determining priority
++        marks_by_name = {}
++        # Traverse MRO in order (most specific first) to allow later
++        # classes to override earlier ones
++        for cls in obj.__mro__:
++            if hasattr(cls, 'pytestmark'):
++                parent_marks = getattr(cls, 'pytestmark', [])
++                if isinstance(parent_marks, list):
++                    marks_list = parent_marks
++                else:
++                    marks_list = [parent_marks]
++                # Add marks in reverse order so that earlier marks in the list
++                # don't get overridden by later ones from the same class
++                for mark in reversed(marks_list):
++                    if not isinstance(mark, Mark):
++                        mark = getattr(mark, 'mark', mark)
++                    if mark.name not in marks_by_name:
++                        marks_by_name[mark.name] = mark
++        return marks_by_name.values()
++    else:
++        # For non-class objects, use the original behavior
++        mark_list = getattr(obj, "pytestmark", [])
++        if not isinstance(mark_list, list):
++            mark_list = [mark_list]
++        return normalize_mark_list(mark_list)
+ 
+ 
+ def normalize_mark_list(
+diff --git a/src/_pytest/python.py b/src/_pytest/python.py
+index 3db877506..03807744a 100644
+--- a/src/_pytest/python.py
++++ b/src/_pytest/python.py
+@@ -803,7 +803,23 @@ class Class(PyCollector):
+     @classmethod
+     def from_parent(cls, parent, *, name, obj=None, **kw):
+         """The public constructor."""
+-        return super().from_parent(name=name, parent=parent, **kw)
++        # Create the class instance
++        class_instance = super().from_parent(name=name, parent=parent, **kw)
++
++        # If this is a test class and it inherits from multiple marked classes,
++        # set the correct pytestmark to include all markers from parent classes
++        if obj is not None and inspect.isclass(obj) and hasattr(obj, '__mro__'):
++            # Use get_unpacked_marks to get all markers from the MRO
++            from _pytest.mark.structures import get_unpacked_marks
++            all_marks = list(get_unpacked_marks(obj))
++
++            # If the class doesn't have its own pytestmark in __dict__ and has markers from parents,
++            # set it to include all markers
++            if 'pytestmark' not in obj.__dict__ and all_marks:
++                # Set the pytestmark on the class to include all markers
++                obj.pytestmark = all_marks
++
++        return class_instance
+ 
+     def newinstance(self):
+         return self.obj()

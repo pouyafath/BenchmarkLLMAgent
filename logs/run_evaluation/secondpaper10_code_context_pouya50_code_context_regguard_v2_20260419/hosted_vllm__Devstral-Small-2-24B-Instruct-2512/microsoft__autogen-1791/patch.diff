@@ -1,0 +1,264 @@
+diff --git a/autogen/agentchat/groupchat.py b/autogen/agentchat/groupchat.py
+index c9ebe82..41b8f5f 100644
+--- a/autogen/agentchat/groupchat.py
++++ b/autogen/agentchat/groupchat.py
+@@ -3,7 +3,7 @@ import random
+ import re
+ import sys
+ from dataclasses import dataclass, field
+-from typing import Dict, List, Optional, Union, Tuple
++from typing import Dict, List, Optional, Union, Tuple, Callable, Type
+ 
+ 
+ from ..code_utils import content_str
+@@ -76,6 +76,7 @@ class GroupChat:
+ 
+     _VALID_SPEAKER_SELECTION_METHODS = ["auto", "manual", "random", "round_robin"]
+     _VALID_SPEAKER_TRANSITIONS_TYPE = ["allowed", "disallowed", None]
++    PYTHON_CODE_PATTERN = r"```python\r?\n(.*?)\r?\n```"
+ 
+     allowed_speaker_transitions_dict: Dict = field(init=False)
+ 
+@@ -156,6 +157,227 @@ class GroupChat:
+             agents=self.agents,
+         )
+ 
++    def __post_init__(self):
++        # Post init steers clears of the automatically generated __init__ method from dataclass
++        
++
++        if self.allow_repeat_speaker is not None and not isinstance(self.allow_repeat_speaker, (bool, list)):
++            raise ValueError("GroupChat allow_repeat_speaker should be a bool or a list of Agents.")
++
++        # Here, we create allowed_speaker_transitions_dict from the supplied allowed_or_disallowed_speaker_transitions and speaker_transitions_type, and lastly checks for validity.
++
++        # Check input
++        if self.speaker_transitions_type is not None:
++            self.speaker_transitions_type = self.speaker_transitions_type.lower()
++
++        if self.speaker_transitions_type not in self._VALID_SPEAKER_TRANSITIONS_TYPE:
++            raise ValueError(
++                f"GroupChat speaker_transitions_type is set to '{self.speaker_transitions_type}'. "
++                f"It should be one of {self._VALID_SPEAKER_TRANSITIONS_TYPE} (case insensitive). "
++            )
++
++        # If both self.allowed_or_disallowed_speaker_transitions is None and self.allow_repeat_speaker is None, set allow_repeat_speaker to True to ensure backward compatibility
++        # Discussed in https://github.com/microsoft/autogen/pull/857#discussion_r1451541204
++        if self.allowed_or_disallowed_speaker_transitions is None and self.allow_repeat_speaker is None:
++            self.allow_repeat_speaker = True
++
++        # self.allowed_or_disallowed_speaker_transitions and self.allow_repeat_speaker are mutually exclusive parameters.
++        # Discussed in https://github.com/microsoft/autogen/pull/857#discussion_r1451266661
++        if self.allowed_or_disallowed_speaker_transitions is not None and self.allow_repeat_speaker is not None:
++            raise ValueError(
++                "Don't provide both allowed_or_disallowed_speaker_transitions and allow_repeat_speaker in group chat. "
++                "Please set one of them to None."
++            )
++
++        # Asks the user to specify whether the speaker_transitions_type is allowed or disallowed if speaker_transitions_type is supplied
++        # Discussed in https://github.com/microsoft/autogen/pull/857#discussion_r1451259524
++        if self.allowed_or_disallowed_speaker_transitions is not None and self.speaker_transitions_type is None:
++            raise ValueError(
++                "GroupChat allowed_or_disallowed_speaker_transitions is not None, but speaker_transitions_type is None. "
++                "Please set speaker_transitions_type to either 'allowed' or 'disallowed'."
++            )
++
++        # Inferring self.allowed_speaker_transitions_dict
++        # Create self.allowed_speaker_transitions_dict if allowed_or_disallowed_speaker_transitions is None, using allow_repeat_speaker
++        if self.allowed_or_disallowed_speaker_transitions is None:
++            self.allowed_speaker_transitions_dict = {}
++
++            # Create a fully connected allowed_speaker_transitions_dict not including self loops
++            for agent in self.agents:
++                self.allowed_speaker_transitions_dict[agent] = [
++                    other_agent for other_agent in self.agents if other_agent != agent
++                ]
++
++            # If self.allow_repeat_speaker is True, add self loops to all agents
++            if self.allow_repeat_speaker is True:
++                for agent in self.agents:
++                    self.allowed_speaker_transitions_dict[agent].append(agent)
++
++            # Else if self.allow_repeat_speaker is a list of Agents, add self loops to the agents in the list
++            elif isinstance(self.allow_repeat_speaker, list):
++                for agent in self.allow_repeat_speaker:
++                    self.allowed_speaker_transitions_dict[agent].append(agent)
++
++        # Create self.allowed_speaker_transitions_dict if allowed_or_disallowed_speaker_transitions is not None, using allowed_or_disallowed_speaker_transitions
++        else:
++            # Process based on speaker_transitions_type
++            if self.speaker_transitions_type == "allowed":
++                self.allowed_speaker_transitions_dict = self.allowed_or_disallowed_speaker_transitions
++            else:
++                # Logic for processing disallowed allowed_or_disallowed_speaker_transitions to allowed_speaker_transitions_dict
++                self.allowed_speaker_transitions_dict = invert_disallowed_to_allowed(
++                    self.allowed_or_disallowed_speaker_transitions, self.agents
++                )
++
++        # Check for validity
++        check_graph_validity(
++            allowed_speaker_transitions_dict=self.allowed_speaker_transitions_dict,
++            agents=self.agents,
++        )
++
++    def contains_python_code(self, message_content: str) -> bool:
++        """Check if a message contains Python code.
++
++        Args:
++            message_content: The content of the message to check.
++
++        Returns:
++            bool: True if Python code is detected, False otherwise.
++        """
++        if not message_content or not isinstance(message_content, str):
++            return False
++
++        # Check for Python code blocks
++        if re.search(self.PYTHON_CODE_PATTERN, message_content, re.DOTALL):
++            return True
++
++        return False
++
++    def register_executor_trigger(
++        self,
++        trigger: Union[Type[Agent], str, Agent, Callable[[Agent], bool], List],
++        description: str = "Executor trigger"
++    ) -> None:
++        """Register a trigger that marks an agent as an executor when the condition is met.
++
++        Args:
++            trigger: The trigger condition. Can be:
++                - Agent class or instance: Match by agent type or instance
++                - str: Match by agent name
++                - Callable: A function that takes an agent and returns a boolean
++                - List: A list of any of the above
++            description: Optional description of the trigger.
++        """
++        if not hasattr(self, '_executor_triggers'):
++            self._executor_triggers = []
++        self._executor_triggers.append({
++            'trigger': trigger,
++            'description': description
++        })
++
++    def is_executor(self, agent: Agent, message_content: Optional[str] = None) -> bool:
++        """Check if an agent should be considered an executor based on registered triggers.
++
++        Args:
++            agent: The agent to check.
++            message_content: Optional message content to use for context.
++
++        Returns:
++            bool: True if the agent should be considered an executor.
++        """
++        if not hasattr(self, '_executor_triggers'):
++            return False
++
++        for trigger_info in self._executor_triggers:
++            trigger = trigger_info['trigger']
++            if self._match_trigger(trigger, agent, message_content):
++                return True
++        return False
++
++    def _match_trigger(
++        self,
++        trigger: Union[None, str, type, Agent, Callable, List],
++        agent: Agent,
++        message_content: Optional[str] = None
++    ) -> bool:
++        """Check if the agent matches the trigger.
++
++        Args:
++            trigger: The trigger to match against.
++            agent: The agent to check.
++            message_content: Optional message content for context.
++
++        Returns:
++            bool: True if the agent matches the trigger.
++        """
++        if trigger is None:
++            return False
++        elif isinstance(trigger, str):
++            return trigger == agent.name
++        elif isinstance(trigger, type):
++            return isinstance(agent, trigger)
++        elif isinstance(trigger, Agent):
++            return trigger == agent
++        elif isinstance(trigger, Callable):
++            rst = trigger(agent)
++            assert rst in [True, False], f"trigger {trigger} must return a boolean value."
++            return rst
++        elif isinstance(trigger, list):
++            return any(self._match_trigger(t, agent, message_content) for t in trigger)
++        else:
++            raise ValueError(f"Unsupported trigger type: {type(trigger)}")
++
++    def get_executors(self, agents: List[Agent], message_content: Optional[str] = None) -> List[Agent]:
++        """Get all agents that should be considered executors.
++
++        Args:
++            agents: List of agents to filter.
++            message_content: Optional message content for context.
++
++        Returns:
++            List[Agent]: List of executor agents.
++        """
++        return [agent for agent in agents if self.is_executor(agent, message_content)]
++
++    def _get_prioritized_speakers(
++        self,
++        eligible_agents: List[Agent],
++        last_message_content: Optional[str] = None
++    ) -> List[Agent]:
++        """Get prioritized speakers, with executors first when code is detected.
++
++        Args:
++            eligible_agents: List of eligible agents.
++            last_message_content: Content of the last message.
++
++        Returns:
++            List[Agent]: Prioritized list of agents, with executors first if code detected.
++        """
++        if not eligible_agents:
++            return eligible_agents
++
++        # Check if last message contains Python code
++        code_detected = False
++        if last_message_content and self.contains_python_code(last_message_content):
++            code_detected = True
++
++        if code_detected:
++            # Get executors from eligible agents
++            executors = self.get_executors(eligible_agents, last_message_content)
++
++            if executors:
++                # If there are executors, prioritize them
++                # If there's only one executor, use it directly
++                # If there are multiple executors, let the LLM choose
++                return executors + [a for a in eligible_agents if a not in executors]
++            else:
++                # No executors found, return original list
++                return eligible_agents
++        else:
++            # No code detected, return original list
++            return eligible_agents
++
++
+     @property
+     def agent_names(self) -> List[str]:
+         """Return the names of the agents in the group chat."""
+@@ -364,6 +586,14 @@ Then select the next role from {[agent.name for agent in agents]} to play. Only
+         if len(graph_eligible_agents) == 0:
+             graph_eligible_agents = None
+ 
++        # Apply executor prioritization if code is detected in the last message
++        if graph_eligible_agents and self.messages:
++            last_message_content = self.messages[-1].get("content")
++            if last_message_content:
++                graph_eligible_agents = self._get_prioritized_speakers(
++                    graph_eligible_agents, last_message_content
++                )
++
+         # Use the selected speaker selection method
+         select_speaker_messages = None
+         if self.speaker_selection_method.lower() == "manual":

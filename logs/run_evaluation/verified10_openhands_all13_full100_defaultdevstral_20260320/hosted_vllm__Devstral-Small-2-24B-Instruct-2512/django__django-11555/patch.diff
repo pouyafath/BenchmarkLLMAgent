@@ -1,0 +1,22 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index eaccc96d7d..ca06d28a1f 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -704,6 +704,17 @@ class SQLCompiler:
+         not be) and column name for ordering by the given 'name' parameter.
+         The 'name' is of the form 'field1__field2__...__fieldN'.
+         """
++        # Check if name is an expression before calling get_order_dir
++        if hasattr(name, "resolve_expression"):
++            # For expressions, we need to handle them differently
++            # They should already be OrderBy objects or convertible to them
++            if isinstance(name, OrderBy):
++                return [(name, False)]
++            else:
++                # Convert expression to OrderBy
++                order_by_expr = name.asc() if not isinstance(name, OrderBy) else name
++                return [(order_by_expr, False)]
++        
+         name, order = get_order_dir(name, default_order)
+         descending = order == 'DESC'
+         pieces = name.split(LOOKUP_SEP)

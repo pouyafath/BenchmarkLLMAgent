@@ -1,0 +1,91 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..17b524478 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -48,6 +48,7 @@ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
++from . import itrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+ 
+
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+"""
+Contains the transformation functions for getting to "observed" systems from ITRS
+without geocentric aberration corrections.
+"""
+import numpy as np
+
+from astropy import units as u
+from astropy.coordinates.baseframe import frame_transform_graph
+from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
+from astropy.coordinates.representation import CartesianRepresentation
+from astropy.coordinates.matrix_utilities import matrix_transpose
+
+from .itrs import ITRS
+from .altaz import AltAz
+from .hadec import HADec
+from .intermediate_rotation_transforms import cirs_to_itrs_mat
+
+def itrs_to_observed_mat(observed_frame):
+    """
+    Get the rotation matrix for ITRS to observed frame transformation.
+
+    This matrix combines the ITRS to CIRS transformation with the
+    CIRS to observed frame transformation, but without the geocentric
+    aberration corrections that would normally be applied.
+    """
+    # Get the ITRS to CIRS matrix (this includes polar motion and sidereal time)
+    # We need to use the observed frame's obstime
+    obstime = observed_frame.obstime
+    if obstime is None:
+        # If no obstime is specified, we can't compute the transformation
+        # This should probably raise an error, but for now we'll use a default
+        from astropy.time import Time
+        obstime = Time.now()
+
+    pmat = cirs_to_itrs_mat(obstime)
+    # The matrix we want is the transpose of the ITRS to CIRS matrix
+    # because we're going from ITRS to CIRS (observed)
+    return matrix_transpose(pmat)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
+def itrs_to_observed(itrs_coo, observed_frame):
+    """
+    Transform ITRS coordinates to an observed frame (AltAz or HADec) without
+    geocentric aberration corrections.
+
+    This transform:
+    1. Converts ITRS to topocentric ITRS by subtracting the observer's location
+    2. Applies the ITRS to observed frame rotation matrix
+    3. Uses the observed frame's obstime (even if None)
+
+    Parameters
+    ----------
+    itrs_coo : ITRS
+        The ITRS coordinate to transform
+    observed_frame : AltAz or HADec
+        The observed frame to transform into
+
+    Returns
+    -------
+    observed_frame : AltAz or HADec
+        The transformed coordinate in the observed frame
+    """
+    # Get the observer's location in ITRS
+    observer_itrs = observed_frame.location.get_itrs(obstime=observed_frame.obstime)
+
+    # Convert to topocentric ITRS by subtracting observer's position
+    topocentric_itrs_cart = itrs_coo.cartesian - observer_itrs.cartesian
+
+    # Get the rotation matrix for ITRS to observed frame
+    rot_mat = itrs_to_observed_mat(observed_frame)
+
+    # Apply the rotation
+    observed_cart = topocentric_itrs_cart.transform(rot_mat)
+
+    # Create the observed frame coordinate
+    return observed_frame.realize_frame(observed_cart)

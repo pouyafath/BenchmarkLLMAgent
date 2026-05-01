@@ -1,0 +1,25 @@
+diff --git a/sklearn/svm/_base.py b/sklearn/svm/_base.py
+index f5b35f39a..8748fd124 100644
+--- a/sklearn/svm/_base.py
++++ b/sklearn/svm/_base.py
+@@ -1190,7 +1190,19 @@ def _fit_liblinear(
+                 " class: %r" % classes_[0]
+             )
+ 
+-        class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
++        if class_weight == "balanced" and sample_weight is not None:
++            # Compute class weights using sample weights
++            # Class weight is proportional to sum_of_sample_weights / (n_classes * sum_of_sample_weights_per_class)
++            if not all(np.isin(classes_, enc.classes_)):
++                raise ValueError("classes should have valid labels that are in y")
++
++            # Compute sum of sample weights for each class
++            sum_sample_weights_per_class = np.bincount(y_ind, weights=sample_weight, minlength=len(enc.classes_))
++            total_sample_weight = np.sum(sample_weight)
++            recip_freq = total_sample_weight / (len(enc.classes_) * sum_sample_weights_per_class.astype(np.float64))
++            class_weight_ = recip_freq[enc.transform(classes_)]
++        else:
++            class_weight_ = compute_class_weight(class_weight, classes=classes_, y=y)
+     else:
+         class_weight_ = np.empty(0, dtype=np.float64)
+         y_ind = y

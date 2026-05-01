@@ -1,0 +1,91 @@
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index 37a15ff2..590116a9 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -1018,20 +1018,36 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         for rule in rules
+     ]
+ 
+-    headers = ("Endpoint", "Methods", "Rule")
++    # Get server name for domain construction
++    server_name = current_app.config.get('SERVER_NAME')
++
++    # Construct domain information
++    domains = []
++    for rule in rules:
++        if rule.subdomain:
++            if server_name:
++                domain = f"{rule.subdomain}.{server_name}"
++            else:
++                domain = rule.subdomain
++        else:
++            domain = server_name or ""
++        domains.append(domain)
++
++    headers = ("Domain", "Endpoint", "Methods", "Rule")
+     widths = (
++        max(len(domain) for domain in domains),
+         max(len(rule.endpoint) for rule in rules),
+         max(len(methods) for methods in rule_methods),
+         max(len(rule.rule) for rule in rules),
+     )
+     widths = [max(len(h), w) for h, w in zip(headers, widths)]
+-    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}".format(*widths)
++    row = "{{0:<{0}}}  {{1:<{1}}}  {{2:<{2}}}  {{3:<{3}}}".format(*widths)
+ 
+     click.echo(row.format(*headers).strip())
+     click.echo(row.format(*("-" * width for width in widths)))
+ 
+-    for rule, methods in zip(rules, rule_methods):
+-        click.echo(row.format(rule.endpoint, methods, rule.rule).rstrip())
++    for rule, methods, domain in zip(rules, rule_methods, domains):
++        click.echo(row.format(domain, rule.endpoint, methods, rule.rule).rstrip())
+ 
+ 
+ cli = FlaskGroup(
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 0d9625b1..17484179 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -463,9 +463,38 @@ class TestRoutes:
+ 
+     def expect_order(self, order, output):
+         # skip the header and match the start of each row
+-        for expect, line in zip(order, output.splitlines()[2:]):
+-            # do this instead of startswith for nicer pytest output
+-            assert line[: len(expect)] == expect
++        # The output now has a "Domain" column, so we need to find the endpoint
++        # Find the position of "Endpoint" in the header and use that for data lines
++        import re
++        lines = output.splitlines()
++        if len(lines) < 1:
++            return
++
++        header = lines[0]
++        # Find the position of "Endpoint" in the header
++        endpoint_header_pos = header.find('Endpoint')
++        if endpoint_header_pos == -1:
++            # Fallback to old behavior if "Endpoint" not found
++            for expect, line in zip(order, lines[2:]):
++                assert line[: len(expect)] == expect
++            return
++
++        # Now parse each data line
++        for expect, line in zip(order, lines[2:]):
++            # The endpoint column starts at the same position as in the header
++            endpoint_start = endpoint_header_pos
++
++            # Find the end of the endpoint column (next whitespace-to-non-whitespace transition)
++            remaining_line = line[endpoint_start:]
++            next_col_match = re.search(r'\s+\S', remaining_line)
++            if next_col_match:
++                endpoint_end = endpoint_start + next_col_match.start()
++            else:
++                endpoint_end = len(line)
++
++            endpoint = line[endpoint_start:endpoint_end].strip()
++            # Check if it matches the expected endpoint
++            assert endpoint == expect, f"Expected '{expect}' but got '{endpoint}' in line: {line!r}"
+ 
+     def test_simple(self, invoke):
+         result = invoke(["routes"])

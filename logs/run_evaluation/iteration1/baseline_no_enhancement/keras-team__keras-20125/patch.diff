@@ -1,0 +1,60 @@
+diff --git a/keras/src/ops/core.py b/keras/src/ops/core.py
+--- a/keras/src/ops/core.py
++++ b/keras/src/ops/core.py
+@@ -612,7 +612,7 @@
+     return backend.core.stop_gradient(variable)
+ 
+   File "/home/alex/keras-stopgradient/venv/lib/python3.9/site-packages/tensorflow/python/ops/weak_tensor_ops.py", line 88, in wrapper
+-    return op(*args, **kwargs)
++    return op(*args, **kwargs)  
+   File "/home/alex/keras-stopgradient/venv/lib/python3.9/site-packages/tensorflow/python/util/traceback_utils.py", line 153, in error_handler
+     raise e.with_traceback(filtered_tb) from None
+   File "/home/alex/keras-stopgradient/venv/lib/python3.9/site-packages/keras/src/backend/common/keras_tensor.py", line 138, in __tf_tensor__
+     raise ValueError(
+ ValueError: A KerasTensor cannot be used as input to a TensorFlow function. A KerasTensor is a symbolic placeholder for a shape and dtype, used when constructing Keras Functional models or Keras Functions. You can only use it as input to a Keras layer or a Keras operation (from the namespaces `keras.layers` and `keras.operations`). You are likely doing something like:
+ 
+ x = Input(...)
+@@ -620,6 +620,7 @@
+     return backend.core.map(f, xs)
+ 
+ 
++class StopGradient(Operation):
++    def __init__(self):
++        super().__init__()
++
++    def call(self, variable):
++        return backend.core.stop_gradient(variable)
++
++    def compute_output_spec(self, variable):
++        return backend.compute_output_spec(variable)
++
++@keras_export("keras.ops.stop_gradient")
++def stop_gradient(variable):
++    if any_symbolic_tensors((variable,)):
++        return StopGradient().symbolic_call(variable)
++    return backend.core.stop_gradient(variable)
++
+ class Scan(Operation):
+     def __init__(self, reverse=False, unroll=1):
+         super().__init__()
+@@ -1017,6 +1018,7 @@
+     return backend.core.scan(
+         f, init, xs, length, reverse=reverse, unroll=unroll
+     )
++
++
++class StopGradient(Operation):
++    def __init__(self):
++        super().__init__()
++
++    def call(self, variable):
++        return backend.core.stop_gradient(variable)
++
++    def compute_output_spec(self, variable):
++        return backend.compute_output_spec(variable)
++
++@keras_export("keras.ops.stop_gradient")
++def stop_gradient(variable):
++    if any_symbolic_tensors((variable,)):
++        return StopGradient().symbolic_call(variable)
++    return backend.core.stop_gradient(variable)

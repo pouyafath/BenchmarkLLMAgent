@@ -1,0 +1,79 @@
+diff --git a/sentence_transformers/base/model.py b/sentence_transformers/base/model.py
+index 1607c9b..29e2328 100644
+--- a/sentence_transformers/base/model.py
++++ b/sentence_transformers/base/model.py
+@@ -576,7 +576,12 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
+                 list_types += (Column,)
+             except ImportError:
+                 pass
+-        return not isinstance(inputs, list_types)
++        if isinstance(inputs, list_types):
++            return False
++        # Numpy arrays of unicode strings or objects are batches
++        if isinstance(inputs, np.ndarray) and inputs.ndim >= 1 and inputs.dtype.kind in ("U", "O"):
++            return False
++        return True
+ 
+     def save(
+         self,
+diff --git a/sentence_transformers/cross_encoder/model.py b/sentence_transformers/cross_encoder/model.py
+index 269d54b..193328d 100644
+--- a/sentence_transformers/cross_encoder/model.py
++++ b/sentence_transformers/cross_encoder/model.py
+@@ -623,10 +623,13 @@ class CrossEncoder(BaseModel, FitMixin):
+         # Cast an individual pair to a list with length 1
+         is_singular_input = self.is_singular_input(inputs)
+         if is_singular_input:
++            # A 1D numpy string array is a single pair; convert to a list so downstream sees ["q", "d"].
++            if isinstance(inputs, np.ndarray):
++                inputs = inputs.tolist()
+             inputs = [inputs]
+         elif not isinstance(inputs, list):
+             # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
+-            inputs = list(inputs)
++            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+ 
+         # If pool or a list of devices is provided, use multi-process prediction
+         if pool is not None or (isinstance(device, list) and len(device) > 0):
+@@ -840,7 +843,14 @@ class CrossEncoder(BaseModel, FitMixin):
+                 list_types += (Column,)
+             except ImportError:
+                 pass
+-        return (not isinstance(inputs, list_types)) or (len(inputs) > 0 and not isinstance(inputs[0], list_types))
++        if isinstance(inputs, list_types):
++            return len(inputs) > 0 and not isinstance(inputs[0], list_types)
++        # Numpy string/object arrays: 1D is a single pair, 2D+ is a batch, empty is an empty batch
++        if isinstance(inputs, np.ndarray) and inputs.dtype.kind in ("U", "O"):
++            if inputs.size == 0:
++                return False
++            return inputs.ndim < 2
++        return True
+ 
+     def _get_model_config(self) -> dict[str, Any]:
+         return super()._get_model_config() | {
+diff --git a/sentence_transformers/sentence_transformer/model.py b/sentence_transformers/sentence_transformer/model.py
+index e44ee95..32a9908 100644
+--- a/sentence_transformers/sentence_transformer/model.py
++++ b/sentence_transformers/sentence_transformer/model.py
+@@ -579,7 +579,7 @@ class SentenceTransformer(BaseModel, FitMixin):
+             inputs = [inputs]
+         elif not isinstance(inputs, list):
+             # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
+-            inputs = list(inputs)
++            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+ 
+         # Validate kwargs
+         model_kwargs = self.get_model_kwargs()
+diff --git a/sentence_transformers/sparse_encoder/model.py b/sentence_transformers/sparse_encoder/model.py
+index 781e47c..5074d84 100644
+--- a/sentence_transformers/sparse_encoder/model.py
++++ b/sentence_transformers/sparse_encoder/model.py
+@@ -453,7 +453,7 @@ class SparseEncoder(BaseModel):
+             inputs = [inputs]
+         elif not isinstance(inputs, list):
+             # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
+-            inputs = list(inputs)
++            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+ 
+         # Throw an error if unused kwargs are passed, except 'task' which is always allowed, even
+         # when it does not do anything (as e.g. there's no Router module in the model)

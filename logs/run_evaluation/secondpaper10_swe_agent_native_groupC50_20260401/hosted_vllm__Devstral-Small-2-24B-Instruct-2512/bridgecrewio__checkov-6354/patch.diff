@@ -1,0 +1,48 @@
+diff --git a/checkov/terraform/checks/module/generic/RevisionVersionTag.py b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+index 14626ecf0..438987bc5 100644
+--- a/checkov/terraform/checks/module/generic/RevisionVersionTag.py
++++ b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+@@ -27,10 +27,43 @@ class RevisionVersionTag(BaseModuleCheck):
+         source = conf.get("source")
+         if source and isinstance(source, list):
+             source_url = source[0]
++
++            # Check if this is a Terraform Registry source
++            if self._is_terraform_registry_source(source_url):
++                version = conf.get("version")
++                if version and isinstance(version, list) and len(version) > 0:
++                    version_str = version[0]
++                    if self._is_valid_semantic_version(version_str):
++                        return CheckResult.PASSED
++
++            # Check for version patterns in the source URL (existing behavior)
+             if ("?ref" in source_url or "&ref" in source_url) and re.search(VERSION_PATTERN, source_url):
+                 return CheckResult.PASSED
+ 
+         return CheckResult.FAILED
+ 
++    def _is_terraform_registry_source(self, source_url: str) -> bool:
++        """Check if the source URL is from the Terraform Registry."""
++        # Terraform Registry sources don't start with git::, ./, ../, or http(s)://
++        # They typically look like: namespace/path or namespace/path//submodule
++        if source_url.startswith(("./", "../")):
++            return False
++
++        # Check if it's a git URL (starts with git::)
++        if source_url.startswith("git::"):
++            return False
++
++        # Check if it's a full URL (http:// or https://)
++        if source_url.startswith(("http://", "https://")):
++            return False
++
++        # If it doesn't match any of the above, it's likely a Terraform Registry source
++        return True
++
++    def _is_valid_semantic_version(self, version: str) -> bool:
++        """Check if the version string follows semantic versioning pattern."""
++        # Basic semantic version pattern: major.minor.patch (with optional pre-release/build)
++        semantic_version_pattern = re.compile(r'^\d+\.\d+\.\d+([+-].*)?$')
++        return bool(semantic_version_pattern.match(version))
+ 
+ check = RevisionVersionTag()

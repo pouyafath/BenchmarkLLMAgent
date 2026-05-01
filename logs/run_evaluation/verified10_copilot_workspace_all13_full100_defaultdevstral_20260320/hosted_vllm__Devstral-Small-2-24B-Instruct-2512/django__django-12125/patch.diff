@@ -1,0 +1,57 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 7d226955d5..7f6843ed68 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -90,14 +90,45 @@ class DeconstructableSerializer(BaseSerializer):
+ 
+     @staticmethod
+     def _serialize_path(path):
++        # Handle django.db.models special case
++        if path.startswith("django.db.models."):
++            name = path.replace("django.db.models.", "models.")
++            return name, {"from django.db import models"}
++
++        # Try to split the path into module and name
++        # For inner classes, we need to find the correct module/class boundary
++        parts = path.split('.')
++        if len(parts) < 2:
++            # Not a proper path
++            return path, set()
++
++        # Try different splits to find the correct module/class boundary
++        # We want to find the longest prefix that is a valid module
++        for i in range(len(parts) - 1, 0, -1):
++            module_candidate = '.'.join(parts[:i])
++
++            try:
++                # Try to import the module
++                import importlib
++                module = importlib.import_module(module_candidate)
++
++                # Try to get the attribute from the module
++                attr = module
++                for part in parts[i:]:
++                    attr = getattr(attr, part)
++                    if attr is None:
++                        break
++
++                # If we successfully got the attribute, this is the correct split
++                return path, {"import %s" % module_candidate}
++            except (ImportError, AttributeError, ValueError):
++                # This split didn't work, try the next one
++                continue
++
++        # If we couldn't find a working split, fall back to the original behavior
++        # (split at last dot)
+         module, name = path.rsplit(".", 1)
+-        if module == "django.db.models":
+-            imports = {"from django.db import models"}
+-            name = "models.%s" % name
+-        else:
+-            imports = {"import %s" % module}
+-            name = path
+-        return name, imports
++        return path, {"import %s" % module}
+ 
+     def serialize(self):
+         return self.serialize_deconstructed(*self.value.deconstruct())

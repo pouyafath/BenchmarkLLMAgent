@@ -1,0 +1,63 @@
+diff --git a/src/flask/sansio/app.py b/src/flask/sansio/app.py
+index 36201714..17eeb50d 100644
+--- a/src/flask/sansio/app.py
++++ b/src/flask/sansio/app.py
+@@ -215,6 +215,14 @@ class App(Scaffold):
+     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
+     secret_key = ConfigAttribute[t.Union[str, bytes, None]]("SECRET_KEY")
+ 
++    #: A list or tuple of secret keys for signing cookies and other things.
++    #: When multiple keys are provided, the first valid key will be used to sign/verify data.
++    #: This allows for key rotation without invalidating existing sessions.
++    #:
++    #: This attribute can also be configured from the config with the
++    #: :data:`SECRET_KEYS` configuration key. Defaults to ``None``.
++    secret_keys = ConfigAttribute[t.Union[t.List[str], t.Tuple[str, ...], t.List[bytes], t.Tuple[bytes, ...], None]]("SECRET_KEYS")
++
+     #: A :class:`~datetime.timedelta` which is used to set the expiration
+     #: date of a permanent session.  The default is 31 days which makes a
+     #: permanent session survive for roughly one month.
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..51aa6f92 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,13 +313,37 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        # Use secret_keys if available, otherwise fall back to secret_key for backward compatibility
++        secret_key = None
++        try:
++            # Try to get secret_keys first
++            if hasattr(app, 'secret_keys'):
++                secret_keys_value = app.secret_keys
++                if secret_keys_value:
++                    secret_key = secret_keys_value
++        except (KeyError, AttributeError):
++            # If secret_keys is not available or causes an error, fall back to secret_key
++            pass
++
++        # Fall back to single secret_key if secret_keys is not available or empty
++        if secret_key is None:
++            try:
++                if app.secret_key:
++                    secret_key = app.secret_key
++            except (KeyError, AttributeError):
++                pass
++
++        if not secret_key:
+             return None
++
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
++
++        # itsdangerous supports key rotation natively by passing a list of keys
++        # (oldest to newest) to the secret_key parameter
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret_key,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,

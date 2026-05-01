@@ -1,0 +1,1911 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 6d5d2792..f6df2808 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -42,6 +42,14 @@ jobs:
+           pip install -e .
+           python -c "import autogen"
+           pip install pytest mock
++          pip install jupyter-client ipykernel
++          python -m ipykernel install --user --name python3
++      - name: Set AUTOGEN_USE_DOCKER based on OS
++        shell: bash
++        run: |
++          if [[ ${{ matrix.os }} != ubuntu-latest ]]; then
++            echo "AUTOGEN_USE_DOCKER=False" >> $GITHUB_ENV
++          fi
+       - name: Test with pytest skipping openai tests
+         if: matrix.python-version != '3.10' && matrix.os == 'ubuntu-latest'
+         run: |
+diff --git a/autogen/agentchat/agent.py b/autogen/agentchat/agent.py
+index b83709dc..410635bc 100644
+--- a/autogen/agentchat/agent.py
++++ b/autogen/agentchat/agent.py
+@@ -1,70 +1,136 @@
+-from typing import Dict, List, Optional, Union
++from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
+ 
+ 
+-class Agent:
+-    """(In preview) An abstract class for AI agent.
++@runtime_checkable
++class Agent(Protocol):
++    """(In preview) A protocol for Agent.
+ 
+     An agent can communicate with other agents and perform actions.
+     Different agents can differ in what actions they perform in the `receive` method.
+     """
+ 
+-    def __init__(
++    @property
++    def name(self) -> str:
++        """The name of the agent."""
++        ...
++
++    @property
++    def description(self) -> str:
++        """The description of the agent. Used for the agent's introduction in
++        a group chat setting."""
++        ...
++
++    def send(
+         self,
+-        name: str,
+-    ):
+-        """
++        message: Union[Dict[str, Any], str],
++        recipient: "Agent",
++        request_reply: Optional[bool] = None,
++    ) -> None:
++        """Send a message to another agent.
++
+         Args:
+-            name (str): name of the agent.
++            message (dict or str): the message to send. If a dict, it should be
++            a JSON-serializable and follows the OpenAI's ChatCompletion schema.
++            recipient (Agent): the recipient of the message.
++            request_reply (bool): whether to request a reply from the recipient.
+         """
+-        # a dictionary of conversations, default value is list
+-        self._name = name
++        ...
+ 
+-    @property
+-    def name(self):
+-        """Get the name of the agent."""
+-        return self._name
++    async def a_send(
++        self,
++        message: Union[Dict[str, Any], str],
++        recipient: "Agent",
++        request_reply: Optional[bool] = None,
++    ) -> None:
++        """(Async) Send a message to another agent.
+ 
+-    def send(self, message: Union[Dict, str], recipient: "Agent", request_reply: Optional[bool] = None):
+-        """(Abstract method) Send a message to another agent."""
++        Args:
++            message (dict or str): the message to send. If a dict, it should be
++            a JSON-serializable and follows the OpenAI's ChatCompletion schema.
++            recipient (Agent): the recipient of the message.
++            request_reply (bool): whether to request a reply from the recipient.
++        """
++        ...
+ 
+-    async def a_send(self, message: Union[Dict, str], recipient: "Agent", request_reply: Optional[bool] = None):
+-        """(Abstract async method) Send a message to another agent."""
++    def receive(
++        self,
++        message: Union[Dict[str, Any], str],
++        sender: "Agent",
++        request_reply: Optional[bool] = None,
++    ) -> None:
++        """Receive a message from another agent.
+ 
+-    def receive(self, message: Union[Dict, str], sender: "Agent", request_reply: Optional[bool] = None):
+-        """(Abstract method) Receive a message from another agent."""
++        Args:
++            message (dict or str): the message received. If a dict, it should be
++            a JSON-serializable and follows the OpenAI's ChatCompletion schema.
++            sender (Agent): the sender of the message.
++            request_reply (bool): whether the sender requests a reply.
++        """
+ 
+-    async def a_receive(self, message: Union[Dict, str], sender: "Agent", request_reply: Optional[bool] = None):
+-        """(Abstract async method) Receive a message from another agent."""
++    async def a_receive(
++        self,
++        message: Union[Dict[str, Any], str],
++        sender: "Agent",
++        request_reply: Optional[bool] = None,
++    ) -> None:
++        """(Async) Receive a message from another agent.
+ 
+-    def reset(self):
+-        """(Abstract method) Reset the agent."""
++        Args:
++            message (dict or str): the message received. If a dict, it should be
++            a JSON-serializable and follows the OpenAI's ChatCompletion schema.
++            sender (Agent): the sender of the message.
++            request_reply (bool): whether the sender requests a reply.
++        """
++        ...
+ 
+     def generate_reply(
+         self,
+-        messages: Optional[List[Dict]] = None,
++        messages: Optional[List[Dict[str, Any]]] = None,
+         sender: Optional["Agent"] = None,
+-        **kwargs,
+-    ) -> Union[str, Dict, None]:
+-        """(Abstract method) Generate a reply based on the received messages.
++        **kwargs: Any,
++    ) -> Union[str, Dict[str, Any], None]:
++        """Generate a reply based on the received messages.
+ 
+         Args:
+-            messages (list[dict]): a list of messages received.
++            messages (list[dict]): a list of messages received from other agents.
++                The messages are dictionaries that are JSON-serializable and
++                follows the OpenAI's ChatCompletion schema.
+             sender: sender of an Agent instance.
++
+         Returns:
+             str or dict or None: the generated reply. If None, no reply is generated.
+         """
+ 
+     async def a_generate_reply(
+         self,
+-        messages: Optional[List[Dict]] = None,
++        messages: Optional[List[Dict[str, Any]]] = None,
+         sender: Optional["Agent"] = None,
+-        **kwargs,
+-    ) -> Union[str, Dict, None]:
+-        """(Abstract async method) Generate a reply based on the received messages.
++        **kwargs: Any,
++    ) -> Union[str, Dict[str, Any], None]:
++        """(Async) Generate a reply based on the received messages.
+ 
+         Args:
+-            messages (list[dict]): a list of messages received.
++            messages (list[dict]): a list of messages received from other agents.
++                The messages are dictionaries that are JSON-serializable and
++                follows the OpenAI's ChatCompletion schema.
+             sender: sender of an Agent instance.
++
+         Returns:
+             str or dict or None: the generated reply. If None, no reply is generated.
+         """
++
++
++@runtime_checkable
++class LLMAgent(Agent, Protocol):
++    """(In preview) A protocol for an LLM agent."""
++
++    @property
++    def system_message(self) -> str:
++        """The system message of this agent."""
++
++    def update_system_message(self, system_message: str) -> None:
++        """Update this agent's system message.
++
++        Args:
++            system_message (str): system message for inference.
++        """
+diff --git a/autogen/agentchat/contrib/web_surfer.py b/autogen/agentchat/contrib/web_surfer.py
+index 4877a4d0..9b7320f0 100644
+--- a/autogen/agentchat/contrib/web_surfer.py
++++ b/autogen/agentchat/contrib/web_surfer.py
+@@ -3,13 +3,14 @@ import copy
+ import logging
+ import re
+ from dataclasses import dataclass
+-from typing import Dict, List, Optional, Union, Callable, Literal, Tuple
+-from autogen import Agent, ConversableAgent, AssistantAgent, UserProxyAgent, GroupChatManager, GroupChat, OpenAIWrapper
+-from autogen.browser_utils import SimpleTextBrowser
+-from autogen.code_utils import content_str
++from typing import Any, Dict, List, Optional, Union, Callable, Literal, Tuple
++from typing_extensions import Annotated
++from ... import Agent, ConversableAgent, AssistantAgent, UserProxyAgent, GroupChatManager, GroupChat, OpenAIWrapper
++from ...browser_utils import SimpleTextBrowser
++from ...code_utils import content_str
+ from datetime import datetime
+-from autogen.token_count_utils import count_token, get_max_token_limit
+-from autogen.oai.openai_utils import filter_config
++from ...token_count_utils import count_token, get_max_token_limit
++from ...oai.openai_utils import filter_config
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -26,10 +27,10 @@ class WebSurferAgent(ConversableAgent):
+ 
+     def __init__(
+         self,
+-        name,
+-        system_message: Optional[Union[str, List]] = DEFAULT_PROMPT,
++        name: str,
++        system_message: Optional[Union[str, List[str]]] = DEFAULT_PROMPT,
+         description: Optional[str] = DEFAULT_DESCRIPTION,
+-        is_termination_msg: Optional[Callable[[Dict], bool]] = None,
++        is_termination_msg: Optional[Callable[[Dict[str, Any]], bool]] = None,
+         max_consecutive_auto_reply: Optional[int] = None,
+         human_input_mode: Optional[str] = "TERMINATE",
+         function_map: Optional[Dict[str, Callable]] = None,
+@@ -52,6 +53,39 @@ class WebSurferAgent(ConversableAgent):
+             default_auto_reply=default_auto_reply,
+         )
+ 
++        self._create_summarizer_client(summarizer_llm_config, llm_config)
++
++        # Create the browser
++        self.browser = SimpleTextBrowser(**(browser_config if browser_config else {}))
++
++        inner_llm_config = copy.deepcopy(llm_config)
++
++        # Set up the inner monologue
++        self._assistant = AssistantAgent(
++            self.name + "_inner_assistant",
++            system_message=system_message,  # type: ignore[arg-type]
++            llm_config=inner_llm_config,
++            is_termination_msg=lambda m: False,
++        )
++
++        self._user_proxy = UserProxyAgent(
++            self.name + "_inner_user_proxy",
++            human_input_mode="NEVER",
++            code_execution_config=False,
++            default_auto_reply="",
++            is_termination_msg=lambda m: False,
++        )
++
++        if inner_llm_config not in [None, False]:
++            self._register_functions()
++
++        self._reply_func_list = []
++        self.register_reply([Agent, None], WebSurferAgent.generate_surfer_reply)
++        self.register_reply([Agent, None], ConversableAgent.generate_code_execution_reply)
++        self.register_reply([Agent, None], ConversableAgent.generate_function_call_reply)
++        self.register_reply([Agent, None], ConversableAgent.check_termination_and_human_reply)
++
++    def _create_summarizer_client(self, summarizer_llm_config: Dict[str, Any], llm_config: Dict[str, Any]) -> None:
+         # If the summarizer_llm_config is None, we copy it from the llm_config
+         if summarizer_llm_config is None:
+             if llm_config is None:  # Nothing to copy
+@@ -59,10 +93,10 @@ class WebSurferAgent(ConversableAgent):
+             elif llm_config is False:  # LLMs disabled
+                 self.summarizer_llm_config = False
+             else:  # Create a suitable config
+-                self.summarizer_llm_config = copy.deepcopy(llm_config)
+-                if "config_list" in self.summarizer_llm_config:
+-                    preferred_models = filter_config(
+-                        self.summarizer_llm_config["config_list"],
++                self.summarizer_llm_config = copy.deepcopy(llm_config)  # type: ignore[assignment]
++                if "config_list" in self.summarizer_llm_config:  # type: ignore[operator]
++                    preferred_models = filter_config(  # type: ignore[no-untyped-call]
++                        self.summarizer_llm_config["config_list"],  # type: ignore[index]
+                         {"model": ["gpt-3.5-turbo-1106", "gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-16k"]},
+                     )
+                     if len(preferred_models) == 0:
+@@ -71,142 +105,18 @@ class WebSurferAgent(ConversableAgent):
+                             "Semantic operations on webpages (summarization or Q&A) might be costly or ineffective."
+                         )
+                     else:
+-                        self.summarizer_llm_config["config_list"] = preferred_models
++                        self.summarizer_llm_config["config_list"] = preferred_models  # type: ignore[index]
+         else:
+-            self.summarizer_llm_config = summarizer_llm_config
++            self.summarizer_llm_config = summarizer_llm_config  # type: ignore[assignment]
+ 
+         # Create the summarizer client
+-        self.summarization_client = None
+-        if self.summarizer_llm_config is not False:
+-            self.summarization_client = OpenAIWrapper(**self.summarizer_llm_config)
+-
+-        # Create the browser
+-        if browser_config is None:
+-            self.browser = SimpleTextBrowser()
+-        else:
+-            self.browser = SimpleTextBrowser(**browser_config)
+-
+-        # Create a copy of the llm_config for the inner monologue agents to use, and set them up with function calling
+-        if llm_config is None:  # Nothing to copy
+-            inner_llm_config = None
+-        elif llm_config is False:  # LLMs disabled
+-            inner_llm_config = False
+-        else:
+-            inner_llm_config = copy.deepcopy(llm_config)
+-            inner_llm_config["functions"] = [
+-                {
+-                    "name": "informational_web_search",
+-                    "description": "Perform an INFORMATIONAL web search query then return the search results.",
+-                    "parameters": {
+-                        "type": "object",
+-                        "properties": {
+-                            "query": {
+-                                "type": "string",
+-                                "description": "The informational web search query to perform.",
+-                            }
+-                        },
+-                    },
+-                    "required": ["query"],
+-                },
+-                {
+-                    "name": "navigational_web_search",
+-                    "description": "Perform a NAVIGATIONAL web search query then immediately navigate to the top result. Useful, for example, to navigate to a particular Wikipedia article or other known destination. Equivalent to Google's \"I'm Feeling Lucky\" button.",
+-                    "parameters": {
+-                        "type": "object",
+-                        "properties": {
+-                            "query": {
+-                                "type": "string",
+-                                "description": "The navigational web search query to perform.",
+-                            }
+-                        },
+-                    },
+-                    "required": ["query"],
+-                },
+-                {
+-                    "name": "visit_page",
+-                    "description": "Visit a webpage at a given URL and return its text.",
+-                    "parameters": {
+-                        "type": "object",
+-                        "properties": {
+-                            "url": {
+-                                "type": "string",
+-                                "description": "The relative or absolute url of the webapge to visit.",
+-                            }
+-                        },
+-                    },
+-                    "required": ["url"],
+-                },
+-                {
+-                    "name": "page_up",
+-                    "description": "Scroll the viewport UP one page-length in the current webpage and return the new viewport content.",
+-                    "parameters": {"type": "object", "properties": {}},
+-                    "required": [],
+-                },
+-                {
+-                    "name": "page_down",
+-                    "description": "Scroll the viewport DOWN one page-length in the current webpage and return the new viewport content.",
+-                    "parameters": {"type": "object", "properties": {}},
+-                    "required": [],
+-                },
+-            ]
+-
+-            # Enable semantic operations
+-            if self.summarization_client is not None:
+-                inner_llm_config["functions"].append(
+-                    {
+-                        "name": "answer_from_page",
+-                        "description": "Uses AI to read the page and directly answer a given question based on the content.",
+-                        "parameters": {
+-                            "type": "object",
+-                            "properties": {
+-                                "question": {
+-                                    "type": "string",
+-                                    "description": "The question to directly answer.",
+-                                },
+-                                "url": {
+-                                    "type": "string",
+-                                    "description": "[Optional] The url of the page. (Defaults to the current page)",
+-                                },
+-                            },
+-                        },
+-                        "required": ["question"],
+-                    }
+-                )
+-                inner_llm_config["functions"].append(
+-                    {
+-                        "name": "summarize_page",
+-                        "description": "Uses AI to summarize the content found at a given url. If the url is not provided, the current page is summarized.",
+-                        "parameters": {
+-                            "type": "object",
+-                            "properties": {
+-                                "url": {
+-                                    "type": "string",
+-                                    "description": "[Optional] The url of the page to summarize. (Defaults to current page)",
+-                                },
+-                            },
+-                        },
+-                        "required": [],
+-                    }
+-                )
++        self.summarization_client = None if self.summarizer_llm_config is False else OpenAIWrapper(**self.summarizer_llm_config)  # type: ignore[arg-type]
+ 
+-        # Set up the inner monologue
+-        self._assistant = AssistantAgent(
+-            self.name + "_inner_assistant",
+-            system_message=system_message,
+-            llm_config=inner_llm_config,
+-            is_termination_msg=lambda m: False,
+-        )
+-
+-        self._user_proxy = UserProxyAgent(
+-            self.name + "_inner_user_proxy",
+-            human_input_mode="NEVER",
+-            code_execution_config=False,
+-            default_auto_reply="",
+-            is_termination_msg=lambda m: False,
+-        )
++    def _register_functions(self) -> None:
++        """Register the functions for the inner assistant and user proxy."""
+ 
+         # Helper functions
+-        def _browser_state():
++        def _browser_state() -> Tuple[str, str]:
+             header = f"Address: {self.browser.address}\n"
+             if self.browser.page_title is not None:
+                 header += f"Title: {self.browser.page_title}\n"
+@@ -217,12 +127,22 @@ class WebSurferAgent(ConversableAgent):
+             header += f"Viewport position: Showing page {current_page+1} of {total_pages}.\n"
+             return (header, self.browser.viewport)
+ 
+-        def _informational_search(query):
++        @self._user_proxy.register_for_execution()
++        @self._assistant.register_for_llm(
++            name="informational_web_search",
++            description="Perform an INFORMATIONAL web search query then return the search results.",
++        )
++        def _informational_search(query: Annotated[str, "The informational web search query to perform."]) -> str:
+             self.browser.visit_page(f"bing: {query}")
+             header, content = _browser_state()
+             return header.strip() + "\n=======================\n" + content
+ 
+-        def _navigational_search(query):
++        @self._user_proxy.register_for_execution()
++        @self._assistant.register_for_llm(
++            name="navigational_web_search",
++            description="Perform a NAVIGATIONAL web search query then immediately navigate to the top result. Useful, for example, to navigate to a particular Wikipedia article or other known destination. Equivalent to Google's \"I'm Feeling Lucky\" button.",
++        )
++        def _navigational_search(query: Annotated[str, "The navigational web search query to perform."]) -> str:
+             self.browser.visit_page(f"bing: {query}")
+ 
+             # Extract the first linl
+@@ -234,99 +154,117 @@ class WebSurferAgent(ConversableAgent):
+             header, content = _browser_state()
+             return header.strip() + "\n=======================\n" + content
+ 
+-        def _visit_page(url):
++        @self._user_proxy.register_for_execution()
++        @self._assistant.register_for_llm(
++            name="visit_page", description="Visit a webpage at a given URL and return its text."
++        )
++        def _visit_page(url: Annotated[str, "The relative or absolute url of the webapge to visit."]) -> str:
+             self.browser.visit_page(url)
+             header, content = _browser_state()
+             return header.strip() + "\n=======================\n" + content
+ 
+-        def _page_up():
++        @self._user_proxy.register_for_execution()
++        @self._assistant.register_for_llm(
++            name="page_up",
++            description="Scroll the viewport UP one page-length in the current webpage and return the new viewport content.",
++        )
++        def _page_up() -> str:
+             self.browser.page_up()
+             header, content = _browser_state()
+             return header.strip() + "\n=======================\n" + content
+ 
+-        def _page_down():
++        @self._user_proxy.register_for_execution()
++        @self._assistant.register_for_llm(
++            name="page_down",
++            description="Scroll the viewport DOWN one page-length in the current webpage and return the new viewport content.",
++        )
++        def _page_down() -> str:
+             self.browser.page_down()
+             header, content = _browser_state()
+             return header.strip() + "\n=======================\n" + content
+ 
+-        def _summarize_page(question, url):
+-            if url is not None and url != self.browser.address:
+-                self.browser.visit_page(url)
+-
+-            # We are likely going to need to fix this later, but summarize only as many tokens that fit in the buffer
+-            limit = 4096
+-            try:
+-                limit = get_max_token_limit(self.summarizer_llm_config["config_list"][0]["model"])
+-            except ValueError:
+-                pass  # limit is unknown
+-            except TypeError:
+-                pass  # limit is unknown
+-
+-            if limit < 16000:
+-                logger.warning(
+-                    f"The token limit ({limit}) of the WebSurferAgent.summarizer_llm_config, is below the recommended 16k."
+-                )
++        if self.summarization_client is not None:
+ 
+-            buffer = ""
+-            for line in re.split(r"([\r\n]+)", self.browser.page_content):
+-                tokens = count_token(buffer + line)
+-                if tokens + 1024 > limit:  # Leave room for our summary
+-                    break
+-                buffer += line
+-
+-            buffer = buffer.strip()
+-            if len(buffer) == 0:
+-                return "Nothing to summarize."
+-
+-            messages = [
+-                {
+-                    "role": "system",
+-                    "content": "You are a helpful assistant that can summarize long documents to answer question.",
+-                }
+-            ]
+-
+-            prompt = f"Please summarize the following into one or two paragraph:\n\n{buffer}"
+-            if question is not None:
+-                prompt = f"Please summarize the following into one or two paragraphs with respect to '{question}':\n\n{buffer}"
+-
+-            messages.append(
+-                {"role": "user", "content": prompt},
++            @self._user_proxy.register_for_execution()
++            @self._assistant.register_for_llm(
++                name="answer_from_page",
++                description="Uses AI to read the page and directly answer a given question based on the content.",
+             )
++            def _answer_from_page(
++                question: Annotated[Optional[str], "The question to directly answer."],
++                url: Annotated[Optional[str], "[Optional] The url of the page. (Defaults to the current page)"] = None,
++            ) -> str:
++                if url is not None and url != self.browser.address:
++                    self.browser.visit_page(url)
++
++                # We are likely going to need to fix this later, but summarize only as many tokens that fit in the buffer
++                limit = 4096
++                try:
++                    limit = get_max_token_limit(self.summarizer_llm_config["config_list"][0]["model"])  # type: ignore[index]
++                except ValueError:
++                    pass  # limit is unknown
++                except TypeError:
++                    pass  # limit is unknown
++
++                if limit < 16000:
++                    logger.warning(
++                        f"The token limit ({limit}) of the WebSurferAgent.summarizer_llm_config, is below the recommended 16k."
++                    )
+ 
+-            response = self.summarization_client.create(context=None, messages=messages)
+-            extracted_response = self.summarization_client.extract_text_or_completion_object(response)[0]
+-            return str(extracted_response)
+-
+-        self._user_proxy.register_function(
+-            function_map={
+-                "informational_web_search": lambda query: _informational_search(query),
+-                "navigational_web_search": lambda query: _navigational_search(query),
+-                "visit_page": lambda url: _visit_page(url),
+-                "page_up": lambda: _page_up(),
+-                "page_down": lambda: _page_down(),
+-                "answer_from_page": lambda question=None, url=None: _summarize_page(question, url),
+-                "summarize_page": lambda question=None, url=None: _summarize_page(None, url),
+-            }
+-        )
++                buffer = ""
++                for line in re.split(r"([\r\n]+)", self.browser.page_content):
++                    tokens = count_token(buffer + line)
++                    if tokens + 1024 > limit:  # Leave room for our summary
++                        break
++                    buffer += line
+ 
+-        self._reply_func_list = []
+-        self.register_reply([Agent, None], WebSurferAgent.generate_surfer_reply)
+-        self.register_reply([Agent, None], ConversableAgent.generate_code_execution_reply)
+-        self.register_reply([Agent, None], ConversableAgent.generate_function_call_reply)
+-        self.register_reply([Agent, None], ConversableAgent.check_termination_and_human_reply)
++                buffer = buffer.strip()
++                if len(buffer) == 0:
++                    return "Nothing to summarize."
++
++                messages = [
++                    {
++                        "role": "system",
++                        "content": "You are a helpful assistant that can summarize long documents to answer question.",
++                    }
++                ]
++
++                prompt = f"Please summarize the following into one or two paragraph:\n\n{buffer}"
++                if question is not None:
++                    prompt = f"Please summarize the following into one or two paragraphs with respect to '{question}':\n\n{buffer}"
++
++                messages.append(
++                    {"role": "user", "content": prompt},
++                )
++
++                response = self.summarization_client.create(context=None, messages=messages)  # type: ignore[union-attr]
++                extracted_response = self.summarization_client.extract_text_or_completion_object(response)[0]  # type: ignore[union-attr]
++                return str(extracted_response)
++
++            @self._user_proxy.register_for_execution()
++            @self._assistant.register_for_llm(
++                name="summarize_page",
++                description="Uses AI to summarize the content found at a given url. If the url is not provided, the current page is summarized.",
++            )
++            def _summarize_page(
++                url: Annotated[
++                    Optional[str], "[Optional] The url of the page to summarize. (Defaults to current page)"
++                ] = None
++            ) -> str:
++                return _answer_from_page(url=url, question=None)
+ 
+     def generate_surfer_reply(
+         self,
+-        messages: Optional[List[Dict]] = None,
++        messages: Optional[List[Dict[str, str]]] = None,
+         sender: Optional[Agent] = None,
+         config: Optional[OpenAIWrapper] = None,
+-    ) -> Tuple[bool, Union[str, Dict, None]]:
++    ) -> Tuple[bool, Optional[Union[str, Dict[str, str]]]]:
+         """Generate a reply using autogen.oai."""
+         if messages is None:
+             messages = self._oai_messages[sender]
+ 
+-        self._user_proxy.reset()
+-        self._assistant.reset()
++        self._user_proxy.reset()  # type: ignore[no-untyped-call]
++        self._assistant.reset()  # type: ignore[no-untyped-call]
+ 
+         # Clone the messages to give context
+         self._assistant.chat_messages[self._user_proxy] = list()
+@@ -353,4 +291,4 @@ class WebSurferAgent(ConversableAgent):
+         if proxy_reply == "":  # Was the default reply
+             return True, None if agent_reply is None else agent_reply["content"]
+         else:
+-            return True, None if proxy_reply is None else proxy_reply["content"]
++            return True, None if proxy_reply is None else proxy_reply["content"]  # type: ignore[index]
+diff --git a/autogen/agentchat/conversable_agent.py b/autogen/agentchat/conversable_agent.py
+index 33af8c7d..fbba53e5 100644
+--- a/autogen/agentchat/conversable_agent.py
++++ b/autogen/agentchat/conversable_agent.py
+@@ -6,14 +6,16 @@ import json
+ import logging
+ import re
+ from collections import defaultdict
+-from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Tuple, Type, TypeVar, Union
++from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Type, TypeVar, Union
+ import warnings
+ from openai import BadRequestError
+ 
++from ..coding.base import CodeExecutor
++from ..coding.factory import CodeExecutorFactory
++
+ from ..oai.client import OpenAIWrapper, ModelClient
+ from ..cache.cache import Cache
+ from ..code_utils import (
+-    DEFAULT_MODEL,
+     UNKNOWN,
+     content_str,
+     check_can_use_docker_or_throw,
+@@ -27,7 +29,7 @@ from .chat import ChatResult
+ 
+ 
+ from ..function_utils import get_function_schema, load_basemodels_if_needed, serialize_to_str
+-from .agent import Agent
++from .agent import Agent, LLMAgent
+ from .._pydantic import model_dump
+ 
+ try:
+@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
+ F = TypeVar("F", bound=Callable[..., Any])
+ 
+ 
+-class ConversableAgent(Agent):
++class ConversableAgent(LLMAgent):
+     """(In preview) A class for generic conversable agents which can be configured as assistant or user proxy.
+ 
+     After receiving each message, the agent will send a reply to the sender unless the msg is a termination msg.
+@@ -122,11 +124,11 @@ class ConversableAgent(Agent):
+             description (str): a short description of the agent. This description is used by other agents
+                 (e.g. the GroupChatManager) to decide when to call upon this agent. (Default: system_message)
+         """
+-        super().__init__(name)
++        self._name = name
+         # a dictionary of conversations, default value is list
+         self._oai_messages = defaultdict(list)
+         self._oai_system_message = [{"content": system_message, "role": "system"}]
+-        self.description = description if description is not None else system_message
++        self._description = description if description is not None else system_message
+         self._is_termination_msg = (
+             is_termination_msg
+             if is_termination_msg is not None
+@@ -145,23 +147,6 @@ class ConversableAgent(Agent):
+         # Initialize standalone client cache object.
+         self.client_cache = None
+ 
+-        if code_execution_config is None:
+-            warnings.warn(
+-                "Using None to signal a default code_execution_config is deprecated. "
+-                "Use {} to use default or False to disable code execution.",
+-                stacklevel=2,
+-            )
+-
+-        self._code_execution_config: Union[Dict, Literal[False]] = (
+-            {} if code_execution_config is None else code_execution_config
+-        )
+-
+-        if isinstance(self._code_execution_config, dict):
+-            use_docker = self._code_execution_config.get("use_docker", None)
+-            use_docker = decide_use_docker(use_docker)
+-            check_can_use_docker_or_throw(use_docker)
+-            self._code_execution_config["use_docker"] = use_docker
+-
+         self.human_input_mode = human_input_mode
+         self._max_consecutive_auto_reply = (
+             max_consecutive_auto_reply if max_consecutive_auto_reply is not None else self.MAX_CONSECUTIVE_AUTO_REPLY
+@@ -180,7 +165,39 @@ class ConversableAgent(Agent):
+         self.reply_at_receive = defaultdict(bool)
+         self.register_reply([Agent, None], ConversableAgent.generate_oai_reply)
+         self.register_reply([Agent, None], ConversableAgent.a_generate_oai_reply, ignore_async_in_sync_chat=True)
+-        self.register_reply([Agent, None], ConversableAgent.generate_code_execution_reply)
++
++        # Setting up code execution.
++        # Do not register code execution reply if code execution is disabled.
++        if code_execution_config is not False:
++            # If code_execution_config is None, set it to an empty dict.
++            if code_execution_config is None:
++                warnings.warn(
++                    "Using None to signal a default code_execution_config is deprecated. "
++                    "Use {} to use default or False to disable code execution.",
++                    stacklevel=2,
++                )
++                code_execution_config = {}
++            if not isinstance(code_execution_config, dict):
++                raise ValueError("code_execution_config must be a dict or False.")
++
++            # We have got a valid code_execution_config.
++            self._code_execution_config = code_execution_config
++
++            if self._code_execution_config.get("executor") is not None:
++                # Use the new code executor.
++                self._code_executor = CodeExecutorFactory.create(self._code_execution_config)
++                self.register_reply([Agent, None], ConversableAgent._generate_code_execution_reply_using_executor)
++            else:
++                # Legacy code execution using code_utils.
++                use_docker = self._code_execution_config.get("use_docker", None)
++                use_docker = decide_use_docker(use_docker)
++                check_can_use_docker_or_throw(use_docker)
++                self._code_execution_config["use_docker"] = use_docker
++                self.register_reply([Agent, None], ConversableAgent.generate_code_execution_reply)
++        else:
++            # Code execution is disabled.
++            self._code_execution_config = False
++
+         self.register_reply([Agent, None], ConversableAgent.generate_tool_calls_reply)
+         self.register_reply([Agent, None], ConversableAgent.a_generate_tool_calls_reply, ignore_async_in_sync_chat=True)
+         self.register_reply([Agent, None], ConversableAgent.generate_function_call_reply)
+@@ -196,6 +213,31 @@ class ConversableAgent(Agent):
+         # New hookable methods should be added to this list as required to support new agent capabilities.
+         self.hook_lists = {self.process_last_message: [], self.process_all_messages: []}
+ 
++    @property
++    def name(self) -> str:
++        """Get the name of the agent."""
++        return self._name
++
++    @property
++    def description(self) -> str:
++        """Get the description of the agent."""
++        return self._description
++
++    @description.setter
++    def description(self, description: str):
++        """Set the description of the agent."""
++        self._description = description
++
++    @property
++    def code_executor(self) -> CodeExecutor:
++        """The code executor used by this agent. Raise if code execution is disabled."""
++        if not hasattr(self, "_code_executor"):
++            raise ValueError(
++                "No code executor as code execution is disabled. "
++                "To enable code execution, set code_execution_config."
++            )
++        return self._code_executor
++
+     def register_reply(
+         self,
+         trigger: Union[Type[Agent], str, Agent, Callable[[Agent], bool], List],
+@@ -268,15 +310,15 @@ class ConversableAgent(Agent):
+             self._ignore_async_func_in_sync_chat_list.append(reply_func)
+ 
+     @property
+-    def system_message(self) -> Union[str, List]:
++    def system_message(self) -> str:
+         """Return the system message."""
+         return self._oai_system_message[0]["content"]
+ 
+-    def update_system_message(self, system_message: Union[str, List]):
++    def update_system_message(self, system_message: str) -> None:
+         """Update the system message.
+ 
+         Args:
+-            system_message (str or List): system message for the ChatCompletion inference.
++            system_message (str): system message for the ChatCompletion inference.
+         """
+         self._oai_system_message[0]["content"] = system_message
+ 
+@@ -1062,6 +1104,54 @@ class ConversableAgent(Agent):
+             None, functools.partial(self.generate_oai_reply, messages=messages, sender=sender, config=config)
+         )
+ 
++    def _generate_code_execution_reply_using_executor(
++        self,
++        messages: Optional[List[Dict]] = None,
++        sender: Optional[Agent] = None,
++        config: Optional[Union[Dict, Literal[False]]] = None,
++    ):
++        """Generate a reply using code executor."""
++        if config is not None:
++            raise ValueError("config is not supported for _generate_code_execution_reply_using_executor.")
++        if self._code_execution_config is False:
++            return False, None
++        if messages is None:
++            messages = self._oai_messages[sender]
++        last_n_messages = self._code_execution_config.get("last_n_messages", "auto")
++
++        if not (isinstance(last_n_messages, (int, float)) and last_n_messages >= 0) and last_n_messages != "auto":
++            raise ValueError("last_n_messages must be either a non-negative integer, or the string 'auto'.")
++
++        num_messages_to_scan = last_n_messages
++        if last_n_messages == "auto":
++            # Find when the agent last spoke
++            num_messages_to_scan = 0
++            for message in reversed(messages):
++                if "role" not in message:
++                    break
++                elif message["role"] != "user":
++                    break
++                else:
++                    num_messages_to_scan += 1
++        num_messages_to_scan = min(len(messages), num_messages_to_scan)
++        messages_to_scan = messages[-num_messages_to_scan:]
++
++        # iterate through the last n messages in reverse
++        # if code blocks are found, execute the code blocks and return the output
++        # if no code blocks are found, continue
++        for message in reversed(messages_to_scan):
++            if not message["content"]:
++                continue
++            code_blocks = self._code_executor.code_extractor.extract_code_blocks(message["content"])
++            if len(code_blocks) == 0:
++                continue
++            # found code blocks, execute code.
++            code_result = self._code_executor.execute_code_blocks(code_blocks)
++            exitcode2str = "execution succeeded" if code_result.exit_code == 0 else "execution failed"
++            return True, f"exitcode: {code_result.exit_code} ({exitcode2str})\nCode output: {code_result.output}"
++
++        return False, None
++
+     def generate_code_execution_reply(
+         self,
+         messages: Optional[List[Dict]] = None,
+@@ -1490,9 +1580,9 @@ class ConversableAgent(Agent):
+ 
+     def generate_reply(
+         self,
+-        messages: Optional[List[Dict]] = None,
+-        sender: Optional[Agent] = None,
+-        exclude: Optional[List[Callable]] = None,
++        messages: Optional[List[Dict[str, Any]]] = None,
++        sender: Optional["Agent"] = None,
++        **kwargs: Any,
+     ) -> Union[str, Dict, None]:
+         """Reply based on the conversation history and the sender.
+ 
+@@ -1513,9 +1603,10 @@ class ConversableAgent(Agent):
+ 
+         Args:
+             messages: a list of messages in the conversation history.
+-            default_reply (str or dict): default reply.
+             sender: sender of an Agent instance.
+-            exclude: a list of functions to exclude.
++
++        Additional keyword arguments:
++            exclude (List[Callable]): a list of reply functions to be excluded.
+ 
+         Returns:
+             str or dict or None: reply. None if no reply is generated.
+@@ -1538,7 +1629,7 @@ class ConversableAgent(Agent):
+ 
+         for reply_func_tuple in self._reply_func_list:
+             reply_func = reply_func_tuple["reply_func"]
+-            if exclude and reply_func in exclude:
++            if "exclude" in kwargs and reply_func in kwargs["exclude"]:
+                 continue
+             if inspect.iscoroutinefunction(reply_func):
+                 continue
+@@ -1550,10 +1641,10 @@ class ConversableAgent(Agent):
+ 
+     async def a_generate_reply(
+         self,
+-        messages: Optional[List[Dict]] = None,
+-        sender: Optional[Agent] = None,
+-        exclude: Optional[List[Callable]] = None,
+-    ) -> Union[str, Dict, None]:
++        messages: Optional[List[Dict[str, Any]]] = None,
++        sender: Optional["Agent"] = None,
++        **kwargs: Any,
++    ) -> Union[str, Dict[str, Any], None]:
+         """(async) Reply based on the conversation history and the sender.
+ 
+         Either messages or sender must be provided.
+@@ -1573,9 +1664,10 @@ class ConversableAgent(Agent):
+ 
+         Args:
+             messages: a list of messages in the conversation history.
+-            default_reply (str or dict): default reply.
+             sender: sender of an Agent instance.
+-            exclude: a list of functions to exclude.
++
++        Additional keyword arguments:
++            exclude (List[Callable]): a list of reply functions to be excluded.
+ 
+         Returns:
+             str or dict or None: reply. None if no reply is generated.
+@@ -1598,7 +1690,7 @@ class ConversableAgent(Agent):
+ 
+         for reply_func_tuple in self._reply_func_list:
+             reply_func = reply_func_tuple["reply_func"]
+-            if exclude and reply_func in exclude:
++            if "exclude" in kwargs and reply_func in kwargs["exclude"]:
+                 continue
+             if self._match_trigger(reply_func_tuple["trigger"], sender):
+                 if inspect.iscoroutinefunction(reply_func):
+diff --git a/autogen/browser_utils.py b/autogen/browser_utils.py
+index 68e39e4a..41d2d62f 100644
+--- a/autogen/browser_utils.py
++++ b/autogen/browser_utils.py
+@@ -8,8 +8,7 @@ import uuid
+ import mimetypes
+ from urllib.parse import urljoin, urlparse
+ from bs4 import BeautifulSoup
+-from dataclasses import dataclass
+-from typing import Dict, List, Optional, Union, Callable, Literal, Tuple
++from typing import Any, Dict, List, Optional, Union, Tuple
+ 
+ # Optional PDF support
+ IS_PDF_CAPABLE = False
+@@ -33,20 +32,20 @@ class SimpleTextBrowser:
+ 
+     def __init__(
+         self,
+-        start_page: Optional[str] = "about:blank",
++        start_page: Optional[str] = None,
+         viewport_size: Optional[int] = 1024 * 8,
+         downloads_folder: Optional[Union[str, None]] = None,
+         bing_api_key: Optional[Union[str, None]] = None,
+-        request_kwargs: Optional[Union[Dict, None]] = None,
++        request_kwargs: Optional[Union[Dict[str, Any], None]] = None,
+     ):
+-        self.start_page = start_page
++        self.start_page: str = start_page if start_page else "about:blank"
+         self.viewport_size = viewport_size  # Applies only to the standard uri types
+         self.downloads_folder = downloads_folder
+-        self.history = list()
+-        self.page_title = None
++        self.history: List[str] = list()
++        self.page_title: Optional[str] = None
+         self.viewport_current_page = 0
+-        self.viewport_pages = list()
+-        self.set_address(start_page)
++        self.viewport_pages: List[Tuple[int, int]] = list()
++        self.set_address(self.start_page)
+         self.bing_api_key = bing_api_key
+         self.request_kwargs = request_kwargs
+ 
+@@ -57,7 +56,7 @@ class SimpleTextBrowser:
+         """Return the address of the current page."""
+         return self.history[-1]
+ 
+-    def set_address(self, uri_or_path):
++    def set_address(self, uri_or_path: str) -> None:
+         self.history.append(uri_or_path)
+ 
+         # Handle special URIs
+@@ -84,25 +83,25 @@ class SimpleTextBrowser:
+         """Return the full contents of the current page."""
+         return self._page_content
+ 
+-    def _set_page_content(self, content) -> str:
++    def _set_page_content(self, content: str) -> None:
+         """Sets the text content of the current page."""
+         self._page_content = content
+         self._split_pages()
+         if self.viewport_current_page >= len(self.viewport_pages):
+             self.viewport_current_page = len(self.viewport_pages) - 1
+ 
+-    def page_down(self):
++    def page_down(self) -> None:
+         self.viewport_current_page = min(self.viewport_current_page + 1, len(self.viewport_pages) - 1)
+ 
+-    def page_up(self):
++    def page_up(self) -> None:
+         self.viewport_current_page = max(self.viewport_current_page - 1, 0)
+ 
+-    def visit_page(self, path_or_uri):
++    def visit_page(self, path_or_uri: str) -> str:
+         """Update the address, visit the page, and return the content of the viewport."""
+         self.set_address(path_or_uri)
+         return self.viewport
+ 
+-    def _split_pages(self):
++    def _split_pages(self) -> None:
+         # Split only regular pages
+         if not self.address.startswith("http:") and not self.address.startswith("https:"):
+             self.viewport_pages = [(0, len(self._page_content))]
+@@ -117,14 +116,14 @@ class SimpleTextBrowser:
+         self.viewport_pages = []
+         start_idx = 0
+         while start_idx < len(self._page_content):
+-            end_idx = min(start_idx + self.viewport_size, len(self._page_content))
++            end_idx = min(start_idx + self.viewport_size, len(self._page_content))  # type: ignore[operator]
+             # Adjust to end on a space
+             while end_idx < len(self._page_content) and self._page_content[end_idx - 1] not in [" ", "\t", "\r", "\n"]:
+                 end_idx += 1
+             self.viewport_pages.append((start_idx, end_idx))
+             start_idx = end_idx
+ 
+-    def _bing_api_call(self, query):
++    def _bing_api_call(self, query: str) -> Dict[str, Dict[str, List[Dict[str, Union[str, Dict[str, str]]]]]]:
+         # Make sure the key was set
+         if self.bing_api_key is None:
+             raise ValueError("Missing Bing API key.")
+@@ -149,12 +148,12 @@ class SimpleTextBrowser:
+         response.raise_for_status()
+         results = response.json()
+ 
+-        return results
++        return results  # type: ignore[no-any-return]
+ 
+-    def _bing_search(self, query):
++    def _bing_search(self, query: str) -> None:
+         results = self._bing_api_call(query)
+ 
+-        web_snippets = list()
++        web_snippets: List[str] = list()
+         idx = 0
+         for page in results["webPages"]["value"]:
+             idx += 1
+@@ -163,7 +162,7 @@ class SimpleTextBrowser:
+                 for dl in page["deepLinks"]:
+                     idx += 1
+                     web_snippets.append(
+-                        f"{idx}. [{dl['name']}]({dl['url']})\n{dl['snippet'] if 'snippet' in dl else ''}"
++                        f"{idx}. [{dl['name']}]({dl['url']})\n{dl['snippet'] if 'snippet' in dl else ''}"  # type: ignore[index]
+                     )
+ 
+         news_snippets = list()
+@@ -182,7 +181,7 @@ class SimpleTextBrowser:
+             content += "\n\n## News Results:\n" + "\n\n".join(news_snippets)
+         self._set_page_content(content)
+ 
+-    def _fetch_page(self, url):
++    def _fetch_page(self, url: str) -> None:
+         try:
+             # Prepare the request parameters
+             request_kwargs = self.request_kwargs.copy() if self.request_kwargs is not None else {}
+diff --git a/autogen/code_utils.py b/autogen/code_utils.py
+index 76cf7aef..96c3f179 100644
+--- a/autogen/code_utils.py
++++ b/autogen/code_utils.py
+@@ -8,7 +8,7 @@ import sys
+ import time
+ from concurrent.futures import ThreadPoolExecutor, TimeoutError
+ from hashlib import md5
+-from typing import Callable, Dict, List, Optional, Tuple, Union
++from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+ 
+ from autogen import oai
+ 
+@@ -37,7 +37,7 @@ PATH_SEPARATOR = WIN32 and "\\" or "/"
+ logger = logging.getLogger(__name__)
+ 
+ 
+-def content_str(content: Union[str, List, None]) -> str:
++def content_str(content: Union[str, List[Dict[str, Any]], None]) -> str:
+     """Converts `content` into a string format.
+ 
+     This function processes content that may be a string, a list of mixed text and image URLs, or None,
+@@ -78,7 +78,7 @@ def content_str(content: Union[str, List, None]) -> str:
+     return rst
+ 
+ 
+-def infer_lang(code):
++def infer_lang(code: str) -> str:
+     """infer the language for the code.
+     TODO: make it robust.
+     """
+@@ -223,7 +223,7 @@ def _cmd(lang):
+     raise NotImplementedError(f"{lang} not recognized in code execution")
+ 
+ 
+-def is_docker_running():
++def is_docker_running() -> bool:
+     """Check if docker is running.
+ 
+     Returns:
+@@ -237,7 +237,7 @@ def is_docker_running():
+         return False
+ 
+ 
+-def in_docker_container():
++def in_docker_container() -> bool:
+     """Check if the code is running in a docker container.
+ 
+     Returns:
+@@ -315,7 +315,7 @@ def execute_code(
+     work_dir: Optional[str] = None,
+     use_docker: Union[List[str], str, bool] = SENTINEL,
+     lang: Optional[str] = "python",
+-) -> Tuple[int, str, str]:
++) -> Tuple[int, str, Optional[str]]:
+     """Execute code in a docker container.
+     This function is not tested on MacOS.
+ 
+diff --git a/autogen/coding/__init__.py b/autogen/coding/__init__.py
+new file mode 100644
+index 00000000..7c223401
+--- /dev/null
++++ b/autogen/coding/__init__.py
+@@ -0,0 +1,5 @@
++from .base import CodeBlock, CodeExecutor, CodeExtractor, CodeResult
++from .factory import CodeExecutorFactory
++from .markdown_code_extractor import MarkdownCodeExtractor
++
++__all__ = ("CodeBlock", "CodeResult", "CodeExtractor", "CodeExecutor", "CodeExecutorFactory", "MarkdownCodeExtractor")
+diff --git a/autogen/coding/base.py b/autogen/coding/base.py
+new file mode 100644
+index 00000000..13e84da8
+--- /dev/null
++++ b/autogen/coding/base.py
+@@ -0,0 +1,94 @@
++from typing import Any, Dict, List, Protocol, Union, runtime_checkable
++
++from pydantic import BaseModel, Field
++
++from ..agentchat.agent import LLMAgent
++
++__all__ = ("CodeBlock", "CodeResult", "CodeExtractor", "CodeExecutor")
++
++
++class CodeBlock(BaseModel):
++    """A class that represents a code block."""
++
++    code: str = Field(description="The code to execute.")
++
++    language: str = Field(description="The language of the code.")
++
++
++class CodeResult(BaseModel):
++    """A class that represents the result of a code execution."""
++
++    exit_code: int = Field(description="The exit code of the code execution.")
++
++    output: str = Field(description="The output of the code execution.")
++
++
++class CodeExtractor(Protocol):
++    """A code extractor class that extracts code blocks from a message."""
++
++    def extract_code_blocks(self, message: Union[str, List[Dict[str, Any]], None]) -> List[CodeBlock]:
++        """Extract code blocks from a message.
++
++        Args:
++            message (str): The message to extract code blocks from.
++
++        Returns:
++            List[CodeBlock]: The extracted code blocks.
++        """
++        ...  # pragma: no cover
++
++
++@runtime_checkable
++class CodeExecutor(Protocol):
++    """A code executor class that executes code blocks and returns the result."""
++
++    class UserCapability(Protocol):
++        """An AgentCapability class that gives agent ability use this code executor."""
++
++        def add_to_agent(self, agent: LLMAgent) -> None:
++            ...  # pragma: no cover
++
++    @property
++    def user_capability(self) -> "CodeExecutor.UserCapability":
++        """Capability to use this code executor.
++
++        The exported capability can be added to an agent to allow it to use this
++        code executor:
++
++        ```python
++        code_executor = CodeExecutor()
++        agent = ConversableAgent("agent", ...)
++        code_executor.user_capability.add_to_agent(agent)
++        ```
++
++        A typical implementation is to update the system message of the agent with
++        instructions for how to use this code executor.
++        """
++        ...  # pragma: no cover
++
++    @property
++    def code_extractor(self) -> CodeExtractor:
++        """The code extractor used by this code executor."""
++        ...  # pragma: no cover
++
++    def execute_code_blocks(self, code_blocks: List[CodeBlock]) -> CodeResult:
++        """Execute code blocks and return the result.
++
++        This method should be implemented by the code executor.
++
++        Args:
++            code_blocks (List[CodeBlock]): The code blocks to execute.
++
++        Returns:
++            CodeResult: The result of the code execution.
++        """
++        ...  # pragma: no cover
++
++    def restart(self) -> None:
++        """Restart the code executor.
++
++        This method should be implemented by the code executor.
++
++        This method is called when the agent is reset.
++        """
++        ...  # pragma: no cover
+diff --git a/autogen/coding/embedded_ipython_code_executor.py b/autogen/coding/embedded_ipython_code_executor.py
+new file mode 100644
+index 00000000..3232c12e
+--- /dev/null
++++ b/autogen/coding/embedded_ipython_code_executor.py
+@@ -0,0 +1,244 @@
++import base64
++import json
++import os
++import re
++import uuid
++from queue import Empty
++from typing import Any, ClassVar, List
++
++from jupyter_client import KernelManager  # type: ignore[attr-defined]
++from jupyter_client.kernelspec import KernelSpecManager
++from pydantic import BaseModel, Field, field_validator
++
++from ..agentchat.agent import LLMAgent
++from .base import CodeBlock, CodeExtractor, CodeResult
++from .markdown_code_extractor import MarkdownCodeExtractor
++
++__all__ = ("EmbeddedIPythonCodeExecutor",)
++
++
++class IPythonCodeResult(CodeResult):
++    """A code result class for IPython code executor."""
++
++    output_files: List[str] = Field(
++        default_factory=list,
++        description="The list of files that the executed code blocks generated.",
++    )
++
++
++class EmbeddedIPythonCodeExecutor(BaseModel):
++    """A code executor class that executes code statefully using an embedded
++    IPython kernel managed by this class.
++
++    **This will execute LLM generated code on the local machine.**
++
++    Each execution is stateful and can access variables created from previous
++    executions in the same session. The kernel must be installed before using
++    this class. The kernel can be installed using the following command:
++    `python -m ipykernel install --user --name {kernel_name}`
++    where `kernel_name` is the name of the kernel to install.
++
++    Args:
++        timeout (int): The timeout for code execution, by default 60.
++        kernel_name (str): The kernel name to use. Make sure it is installed.
++            By default, it is "python3".
++        output_dir (str): The directory to save output files, by default ".".
++        system_message_update (str): The system message update to add to the
++            agent that produces code. By default it is
++            `EmbeddedIPythonCodeExecutor.DEFAULT_SYSTEM_MESSAGE_UPDATE`.
++    """
++
++    DEFAULT_SYSTEM_MESSAGE_UPDATE: ClassVar[
++        str
++    ] = """
++# IPython Coding Capability
++You have been given coding capability to solve tasks using Python code in a stateful IPython kernel.
++You are responsible for writing the code, and the user is responsible for executing the code.
++
++When you write Python code, put the code in a markdown code block with the language set to Python.
++For example:
++```python
++x = 3
++```
++You can use the variable `x` in subsequent code blocks.
++```python
++print(x)
++```
++
++Write code incrementally and leverage the statefulness of the kernel to avoid repeating code.
++Import libraries in a separate code block.
++Define a function or a class in a separate code block.
++Run code that produces output in a separate code block.
++Run code that involves expensive operations like download, upload, and call external APIs in a separate code block.
++
++When your code produces an output, the output will be returned to you.
++Because you have limited conversation memory, if your code creates an image,
++the output will be a path to the image instead of the image itself.
++"""
++
++    timeout: int = Field(default=60, ge=1, description="The timeout for code execution.")
++    kernel_name: str = Field(default="python3", description="The kernel name to use. Make sure it is installed.")
++    output_dir: str = Field(default=".", description="The directory to save output files.")
++    system_message_update: str = Field(
++        default=DEFAULT_SYSTEM_MESSAGE_UPDATE,
++        description="The system message update to the agent that produces code to be executed by this executor.",
++    )
++
++    class UserCapability:
++        """An AgentCapability class that gives agent ability use a stateful
++        IPython code executor. This capability can be added to an agent using
++        the `add_to_agent` method which append a system message update to the
++        agent's system message."""
++
++        def __init__(self, system_message_update: str):
++            self.system_message_update = system_message_update
++
++        def add_to_agent(self, agent: LLMAgent) -> None:
++            """Add this capability to an agent by appending a system message
++            update to the agent's system message.
++
++            **Currently we do not check for conflicts with existing content in
++            the agent's system message.**
++
++            Args:
++                agent (LLMAgent): The agent to add the capability to.
++            """
++            agent.update_system_message(agent.system_message + self.system_message_update)
++
++    @field_validator("output_dir")
++    @classmethod
++    def _output_dir_must_exist(cls, value: str) -> str:
++        if not os.path.exists(value):
++            raise ValueError(f"Output directory {value} does not exist.")
++        return value
++
++    def __init__(self, **kwargs: Any):
++        super().__init__(**kwargs)
++        # Check if the kernel is installed.
++        if self.kernel_name not in KernelSpecManager().find_kernel_specs():
++            raise ValueError(
++                f"Kernel {self.kernel_name} is not installed. "
++                "Please first install it with "
++                f"`python -m ipykernel install --user --name {self.kernel_name}`."
++            )
++        self._kernel_manager = KernelManager(kernel_name=self.kernel_name)
++        self._kernel_manager.start_kernel()
++        self._kernel_client = self._kernel_manager.client()
++        self._kernel_client.start_channels()
++        self._timeout = self.timeout
++
++    @property
++    def user_capability(self) -> "EmbeddedIPythonCodeExecutor.UserCapability":
++        """Export a user capability for this executor that can be added to
++        an agent using the `add_to_agent` method."""
++        return EmbeddedIPythonCodeExecutor.UserCapability(self.system_message_update)
++
++    @property
++    def code_extractor(self) -> CodeExtractor:
++        """Export a code extractor that can be used by an agent."""
++        return MarkdownCodeExtractor()
++
++    def execute_code_blocks(self, code_blocks: List[CodeBlock]) -> IPythonCodeResult:
++        """Execute a list of code blocks and return the result.
++
++        This method executes a list of code blocks as cells in an IPython kernel
++        managed by this class.
++        See: https://jupyter-client.readthedocs.io/en/stable/messaging.html
++        for the message protocol.
++
++        Args:
++            code_blocks (List[CodeBlock]): A list of code blocks to execute.
++
++        Returns:
++            IPythonCodeResult: The result of the code execution.
++        """
++        self._kernel_client.wait_for_ready()
++        outputs = []
++        output_files = []
++        for code_block in code_blocks:
++            code = self._process_code(code_block.code)
++            self._kernel_client.execute(code, store_history=True)
++            while True:
++                try:
++                    msg = self._kernel_client.get_iopub_msg(timeout=self._timeout)
++                    msg_type = msg["msg_type"]
++                    content = msg["content"]
++                    if msg_type in ["execute_result", "display_data"]:
++                        for data_type, data in content["data"].items():
++                            if data_type == "text/plain":
++                                # Output is a text.
++                                outputs.append(data)
++                            elif data_type.startswith("image/"):
++                                # Output is an image.
++                                path = self._save_image(data)
++                                outputs.append(f"Image data saved to {path}")
++                                output_files.append(path)
++                            elif data_type == "text/html":
++                                # Output is an html.
++                                path = self._save_html(data)
++                                outputs.append(f"HTML data saved to {path}")
++                                output_files.append(path)
++                            else:
++                                # Output raw data.
++                                outputs.append(json.dumps(data))
++                    elif msg_type == "stream":
++                        # Output is a text.
++                        outputs.append(content["text"])
++                    elif msg_type == "error":
++                        # Output is an error.
++                        return IPythonCodeResult(
++                            exit_code=1,
++                            output=f"ERROR: {content['ename']}: {content['evalue']}\n{content['traceback']}",
++                        )
++                    if msg_type == "status" and content["execution_state"] == "idle":
++                        break
++                # handle time outs.
++                except Empty:
++                    return IPythonCodeResult(
++                        exit_code=1,
++                        output=f"ERROR: Timeout waiting for output from code block: {code_block.code}",
++                    )
++        # We return the full output.
++        return IPythonCodeResult(
++            exit_code=0, output="\n".join([str(output) for output in outputs]), output_files=output_files
++        )
++
++    def restart(self) -> None:
++        """Restart a new session."""
++        self._kernel_client.stop_channels()
++        self._kernel_manager.shutdown_kernel()
++        self._kernel_manager = KernelManager(kernel_name=self.kernel_name)
++        self._kernel_manager.start_kernel()
++        self._kernel_client = self._kernel_manager.client()
++        self._kernel_client.start_channels()
++
++    def _save_image(self, image_data_base64: str) -> str:
++        """Save image data to a file."""
++        image_data = base64.b64decode(image_data_base64)
++        # Randomly generate a filename.
++        filename = f"{uuid.uuid4().hex}.png"
++        path = os.path.join(self.output_dir, filename)
++        with open(path, "wb") as f:
++            f.write(image_data)
++        return os.path.abspath(path)
++
++    def _save_html(self, html_data: str) -> str:
++        """Save html data to a file."""
++        # Randomly generate a filename.
++        filename = f"{uuid.uuid4().hex}.html"
++        path = os.path.join(self.output_dir, filename)
++        with open(path, "w") as f:
++            f.write(html_data)
++        return os.path.abspath(path)
++
++    def _process_code(self, code: str) -> str:
++        """Process code before execution."""
++        # Find lines that start with `! pip install` and make sure "-qqq" flag is added.
++        lines = code.split("\n")
++        for i, line in enumerate(lines):
++            # use regex to find lines that start with `! pip install` or `!pip install`.
++            match = re.search(r"^! ?pip install", line)
++            if match is not None:
++                if "-qqq" not in line:
++                    lines[i] = line.replace(match.group(0), match.group(0) + " -qqq")
++        return "\n".join(lines)
+diff --git a/autogen/coding/factory.py b/autogen/coding/factory.py
+new file mode 100644
+index 00000000..65149b5a
+--- /dev/null
++++ b/autogen/coding/factory.py
+@@ -0,0 +1,41 @@
++from typing import Any, Dict
++
++from .base import CodeExecutor
++
++__all__ = ("CodeExecutorFactory",)
++
++
++class CodeExecutorFactory:
++    """A factory class for creating code executors."""
++
++    @staticmethod
++    def create(code_execution_config: Dict[str, Any]) -> CodeExecutor:
++        """Get a code executor based on the code execution config.
++
++        Args:
++            code_execution_config (Dict): The code execution config,
++                which is a dictionary that must contain the key "executor".
++                The value of the key "executor" can be either a string
++                or an instance of CodeExecutor, in which case the code
++                executor is returned directly.
++
++        Returns:
++            CodeExecutor: The code executor.
++
++        Raises:
++            ValueError: If the code executor is unknown or not specified.
++        """
++        executor = code_execution_config.get("executor")
++        if isinstance(executor, CodeExecutor):
++            # If the executor is already an instance of CodeExecutor, return it.
++            return executor
++        if executor == "ipython-embedded":
++            from .embedded_ipython_code_executor import EmbeddedIPythonCodeExecutor
++
++            return EmbeddedIPythonCodeExecutor(**code_execution_config.get("ipython-embedded", {}))
++        elif executor == "commandline-local":
++            from .local_commandline_code_executor import LocalCommandlineCodeExecutor
++
++            return LocalCommandlineCodeExecutor(**code_execution_config.get("commandline-local", {}))
++        else:
++            raise ValueError(f"Unknown code executor {executor}")
+diff --git a/autogen/coding/local_commandline_code_executor.py b/autogen/coding/local_commandline_code_executor.py
+new file mode 100644
+index 00000000..252c5737
+--- /dev/null
++++ b/autogen/coding/local_commandline_code_executor.py
+@@ -0,0 +1,162 @@
++import os
++import uuid
++import warnings
++from typing import Any, ClassVar, List, Optional
++
++from pydantic import BaseModel, Field, field_validator
++
++from ..agentchat.agent import LLMAgent
++from ..code_utils import execute_code
++from .base import CodeBlock, CodeExtractor, CodeResult
++from .markdown_code_extractor import MarkdownCodeExtractor
++
++try:
++    from termcolor import colored
++except ImportError:
++
++    def colored(x: Any, *args: Any, **kwargs: Any) -> str:  # type: ignore[misc]
++        return x  # type: ignore[no-any-return]
++
++
++__all__ = (
++    "LocalCommandlineCodeExecutor",
++    "CommandlineCodeResult",
++)
++
++
++class CommandlineCodeResult(CodeResult):
++    """A code result class for command line code executor."""
++
++    code_file: Optional[str] = Field(
++        default=None,
++        description="The file that the executed code block was saved to.",
++    )
++
++
++class LocalCommandlineCodeExecutor(BaseModel):
++    """A code executor class that executes code through a local command line
++    environment.
++
++    **This will execute LLM generated code on the local machine.**
++
++    Each code block is saved as a file and executed in a separate process in
++    the working directory, and a unique file is generated and saved in the
++    working directory for each code block.
++    The code blocks are executed in the order they are received.
++    Currently the only supported languages is Python and shell scripts.
++    For Python code, use the language "python" for the code block.
++    For shell scripts, use the language "bash", "shell", or "sh" for the code
++    block.
++
++    Args:
++        timeout (int): The timeout for code execution. Default is 60.
++        work_dir (str): The working directory for the code execution. If None,
++            a default working directory will be used. The default working
++            directory is the current directory ".".
++        system_message_update (str): The system message update for agent that
++            produces code to run on this executor.
++            Default is `LocalCommandlineCodeExecutor.DEFAULT_SYSTEM_MESSAGE_UPDATE`.
++    """
++
++    DEFAULT_SYSTEM_MESSAGE_UPDATE: ClassVar[
++        str
++    ] = """
++You have been given coding capability to solve tasks using Python code.
++In the following cases, suggest python code (in a python coding block) or shell script (in a sh coding block) for the user to execute.
++    1. When you need to collect info, use the code to output the info you need, for example, browse or search the web, download/read a file, print the content of a webpage or a file, get the current date/time, check the operating system. After sufficient info is printed and the task is ready to be solved based on your language skill, you can solve the task by yourself.
++    2. When you need to perform some task with code, use the code to perform the task and output the result. Finish the task smartly.
++Solve the task step by step if you need to. If a plan is not provided, explain your plan first. Be clear which step uses code, and which step uses your language skill.
++When using code, you must indicate the script type in the code block. The user cannot provide any other feedback or perform any other action beyond executing the code you suggest. The user can't modify your code. So do not suggest incomplete code which requires users to modify. Don't use a code block if it's not intended to be executed by the user.
++If you want the user to save the code in a file before executing it, put # filename: <filename> inside the code block as the first line. Don't include multiple code blocks in one response. Do not ask users to copy and paste the result. Instead, use 'print' function for the output when relevant. Check the execution result returned by the user.
++"""
++
++    timeout: int = Field(default=60, ge=1, description="The timeout for code execution.")
++    work_dir: str = Field(default=".", description="The working directory for the code execution.")
++    system_message_update: str = Field(
++        default=DEFAULT_SYSTEM_MESSAGE_UPDATE,
++        description="The system message update for agent that produces code to run on this executor.",
++    )
++
++    class UserCapability:
++        """An AgentCapability class that gives agent ability use a command line
++        code executor via a system message update. This capability can be added
++        to an agent using the `add_to_agent` method."""
++
++        def __init__(self, system_message_update: str) -> None:
++            self.system_message_update = system_message_update
++
++        def add_to_agent(self, agent: LLMAgent) -> None:
++            """Add this capability to an agent by updating the agent's system
++            message."""
++            agent.update_system_message(agent.system_message + self.system_message_update)
++
++    @field_validator("work_dir")
++    @classmethod
++    def _check_work_dir(cls, v: str) -> str:
++        if os.path.exists(v):
++            return v
++        raise ValueError(f"Working directory {v} does not exist.")
++
++    @property
++    def user_capability(self) -> "LocalCommandlineCodeExecutor.UserCapability":
++        """Export a user capability for this executor that can be added to
++        an agent that produces code to be executed by this executor."""
++        return LocalCommandlineCodeExecutor.UserCapability(self.system_message_update)
++
++    @property
++    def code_extractor(self) -> CodeExtractor:
++        """Export a code extractor that can be used by an agent."""
++        return MarkdownCodeExtractor()
++
++    def execute_code_blocks(self, code_blocks: List[CodeBlock]) -> CommandlineCodeResult:
++        """Execute the code blocks and return the result.
++
++        Args:
++            code_blocks (List[CodeBlock]): The code blocks to execute.
++
++        Returns:
++            CommandlineCodeResult: The result of the code execution."""
++        logs_all = ""
++        for i, code_block in enumerate(code_blocks):
++            lang, code = code_block.language, code_block.code
++            print(
++                colored(
++                    f"\n>>>>>>>> EXECUTING CODE BLOCK {i} (inferred language is {lang})...",
++                    "red",
++                ),
++                flush=True,
++            )
++            filename_uuid = uuid.uuid4().hex
++            filename = None
++            if lang in ["bash", "shell", "sh"]:
++                filename = f"{filename_uuid}.{lang}"
++                exitcode, logs, _ = execute_code(
++                    code=code,
++                    lang=lang,
++                    timeout=self.timeout,
++                    work_dir=self.work_dir,
++                    filename=filename,
++                    use_docker=False,
++                )
++            elif lang in ["python", "Python"]:
++                filename = f"{filename_uuid}.py"
++                exitcode, logs, _ = execute_code(
++                    code=code,
++                    lang="python",
++                    timeout=self.timeout,
++                    work_dir=self.work_dir,
++                    filename=filename,
++                    use_docker=False,
++                )
++            else:
++                # In case the language is not supported, we return an error message.
++                exitcode, logs, _ = (1, f"unknown language {lang}", None)
++            logs_all += "\n" + logs
++            if exitcode != 0:
++                break
++        code_filename = os.path.join(self.work_dir, filename) if filename is not None else None
++        return CommandlineCodeResult(exit_code=exitcode, output=logs_all, code_file=code_filename)
++
++    def restart(self) -> None:
++        """Restart the code executor."""
++        warnings.warn("Restarting local command line code executor is not supported. No action is taken.")
+diff --git a/autogen/coding/markdown_code_extractor.py b/autogen/coding/markdown_code_extractor.py
+new file mode 100644
+index 00000000..73a1e03e
+--- /dev/null
++++ b/autogen/coding/markdown_code_extractor.py
+@@ -0,0 +1,35 @@
++import re
++from typing import Any, Dict, List, Optional, Union
++
++from ..code_utils import CODE_BLOCK_PATTERN, UNKNOWN, content_str, infer_lang
++from .base import CodeBlock
++
++__all__ = ("MarkdownCodeExtractor",)
++
++
++class MarkdownCodeExtractor:
++    """A class that extracts code blocks from a message using Markdown syntax."""
++
++    def extract_code_blocks(self, message: Union[str, List[Dict[str, Any]], None]) -> List[CodeBlock]:
++        """Extract code blocks from a message. If no code blocks are found,
++        return an empty list.
++
++        Args:
++            message (str): The message to extract code blocks from.
++
++        Returns:
++            List[CodeBlock]: The extracted code blocks or an empty list.
++        """
++
++        text = content_str(message)
++        match = re.findall(CODE_BLOCK_PATTERN, text, flags=re.DOTALL)
++        if not match:
++            return []
++        code_blocks = []
++        for lang, code in match:
++            if lang == "":
++                lang = infer_lang(code)
++            if lang == UNKNOWN:
++                lang = ""
++            code_blocks.append(CodeBlock(code=code, language=lang))
++        return code_blocks
+diff --git a/autogen/token_count_utils.py b/autogen/token_count_utils.py
+index 1b1b2f19..84fe147f 100644
+--- a/autogen/token_count_utils.py
++++ b/autogen/token_count_utils.py
+@@ -8,7 +8,7 @@ import re
+ logger = logging.getLogger(__name__)
+ 
+ 
+-def get_max_token_limit(model="gpt-3.5-turbo-0613"):
++def get_max_token_limit(model: str = "gpt-3.5-turbo-0613") -> int:
+     # Handle common azure model names/aliases
+     model = re.sub(r"^gpt\-?35", "gpt-3.5", model)
+     model = re.sub(r"^gpt4", "gpt-4", model)
+diff --git a/notebook/agentchat_graph_modelling_language_using_select_speaker.ipynb b/notebook/agentchat_graph_modelling_language_using_select_speaker.ipynb
+index fa1e2fed..a6d3603e 100644
+--- a/notebook/agentchat_graph_modelling_language_using_select_speaker.ipynb
++++ b/notebook/agentchat_graph_modelling_language_using_select_speaker.ipynb
+@@ -54,8 +54,9 @@
+     "import networkx as nx  # noqa E402\n",
+     "\n",
+     "import autogen  # noqa E402\n",
++    "from autogen.agentchat.conversable_agent import ConversableAgent  # noqa E402\n",
+     "from autogen.agentchat.assistant_agent import AssistantAgent  # noqa E402\n",
+-    "from autogen.agentchat.groupchat import GroupChat, Agent  # noqa E402\n",
++    "from autogen.agentchat.groupchat import GroupChat  # noqa E402\n",
+     "from autogen.graph_utils import visualize_speaker_transitions_dict  # noqa E402"
+    ]
+   },
+@@ -119,7 +120,7 @@
+     }
+    ],
+    "source": [
+-    "agents = [Agent(name=f\"Agent{i}\") for i in range(5)]\n",
++    "agents = [ConversableAgent(name=f\"Agent{i}\", llm_config=False) for i in range(5)]\n",
+     "allowed_speaker_transitions_dict = {agent: [other_agent for other_agent in agents] for agent in agents}\n",
+     "\n",
+     "visualize_speaker_transitions_dict(allowed_speaker_transitions_dict, agents)"
+@@ -152,7 +153,7 @@
+     }
+    ],
+    "source": [
+-    "agents = [Agent(name=f\"Agent{i}\") for i in range(5)]\n",
++    "agents = [ConversableAgent(name=f\"Agent{i}\", llm_config=False) for i in range(5)]\n",
+     "allowed_speaker_transitions_dict = {\n",
+     "    agents[0]: [agents[1], agents[2], agents[3], agents[4]],\n",
+     "    agents[1]: [agents[0]],\n",
+@@ -196,14 +197,14 @@
+     "team_size = 5\n",
+     "\n",
+     "\n",
+-    "def get_agent_of_name(agents, name) -> Agent:\n",
++    "def get_agent_of_name(agents, name) -> ConversableAgent:\n",
+     "    for agent in agents:\n",
+     "        if agent.name == name:\n",
+     "            return agent\n",
+     "\n",
+     "\n",
+     "# Create a list of 15 agents 3 teams x 5 agents\n",
+-    "agents = [Agent(name=f\"{team}{i}\") for team in teams for i in range(team_size)]\n",
++    "agents = [ConversableAgent(name=f\"{team}{i}\", llm_config=False) for team in teams for i in range(team_size)]\n",
+     "\n",
+     "# Loop through each team and add members and their connections\n",
+     "for team in teams:\n",
+@@ -239,7 +240,7 @@
+     }
+    ],
+    "source": [
+-    "agents = [Agent(name=f\"Agent{i}\") for i in range(2)]\n",
++    "agents = [ConversableAgent(name=f\"Agent{i}\", llm_config=False) for i in range(2)]\n",
+     "allowed_speaker_transitions_dict = {\n",
+     "    agents[0]: [agents[0], agents[1]],\n",
+     "    agents[1]: [agents[0], agents[1]],\n",
+diff --git a/pyproject.toml b/pyproject.toml
+index e2161fb8..f1763fba 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -41,7 +41,10 @@ exclude = [
+     "_build",
+     "build",
+     "dist",
+-    "docs"
++    "docs",
++     # This file needs to be either upgraded or removed and therefore should be
++    # ignore from type checking for now
++    "math_utils\\.py$",
+ ]
+ ignore-init-module-imports = true
+ unfixable = ["F401"]
+@@ -75,9 +78,3 @@ warn_unused_ignores = true
+ disallow_incomplete_defs = true
+ disallow_untyped_decorators = true
+ disallow_any_unimported = true
+-
+-exclude = [
+-    # This file needs to be either upgraded or removed and therefore should be
+-    # ignore from type checking for now
+-    "math_utils\\.py$",
+-]
+diff --git a/setup.py b/setup.py
+index 9e955a08..a2577271 100644
+--- a/setup.py
++++ b/setup.py
+@@ -55,6 +55,7 @@ setuptools.setup(
+         "graph": ["networkx", "matplotlib"],
+         "websurfer": ["beautifulsoup4", "markdownify", "pdfminer.six", "pathvalidate"],
+         "redis": ["redis"],
++        "ipython": ["jupyter-client>=8.6.0", "ipykernel>=6.29.0"],
+     },
+     classifiers=[
+         "Programming Language :: Python :: 3",
+diff --git a/website/docs/installation/Optional-Dependencies.md b/website/docs/installation/Optional-Dependencies.md
+index 60126639..6efdfa2e 100644
+--- a/website/docs/installation/Optional-Dependencies.md
++++ b/website/docs/installation/Optional-Dependencies.md
+@@ -11,28 +11,21 @@ pip install "pyautogen[redis]"
+ 
+ See [LLM Caching](Use-Cases/agent_chat.md#llm-caching) for details.
+ 
+-## Docker
++## IPython Code Executor
+ 
+-Even if you install AutoGen locally, we highly recommend using Docker for [code execution](FAQ.md#enable-python-3-docker-image).
+-
+-To use docker for code execution, you also need to install the python package `docker`:
++To use the IPython code executor, you need to install the `jupyter-client`
++and `ipykernel` packages:
+ 
+ ```bash
+-pip install docker
++pip install "pyautogen[ipython]"
+ ```
+ 
+-You might want to override the default docker image used for code execution. To do that set `use_docker` key of `code_execution_config` property to the name of the image. E.g.:
++To use the IPython code executor:
+ 
+ ```python
+-user_proxy = autogen.UserProxyAgent(
+-    name="agent",
+-    human_input_mode="TERMINATE",
+-    max_consecutive_auto_reply=10,
+-    code_execution_config={"work_dir":"_output", "use_docker":"python:3"},
+-    llm_config=llm_config,
+-    system_message=""""Reply TERMINATE if the task has been solved at full satisfaction.
+-Otherwise, reply CONTINUE, or the reason why the task is not solved yet."""
+-)
++from autogen import UserProxyAgent
++
++proxy = UserProxyAgent(name="proxy", code_execution_config={"executor": "ipython-embedded"})
+ ```
+ 
+ ## blendsearch

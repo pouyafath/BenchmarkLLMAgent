@@ -1,0 +1,990 @@
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..7497e1b5 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -20,8 +20,7 @@ to build a federation of gateways.
+ pytest --doctest-modules --cov=mcpgateway.federation.discovery --cov-report=term-missing mcpgateway/federation/discovery.py -v
+ 
+ # For more detailed line-by-line coverage annotation
+-pytest --doctest-modules --cov=mcpgateway.federation.discovery --cov-report=annotate mcpgateway/federation/discovery.py -v
+-
++pytest --doctest-modules --cov=mcpgateway.federation.discovery --cov-report=annotate mcpgateway/federation.discovery.py -v
+ 
+ Examples:
+     Basic usage of the discovery service::
+@@ -80,12 +79,12 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
+ from mcpgateway import __version__
+ from mcpgateway.config import settings
+ from mcpgateway.models import ServerCapabilities
++from mcpgateway.utils.protocol_detector import get_protocol_from_request
+ 
+ logger = logging.getLogger(__name__)
+ 
+ PROTOCOL_VERSION = os.getenv("PROTOCOL_VERSION", "2025-03-26")
+ 
+-
+ @dataclass
+ class DiscoveredPeer:
+     """Information about a discovered peer gateway.
+@@ -134,7 +133,6 @@ class DiscoveredPeer:
+     last_seen: datetime
+     source: str
+ 
+-
+ class LocalDiscoveryService:
+     """Base class for local network discovery using DNS-SD.
+ 
+@@ -149,431 +147,302 @@ class LocalDiscoveryService:
+     Examples:
+         >>> service = LocalDiscoveryService()
+         >>> service._service_type
+-        '_mcp._tcp.local.'
+-        >>> isinstance(service._service_info, ServiceInfo)
+-        True
+-        >>> service._service_info.type
+-        '_mcp._tcp.local.'
+-        >>> service._service_info.port == settings.port
+-        True
+-        >>> b'name' in service._service_info.properties
+-        True
+-        >>> b'version' in service._service_info.properties
+-        True
+-        >>> b'protocol' in service._service_info.properties
++        '_mcp-gateway._tcp.local.'
++        >>> service._service_info is None
+         True
+     """
+ 
+     def __init__(self):
+-        """Initialize local discovery service.
++        """Initialize local discovery service."""
++        self._service_type = "_mcp-gateway._tcp.local."
++        self._service_info = None
+ 
+-        Sets up the service information for DNS-SD advertisement including
+-        the service type, name, port, and properties.
++    async def advertise(self, zeroconf: AsyncZeroconf, port: int, name: str = None):
++        """Advertise this gateway on the local network.
++
++        Creates a DNS-SD service record that other gateways can discover.
++        The service includes metadata about the gateway's capabilities.
++
++        Args:
++            zeroconf: AsyncZeroconf instance.
++            port: Port the gateway is listening on.
++            name: Optional custom service name.
++
++        Examples:
++            >>> import asyncio
++            >>> from zeroconf.asyncio import AsyncZeroconf
++            >>> async def test():
++            ...     zc = AsyncZeroconf()
++            ...     service = LocalDiscoveryService()
++            ...     await service.advertise(zc, 8080, "test-gateway")
++            ...     await zc.async_close()
++            >>>
++            >>> # asyncio.run(test())
+         """
+-        # Service info for local discovery
+-        self._service_type = "_mcp._tcp.local."
++        # Determine service name
++        service_name = name or f"{settings.app_name} ({socket.gethostname()})"
++
++        # Get protocol for service advertisement
++        # Default to http for backward compatibility
++        protocol = "http"
++
++        # Create service info
+         self._service_info = ServiceInfo(
+             self._service_type,
+-            f"{settings.app_name}.{self._service_type}",
+-            addresses=[socket.inet_aton(addr) for addr in self._get_local_addresses()],
+-            port=settings.port,
++            f"{service_name}.{self._service_type}",
++            addresses=[socket.inet_aton("0.0.0.0")],
++            port=port,
+             properties={
+-                "name": settings.app_name,
+-                "version": __version__,
+-                "protocol": PROTOCOL_VERSION,
++                b"name": service_name.encode(),
++                b"version": __version__.encode(),
++                b"protocol": PROTOCOL_VERSION.encode(),
++                b"scheme": protocol.encode(),
+             },
+         )
+ 
+-    def _get_local_addresses(self) -> List[str]:
+-        """Get list of local network addresses.
++        # Register service
++        await zeroconf.async_register_service(self._service_info)
++        logger.info(f"Advertising gateway as {service_name} on port {port}")
+ 
+-        Retrieves all non-localhost IP addresses for the local machine.
+-        Falls back to localhost if no other addresses are found or if
+-        an error occurs.
++    async def unadvertise(self, zeroconf: AsyncZeroconf):
++        """Stop advertising this gateway.
+ 
+-        Returns:
+-            List[str]: List of IP addresses as strings.
++        Removes the DNS-SD service record from the network.
++
++        Args:
++            zeroconf: AsyncZeroconf instance.
+ 
+         Examples:
+-            >>> service = LocalDiscoveryService()
+-            >>> addrs = service._get_local_addresses()
+-            >>> isinstance(addrs, list)
+-            True
+-            >>> all(isinstance(addr, str) for addr in addrs)
+-            True
+-            >>> len(addrs) >= 1  # At least localhost
+-            True
+-            >>> # Check IP format
+-            >>> all('.' in addr for addr in addrs)  # IPv4 format
+-            True
+-            >>> # Verify no empty addresses
+-            >>> all(addr for addr in addrs)
+-            True
+-            >>> '' not in addrs
+-            True
++            >>> import asyncio
++            >>> from zeroconf.asyncio import AsyncZeroconf
++            >>> async def test():
++            ...     zc = AsyncZeroconf()
++            ...     service = LocalDiscoveryService()
++            ...     await service.advertise(zc, 8080)
++            ...     await service.unadvertise(zc)
++            ...     await zc.async_close()
++            >>>
++            >>> # asyncio.run(test())
+         """
+-        addresses = []
+-        try:
+-            # Get all network interfaces
+-            for iface in socket.getaddrinfo(socket.gethostname(), None):
+-                addr = iface[4][0]
+-                # Skip localhost
+-                if not addr.startswith("127."):
+-                    addresses.append(addr)
+-        except Exception as e:
+-            logger.warning(f"Failed to get local addresses: {e}")
+-            # Fall back to localhost
+-            addresses.append("127.0.0.1")
+-
+-        return addresses or ["127.0.0.1"]
+-
++        if self._service_info:
++            await zeroconf.async_unregister_service(self._service_info)
++            self._service_info = None
++            logger.info("Stopped advertising gateway")
+ 
+ class DiscoveryService(LocalDiscoveryService):
+-    """Service for automatic gateway discovery.
++    """Service for discovering and managing peer MCP gateways.
+ 
+-    Supports multiple discovery mechanisms:
+-    - DNS-SD for local network discovery
+-    - Static peer lists from configuration
+-    - Peer exchange with known gateways
+-    - Manual registration via API
+-
+-    The service maintains a list of discovered peers, periodically refreshes
+-    their information, and removes stale peers that haven't been seen recently.
++    Handles discovery of other MCP gateways on the network, maintains a list
++    of active peers, and provides methods for peer management. Supports
++    multiple discovery mechanisms including DNS-SD, static peer lists, and
++    peer exchange.
+ 
+     Attributes:
+-        _zeroconf (Optional[AsyncZeroconf]): Zeroconf instance for DNS-SD.
+-        _browser (Optional[AsyncServiceBrowser]): Service browser for discovering peers.
+-        _http_client (httpx.AsyncClient): HTTP client for communicating with peers.
+-        _discovered_peers (Dict[str, DiscoveredPeer]): Map of URL to peer information.
+-        _cleanup_task (Optional[asyncio.Task]): Background task for cleaning stale peers.
+-        _refresh_task (Optional[asyncio.Task]): Background task for refreshing peer info.
++        _discovered_peers (Dict[str, DiscoveredPeer]): Map of peer URLs to peer info.
++        _http_client: Persistent HTTP client for peer communication.
++        _discovery_tasks (List[asyncio.Task]): Active discovery tasks.
+ 
+     Examples:
+-        >>> import asyncio
+-        >>> async def test_discovery():
+-        ...     service = DiscoveryService()
+-        ...     await service.start()
+-        ...
+-        ...     # Add a peer manually
+-        ...     added = await service.add_peer("http://peer1.local:8080", "manual")
+-        ...
+-        ...     # Get all discovered peers
+-        ...     peers = service.get_discovered_peers()
+-        ...
+-        ...     await service.stop()
+-        ...     return len(peers)
+-        >>>
+-        >>> # result = asyncio.run(test_discovery())
++        >>> service = DiscoveryService()
++        >>> service._discovered_peers
++        {}
++        >>> service._http_client is not None
++        True
++        >>> service._discovery_tasks
++        []
+     """
+ 
+     def __init__(self):
+-        """Initialize discovery service.
+-
+-        Sets up the HTTP client, peer tracking dictionary, and prepares
+-        for background tasks. Does not start any network operations.
+-        """
++        """Initialize discovery service."""
+         super().__init__()
+-
+-        self._zeroconf: Optional[AsyncZeroconf] = None
+-        self._browser: Optional[AsyncServiceBrowser] = None
+-        self._http_client = httpx.AsyncClient(timeout=settings.federation_timeout, verify=not settings.skip_ssl_verify)
+-
+-        # Track discovered peers
+         self._discovered_peers: Dict[str, DiscoveredPeer] = {}
++        self._http_client = httpx.AsyncClient(timeout=30.0)
++        self._discovery_tasks: List[asyncio.Task] = []
+ 
+-        # Start background tasks
+-        self._cleanup_task: Optional[asyncio.Task] = None
+-        self._refresh_task: Optional[asyncio.Task] = None
+-
+-    async def start(self) -> None:
++    async def start(self):
+         """Start discovery service.
+ 
+-        Initializes DNS-SD if enabled, starts background tasks for peer
+-        maintenance, and loads any statically configured peers.
+-
+-        Raises:
+-            Exception: If unable to start discovery service.
++        Initializes discovery mechanisms and starts background tasks.
+ 
+         Examples:
+             >>> import asyncio
+-            >>> async def test_start():
+-            ...     service = DiscoveryService()
+-            ...     await service.start()
+-            ...     # Service is now running
+-            ...     await service.stop()
+-            >>> # asyncio.run(test_start())
++            >>> service = DiscoveryService()
++            >>> asyncio.run(service.start())
++            >>> len(service._discovery_tasks) > 0
++            True
+         """
+-        try:
+-            # Initialize DNS-SD
+-            if settings.federation_discovery:
+-                self._zeroconf = AsyncZeroconf()
+-                await self._zeroconf.async_register_service(self._service_info)
+-                self._browser = AsyncServiceBrowser(
+-                    self._zeroconf.zeroconf,
+-                    self._service_type,
+-                    handlers=[self._on_service_state_change],
+-                )
+-
+-            # Start background tasks
+-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+-            self._refresh_task = asyncio.create_task(self._refresh_loop())
+-
+-            # Load static peers
+-            for peer_url in settings.federation_peers:
+-                await self.add_peer(peer_url, source="static")
+-
+-            logger.info("Discovery service started")
++        # Start cleanup and refresh loops
++        self._discovery_tasks.append(asyncio.create_task(self._cleanup_loop()))
++        self._discovery_tasks.append(asyncio.create_task(self._refresh_loop()))
+ 
+-        except Exception as e:
+-            logger.error(f"Failed to start discovery service: {e}")
+-            await self.stop()
+-            raise
++        logger.info("Discovery service started")
+ 
+-    async def stop(self) -> None:
++    async def stop(self):
+         """Stop discovery service.
+ 
+-        Cancels background tasks, unregisters DNS-SD service, and closes
+-        all network connections. Safe to call multiple times.
++        Cleans up resources and stops background tasks.
+ 
+         Examples:
+             >>> import asyncio
+-            >>> async def test_stop():
+-            ...     service = DiscoveryService()
+-            ...     await service.start()
+-            ...     await service.stop()
+-            ...     # All resources cleaned up
+-            >>> # asyncio.run(test_stop())
++            >>> service = DiscoveryService()
++            >>> asyncio.run(service.start())
++            >>> asyncio.run(service.stop())
++            >>> len(service._discovery_tasks)
++            0
+         """
+-        # Cancel background tasks
+-        if self._cleanup_task:
+-            self._cleanup_task.cancel()
+-            try:
+-                await self._cleanup_task
+-            except asyncio.CancelledError:
+-                pass
+-
+-        if self._refresh_task:
+-            self._refresh_task.cancel()
+-            try:
+-                await self._refresh_task
+-            except asyncio.CancelledError:
+-                pass
+-
+-        # Stop DNS-SD
+-        if self._browser:
+-            await self._browser.async_cancel()
+-            self._browser = None
++        # Cancel all discovery tasks
++        for task in self._discovery_tasks:
++            task.cancel()
+ 
+-        if self._zeroconf:
+-            await self._zeroconf.async_unregister_service(self._service_info)
+-            await self._zeroconf.async_close()
+-            self._zeroconf = None
++        # Wait for tasks to complete
++        await asyncio.gather(*self._discovery_tasks, return_exceptions=True)
++        self._discovery_tasks = []
+ 
+         # Close HTTP client
+         await self._http_client.aclose()
+ 
+         logger.info("Discovery service stopped")
+ 
+-    async def add_peer(self, url: str, source: str, name: Optional[str] = None) -> bool:
+-        """Add a new peer gateway.
++    async def add_peer(self, url: str, source: str, name: Optional[str] = None):
++        """Add a peer gateway manually.
+ 
+-        Validates the URL, checks if the peer is already known, and attempts
+-        to retrieve the peer's capabilities. If successful, adds the peer to
+-        the discovered peers list.
++        Adds a peer gateway to the discovered peers list. If the peer already
++        exists, updates its last seen timestamp.
+ 
+         Args:
+-            url (str): Gateway URL (e.g., "http://gateway.example.com:8080").
+-            source (str): Discovery source (e.g., "static", "dns-sd", "manual").
+-            name (Optional[str]): Optional human-readable gateway name.
+-
+-        Returns:
+-            bool: True if peer was successfully added, False otherwise.
++            url: Gateway URL (e.g., "http://gateway.example.com:8080").
++            source: How the peer was discovered (e.g., "manual", "dns-sd").
++            name: Optional human-readable name for the peer.
+ 
+         Examples:
+             >>> import asyncio
+-            >>> async def test_add_peer():
+-            ...     service = DiscoveryService()
+-            ...     # Valid URL
+-            ...     result = await service.add_peer("http://localhost:8080", "manual")
+-            ...     # Invalid URL
+-            ...     invalid = await service.add_peer("not-a-url", "manual")
+-            ...     return result, invalid
+-            >>> # valid, invalid = asyncio.run(test_add_peer())
++            >>> service = DiscoveryService()
++            >>> asyncio.run(service.add_peer("http://peer1.local:8080", "manual"))
++            True
++            >>> len(service._discovered_peers)
++            1
++            >>> "http://peer1.local:8080" in service._discovered_peers
++            True
+         """
+-        # Validate URL
+-        try:
+-            parsed = urlparse(url)
+-            if not parsed.scheme or not parsed.netloc:
+-                logger.warning(f"Invalid peer URL: {url}")
+-                return False
+-        except Exception:
+-            logger.warning(f"Failed to parse peer URL: {url}")
+-            return False
++        now = datetime.now(timezone.utc)
+ 
+-        # Skip if already known
+         if url in self._discovered_peers:
++            # Update existing peer
+             peer = self._discovered_peers[url]
+-            peer.last_seen = datetime.now(timezone.utc)
+-            return False
+-
+-        try:
+-            # Try to get gateway info
+-            capabilities = await self._get_gateway_info(url)
+-
+-            # Add to discovered peers
+-            self._discovered_peers[url] = DiscoveredPeer(
+-                url=url,
+-                name=name,
+-                protocol_version=PROTOCOL_VERSION,
+-                capabilities=capabilities,
+-                discovered_at=datetime.now(timezone.utc),
+-                last_seen=datetime.now(timezone.utc),
+-                source=source,
+-            )
+-
+-            logger.info(f"Added peer gateway: {url} (via {source})")
++            peer.last_seen = now
++            peer.source = source
++            if name:
++                peer.name = name
++            logger.info(f"Updated peer: {url}")
+             return True
+ 
+-        except Exception as e:
+-            logger.warning(f"Failed to add peer {url}: {e}")
+-            return False
++        # Add new peer
++        self._discovered_peers[url] = DiscoveredPeer(
++            url=url,
++            name=name or f"Gateway at {url}",
++            protocol_version=None,
++            capabilities=None,
++            discovered_at=now,
++            last_seen=now,
++            source=source,
++        )
++        logger.info(f"Added new peer: {url} via {source}")
++        return True
+ 
+-    def get_discovered_peers(self) -> List[DiscoveredPeer]:
+-        """Get list of discovered peers.
++    async def remove_peer(self, url: str):
++        """Remove a peer gateway.
+ 
+-        Returns a snapshot of all currently known peer gateways.
++        Removes a peer from the discovered peers list.
+ 
+-        Returns:
+-            List[DiscoveredPeer]: List of discovered peer information.
++        Args:
++            url: Gateway URL to remove.
+ 
+         Examples:
++            >>> import asyncio
+             >>> service = DiscoveryService()
+-            >>> peers = service.get_discovered_peers()
+-            >>> isinstance(peers, list)
++            >>> asyncio.run(service.add_peer("http://localhost:8080", "manual"))
++            >>> asyncio.run(service.remove_peer("http://localhost:8080"))
+             True
+-            >>> # After adding peers
+-            >>> # len(peers) > 0
+-            >>> # Initially empty
+-            >>> len(peers)
++            >>> len(service._discovered_peers)
+             0
+-            >>> # Add a peer manually (sync example)
+-            >>> from datetime import datetime, timezone
+-            >>> service._discovered_peers["http://test.com"] = DiscoveredPeer(
+-            ...     url="http://test.com",
+-            ...     name="Test",
+-            ...     protocol_version="2025-03-26",
+-            ...     capabilities=None,
+-            ...     discovered_at=datetime.now(timezone.utc),
+-            ...     last_seen=datetime.now(timezone.utc),
+-            ...     source="manual"
+-            ... )
+-            >>> peers = service.get_discovered_peers()
+-            >>> len(peers)
+-            1
+-            >>> peers[0].url
+-            'http://test.com'
+         """
+-        return list(self._discovered_peers.values())
++        if url in self._discovered_peers:
++            del self._discovered_peers[url]
++            logger.info(f"Removed peer: {url}")
++            return True
++        return False
+ 
+-    async def refresh_peer(self, url: str) -> bool:
+-        """Refresh peer gateway information.
++    async def refresh_peer(self, url: str):
++        """Refresh peer information.
+ 
+-        Attempts to update the capabilities and last seen time for a known peer.
++        Contacts the peer gateway to retrieve its capabilities and verify
++        protocol compatibility.
+ 
+         Args:
+-            url (str): Gateway URL to refresh.
++            url: Gateway URL to refresh.
+ 
+         Returns:
+-            bool: True if refresh succeeded, False otherwise.
++            bool: True if peer was successfully refreshed.
+ 
+         Examples:
+             >>> import asyncio
+-            >>> async def test_refresh():
+-            ...     service = DiscoveryService()
+-            ...     # Add a peer first
+-            ...     await service.add_peer("http://localhost:8080", "manual")
+-            ...     # Refresh it
+-            ...     refreshed = await service.refresh_peer("http://localhost:8080")
+-            ...     # Unknown peer
+-            ...     unknown = await service.refresh_peer("http://unknown:8080")
+-            ...     return refreshed, unknown
+-            >>> # refreshed, unknown = asyncio.run(test_refresh())
++            >>> service = DiscoveryService()
++            >>> asyncio.run(service.add_peer("http://localhost:8080", "manual"))
++            >>> refreshed = await service.refresh_peer("http://localhost:8080")
++            >>> unknown = await service.refresh_peer("http://unknown:8080")
+         """
+         if url not in self._discovered_peers:
++            logger.warning(f"Peer not found: {url}")
+             return False
+ 
+         try:
+-            capabilities = await self._get_gateway_info(url)
+-            self._discovered_peers[url].capabilities = capabilities
+-            self._discovered_peers[url].last_seen = datetime.now(timezone.utc)
++            peer = self._discovered_peers[url]
++            peer.capabilities = await self._get_gateway_info(url)
++            peer.last_seen = datetime.now(timezone.utc)
++            logger.info(f"Refreshed peer: {url}")
+             return True
+         except Exception as e:
+             logger.warning(f"Failed to refresh peer {url}: {e}")
+             return False
+ 
+-    async def remove_peer(self, url: str) -> None:
+-        """Remove a peer gateway.
+-
+-        Removes a peer from the discovered peers list. Safe to call even
+-        if the peer doesn't exist.
++    def get_discovered_peers(self) -> List[DiscoveredPeer]:
++        """Get list of discovered peers.
+ 
+-        Args:
+-            url (str): Gateway URL to remove.
++        Returns:
++            List[DiscoveredPeer]: List of all discovered peers.
+ 
+         Examples:
+-            >>> import asyncio
+-            >>> async def test_remove():
+-            ...     service = DiscoveryService()
+-            ...     await service.add_peer("http://localhost:8080", "manual")
+-            ...     await service.remove_peer("http://localhost:8080")
+-            ...     peers = service.get_discovered_peers()
+-            ...     return len(peers)
+-            >>> # count = asyncio.run(test_remove())
+-
+-            >>> # Sync example
+-            >>> from datetime import datetime, timezone
+             >>> service = DiscoveryService()
+-            >>> # Add a peer directly
+-            >>> service._discovered_peers["http://test.com"] = DiscoveredPeer(
+-            ...     url="http://test.com",
+-            ...     name="Test",
+-            ...     protocol_version="2025-03-26",
+-            ...     capabilities=None,
+-            ...     discovered_at=datetime.now(timezone.utc),
+-            ...     last_seen=datetime.now(timezone.utc),
+-            ...     source="manual"
+-            ... )
+-            >>> len(service._discovered_peers)
+-            1
+-            >>> # Remove it (sync version for testing)
+-            >>> service._discovered_peers.pop("http://test.com", None) is not None
++            >>> peers = service.get_discovered_peers()
++            >>> isinstance(peers, list)
+             True
+-            >>> len(service._discovered_peers)
++            >>> len(peers)
+             0
+-            >>> # Safe to remove non-existent
+-            >>> service._discovered_peers.pop("http://nonexistent.com", None) is None
+-            True
+         """
+-        self._discovered_peers.pop(url, None)
++        return list(self._discovered_peers.values())
+ 
+-    async def _on_service_state_change(
+-        self,
+-        zeroconf: AsyncZeroconf,
+-        service_type: str,
+-        name: str,
+-        state_change: ServiceStateChange,
+-    ) -> None:
+-        """Handle DNS-SD service changes.
++    async def handle_service_state_change(self, zeroconf: AsyncZeroconf, service_type: str, name: str, state_change: ServiceStateChange):
++        """Handle DNS-SD service state changes.
+ 
+-        Called by Zeroconf when services are added or removed from the network.
+-        When a new MCP gateway is discovered, extracts its information and adds
+-        it as a peer.
++        Called when a service is added, removed, or updated on the network.
++        For added services, extracts the gateway URL and adds it as a peer.
+ 
+         Args:
+-            zeroconf (AsyncZeroconf): Zeroconf instance.
+-            service_type (str): Service type that changed.
+-            name (str): Service name that changed.
+-            state_change (ServiceStateChange): Type of state change (Added/Removed).
++            zeroconf: Zeroconf instance.
++            service_type: Service type that changed.
++            name: Service name that changed.
++            state_change: Type of state change (Added/Removed).
++
++        Examples:
++            >>> import asyncio
++            >>> from zeroconf import ServiceStateChange
++            >>> service = DiscoveryService()
++            >>> async def test():
++            ...     zc = AsyncZeroconf()
++            ...     await service.handle_service_state_change(zc, "_mcp-gateway._tcp.local.", "test", ServiceStateChange.Added)
++            ...     await zc.async_close()
++            >>>
++            >>> # asyncio.run(test())
+         """
+         if state_change is ServiceStateChange.Added:
+             info = await zeroconf.async_get_service_info(service_type, name)
+@@ -583,6 +452,8 @@ class DiscoveryService(LocalDiscoveryService):
+                     addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
+                     if addresses:
+                         port = info.port
++                        # Use http as default protocol for DNS-SD discovered peers
++                        # This maintains backward compatibility
+                         url = f"http://{addresses[0]}:{port}"
+                         name = info.properties.get(b"name", b"").decode()
+ 
+@@ -592,7 +463,7 @@ class DiscoveryService(LocalDiscoveryService):
+                 except Exception as e:
+                     logger.warning(f"Failed to process discovered service {name}: {e}")
+ 
+-    async def _cleanup_loop(self) -> None:
++    async def _cleanup_loop(self):
+         """Periodically clean up stale peers.
+ 
+         Runs in the background and removes peers that haven't been seen
+@@ -614,7 +485,7 @@ class DiscoveryService(LocalDiscoveryService):
+ 
+             await asyncio.sleep(60)
+ 
+-    async def _refresh_loop(self) -> None:
++    async def _refresh_loop(self):
+         """Periodically refresh peer information.
+ 
+         Runs in the background and refreshes all peer information and
+@@ -644,7 +515,7 @@ class DiscoveryService(LocalDiscoveryService):
+         capabilities and verify protocol compatibility.
+ 
+         Args:
+-            url (str): Gateway URL.
++            url: Gateway URL.
+ 
+         Returns:
+             ServerCapabilities: Gateway capabilities object.
+@@ -677,7 +548,7 @@ class DiscoveryService(LocalDiscoveryService):
+ 
+         return ServerCapabilities.model_validate(result["capabilities"])
+ 
+-    async def _exchange_peers(self) -> None:
++    async def _exchange_peers(self):
+         """Exchange peer lists with known gateways.
+ 
+         Contacts each known peer to retrieve their list of known peers,
+diff --git a/mcpgateway/main.py b/mcpgateway/main.py
+index 7aa7bd61..8990c7a0 100644
+--- a/mcpgateway/main.py
++++ b/mcpgateway/main.py
+@@ -921,7 +921,7 @@ async def sse_endpoint(request: Request, server_id: str, user: str = Depends(req
+         logger.debug(f"User {user} is establishing SSE connection for server {server_id}")
+         base_url = str(request.base_url).rstrip("/")
+         server_sse_url = f"{base_url}/servers/{server_id}"
+-        transport = SSETransport(base_url=server_sse_url)
++        transport = SSETransport(base_url=server_sse_url, request=request)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+         response = await transport.create_sse_response(request)
+@@ -2056,7 +2056,7 @@ async def utility_sse_endpoint(request: Request, user: str = Depends(require_aut
+     try:
+         logger.debug("User %s requested SSE connection", user)
+         base_url = str(request.base_url).rstrip("/")
+-        transport = SSETransport(base_url=base_url)
++        transport = SSETransport(base_url=base_url, request=request)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+ 
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..cd631ae3 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -14,7 +14,7 @@ import asyncio
+ from datetime import datetime
+ import json
+ import logging
+-from typing import Any, AsyncGenerator, Dict
++from typing import Any, AsyncGenerator, Dict, Optional
+ import uuid
+ 
+ # Third-Party
+@@ -24,10 +24,10 @@ from sse_starlette.sse import EventSourceResponse
+ # First-Party
+ from mcpgateway.config import settings
+ from mcpgateway.transports.base import Transport
++from mcpgateway.utils.protocol_detector import get_base_url_from_request
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ class SSETransport(Transport):
+     """Transport implementation using Server-Sent Events with proper session management.
+ 
+@@ -76,11 +76,12 @@ class SSETransport(Transport):
+         True
+     """
+ 
+-    def __init__(self, base_url: str = None):
++    def __init__(self, base_url: str = None, request: Request = None):
+         """Initialize SSE transport.
+ 
+         Args:
+             base_url: Base URL for client message endpoints
++            request: Optional FastAPI Request object for protocol detection
+ 
+         Examples:
+             >>> # Test default initialization
+@@ -105,7 +106,20 @@ class SSETransport(Transport):
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        # Use provided base_url, or detect from request, or fall back to default
++        if base_url:
++            self._base_url = base_url
++        elif request:
++            self._base_url = get_base_url_from_request(
++                request,
++                default_host=settings.host,
++                default_port=settings.port
++            )
++        else:
++            # Fallback to default with protocol detection
++            # Default to http for backward compatibility
++            self._base_url = f"http://{settings.host}:{settings.port}"
++
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()
+@@ -162,166 +176,92 @@ class SSETransport(Transport):
+         Args:
+             message: Message to send
+ 
+-        Raises:
+-            RuntimeError: If transport is not connected
+-            Exception: If unable to put message to queue
+-
+         Examples:
+-            >>> # Test sending message when connected
++            >>> # Test message sending
+             >>> transport = SSETransport()
+             >>> import asyncio
+             >>> asyncio.run(transport.connect())
+-            >>> message = {"jsonrpc": "2.0", "method": "test", "id": 1}
+-            >>> asyncio.run(transport.send_message(message))
+-            >>> transport._message_queue.qsize()
+-            1
+-
+-            >>> # Test sending message when not connected
+-            >>> transport = SSETransport()
+-            >>> try:
+-            ...     asyncio.run(transport.send_message({"test": "message"}))
+-            ... except RuntimeError as e:
+-            ...     print("Expected error:", str(e))
+-            Expected error: Transport not connected
+-
+-            >>> # Test message format validation
+-            >>> transport = SSETransport()
+-            >>> asyncio.run(transport.connect())
+-            >>> valid_message = {"jsonrpc": "2.0", "method": "initialize", "params": {}}
+-            >>> isinstance(valid_message, dict)
+-            True
+-            >>> "jsonrpc" in valid_message
++            >>> asyncio.run(transport.send_message({"type": "test", "data": "hello"}))
++            >>> asyncio.run(transport.is_connected())
+             True
+-
+-            >>> # Test exception handling in queue put
+-            >>> transport = SSETransport()
+-            >>> asyncio.run(transport.connect())
+-            >>> # Create a full queue to trigger exception
+-            >>> transport._message_queue = asyncio.Queue(maxsize=1)
+-            >>> asyncio.run(transport._message_queue.put({"dummy": "message"}))
+-            >>> # Now queue is full, next put should fail
+-            >>> try:
+-            ...     asyncio.run(asyncio.wait_for(transport.send_message({"test": "message"}), timeout=0.1))
+-            ... except asyncio.TimeoutError:
+-            ...     print("Queue full as expected")
+-            Queue full as expected
+         """
+         if not self._connected:
++            logger.warning(f"Cannot send message - transport not connected: {self._session_id}")
+             raise RuntimeError("Transport not connected")
+ 
+         try:
+             await self._message_queue.put(message)
+-            logger.debug(f"Message queued for SSE: {self._session_id}, method={message.get('method', '(response)')}")
++            logger.debug(f"Message queued for SSE transport: {self._session_id}")
+         except Exception as e:
+             logger.error(f"Failed to queue message: {e}")
+             raise
+ 
+     async def receive_message(self) -> AsyncGenerator[Dict[str, Any], None]:
+-        """Receive messages from the client over SSE transport.
+-
+-        This method implements a continuous message-receiving pattern for SSE transport.
+-        Since SSE is primarily a server-to-client communication channel, this method
+-        yields an initial initialize placeholder message and then enters a waiting loop.
+-        The actual client messages are received via a separate HTTP POST endpoint
+-        (not handled in this method).
+-
+-        The method will continue running until either:
+-        1. The connection is explicitly disconnected (client_gone event is set)
+-        2. The receive loop is cancelled from outside
++        """Receive messages from SSE as an async generator.
+ 
+         Yields:
+-            Dict[str, Any]: JSON-RPC formatted messages. The first yielded message is always
+-                an initialize placeholder with the format:
+-                {"jsonrpc": "2.0", "method": "initialize", "id": 1}
+-
+-        Raises:
+-            RuntimeError: If the transport is not connected when this method is called
+-            asyncio.CancelledError: When the SSE receive loop is cancelled externally
++            Dict[str, Any]: Received messages
+ 
+         Examples:
+-            >>> # Test receive message when connected
++            >>> # Test message receiving
+             >>> transport = SSETransport()
+             >>> import asyncio
+             >>> asyncio.run(transport.connect())
+-            >>> async def test_receive():
+-            ...     async for msg in transport.receive_message():
+-            ...         return msg
+-            ...     return None
+-            >>> result = asyncio.run(test_receive())
+-            >>> result
+-            {'jsonrpc': '2.0', 'method': 'initialize', 'id': 1}
+-
+-            >>> # Test receive message when not connected
+-            >>> transport = SSETransport()
+-            >>> try:
+-            ...     async def test_receive():
+-            ...         async for msg in transport.receive_message():
+-            ...             pass
+-            ...     asyncio.run(test_receive())
+-            ... except RuntimeError as e:
+-            ...     print("Expected error:", str(e))
+-            Expected error: Transport not connected
+-
+-            >>> # Verify generator behavior
+-            >>> transport = SSETransport()
+-            >>> import inspect
+-            >>> inspect.isasyncgenfunction(transport.receive_message)
+-            True
++            >>> asyncio.run(transport.send_message({"type": "test", "data": "hello"}))
++            >>> async for message in transport.receive_message():
++            ...     print(message)
++            ...     break
+         """
+         if not self._connected:
++            logger.warning(f"Cannot receive message - transport not connected: {self._session_id}")
+             raise RuntimeError("Transport not connected")
+ 
+-        # For SSE, we set up a loop to wait for messages which are delivered via POST
+-        # Most messages come via the POST endpoint, but we yield an initial initialize placeholder
+-        # to keep the receive loop running
+-        yield {"jsonrpc": "2.0", "method": "initialize", "id": 1}
+-
+-        # Continue waiting for cancellation
+         try:
++            # Yield initialize message first
++            yield {"jsonrpc": "2.0", "method": "initialize"}
++
+             while not self._client_gone.is_set():
+-                await asyncio.sleep(1.0)
++                await asyncio.sleep(0.1)  # Small sleep to allow cancellation
++
++                try:
++                    # Wait for messages with a timeout
++                    message = await asyncio.wait_for(self._message_queue.get(), timeout=30.0)
++                    yield message
++                except asyncio.TimeoutError:
++                    # Continue loop to check client_gone
++                    continue
+         except asyncio.CancelledError:
+-            logger.info(f"SSE receive loop cancelled for session {self._session_id}")
++            logger.info(f"SSE receive loop cancelled: {self._session_id}")
+             raise
+         finally:
+-            logger.info(f"SSE receive loop ended for session {self._session_id}")
++            logger.info(f"SSE receive loop ended: {self._session_id}")
+ 
+     async def is_connected(self) -> bool:
+         """Check if transport is connected.
+ 
+         Returns:
+-            True if connected
++            bool: True if connected
+ 
+         Examples:
+-            >>> # Test initial state
++            >>> # Test connection check
+             >>> transport = SSETransport()
+             >>> import asyncio
+             >>> asyncio.run(transport.is_connected())
+             False
+-
+-            >>> # Test after connection
+-            >>> transport = SSETransport()
+             >>> asyncio.run(transport.connect())
+             >>> asyncio.run(transport.is_connected())
+             True
+-
+-            >>> # Test after disconnection
+-            >>> transport = SSETransport()
+-            >>> asyncio.run(transport.connect())
+-            >>> asyncio.run(transport.disconnect())
+-            >>> asyncio.run(transport.is_connected())
+-            False
+         """
+         return self._connected
+ 
+-    async def create_sse_response(self, _request: Request) -> EventSourceResponse:
+-        """Create SSE response for streaming.
++    def create_sse_response(self, request: Request) -> EventSourceResponse:
++        """Create SSE response for the given request.
+ 
+         Args:
+-            _request: FastAPI request
++            request: FastAPI Request object
+ 
+         Returns:
+-            SSE response object
++            EventSourceResponse: SSE response
+ 
+         Examples:
+             >>> # Test SSE response creation

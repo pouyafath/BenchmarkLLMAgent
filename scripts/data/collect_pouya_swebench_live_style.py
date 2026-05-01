@@ -50,23 +50,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 OUT_DIR = ROOT / "data" / "samples" / "pouya_swebench_live_style_50"
 PROGRESS_FILE = OUT_DIR / "_collection_progress.json"
 CLONE_BASE = Path(tempfile.gettempdir()) / "pouya_swebench_clones"
-
-# GitHub API tokens (round-robin)
-TOKENS = [
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-    "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",
-]
+DEFAULT_TOKENS_FILE = ROOT / "tokens.txt"
 
 # SWE-bench-Live criteria
 MIN_STARS = 1000
@@ -82,6 +66,19 @@ FIX_PATTERNS = [
 
 # Test file patterns
 TEST_FILE_PATTERNS = re.compile(r"(?:^|/)tests?[/_]|test_[^/]*\.py$|_test\.py$", re.IGNORECASE)
+
+
+def load_tokens(tokens_file: Path = DEFAULT_TOKENS_FILE) -> list[str]:
+    if tokens_file.exists():
+        tokens = [line.strip() for line in tokens_file.read_text().splitlines() if line.strip()]
+        if tokens:
+            return tokens
+    env_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if env_token:
+        return [env_token]
+    raise RuntimeError(
+        f"No GitHub token source found. Expected {tokens_file} or GITHUB_TOKEN / GH_TOKEN."
+    )
 
 # ── GitHub API client with token rotation ──────────────────────────────────
 
@@ -719,7 +716,7 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    api = GitHubAPI(TOKENS)
+    api = GitHubAPI(load_tokens())
 
     # Load SWE-bench-Live IDs to avoid overlap
     print("Loading SWE-bench-Live instance IDs...")

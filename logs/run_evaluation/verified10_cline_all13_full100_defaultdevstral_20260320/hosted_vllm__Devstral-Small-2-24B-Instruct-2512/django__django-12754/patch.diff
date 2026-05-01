@@ -1,0 +1,94 @@
+diff --git a/django/db/migrations/autodetector.py b/django/db/migrations/autodetector.py
+index 30616c0172..24a551f586 100644
+--- a/django/db/migrations/autodetector.py
++++ b/django/db/migrations/autodetector.py
+@@ -352,6 +352,21 @@ class MigrationAutodetector:
+                             if self.check_dependency(op2, dep):
+                                 dependency_graph[op].add(op2)
+ 
++            # Add additional dependencies for field moves to subclasses
++            for op in ops:
++                if isinstance(op, operations.RemoveField):
++                    # Check if any CreateModel operations create models that inherit from
++                    # the model that's losing the field
++                    for op2 in ops:
++                        if isinstance(op2, operations.CreateModel):
++                            for base in op2.bases:
++                                if isinstance(base, str) and "." in base:
++                                    base_app_label, base_name = base.split(".", 1)
++                                    if (base_app_label, base_name.lower()) == (app_label, op.model_name_lower):
++                                        # This CreateModel creates a subclass of the model losing the field
++                                        # So the RemoveField should come before the CreateModel in execution order
++                                        dependency_graph[op2].add(op)
++
+             # we use a stable sort for deterministic tests & general behavior
+             self.generated_operations[app_label] = stable_topological_sort(ops, dependency_graph)
+ 
+@@ -398,11 +413,24 @@ class MigrationAutodetector:
+             )
+         # Removed field
+         elif dependency[2] is not None and dependency[3] is False:
+-            return (
++            # Check if this is a RemoveField operation matching the dependency
++            remove_field_match = (
+                 isinstance(operation, operations.RemoveField) and
+                 operation.model_name_lower == dependency[1].lower() and
+                 operation.name_lower == dependency[2].lower()
+             )
++            # Also check if a CreateModel operation creates a model that inherits
++            # from the model that's losing the field - in that case, the RemoveField
++            # should depend on the CreateModel to avoid field clashes
++            if isinstance(operation, operations.CreateModel):
++                for base in operation.bases:
++                    if isinstance(base, str) and "." in base:
++                        base_app_label, base_name = base.split(".", 1)
++                        if (base_app_label, base_name.lower()) == (dependency[0], dependency[1].lower()):
++                            # This CreateModel creates a subclass of the model losing the field
++                            # So the RemoveField should depend on this CreateModel
++                            return True
++            return remove_field_match
+         # Removed model
+         elif dependency[2] is None and dependency[3] is False:
+             return (
+@@ -888,19 +916,34 @@ class MigrationAutodetector:
+             self._generate_removed_field(app_label, model_name, field_name)
+ 
+     def _generate_removed_field(self, app_label, model_name, field_name):
++        dependencies = [
++            (app_label, model_name, field_name, "order_wrt_unset"),
++            (app_label, model_name, field_name, "foo_together_change"),
++        ]
++        # Check if any newly created models inherit from this model.
++        # If so, we need to depend on those models being created first
++        # to avoid field clashes when the field is moved to a subclass.
++        model_key = (app_label, model_name)
++        for new_app_label, new_model_name in self.new_model_keys:
++            if (new_app_label, new_model_name) in self.generated_operations:
++                for op in self.generated_operations[new_app_label, new_model_name]:
++                    if isinstance(op, operations.CreateModel):
++                        # Check if this new model inherits from the model losing the field
++                        for base in op.bases:
++                            if isinstance(base, str) and "." in base:
++                                base_app_label, base_name = base.split(".", 1)
++                                if (base_app_label, base_name) == model_key:
++                                    # Add dependency on this CreateModel operation
++                                    dependencies.append((new_app_label, new_model_name, None, True))
++                                    break
++
+         self.add_operation(
+             app_label,
+             operations.RemoveField(
+                 model_name=model_name,
+                 name=field_name,
+             ),
+-            # We might need to depend on the removal of an
+-            # order_with_respect_to or index/unique_together operation;
+-            # this is safely ignored if there isn't one
+-            dependencies=[
+-                (app_label, model_name, field_name, "order_wrt_unset"),
+-                (app_label, model_name, field_name, "foo_together_change"),
+-            ],
++            dependencies=dependencies,
+         )
+ 
+     def generate_altered_fields(self):

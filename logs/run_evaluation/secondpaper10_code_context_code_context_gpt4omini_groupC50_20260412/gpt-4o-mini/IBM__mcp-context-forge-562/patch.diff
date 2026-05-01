@@ -1,0 +1,37 @@
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..503e25e7 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -726,3 +726,9 @@ class DiscoveryService(LocalDiscoveryService):
+         """
+         api_key = f"{settings.basic_auth_user}:{settings.basic_auth_password}"
+         return {"Authorization": f"Basic {api_key}", "X-API-Key": api_key}
++
++    def get_protocol_from_request(self, request):
++        forwarded_proto = request.headers.get("X-Forwarded-Proto")
++        if forwarded_proto:
++            return forwarded_proto
++        return "https" if request.url.scheme == "https" else "http"
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..956b22e7 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -105,7 +105,7 @@ class SSETransport(Transport):
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        self._base_url = base_url or f"{self.get_protocol_from_request(request)}://{settings.host}:{settings.port}"
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()
+@@ -458,3 +458,9 @@ class SSETransport(Transport):
+             True
+         """
+         return self._session_id
++
++    def get_protocol_from_request(self, request):
++        forwarded_proto = request.headers.get("X-Forwarded-Proto")
++        if forwarded_proto:
++            return forwarded_proto
++        return "https" if request.url.scheme == "https" else "http"

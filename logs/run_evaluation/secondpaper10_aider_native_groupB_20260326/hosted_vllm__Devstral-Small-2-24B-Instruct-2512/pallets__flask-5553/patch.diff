@@ -1,0 +1,58 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..6ed2432b 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -184,6 +184,7 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL": None,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -451,7 +452,16 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        # Use CANONICAL_URL for URL generation if available,
++        # otherwise fall back to SERVER_NAME for backward compatibility
++        canonical_url = self.config.get("CANONICAL_URL")
++        if canonical_url is not None:
++            return self.url_map.bind(
++                canonical_url,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=self.config["PREFERRED_URL_SCHEME"],
++            )
++        elif self.config["SERVER_NAME"] is not None:
+             return self.url_map.bind(
+                 self.config["SERVER_NAME"],
+                 script_name=self.config["APPLICATION_ROOT"],
+@@ -1010,9 +1020,11 @@ class Flask(App):
+         In some cases, such as email messages, you want URLs to include
+         the scheme and domain, like ``https://example.com/hello``. When
+         not in an active request, URLs will be external by default, but
+-        this requires setting :data:`SERVER_NAME` so Flask knows what
+-        domain to use. :data:`APPLICATION_ROOT` and
+-        :data:`PREFERRED_URL_SCHEME` should also be configured as
++        this requires setting either :data:`CANONICAL_URL` or
++        :data:`SERVER_NAME` so Flask knows what domain to use.
++        :data:`CANONICAL_URL` is preferred for URL generation as it
++        separates URL generation from routing. :data:`APPLICATION_ROOT`
++        and :data:`PREFERRED_URL_SCHEME` should also be configured as
+         needed. This config is only used when not in an active request.
+ 
+         Functions can be decorated with :meth:`url_defaults` to modify
+@@ -1074,9 +1086,9 @@ class Flask(App):
+             if url_adapter is None:
+                 raise RuntimeError(
+                     "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
+-                    " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+-                    " needed."
++                    " without 'CANONICAL_URL' or 'SERVER_NAME' configured."
++                    " Also configure 'APPLICATION_ROOT' and"
++                    " 'PREFERRED_URL_SCHEME' as needed."
+                 )
+ 
+             # When outside a request, generate a URL with scheme and

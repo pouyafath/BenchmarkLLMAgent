@@ -1,0 +1,25 @@
+diff --git a/src/cfnlint/template/transforms/_language_extensions.py b/src/cfnlint/template/transforms/_language_extensions.py
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@ -1,5 +1,16 @@
+-    def items(self, cfn):
+-        """Yield each value for the foreach."""
+-        values = self._resolve_values(cfn)
+-        for value in values:
+-            yield value
++    def items(self, cfn):
++        """Yield each value for the foreach.
++
++        An empty ``values`` list should result in no iteration rather than
++        raising an error.  Previously the implementation attempted to iterate
++        over the resolved values without checking for emptiness, which caused
++        a ``_ResolveError`` to be raised when the list was empty.  By returning
++        an empty iterator when ``values`` is empty we allow the transform to
++        simply remove the ``Fn::ForEach`` construct without error.
++        """
++        values = self._resolve_values(cfn)
++        # If the resolved values list is empty, simply return an empty iterator.
++        if not values:
++            return []
++        for value in values:
++            yield value

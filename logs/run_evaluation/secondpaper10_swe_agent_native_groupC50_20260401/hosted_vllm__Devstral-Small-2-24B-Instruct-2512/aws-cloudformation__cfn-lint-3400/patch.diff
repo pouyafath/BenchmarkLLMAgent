@@ -1,0 +1,90 @@
+diff --git a/src/cfnlint/rules/functions/SubNotJoin.py b/src/cfnlint/rules/functions/SubNotJoin.py
+index 135d1507b..7c4b2f6cc 100644
+--- a/src/cfnlint/rules/functions/SubNotJoin.py
++++ b/src/cfnlint/rules/functions/SubNotJoin.py
+@@ -10,7 +10,6 @@ from cfnlint.jsonschema import ValidationError, ValidationResult
+ from cfnlint.jsonschema.protocols import Validator
+ from cfnlint.rules import CloudFormationLintRule
+ 
+-
+ class SubNotJoin(CloudFormationLintRule):
+     """Check if Join is being used with no join characters"""
+ 
+@@ -22,23 +21,60 @@ class SubNotJoin(CloudFormationLintRule):
+     source_url = "https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-sub.html"
+     tags = ["functions", "sub", "join"]
+ 
++    # Pseudo-parameters that are commonly used in Fn::Join
++    PSEUDO_PARAMETERS = {
++        "AWS::AccountId",
++        "AWS::Partition",
++        "AWS::Region",
++        "AWS::StackId",
++        "AWS::StackName",
++        "AWS::URLSuffix",
++    }
++
+     def _check_element(self, element):
++        # String elements are always valid (but may trigger the warning)
++        if isinstance(element, str):
++            return True
++
++        # Dictionary elements should be CloudFormation functions
+         if isinstance(element, dict):
+             if len(element) == 1:
+                 for key, value in element.items():
+-                    if key in ["Fn::Sub"]:
+-                        if not isinstance(value, str):
+-                            return False
+-                    elif key not in ["Ref", "Fn::GetAtt"]:
+-                        return False
+-
+-        return True
++                    if key in ["Ref", "Fn::GetAtt"]:
++                        # Check if this is a Ref to a pseudo-parameter
++                        if key == "Ref" and value in self.PSEUDO_PARAMETERS:
++                            # Allow Ref to pseudo-parameters (common in CDK)
++                            return True
++                        # For other Ref/Fn::GetAtt, check if it's mixed with strings
++                        # In CDK patterns, this is often valid and shouldn't be flagged
++                        return True
++                    elif key == "Fn::Sub":
++                        # Fn::Sub is always valid
++                        return True
++                    elif key == "Fn::Join":
++                        # Recursively check nested Fn::Join
++                        if isinstance(value, list) and len(value) >= 2:
++                            delimiter = value[0]
++                            elements = value[1]
++                            if delimiter == "":
++                                # Check if all nested elements are valid
++                                return self._check_elements(elements)
++                            # For non-empty delimiters, allow any elements
++                            return True
++        return False
+ 
+     def _check_elements(self, elements):
++        # Check if all elements are strings (no CloudFormation functions)
++        all_strings = all(isinstance(element, str) for element in elements)
++
++        # If all elements are strings, this can be converted to Fn::Sub
++        if all_strings:
++            return False
++
++        # If there are any CloudFormation functions, check if they're valid
+         for element in elements:
+             if not self._check_element(element):
+                 return False
+-
+         return True
+ 
+     def validate(
+@@ -50,7 +86,7 @@ class SubNotJoin(CloudFormationLintRule):
+         if value[0] != "":
+             return
+ 
+-        if self._check_elements(value[1]):
++        if not self._check_elements(value[1]):
+             yield ValidationError(
+                 ("Prefer using Fn::Sub over Fn::Join with an" " empty delimiter"),
+                 path=deque([key, 0]),

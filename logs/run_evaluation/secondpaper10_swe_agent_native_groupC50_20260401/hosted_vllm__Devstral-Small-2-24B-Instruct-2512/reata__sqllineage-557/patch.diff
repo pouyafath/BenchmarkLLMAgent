@@ -1,0 +1,96 @@
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+index 7610bac..4ea6ad6 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/create_insert.py
+@@ -11,7 +11,6 @@ from sqllineage.core.parser.sqlfluff.utils import (
+ from sqllineage.utils.entities import AnalyzerContext
+ from sqllineage.utils.helpers import escape_identifier_name
+ 
+-
+ class CreateInsertExtractor(BaseExtractor):
+     """
+     Create statement and Insert statement lineage extractor
+@@ -115,8 +114,83 @@ class CreateInsertExtractor(BaseExtractor):
+                 if segment.type in ["table_reference", "object_reference"]:
+                     holder.add_read(SqlFluffTable.of(segment))
+                 src_flag = False
++
++        # Enhancement: Use target table metadata for column name mapping
++        # When no explicit column list is provided, map source columns to actual target table columns
++        self._map_columns_to_target_table(holder)
++
+         return holder
+ 
++    def _map_columns_to_target_table(self, holder: SubQueryLineageHolder) -> None:
++        """
++        Map source columns to actual target table columns using metadata provider.
++        This is used when INSERT/CREATE statements don't explicitly specify column names.
++        """
++        if not self.metadata_provider:
++            return
++
++        # Get target table
++        write_tables = list(holder.write)
++        if not write_tables:
++            return
++
++        # Only handle Table objects (not Path or SubQuery)
++        target_table = write_tables[0]
++        if not hasattr(target_table, 'schema') or not hasattr(target_table, 'raw_name'):
++            return
++
++        # Get actual target table columns from metadata
++        try:
++            target_columns = self.metadata_provider.get_table_columns(target_table)
++        except Exception:
++            # If metadata lookup fails, fall back to current behavior
++            return
++
++        if not target_columns:
++            return
++
++        # Get source columns from the holder - columns that have target_table as parent
++        source_columns = []
++        for node in holder.graph.nodes():
++            if hasattr(node, 'parent') and node.parent == target_table:
++                source_columns.append(node)
++
++        # Check if we need to remap columns
++        # We need to remap if:
++        # 1. We have source columns (columns with target_table as parent)
++        # 2. The write_columns exist but their names match the source column names
++        #    (indicating they were inferred from SELECT rather than explicitly specified)
++        if source_columns and holder.write_columns:
++            # Check if write_columns match source column names (inferred vs explicit)
++            write_col_names = {col.raw_name for col in holder.write_columns}
++            source_col_names = {col.raw_name for col in source_columns}
++
++            if write_col_names == source_col_names:
++                # Map source columns to target columns by position
++                for i, (src_col, tgt_col) in enumerate(zip(source_columns, target_columns)):
++                    if i < len(source_columns) and i < len(target_columns):
++                        # Find the source column (from source table) that maps to the current source column
++                        # The edge should be: source_column -> current_source_column
++                        source_edges = [(u, v) for u, v, attr in holder.graph.edges(data=True)
++                                       if v == src_col and hasattr(u, 'parent') and u.parent != target_table]
++
++                        if source_edges:
++                            source_edge = source_edges[0]
++
++                            # Create a new target column with the correct name
++                            from sqllineage.core.models import Column
++                            correct_tgt_col = Column(tgt_col.raw_name)
++                            correct_tgt_col.parent = target_table
++
++                            # Remove the old edges and add the correct ones
++                            holder.graph.remove_edge(source_edge[0], source_edge[1])
++                            holder.graph.add_edge(source_edge[0], correct_tgt_col)
++
++                            # Remove HAS_COLUMN edge if it exists
++                            if holder.graph.has_edge(target_table, src_col):
++                                holder.graph.remove_edge(target_table, src_col)
++                            holder.graph.add_edge(target_table, correct_tgt_col)
++
+     def delegate_to_cte(
+         self, segment: BaseSegment, holder: SubQueryLineageHolder
+     ) -> SubQueryLineageHolder:

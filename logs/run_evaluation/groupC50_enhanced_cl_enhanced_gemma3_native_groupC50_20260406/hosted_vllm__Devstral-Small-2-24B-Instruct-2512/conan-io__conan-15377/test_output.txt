@@ -1,0 +1,570 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch develop2
+Your branch is behind 'origin/develop2' by 920 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   conan/tools/scm/git.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit c361744fa45be644670a8bf476d2bafccafe7f16
+Author: James <james@conan.io>
+Date:   Tue Jan 23 14:27:33 2024 +0100
+
+    proposal for testing python_requires explicitly (#15485)
+    
+    * proposal for testing python_requires explicitly
+    
+    * improves
+    
+    * warning
+    
+    * review
+
+diff --git a/conan/cli/commands/create.py b/conan/cli/commands/create.py
+index a81d99ce2..3e08b77c8 100644
+--- a/conan/cli/commands/create.py
++++ b/conan/cli/commands/create.py
+@@ -9,7 +9,7 @@ from conan.cli.formatters.graph import format_graph_json
+ from conan.cli.printers import print_profiles
+ from conan.cli.printers.graph import print_graph_packages, print_graph_basic
+ from conan.errors import ConanException
+-from conans.util.files import mkdir
++from conans.util.files import mkdir, load
+ 
+ 
+ @conan_command(group="Creator", formatters={"json": format_graph_json})
+@@ -98,7 +98,9 @@ def create(conan_api, parser, *args):
+     if test_conanfile_path:
+         # TODO: We need arguments for:
+         #  - decide update policy "--test_package_update"
+-        tested_python_requires = ref.repr_notime() if is_python_require else None
++        # If it is a string, it will be injected always, if it is a RecipeReference, then it will
++        # be replaced only if ``python_requires = "tested_reference_str"``
++        tested_python_requires = ref.repr_notime() if is_python_require else ref
+         from conan.cli.commands.test import run_test
+         # The test_package do not make the "conan create" command return a different graph or
+         # produce a different lockfile. The result is always the same, irrespective of test_package
+@@ -124,16 +126,16 @@ def _check_tested_reference_matches(deps_graph, tested_ref, out):
+                     "tested is '{}'".format(missmatch[0], tested_ref))
+ 
+ 
+-def test_package(conan_api, deps_graph, test_conanfile_path, tested_python_requires=None):
++def test_package(conan_api, deps_graph, test_conanfile_path):
+     out = ConanOutput()
+     out.title("Testing the package")
+     # TODO: Better modeling when we are testing a python_requires
+-    if len(deps_graph.nodes) == 1 and not tested_python_requires:
++    conanfile = deps_graph.root.conanfile
++    if len(deps_graph.nodes) == 1 and not hasattr(conanfile, "python_requires"):
+         raise ConanException("The conanfile at '{}' doesn't declare any requirement, "
+                              "use `self.tested_reference_str` to require the "
+                              "package being created.".format(test_conanfile_path))
+     conanfile_folder = os.path.dirname(test_conanfile_path)
+-    conanfile = deps_graph.root.conanfile
+     # To make sure the folders are correct
+     conanfile.folders.set_base_folders(conanfile_folder, output_folder=None)
+     if conanfile.build_folder and conanfile.build_folder != conanfile.source_folder:
+diff --git a/conan/cli/commands/test.py b/conan/cli/commands/test.py
+index d8f2093fb..eda4ebafc 100644
+--- a/conan/cli/commands/test.py
++++ b/conan/cli/commands/test.py
+@@ -38,7 +38,7 @@ def test(conan_api, parser, *args):
+     print_profiles(profile_host, profile_build)
+ 
+     deps_graph = run_test(conan_api, path, ref, profile_host, profile_build, remotes, lockfile,
+-                          args.update, build_modes=args.build)
++                          args.update, build_modes=args.build, tested_python_requires=ref)
+     lockfile = conan_api.lockfile.update_lockfile(lockfile, deps_graph, args.lockfile_packages,
+                                                   clean=args.lockfile_clean)
+     conan_api.lockfile.save_lockfile(lockfile, args.lockfile_out, cwd)
+@@ -55,6 +55,11 @@ def run_test(conan_api, path, ref, profile_host, profile_build, remotes, lockfil
+                                                          update=update,
+                                                          lockfile=lockfile,
+                                                          tested_python_requires=tested_python_requires)
++    if isinstance(tested_python_requires, str):  # create python-require
++        conanfile = root_node.conanfile
++        if not getattr(conanfile, "python_requires", None) == "tested_reference_str":
++            ConanOutput().warning("test_package/conanfile.py should declare 'python_requires"
++                                  " = \"tested_reference_str\"'", warn_tag="deprecated")
+ 
+     out = ConanOutput()
+     out.title("Launching test_package")
+@@ -74,5 +79,5 @@ def run_test(conan_api, path, ref, profile_host, profile_build, remotes, lockfil
+ 
+     conan_api.install.install_binaries(deps_graph=deps_graph, remotes=remotes)
+     _check_tested_reference_matches(deps_graph, ref, out)
+-    test_package(conan_api, deps_graph, path, tested_python_requires)
++    test_package(conan_api, deps_graph, path)
+     return deps_graph
+diff --git a/conans/client/loader.py b/conans/client/loader.py
+index 28be532d3..66086f711 100644
+--- a/conans/client/loader.py
++++ b/conans/client/loader.py
+@@ -54,7 +54,10 @@ class ConanFileLoader:
+ 
+         try:
+             module, conanfile = _parse_conanfile(conanfile_path)
+-            if tested_python_requires:
++            if isinstance(tested_python_requires, RecipeReference):
++                if getattr(conanfile, "python_requires", None) == "tested_reference_str":
++                    conanfile.python_requires = tested_python_requires.repr_notime()
++            elif tested_python_requires:
+                 conanfile.python_requires = tested_python_requires
+ 
+             if self._pyreq_loader:
+diff --git a/conans/test/integration/py_requires/python_requires_test.py b/conans/test/integration/py_requires/python_requires_test.py
+index ef86ee117..9b2342bef 100644
+--- a/conans/test/integration/py_requires/python_requires_test.py
++++ b/conans/test/integration/py_requires/python_requires_test.py
+@@ -1013,6 +1013,7 @@ class TestTestPackagePythonRequire:
+             from conan import ConanFile
+ 
+             class Tool(ConanFile):
++                python_requires = "tested_reference_str"
+                 def test(self):
+                     self.output.info("{}!!!".format(self.python_requires["common"].module.mycommon()))
+             """)
+@@ -1021,6 +1022,9 @@ class TestTestPackagePythonRequire:
+         c.run("create .")
+         assert "common/0.1 (test package): 42!!!" in c.out
+ 
++        c.run("test test_package common/0.1")
++        assert "common/0.1 (test package): 42!!!" in c.out
++
+     def test_test_package_python_requires_configs(self):
+         """ test how to test_package a python_require with various configurations
+         """
+@@ -1048,6 +1052,7 @@ class TestTestPackagePythonRequire:
+                 "test_package/conanfile.py": test})
+         c.run("create . ")
+         assert "common/0.1 (test package): RELEASEOK!!!" in c.out
++        assert "WARN: deprecated: test_package/conanfile.py should declare 'python_requires" in c.out
+         c.run("create . -s build_type=Debug")
+         assert "common/0.1 (test package): DEBUGOK!!!" in c.out
+ 
++ git -c core.fileMode=false diff c361744fa45be644670a8bf476d2bafccafe7f16
+diff --git a/conan/tools/scm/git.py b/conan/tools/scm/git.py
+index 77d0e6dbb..066ff0c05 100644
+--- a/conan/tools/scm/git.py
++++ b/conan/tools/scm/git.py
+@@ -237,3 +237,17 @@ class Git:
+         files = self.run("ls-files --full-name --others --cached --exclude-standard")
+         files = files.splitlines()
+         return files
++
++    def populate_scm_conandata(self, remote="origin", repository=False):
++        """
++        Populates the ``conandata.yml`` file with SCM information (commit hash and URL).
++        This provides a standardized, one-liner alternative to manually calling
++        ``get_url_and_commit()`` and ``update_conandata()``.
++
++        :param remote: Name of the remote git repository ('origin' by default).
++        :param repository: By default gets the commit of the defined folder, use repo=True to get
++                     the commit of the repository instead.
++        """
++        from conan.tools.files import update_conandata
++        scm_url, scm_commit = self.get_url_and_commit(remote=remote, repository=repository)
++        update_conandata(self._conanfile, {"scm": {"commit": scm_commit, "url": scm_url}})
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-bhdboi1y/conan.egg-info
+  writing /tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.md'
+  writing manifest file '/tmp/pip-modern-metadata-bhdboi1y/conan.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-bhdboi1y/conan.dist-info'
+  /usr/local/lib/python3.8/site-packages/setuptools/dist.py:484: UserWarning: Normalizing '2.1.0-dev' to '2.1.0.dev0'
+    warnings.warn(tmpl.format(**locals()))
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: requests<3.0.0,>=2.25 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (2.31.0)
+Requirement already satisfied: urllib3<1.27,>=1.26.6 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (1.26.18)
+Requirement already satisfied: colorama<0.5.0,>=0.4.3 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (0.4.6)
+Requirement already satisfied: PyYAML<7.0,>=6.0 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (6.0.1)
+Requirement already satisfied: patch-ng<1.18,>=1.17.4 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (1.17.4)
+Requirement already satisfied: fasteners>=0.15 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (0.19)
+Requirement already satisfied: Jinja2<4.0.0,>=3.0 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (3.1.2)
+Requirement already satisfied: python-dateutil<3,>=2.8.0 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (2.8.2)
+Requirement already satisfied: distro<=1.8.0,>=1.4.0 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (1.8.0)
+Requirement already satisfied: pytest<7.0.0,>=6.1.1 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (6.2.5)
+Requirement already satisfied: pytest-xdist in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (3.5.0)
+Requirement already satisfied: parameterized>=0.6.3 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (0.9.0)
+Requirement already satisfied: mock<1.4.0,>=1.3.0 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (1.3.0)
+Requirement already satisfied: WebTest<2.1.0,>=2.0.18 in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (2.0.35)
+Requirement already satisfied: bottle in /usr/local/lib/python3.8/site-packages (from conan==2.1.0.dev0) (0.12.25)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.8/site-packages (from Jinja2<4.0.0,>=3.0->conan==2.1.0.dev0) (2.1.3)
+Requirement already satisfied: pbr>=0.11 in /usr/local/lib/python3.8/site-packages (from mock<1.4.0,>=1.3.0->conan==2.1.0.dev0) (6.0.0)
+Requirement already satisfied: six>=1.7 in /usr/local/lib/python3.8/site-packages (from mock<1.4.0,>=1.3.0->conan==2.1.0.dev0) (1.16.0)
+Requirement already satisfied: attrs>=19.2.0 in /usr/local/lib/python3.8/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (23.2.0)
+Requirement already satisfied: iniconfig in /usr/local/lib/python3.8/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (2.0.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.8/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (23.2)
+Requirement already satisfied: pluggy<2.0,>=0.12 in /usr/local/lib/python3.8/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (1.3.0)
+Requirement already satisfied: py>=1.8.2 in /usr/local/lib/python3.8/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (1.11.0)
+Requirement already satisfied: toml in /usr/local/lib/python3.8/site-packages (from pytest<7.0.0,>=6.1.1->conan==2.1.0.dev0) (0.10.2)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.8/site-packages (from requests<3.0.0,>=2.25->conan==2.1.0.dev0) (3.3.2)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.8/site-packages (from requests<3.0.0,>=2.25->conan==2.1.0.dev0) (3.6)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.8/site-packages (from requests<3.0.0,>=2.25->conan==2.1.0.dev0) (2023.11.17)
+Requirement already satisfied: WebOb>=1.2 in /usr/local/lib/python3.8/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (1.8.7)
+Requirement already satisfied: waitress>=0.8.5 in /usr/local/lib/python3.8/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (2.1.2)
+Requirement already satisfied: beautifulsoup4 in /usr/local/lib/python3.8/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (4.12.2)
+Requirement already satisfied: execnet>=1.1 in /usr/local/lib/python3.8/site-packages (from pytest-xdist->conan==2.1.0.dev0) (2.0.2)
+Requirement already satisfied: soupsieve>1.2 in /usr/local/lib/python3.8/site-packages (from beautifulsoup4->WebTest<2.1.0,>=2.0.18->conan==2.1.0.dev0) (2.5)
+Installing collected packages: conan
+  Attempting uninstall: conan
+    Found existing installation: conan 2.1.0.dev0
+    Uninstalling conan-2.1.0.dev0:
+      Removing file or directory /usr/local/bin/conan
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__editable__.conan-2.1.0.dev0.pth
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__editable___conan_2_1_0_dev0_finder.py
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__pycache__/__editable___conan_2_1_0_dev0_finder.cpython-38.pyc
+      Removing file or directory /usr/local/lib/python3.8/site-packages/conan-2.1.0.dev0.dist-info/
+      Successfully uninstalled conan-2.1.0.dev0
+  DEPRECATION: Legacy editable install of conan[test]==2.1.0.dev0 from file:///testbed (setup.py develop) is deprecated. pip 25.1 will enforce this behaviour change. A possible replacement is to add a pyproject.toml or enable --use-pep517, and use setuptools >= 64. If the resulting installation is not behaving as expected, try using --config-settings editable_mode=compat. Please consult the setuptools documentation for more information. Discussion can be found at https://github.com/pypa/pip/issues/11457
+  Running setup.py develop for conan
+    Running command python setup.py develop
+    running develop
+    running egg_info
+    writing conan.egg-info/PKG-INFO
+    writing dependency_links to conan.egg-info/dependency_links.txt
+    writing entry points to conan.egg-info/entry_points.txt
+    writing requirements to conan.egg-info/requires.txt
+    writing top-level names to conan.egg-info/top_level.txt
+    reading manifest file 'conan.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    adding license file 'LICENSE.md'
+    writing manifest file 'conan.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.8/site-packages/conan.egg-link (link to .)
+    Adding conan 2.1.0.dev0 to easy-install.pth file
+    Installing conan script to /usr/local/bin
+
+    Installed /testbed
+    /usr/local/lib/python3.8/site-packages/setuptools/dist.py:484: UserWarning: Normalizing '2.1.0-dev' to '2.1.0.dev0'
+      warnings.warn(tmpl.format(**locals()))
+Successfully installed conan
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout c361744fa45be644670a8bf476d2bafccafe7f16 conans/test/functional/tools/scm/test_git.py
+Updated 0 paths from fbaacbfff
++ git apply -v -
+Checking patch conans/test/functional/tools/scm/test_git.py...
+Applied patch conans/test/functional/tools/scm/test_git.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA conans/test/functional/tools/scm/test_git.py
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-6.2.5, py-1.11.0, pluggy-1.3.0
+rootdir: /testbed, configfile: pytest.ini
+plugins: xdist-3.5.0
+collected 30 items
+
+conans/test/functional/tools/scm/test_git.py .............s...F.F..E.... [ 90%]
+...                                                                      [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestGitMonorepoSCMFlow.test_exports_sources_common_code_layout _
+
+item = <Function test_exports_sources_common_code_layout>
+
+    def pytest_runtest_setup(item):
+        tools_paths = []
+        tools_env_vars = dict()
+        for mark in item.iter_markers():
+            if mark.name.startswith("tool_"):
+                raise Exception("Invalid decorator @pytest.mark.{}".format(mark.name))
+    
+        kwargs = [mark.kwargs for mark in item.iter_markers(name="tool")]
+        if any(kwargs):
+            raise Exception("Invalid decorator @pytest.mark Do not use kwargs: {}".format(kwargs))
+        tools_params = [mark.args for mark in item.iter_markers(name="tool")]
+        for tool_params in tools_params:
+            if len(tool_params) == 1:
+                tool_name = tool_params[0]
+                tool_version = None
+            elif len(tool_params) == 2:
+                tool_name, tool_version = tool_params
+            else:
+                raise Exception("Invalid arguments for mark.tool: {}".format(tool_params))
+    
+            result = _get_tool(tool_name, tool_version)
+            if result is True:
+                version_msg = "Any" if tool_version is None else tool_version
+>               pytest.fail("Required '{}' tool version '{}' is not available".format(tool_name,
+                                                                                      version_msg))
+E               Failed: Required 'cmake' tool version 'Any' is not available
+
+conans/test/conftest.py:374: Failed
+=================================== FAILURES ===================================
+___________________ TestGitBasicSCMFlow.test_full_scm[True] ____________________
+
+self = <conans.test.functional.tools.scm.test_git.TestGitBasicSCMFlow object at 0x7fdedfcd88e0>
+conanfile_scm = True
+
+    @pytest.mark.parametrize("conanfile_scm", [False, True])
+    def test_full_scm(self, conanfile_scm):
+        conanfile = self.conanfile_scm if conanfile_scm else self.conanfile_full
+        folder = os.path.join(temp_folder(), "myrepo")
+        url, commit = create_local_git_repo(files={"conanfile.py": conanfile,
+                                                   "src/myfile.h": "myheader!",
+                                                   "CMakeLists.txt": "mycmake"}, folder=folder)
+    
+        c = TestClient(default_server_user=True)
+        c.run_command('git clone "{}" .'.format(url))
+>       c.run("create .")
+
+conans/test/functional/tools/scm/test_git.py:555: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+conans/test/utils/tools.py:568: in run
+    return self._run_cli(command_line, assert_error=assert_error)
+conans/test/utils/tools.py:542: in _run_cli
+    self._handle_cli_result(command_line, assert_error=assert_error, error=error, trace=trace)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <conans.test.utils.tools.TestClient object at 0x7fdedfc4c070>
+command = 'create .', assert_error = False, error = 1
+trace = 'Traceback (most recent call last):\n  File "/testbed/conans/errors.py", line 52, in conanfile_exception_formatter\n  ...Git(self).coordinates_to_conandata()\n\tAttributeError: \'Git\' object has no attribute \'coordinates_to_conandata\'\n'
+
+    def _handle_cli_result(self, command, assert_error, error, trace=None):
+        if (assert_error and not error) or (not assert_error and error):
+            if assert_error:
+                msg = " Command succeeded (failure expected): "
+            else:
+                msg = " Command failed (unexpectedly): "
+            exc_message = "\n{header}\n{cmd}\n{output_header}\n{output}\n".format(
+                header='{:=^80}'.format(msg),
+                output_header='{:=^80}'.format(" Output: "),
+                cmd=command,
+                output=str(self.stderr) + str(self.stdout) + "\n" + str(self.out)
+            )
+            if trace:
+                exc_message += '{:=^80}'.format(" Traceback: ") + f"\n{trace}"
+>           raise Exception(exc_message)
+E           Exception: 
+E           ======================== Command failed (unexpectedly): ========================
+E           create .
+E           =================================== Output: ====================================
+E           
+E           ======== Exporting recipe to the cache ========
+E           pkg/0.1: Exporting package recipe: /tmp/tmpfrm8b1nbconans/path with spaces/conanfile.py
+E           pkg/0.1: Calling export()
+E           ERROR: pkg/0.1: Error in export() method, line 12
+E           	Git(self).coordinates_to_conandata()
+E           	AttributeError: 'Git' object has no attribute 'coordinates_to_conandata'
+E           
+E           
+E           ================================== Traceback: ==================================
+E           Traceback (most recent call last):
+E             File "/testbed/conans/errors.py", line 52, in conanfile_exception_formatter
+E               yield
+E             File "/testbed/conans/client/cmd/export.py", line 191, in _run_method
+E               export_method()
+E             File "/tmp/tmpfrm8b1nbconans/path with spaces/conanfile.py", line 12, in export
+E               Git(self).coordinates_to_conandata()
+E           AttributeError: 'Git' object has no attribute 'coordinates_to_conandata'
+E           
+E           During handling of the above exception, another exception occurred:
+E           
+E           Traceback (most recent call last):
+E             File "/testbed/conans/test/utils/tools.py", line 531, in _run_cli
+E               command.run(args)
+E             File "/testbed/conan/cli/cli.py", line 191, in run
+E               command.run(self._conan_api, args[0][1:])
+E             File "/testbed/conan/cli/command.py", line 142, in run
+E               info = self._method(conan_api, parser, *args)
+E             File "/testbed/conan/cli/commands/create.py", line 46, in create
+E               ref, conanfile = conan_api.export.export(path=path,
+E             File "/testbed/conan/api/subapi/export.py", line 18, in export
+E               return cmd_export(app, self.conan_api.config.global_conf, path, name, version, user, channel,
+E             File "/testbed/conans/client/cmd/export.py", line 46, in cmd_export
+E               export_recipe(conanfile, export_folder)
+E             File "/testbed/conans/client/cmd/export.py", line 173, in export_recipe
+E               _run_method(conanfile, "export")
+E             File "/testbed/conans/client/cmd/export.py", line 191, in _run_method
+E               export_method()
+E             File "/usr/local/lib/python3.8/contextlib.py", line 131, in __exit__
+E               self.gen.throw(type, value, traceback)
+E             File "/testbed/conans/errors.py", line 65, in conanfile_exception_formatter
+E               _raise_conanfile_exc(exc)
+E             File "/testbed/conans/errors.py", line 49, in _raise_conanfile_exc
+E               raise ConanException(m)
+E           conans.errors.ConanException: pkg/0.1: Error in export() method, line 12
+E           	Git(self).coordinates_to_conandata()
+E           	AttributeError: 'Git' object has no attribute 'coordinates_to_conandata'
+
+conans/test/utils/tools.py:609: Exception
+__________________ TestGitBasicSCMFlow.test_branch_flow[True] __________________
+
+self = <conans.test.functional.tools.scm.test_git.TestGitBasicSCMFlow object at 0x7fdedfb61910>
+conanfile_scm = True
+
+    @pytest.mark.parametrize("conanfile_scm", [False, True])
+    def test_branch_flow(self, conanfile_scm):
+        """ Testing that when a user creates a branch, and pushes a commit,
+        the package can still be built from sources, and get_url_and_commit() captures the
+        remote URL and not the local
+        """
+        conanfile = self.conanfile_scm if conanfile_scm else self.conanfile_full
+        url = git_create_bare_repo()
+        c = TestClient(default_server_user=True)
+        c.run_command('git clone "{}" .'.format(url))
+        c.save({"conanfile.py": conanfile,
+                "src/myfile.h": "myheader!",
+                "CMakeLists.txt": "mycmake"})
+        c.run_command("git checkout -b mybranch")
+        git_add_changes_commit(folder=c.current_folder)
+        c.run_command("git push --set-upstream origin mybranch")
+>       c.run("create .")
+
+conans/test/functional/tools/scm/test_git.py:592: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+conans/test/utils/tools.py:568: in run
+    return self._run_cli(command_line, assert_error=assert_error)
+conans/test/utils/tools.py:542: in _run_cli
+    self._handle_cli_result(command_line, assert_error=assert_error, error=error, trace=trace)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <conans.test.utils.tools.TestClient object at 0x7fdedfb61d30>
+command = 'create .', assert_error = False, error = 1
+trace = 'Traceback (most recent call last):\n  File "/testbed/conans/errors.py", line 52, in conanfile_exception_formatter\n  ...Git(self).coordinates_to_conandata()\n\tAttributeError: \'Git\' object has no attribute \'coordinates_to_conandata\'\n'
+
+    def _handle_cli_result(self, command, assert_error, error, trace=None):
+        if (assert_error and not error) or (not assert_error and error):
+            if assert_error:
+                msg = " Command succeeded (failure expected): "
+            else:
+                msg = " Command failed (unexpectedly): "
+            exc_message = "\n{header}\n{cmd}\n{output_header}\n{output}\n".format(
+                header='{:=^80}'.format(msg),
+                output_header='{:=^80}'.format(" Output: "),
+                cmd=command,
+                output=str(self.stderr) + str(self.stdout) + "\n" + str(self.out)
+            )
+            if trace:
+                exc_message += '{:=^80}'.format(" Traceback: ") + f"\n{trace}"
+>           raise Exception(exc_message)
+E           Exception: 
+E           ======================== Command failed (unexpectedly): ========================
+E           create .
+E           =================================== Output: ====================================
+E           
+E           ======== Exporting recipe to the cache ========
+E           pkg/0.1: Exporting package recipe: /tmp/tmpxkogsivuconans/path with spaces/conanfile.py
+E           pkg/0.1: Calling export()
+E           ERROR: pkg/0.1: Error in export() method, line 12
+E           	Git(self).coordinates_to_conandata()
+E           	AttributeError: 'Git' object has no attribute 'coordinates_to_conandata'
+E           
+E           
+E           ================================== Traceback: ==================================
+E           Traceback (most recent call last):
+E             File "/testbed/conans/errors.py", line 52, in conanfile_exception_formatter
+E               yield
+E             File "/testbed/conans/client/cmd/export.py", line 191, in _run_method
+E               export_method()
+E             File "/tmp/tmpxkogsivuconans/path with spaces/conanfile.py", line 12, in export
+E               Git(self).coordinates_to_conandata()
+E           AttributeError: 'Git' object has no attribute 'coordinates_to_conandata'
+E           
+E           During handling of the above exception, another exception occurred:
+E           
+E           Traceback (most recent call last):
+E             File "/testbed/conans/test/utils/tools.py", line 531, in _run_cli
+E               command.run(args)
+E             File "/testbed/conan/cli/cli.py", line 191, in run
+E               command.run(self._conan_api, args[0][1:])
+E             File "/testbed/conan/cli/command.py", line 142, in run
+E               info = self._method(conan_api, parser, *args)
+E             File "/testbed/conan/cli/commands/create.py", line 46, in create
+E               ref, conanfile = conan_api.export.export(path=path,
+E             File "/testbed/conan/api/subapi/export.py", line 18, in export
+E               return cmd_export(app, self.conan_api.config.global_conf, path, name, version, user, channel,
+E             File "/testbed/conans/client/cmd/export.py", line 46, in cmd_export
+E               export_recipe(conanfile, export_folder)
+E             File "/testbed/conans/client/cmd/export.py", line 173, in export_recipe
+E               _run_method(conanfile, "export")
+E             File "/testbed/conans/client/cmd/export.py", line 191, in _run_method
+E               export_method()
+E             File "/usr/local/lib/python3.8/contextlib.py", line 131, in __exit__
+E               self.gen.throw(type, value, traceback)
+E             File "/testbed/conans/errors.py", line 65, in conanfile_exception_formatter
+E               _raise_conanfile_exc(exc)
+E             File "/testbed/conans/errors.py", line 49, in _raise_conanfile_exc
+E               raise ConanException(m)
+E           conans.errors.ConanException: pkg/0.1: Error in export() method, line 12
+E           	Git(self).coordinates_to_conandata()
+E           	AttributeError: 'Git' object has no attribute 'coordinates_to_conandata'
+
+conans/test/utils/tools.py:609: Exception
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicCapture::test_capture_commit_local
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicCapture::test_capture_remote_url
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicCapture::test_capture_remote_pushed_commit
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicCapture::test_capture_commit_local_subfolder
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicCapture::test_git_excluded
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCaptureSCM::test_capture_commit_local
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCaptureSCM::test_capture_remote_url
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCaptureSCM::test_capture_remote_pushed_commit
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCaptureSCM::test_capture_commit_modified_config
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCaptureSCM::test_capture_commit_modified_config_untracked
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicClone::test_clone_checkout
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicClone::test_clone_target
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicClone::test_clone_msys2_win_bash
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCloneWithArgs::test_clone_specify_branch_or_tag
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitCloneWithArgs::test_clone_invalid_branch_argument
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicSCMFlow::test_full_scm[False]
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicSCMFlow::test_branch_flow[False]
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitBasicSCMFlowSubfolder::test_full_scm
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitMonorepoSCMFlow::test_full_scm
+PASSED conans/test/functional/tools/scm/test_git.py::TestConanFileSubfolder::test_conanfile_subfolder
+PASSED conans/test/functional/tools/scm/test_git.py::TestConanFileSubfolder::test_git_run
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitIncluded::test_git_included
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitIncluded::test_git_included_subfolder
+PASSED conans/test/functional/tools/scm/test_git.py::test_capture_git_tag
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitShallowTagClone::test_find_tag_in_remote
+PASSED conans/test/functional/tools/scm/test_git.py::TestGitShallowTagClone::test_detect_commit_not_in_remote
+SKIPPED [1] conans/test/functional/tools/scm/test_git.py:399: Git version in Linux not support it
+ERROR conans/test/functional/tools/scm/test_git.py::TestGitMonorepoSCMFlow::test_exports_sources_common_code_layout
+FAILED conans/test/functional/tools/scm/test_git.py::TestGitBasicSCMFlow::test_full_scm[True]
+FAILED conans/test/functional/tools/scm/test_git.py::TestGitBasicSCMFlow::test_branch_flow[True]
+=============== 2 failed, 26 passed, 1 skipped, 1 error in 5.35s ===============
++ : '>>>>> End Test Output'
++ git checkout c361744fa45be644670a8bf476d2bafccafe7f16 conans/test/functional/tools/scm/test_git.py
+Updated 1 path from fbaacbfff

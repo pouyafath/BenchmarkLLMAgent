@@ -1,0 +1,81 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..eb300bd7 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -184,6 +184,7 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL": None,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -444,16 +445,42 @@ class Flask(App):
+             else:
+                 subdomain = None
+ 
+-            return self.url_map.bind_to_environ(
+-                request.environ,
+-                server_name=self.config["SERVER_NAME"],
+-                subdomain=subdomain,
+-            )
++            # For host matching, we need to use the Host header from the request,
++            # not enforce a specific SERVER_NAME.
++            if self.url_map.host_matching:
++                return self.url_map.bind_to_environ(
++                    request.environ,
++                    server_name=None,
++                    subdomain=subdomain,
++                )
++
++            # For subdomain matching, we need SERVER_NAME to be set
++            if self.subdomain_matching and self.config["SERVER_NAME"] is not None:
++                return self.url_map.bind_to_environ(
++                    request.environ,
++                    server_name=self.config["SERVER_NAME"],
++                    subdomain=subdomain,
++                )
++
++            # Default case: try to use SERVER_NAME if available, otherwise use Host header
++            if self.config["SERVER_NAME"] is not None:
++                return self.url_map.bind_to_environ(
++                    request.environ,
++                    server_name=self.config["SERVER_NAME"],
++                    subdomain=subdomain,
++                )
++            else:
++                return self.url_map.bind_to_environ(
++                    request.environ,
++                    server_name=None,
++                    subdomain=subdomain,
++                )
+         # We need at the very least the server name to be set for this
+-        # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        # to work. Prefer CANONICAL_URL for URL generation, fall back to SERVER_NAME.
++        server_name = self.config.get("CANONICAL_URL") or self.config.get("SERVER_NAME")
++        if server_name is not None:
+             return self.url_map.bind(
+-                self.config["SERVER_NAME"],
++                server_name,
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )
+@@ -1010,7 +1037,7 @@ class Flask(App):
+         In some cases, such as email messages, you want URLs to include
+         the scheme and domain, like ``https://example.com/hello``. When
+         not in an active request, URLs will be external by default, but
+-        this requires setting :data:`SERVER_NAME` so Flask knows what
++        this requires setting :data:`CANONICAL_URL` or :data:`SERVER_NAME` so Flask knows what
+         domain to use. :data:`APPLICATION_ROOT` and
+         :data:`PREFERRED_URL_SCHEME` should also be configured as
+         needed. This config is only used when not in an active request.
+@@ -1074,7 +1101,7 @@ class Flask(App):
+             if url_adapter is None:
+                 raise RuntimeError(
+                     "Unable to build URLs outside an active request"
+-                    " without 'SERVER_NAME' configured. Also configure"
++                    " without 'CANONICAL_URL' or 'SERVER_NAME' configured. Also configure"
+                     " 'APPLICATION_ROOT' and 'PREFERRED_URL_SCHEME' as"
+                     " needed."
+                 )

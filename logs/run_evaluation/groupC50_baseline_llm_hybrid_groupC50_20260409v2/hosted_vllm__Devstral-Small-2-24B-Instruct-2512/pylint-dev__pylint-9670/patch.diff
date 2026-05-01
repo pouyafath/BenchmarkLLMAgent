@@ -1,0 +1,75 @@
+diff --git a/pylint/checkers/base/basic_error_checker.py b/pylint/checkers/base/basic_error_checker.py
+index e58be2309..d47bfb287 100644
+--- a/pylint/checkers/base/basic_error_checker.py
++++ b/pylint/checkers/base/basic_error_checker.py
+@@ -285,7 +285,7 @@ class BasicErrorChecker(_BasicChecker):
+                     self.add_message("return-in-init", node=node)
+         # Check for duplicate names by clustering args with same name for detailed report
+         arg_clusters = {}
+-        arguments: Iterator[Any] = filter(None, [node.args.args, node.args.kwonlyargs])
++        arguments: Iterator[Any] = filter(None, [node.args.posonlyargs, node.args.args])
+         for arg in itertools.chain.from_iterable(arguments):
+             if arg.name in arg_clusters:
+                 self.add_message(
+@@ -296,6 +296,37 @@ class BasicErrorChecker(_BasicChecker):
+                 )
+             else:
+                 arg_clusters[arg.name] = arg
++        # Check vararg and kwarg for duplicates
++        if node.args.vararg_node:
++            vararg_name = node.args.vararg_node.name if hasattr(node.args.vararg_node, "name") else node.args.vararg
++            if vararg_name in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=node.args.vararg_node,
++                    args=(vararg_name,),
++                    confidence=HIGH,
++                )
++        if node.args.kwarg_node:
++            kwarg_name = node.args.kwarg_node.name if hasattr(node.args.kwarg_node, "name") else node.args.kwarg
++            if kwarg_name in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=node.args.kwarg_node,
++                    args=(kwarg_name,),
++                    confidence=HIGH,
++                )
++        
++        # Check keyword-only arguments for duplicates (original behavior)
++        for arg in node.args.kwonlyargs:
++            if arg.name in arg_clusters:
++                self.add_message(
++                    "duplicate-argument-name",
++                    node=arg,
++                    args=(arg.name,),
++                    confidence=HIGH,
++                )
++            else:
++                arg_clusters[arg.name] = arg
+ 
+     visit_asyncfunctiondef = visit_functiondef
+ 
+diff --git a/tests/functional/d/duplicate/duplicate_argument_name_py3.py b/tests/functional/d/duplicate/duplicate_argument_name_py3.py
+index 4751c6f2d..569db409c 100644
+--- a/tests/functional/d/duplicate/duplicate_argument_name_py3.py
++++ b/tests/functional/d/duplicate/duplicate_argument_name_py3.py
+@@ -1,5 +1,8 @@
+-"""Check for duplicate function keywordonly arguments."""
++"""Check for duplicate function arguments with varargs."""
+ 
+ 
+-def foo1(_, *_, _=3): # [duplicate-argument-name]
+-    """Function with duplicate argument name."""
++def foo1(_, *_): # [duplicate-argument-name]
++    """Function with duplicate argument name in vararg."""
++
++def foo2(_, **_): # [duplicate-argument-name]
++    """Function with duplicate argument name in kwarg."""
+diff --git a/tests/functional/d/duplicate/duplicate_argument_name_py3.txt b/tests/functional/d/duplicate/duplicate_argument_name_py3.txt
+index 3d6f6f8d9..284e02864 100644
+--- a/tests/functional/d/duplicate/duplicate_argument_name_py3.txt
++++ b/tests/functional/d/duplicate/duplicate_argument_name_py3.txt
+@@ -1 +1,2 @@
+-duplicate-argument-name:4:16:4:17:foo1:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:4:13:4:14:foo1:Duplicate argument name _ in function definition:HIGH
++duplicate-argument-name:7:14:7:15:foo2:Duplicate argument name _ in function definition:HIGH

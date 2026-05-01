@@ -1,0 +1,29 @@
+diff --git a/django/db/backends/base/operations.py b/django/db/backends/base/operations.py
+index 2e283a3193..54b64e1262 100644
+--- a/django/db/backends/base/operations.py
++++ b/django/db/backends/base/operations.py
+@@ -579,8 +579,22 @@ class BaseDatabaseOperations:
+         return []
+ 
+     def convert_durationfield_value(self, value, expression, connection):
+-        if value is not None:
+-            return datetime.timedelta(0, 0, value)
++        if value is None:
++            return value
++        if isinstance(value, datetime.timedelta):
++            return value
++        # Handle string representations of durations
++        if isinstance(value, str):
++            from django.utils.dateparse import parse_duration
++            parsed = parse_duration(value)
++            if parsed is not None:
++                return parsed
++        # Handle numeric values (integers or decimals)
++        if isinstance(value, (int, decimal.Decimal)):
++            # Convert to int to handle Decimal values from some backends
++            return datetime.timedelta(0, 0, int(value))
++        # If we get here, we couldn't convert the value
++        raise ValueError(f"Cannot convert {value!r} to timedelta")
+ 
+     def check_expression_support(self, expression):
+         """

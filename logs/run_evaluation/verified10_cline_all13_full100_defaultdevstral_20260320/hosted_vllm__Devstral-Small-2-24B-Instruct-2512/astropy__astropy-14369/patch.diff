@@ -1,0 +1,26 @@
+diff --git a/astropy/io/ascii/cds.py b/astropy/io/ascii/cds.py
+index 7a83fc39b..909322f59 100644
+--- a/astropy/io/ascii/cds.py
++++ b/astropy/io/ascii/cds.py
+@@ -130,7 +130,8 @@ class CdsHeader(core.BaseHeader):
+                 if unit == "---":
+                     col.unit = None  # "---" is the marker for no unit in CDS/MRT table
+                 else:
+-                    col.unit = Unit(unit, format="cds", parse_strict="warn")
++                    col.unit = Unit(unit, parse_strict="warn", format={"cds": unit})
++                col.raw_unit = unit  # Store original unit string
+                 col.description = (match.group("descr") or "").strip()
+                 col.raw_type = match.group("format")
+                 col.type = self.get_col_type(col)
+diff --git a/astropy/io/ascii/core.py b/astropy/io/ascii/core.py
+index 839ed39e4..fbffa6ae9 100644
+--- a/astropy/io/ascii/core.py
++++ b/astropy/io/ascii/core.py
+@@ -293,6 +293,7 @@ class Column:
+         self.fill_values = {}
+         self.shape = []
+         self.subtype = None
++        self.raw_unit = None  # Original unit string from input file
+ 
+ 
+ class BaseInputter:

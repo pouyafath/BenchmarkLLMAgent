@@ -1,0 +1,170 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 77 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   llama_deploy/apiserver/config_parser.py
+	modified:   llama_deploy/apiserver/deployment.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 28d57468c36f224bc6e50dc7922f128498f3b58c
+Author: Massimiliano Pippi <mpippi@gmail.com>
+Date:   Mon Dec 16 12:46:06 2024 +0100
+
+    ci: try a different strategy for rabbit health check (#406)
+    
+    * try a different strategy
+
+diff --git a/.github/workflows/e2e_test.yml b/.github/workflows/e2e_test.yml
+index ac3a8cc..05a10b8 100644
+--- a/.github/workflows/e2e_test.yml
++++ b/.github/workflows/e2e_test.yml
+@@ -13,8 +13,8 @@ jobs:
+   test:
+     runs-on: ubuntu-latest
+     strategy:
+-      # You can use PyPy versions in python-version.
+-      # For example, pypy-2.7 and pypy-3.8
++      # Let the matrix finish to see if the failure was transient
++      fail-fast: false
+       matrix:
+         python-version: ["3.10", "3.11", "3.12"]
+     steps:
+diff --git a/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py b/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py
+index 7345d99..c5da93a 100644
+--- a/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py
++++ b/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py
+@@ -13,7 +13,7 @@ from llama_deploy.message_queues import RabbitMQMessageQueue, RabbitMQMessageQue
+ from .workflow import BasicWorkflow
+ 
+ 
+-@pytest.fixture(scope="package")
++@pytest.fixture(scope="session")
+ def rabbitmq_service():
+     compose_file = Path(__file__).resolve().parent / "docker-compose.yml"
+     proc = subprocess.Popen(
+diff --git a/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml b/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml
+index 4de325c..03755ac 100644
+--- a/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml
++++ b/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml
+@@ -6,7 +6,12 @@ services:
+       - "5672:5672"
+       - "15672:15672"
+     healthcheck:
+-      test: rabbitmq-diagnostics -q ping
++      test:
++        - CMD-SHELL
++        - -c
++        - |
++          rabbitmq-diagnostics -q check_running
++          rabbitmq-diagnostics -q check_port_connectivity
+       interval: 5s
+       timeout: 3s
+       retries: 5
++ git -c core.fileMode=false diff 28d57468c36f224bc6e50dc7922f128498f3b58c
+diff --git a/llama_deploy/apiserver/config_parser.py b/llama_deploy/apiserver/config_parser.py
+index 774efa1..1f47e09 100644
+--- a/llama_deploy/apiserver/config_parser.py
++++ b/llama_deploy/apiserver/config_parser.py
+@@ -60,6 +60,7 @@ class Service(BaseModel):
+     port: int | None = None
+     python_dependencies: list[str] | None = Field(None, alias="python-dependencies")
+     ts_dependencies: dict[str, str] | None = Field(None, alias="ts-dependencies")
++    env: dict[str, str] | None = None
+ 
+ 
+ class Config(BaseModel):
+diff --git a/llama_deploy/apiserver/deployment.py b/llama_deploy/apiserver/deployment.py
+index 80243b0..6414d81 100644
+--- a/llama_deploy/apiserver/deployment.py
++++ b/llama_deploy/apiserver/deployment.py
+@@ -1,4 +1,5 @@
+ import asyncio
++import os
+ import importlib
+ import subprocess
+ import sys
+@@ -152,6 +153,11 @@ class Deployment:
+             source_manager.sync(source.name, str(destination.resolve()))
+ 
+             # Install dependencies
++
++            # Set environment variables if specified
++            if service_config.env:
++                for key, value in service_config.env.items():
++                    os.environ[key] = value
+             self._install_dependencies(service_config)
+ 
+             # Search for a workflow instance in the service path
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ poetry install --with dev
+Installing dependencies from lock file
+
+No dependencies to install or update
+
+Installing the current project: llama-deploy (0.3.6)
++ git checkout 28d57468c36f224bc6e50dc7922f128498f3b58c e2e_tests/basic_streaming/test_run_client.py tests/apiserver/data/example.yaml tests/apiserver/data/workflow/__init__.py tests/apiserver/data/workflow/workflow_test.py tests/apiserver/test_config_parser.py tests/apiserver/test_deployment.py
+Updated 0 paths from df7d83f
++ git apply -v -
+Checking patch e2e_tests/apiserver/deployments/deployment_env_git.yml...
+Checking patch e2e_tests/apiserver/deployments/deployment_env_local.yml...
+Checking patch e2e_tests/apiserver/deployments/src/.env...
+Checking patch e2e_tests/apiserver/deployments/src/workflow_env.py...
+Checking patch e2e_tests/apiserver/test_env_vars_git.py...
+Checking patch e2e_tests/apiserver/test_env_vars_local.py...
+Checking patch e2e_tests/basic_streaming/test_run_client.py...
+Checking patch tests/apiserver/data/.env...
+Checking patch tests/apiserver/data/env_variables.yaml...
+Checking patch tests/apiserver/data/example.yaml...
+Checking patch tests/apiserver/data/workflow/__init__.py...
+Checking patch tests/apiserver/data/workflow/workflow_test.py...
+Checking patch tests/apiserver/test_config_parser.py...
+Checking patch tests/apiserver/test_deployment.py...
+Applied patch e2e_tests/apiserver/deployments/deployment_env_git.yml cleanly.
+Applied patch e2e_tests/apiserver/deployments/deployment_env_local.yml cleanly.
+Applied patch e2e_tests/apiserver/deployments/src/.env cleanly.
+Applied patch e2e_tests/apiserver/deployments/src/workflow_env.py cleanly.
+Applied patch e2e_tests/apiserver/test_env_vars_git.py cleanly.
+Applied patch e2e_tests/apiserver/test_env_vars_local.py cleanly.
+Applied patch e2e_tests/basic_streaming/test_run_client.py cleanly.
+Applied patch tests/apiserver/data/.env cleanly.
+Applied patch tests/apiserver/data/env_variables.yaml cleanly.
+Applied patch tests/apiserver/data/example.yaml cleanly.
+Applied patch tests/apiserver/data/workflow/__init__.py cleanly.
+Applied patch tests/apiserver/data/workflow/workflow_test.py cleanly.
+Applied patch tests/apiserver/test_config_parser.py cleanly.
+Applied patch tests/apiserver/test_deployment.py cleanly.
++ : '>>>>> Start Test Output'
++ poetry run pytest -rA tests e2e_tests/apiserver/deployments/src/.env e2e_tests/apiserver/deployments/src/workflow_env.py e2e_tests/apiserver/test_env_vars_git.py e2e_tests/apiserver/test_env_vars_local.py e2e_tests/basic_streaming/test_run_client.py tests/apiserver/data/.env tests/apiserver/data/workflow/__init__.py tests/apiserver/data/workflow/workflow_test.py tests/apiserver/test_config_parser.py tests/apiserver/test_deployment.py
+ERROR: not found: /testbed/e2e_tests/apiserver/deployments/src/.env
+(no match in any of [<Dir src>])
+
+ERROR: not found: /testbed/tests/apiserver/data/.env
+(no match in any of [<Dir data>])
+
+============================= test session starts ==============================
+platform linux -- Python 3.10.17, pytest-8.3.3, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: anyio-4.6.2.post1, mock-3.14.0, asyncio-0.23.8, cov-5.0.0
+asyncio: mode=strict
+collected 0 items
+
+============================ no tests ran in 0.02s =============================
++ : '>>>>> End Test Output'
++ git checkout 28d57468c36f224bc6e50dc7922f128498f3b58c e2e_tests/basic_streaming/test_run_client.py tests/apiserver/data/example.yaml tests/apiserver/data/workflow/__init__.py tests/apiserver/data/workflow/workflow_test.py tests/apiserver/test_config_parser.py tests/apiserver/test_deployment.py
+Updated 6 paths from df7d83f

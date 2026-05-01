@@ -1,0 +1,107 @@
+diff --git a/haystack/components/converters/pypdf.py b/haystack/components/converters/pypdf.py
+index f6ed4faf..10c0d911 100644
+--- a/haystack/components/converters/pypdf.py
++++ b/haystack/components/converters/pypdf.py
+@@ -20,15 +20,31 @@ class PyPDFConverter(Protocol):
+     """
+ 
+     def convert(self, reader: "PdfReader") -> Document:
++    def to_dict(self):
++        pass
++    @classmethod
++    def from_dict(cls, data):
++        pass
+         ...
+ 
+ 
+ class DefaultConverter:
++    def to_dict(self):
++        return {}
++
++    @classmethod
++    def from_dict(cls, data):
++        return cls()
+     """
+     The default converter class that extracts text from a PdfReader object's pages and returns a Document.
+     """
+ 
+     def convert(self, reader: "PdfReader") -> Document:
++    def to_dict(self):
++        pass
++    @classmethod
++    def from_dict(cls, data):
++        pass
+         """Extract text from the PDF and return a Document object with the text content."""
+         text = "\f".join(page.extract_text() for page in reader.pages)
+         return Document(content=text)
+@@ -36,11 +52,18 @@ class DefaultConverter:
+ 
+ # This registry is used to store converters names and instances.
+ # It can be used to register custom converters.
+-CONVERTERS_REGISTRY: Dict[str, PyPDFConverter] = {"default": DefaultConverter()}
+ 
+ 
+ @component
+ class PyPDFToDocument:
++    @classmethod
++    def from_dict(cls, data):
++        converter_data = data["init_parameters"].get("converter")
++        if converter_data:
++        converter = DefaultConverter.from_dict(converter_data)
++        else:
++        converter = None
++        return cls(converter=converter, converter_name=data["init_parameters"].get("converter_name"))
+     """
+     Converts PDF files to Documents.
+ 
+@@ -59,7 +82,7 @@ class PyPDFToDocument:
+     ```
+     """
+ 
+-    def __init__(self, converter_name: str = "default"):
++    def __init__(self, converter: Optional[PyPDFConverter] = None, converter_name: Optional[str] = None):
+         """
+         Create an PyPDFToDocument component.
+ 
+@@ -68,7 +91,10 @@ class PyPDFToDocument:
+         """
+         pypdf_import.check()
+ 
+-        try:
++        if converter_name is not None:
++            self._converter = CONVERTERS_REGISTRY[converter_name]
++        else:
++            self._converter = DefaultConverter()
+             converter = CONVERTERS_REGISTRY[converter_name]
+         except KeyError:
+             msg = (
+@@ -76,7 +102,7 @@ class PyPDFToDocument:
+             )
+             raise ValueError(msg) from KeyError
+         self.converter_name = converter_name
+-        self._converter: PyPDFConverter = converter
++        self._converter: PyPDFConverter = converter if converter else DefaultConverter()
+ 
+     def to_dict(self):
+         """
+@@ -114,12 +140,18 @@ class PyPDFToDocument:
+         meta_list = normalize_metadata(meta, sources_count=len(sources))
+ 
+         for source, metadata in zip(sources, meta_list):
+-            try:
++            if converter_name is not None:
++            self._converter = CONVERTERS_REGISTRY[converter_name]
++        else:
++            self._converter = DefaultConverter()
+                 bytestream = get_bytestream_from_source(source)
+             except Exception as e:
+                 logger.warning("Could not read {source}. Skipping it. Error: {error}", source=source, error=e)
+                 continue
+-            try:
++            if converter_name is not None:
++            self._converter = CONVERTERS_REGISTRY[converter_name]
++        else:
++            self._converter = DefaultConverter()
+                 pdf_reader = PdfReader(io.BytesIO(bytestream.data))
+                 document = self._converter.convert(pdf_reader)
+             except Exception as e:

@@ -1,0 +1,65 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..e72ade213 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -244,6 +244,14 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+ 
+     def world_to_pixel_values(self, *world_arrays):
+         world_arrays = tuple(map(np.asanyarray, world_arrays))
++
++        # For coupled dimensions, we need to compute the correct world coordinate
++        # values for dropped dimensions. The approach is:
++        # 1. For dropped pixel dimensions, we know their values from the slice
++        # 2. Convert those pixel coordinates to world coordinates
++        # 3. Use those world coordinates when calling the underlying WCS
++
++        # First, create arrays for all world dimensions
+         world_arrays_new = []
+         iworld_curr = -1
+         for iworld in range(self._wcs.world_n_dim):
+@@ -251,9 +259,44 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                # For dropped world dimensions, we need to compute the correct value
++                # We do this by converting the dropped pixel coordinates to world coordinates
++                world_arrays_new.append(None)
++
++        # Now compute the world coordinates for dropped dimensions
++        # We need pixel coordinates for the dropped dimensions
++        dropped_pixel_coords = []
++        for ipixel in range(self._wcs.pixel_n_dim):
++            if ipixel not in self._pixel_keep:
++                if isinstance(self._slices_pixel[ipixel], numbers.Integral):
++                    # Fixed pixel coordinate from the slice
++                    dropped_pixel_coords.append(np.asanyarray(self._slices_pixel[ipixel]))
++                else:
++                    # For sliced dimensions, we use a default value
++                    dropped_pixel_coords.append(np.asanyarray(0.))
++
++        # Create pixel arrays for all dimensions - use zeros for kept dimensions temporarily
++        pixel_arrays_all = []
++        for ipixel in range(self._wcs.pixel_n_dim):
++            if ipixel in self._pixel_keep:
++                # Use a default value for kept dimensions
++                pixel_arrays_all.append(np.asanyarray(0.))
++            else:
++                pixel_arrays_all.append(dropped_pixel_coords.pop(0))
++
++        # Convert pixel coordinates to world coordinates for dropped dimensions
++        pixel_arrays_all = np.broadcast_arrays(*pixel_arrays_all)
++        world_arrays_all = list(self._wcs.pixel_to_world_values(*pixel_arrays_all))
+ 
++        # Replace the None values with the computed world coordinates
++        for iworld in range(self._wcs.world_n_dim):
++            if world_arrays_new[iworld] is None:
++                world_arrays_new[iworld] = world_arrays_all[iworld]
++
++        # Broadcast all world arrays to the same shape
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
++
++        # Convert all world coordinates to pixel coordinates
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))
+ 
+         for ipixel in range(self._wcs.pixel_n_dim):

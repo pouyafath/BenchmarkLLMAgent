@@ -1,0 +1,67 @@
+diff --git a/src/instructlab/model/evaluate.py b/src/instructlab/model/evaluate.py
+index 92ff92cc..52cc295a 100644
+--- a/src/instructlab/model/evaluate.py
++++ b/src/instructlab/model/evaluate.py
+@@ -146,11 +146,23 @@ def sort_score(pairing: tuple[str, float]) -> float:
+     return pairing[1]
+ 
+ 
+-def display_models(model, base_model) -> None:
+-    """prints the base_model and model with a header"""
++def display_models(model, base_model, base_score=None, score=None, benchmark=None) -> None:
++    """prints the base_model and model with a header and optional scores"""
+     print("## BASE MODEL")
+-    print(base_model)
+-    display_model(model)
++    print(f"Model: {base_model}")
++    if base_score is not None:
++        print(f"Score: {base_score} ({benchmark})")
++    print("")
++    print("## MODEL")
++    print(f"Model: {model}")
++    if score is not None:
++        print(f"Score: {score} ({benchmark})")
++        if base_score is not None:
++            delta = round(score - base_score, 2)
++            if delta >= 0:
++                print(f"Delta: +{delta}")
++            else:
++                print(f"Delta: {delta}")
+ 
+ 
+ def display_model(model) -> None:
+@@ -682,7 +694,7 @@ def evaluate(
+             base_qna_to_avg_scores = qa_pairs_to_qna_to_avg_scores(base_qa_pairs)
+ 
+             print("# SKILL EVALUATION REPORT\n")
+-            display_models(model, base_model)
++            display_models(model, base_model, base_score=None, score=None, benchmark="MT-Bench")
+ 
+             improvements, regressions, no_changes, new_qnas = [], [], [], []
+             for qna, avg_score in qna_to_avg_scores.items():
+@@ -697,6 +709,16 @@ def evaluate(
+                 else:
+                     new_qnas.append((qna))
+ 
++            # Display individual QnA scores
++            print("\n### MT-Bench QnA Scores:")
++            qna_list = sorted(qna_to_avg_scores.keys())
++            for i, qna in enumerate(qna_list, 1):
++                base_score = base_qna_to_avg_scores.get(qna)
++                if base_score is not None:
++                    print(f"{i}. {qna}: Base={round(base_score, 2)}, Evaluated={round(qna_to_avg_scores[qna], 2)}")
++                else:
++                    print(f"{i}. {qna}: Base=N/A, Evaluated={round(qna_to_avg_scores[qna], 2)}")
++
+             # display summary of evaluation before exiting
+             display_branch_eval_summary(improvements, regressions, no_changes, new_qnas)
+             display_error_rate((error_rate + base_error_rate) / 2)
+@@ -791,7 +813,7 @@ def evaluate(
+             base_individual_scores = individual_scores_list[1]
+ 
+             print("# KNOWLEDGE EVALUATION REPORT\n")
+-            display_models(model, base_model)
++            display_models(model, base_model, base_score=base_overall_score, score=overall_score, benchmark="MMLU")
+ 
+             print("\n### AVERAGE:")
+             delta = round(overall_score - base_overall_score, 2)

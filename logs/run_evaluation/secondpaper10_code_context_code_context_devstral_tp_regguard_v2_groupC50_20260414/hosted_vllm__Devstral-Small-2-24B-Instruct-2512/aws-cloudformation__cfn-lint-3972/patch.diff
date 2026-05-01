@@ -1,0 +1,19 @@
+diff --git a/src/cfnlint/rules/resources/PrimaryIdentifiers.py b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+index bf3305c44..f5fdd03c1 100644
+--- a/src/cfnlint/rules/resources/PrimaryIdentifiers.py
++++ b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+@@ -141,6 +141,14 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+             try:
+                 schema = PROVIDER_SCHEMA_MANAGER.get_resource_schema(cfn.regions[0], t)
+ 
++                # Special handling for AWS::CodeBuild::Project
++                # The Name property should be unique even though it's not a primaryIdentifier
++                if t == "AWS::CodeBuild::Project":
++                    matches.extend(
++                        self._validate_resource_type_uniqueness(cfn, t, ["Name"])
++                    )
++                    continue
++
+                 # we are worried about primary identifiers that can be set
+                 # by the customer so if any primary identifiers are read
+                 # only we have to skip evaluation

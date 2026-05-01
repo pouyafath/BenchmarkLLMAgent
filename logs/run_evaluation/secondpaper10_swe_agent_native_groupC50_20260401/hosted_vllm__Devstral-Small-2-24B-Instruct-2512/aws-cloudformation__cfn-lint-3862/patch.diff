@@ -1,0 +1,39 @@
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..28f72aa95 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -794,12 +794,30 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+         all_filenames = []
+ 
+         for filename in filenames:
+-            add_filenames = glob.glob(filename, recursive=True)
++            # Check if the filename contains wildcards
++            has_wildcard = '*' in filename or '?' in filename
+ 
+-            if isinstance(add_filenames, list):
+-                all_filenames.extend(add_filenames)
++            if has_wildcard:
++                # For wildcard patterns, use glob as before
++                add_filenames = glob.glob(filename, recursive=True)
++
++                if isinstance(add_filenames, list):
++                    all_filenames.extend(add_filenames)
++                else:
++                    LOGGER.error(f"{filename} could not be processed by glob.glob")
+             else:
+-                LOGGER.error(f"{filename} could not be processed by glob.glob")
++                # For specific filenames, check if they exist
++                if os.path.exists(filename):
++                    if os.path.isfile(filename):
++                        # Single file exists, add it
++                        all_filenames.append(filename)
++                    else:
++                        # Path exists but is not a file (e.g., directory)
++                        # Add it anyway so the runner can handle the error
++                        all_filenames.append(filename)
++                else:
++                    # File doesn't exist - add it anyway so the runner can handle the error
++                    all_filenames.append(filename)
+ 
+         return sorted(list(map(str, map(Path, all_filenames))))
+ 

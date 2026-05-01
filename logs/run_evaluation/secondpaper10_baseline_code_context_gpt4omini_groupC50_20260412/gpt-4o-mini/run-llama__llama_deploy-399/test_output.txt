@@ -1,0 +1,155 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 77 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   llama_deploy/services/base.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 28d57468c36f224bc6e50dc7922f128498f3b58c
+Author: Massimiliano Pippi <mpippi@gmail.com>
+Date:   Mon Dec 16 12:46:06 2024 +0100
+
+    ci: try a different strategy for rabbit health check (#406)
+    
+    * try a different strategy
+
+diff --git a/.github/workflows/e2e_test.yml b/.github/workflows/e2e_test.yml
+index ac3a8cc..05a10b8 100644
+--- a/.github/workflows/e2e_test.yml
++++ b/.github/workflows/e2e_test.yml
+@@ -13,8 +13,8 @@ jobs:
+   test:
+     runs-on: ubuntu-latest
+     strategy:
+-      # You can use PyPy versions in python-version.
+-      # For example, pypy-2.7 and pypy-3.8
++      # Let the matrix finish to see if the failure was transient
++      fail-fast: false
+       matrix:
+         python-version: ["3.10", "3.11", "3.12"]
+     steps:
+diff --git a/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py b/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py
+index 7345d99..c5da93a 100644
+--- a/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py
++++ b/e2e_tests/message_queues/message_queue_rabbitmq/conftest.py
+@@ -13,7 +13,7 @@ from llama_deploy.message_queues import RabbitMQMessageQueue, RabbitMQMessageQue
+ from .workflow import BasicWorkflow
+ 
+ 
+-@pytest.fixture(scope="package")
++@pytest.fixture(scope="session")
+ def rabbitmq_service():
+     compose_file = Path(__file__).resolve().parent / "docker-compose.yml"
+     proc = subprocess.Popen(
+diff --git a/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml b/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml
+index 4de325c..03755ac 100644
+--- a/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml
++++ b/e2e_tests/message_queues/message_queue_rabbitmq/docker-compose.yml
+@@ -6,7 +6,12 @@ services:
+       - "5672:5672"
+       - "15672:15672"
+     healthcheck:
+-      test: rabbitmq-diagnostics -q ping
++      test:
++        - CMD-SHELL
++        - -c
++        - |
++          rabbitmq-diagnostics -q check_running
++          rabbitmq-diagnostics -q check_port_connectivity
+       interval: 5s
+       timeout: 3s
+       retries: 5
++ git -c core.fileMode=false diff 28d57468c36f224bc6e50dc7922f128498f3b58c
+diff --git a/llama_deploy/services/base.py b/llama_deploy/services/base.py
+index 4220e8e..f9058a1 100644
+--- a/llama_deploy/services/base.py
++++ b/llama_deploy/services/base.py
+@@ -16,6 +16,7 @@ from llama_deploy.types import ServiceDefinition
+ 
+ 
+ class BaseService(MessageQueuePublisherMixin, ABC, BaseModel):
++    env: dict[str, str] = {}
+     """Base class for a service.
+ 
+     The general structure of a service is as follows:
+@@ -73,6 +74,7 @@ class BaseService(MessageQueuePublisherMixin, ABC, BaseModel):
+         ...
+ 
+     async def register_to_control_plane(self, control_plane_url: str) -> None:
++    service_def.env = self.env
+         """Register the service to the control plane."""
+         self._control_plane_url = control_plane_url
+         service_def = self.service_definition
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ poetry install --with dev
+Installing dependencies from lock file
+
+No dependencies to install or update
+
+Installing the current project: llama-deploy (0.3.6)
++ git checkout 28d57468c36f224bc6e50dc7922f128498f3b58c e2e_tests/basic_streaming/test_run_client.py tests/apiserver/data/example.yaml tests/apiserver/data/workflow/__init__.py tests/apiserver/data/workflow/workflow_test.py tests/apiserver/test_config_parser.py tests/apiserver/test_deployment.py
+Updated 0 paths from df7d83f
++ git apply -v -
+Checking patch e2e_tests/apiserver/deployments/deployment_env_git.yml...
+Checking patch e2e_tests/apiserver/deployments/deployment_env_local.yml...
+Checking patch e2e_tests/apiserver/deployments/src/.env...
+Checking patch e2e_tests/apiserver/deployments/src/workflow_env.py...
+Checking patch e2e_tests/apiserver/test_env_vars_git.py...
+Checking patch e2e_tests/apiserver/test_env_vars_local.py...
+Checking patch e2e_tests/basic_streaming/test_run_client.py...
+Checking patch tests/apiserver/data/.env...
+Checking patch tests/apiserver/data/env_variables.yaml...
+Checking patch tests/apiserver/data/example.yaml...
+Checking patch tests/apiserver/data/workflow/__init__.py...
+Checking patch tests/apiserver/data/workflow/workflow_test.py...
+Checking patch tests/apiserver/test_config_parser.py...
+Checking patch tests/apiserver/test_deployment.py...
+Applied patch e2e_tests/apiserver/deployments/deployment_env_git.yml cleanly.
+Applied patch e2e_tests/apiserver/deployments/deployment_env_local.yml cleanly.
+Applied patch e2e_tests/apiserver/deployments/src/.env cleanly.
+Applied patch e2e_tests/apiserver/deployments/src/workflow_env.py cleanly.
+Applied patch e2e_tests/apiserver/test_env_vars_git.py cleanly.
+Applied patch e2e_tests/apiserver/test_env_vars_local.py cleanly.
+Applied patch e2e_tests/basic_streaming/test_run_client.py cleanly.
+Applied patch tests/apiserver/data/.env cleanly.
+Applied patch tests/apiserver/data/env_variables.yaml cleanly.
+Applied patch tests/apiserver/data/example.yaml cleanly.
+Applied patch tests/apiserver/data/workflow/__init__.py cleanly.
+Applied patch tests/apiserver/data/workflow/workflow_test.py cleanly.
+Applied patch tests/apiserver/test_config_parser.py cleanly.
+Applied patch tests/apiserver/test_deployment.py cleanly.
++ : '>>>>> Start Test Output'
++ poetry run pytest -rA tests e2e_tests/apiserver/deployments/src/.env e2e_tests/apiserver/deployments/src/workflow_env.py e2e_tests/apiserver/test_env_vars_git.py e2e_tests/apiserver/test_env_vars_local.py e2e_tests/basic_streaming/test_run_client.py tests/apiserver/data/.env tests/apiserver/data/workflow/__init__.py tests/apiserver/data/workflow/workflow_test.py tests/apiserver/test_config_parser.py tests/apiserver/test_deployment.py
+ImportError while loading conftest '/testbed/e2e_tests/conftest.py'.
+e2e_tests/conftest.py:7: in <module>
+    from llama_deploy import ControlPlaneConfig, SimpleMessageQueueConfig
+llama_deploy/__init__.py:6: in <module>
+    from llama_deploy.deploy import deploy_core, deploy_workflow
+llama_deploy/deploy/__init__.py:1: in <module>
+    from llama_deploy.deploy.deploy import deploy_core, deploy_workflow
+llama_deploy/deploy/deploy.py:32: in <module>
+    from llama_deploy.services.workflow import WorkflowService, WorkflowServiceConfig
+llama_deploy/services/__init__.py:1: in <module>
+    from llama_deploy.services.base import BaseService
+E     File "/testbed/llama_deploy/services/base.py", line 77
+E       service_def.env = self.env
+E       ^^^^^^^^^^^
+E   IndentationError: expected an indented block after function definition on line 76
++ : '>>>>> End Test Output'
++ git checkout 28d57468c36f224bc6e50dc7922f128498f3b58c e2e_tests/basic_streaming/test_run_client.py tests/apiserver/data/example.yaml tests/apiserver/data/workflow/__init__.py tests/apiserver/data/workflow/workflow_test.py tests/apiserver/test_config_parser.py tests/apiserver/test_deployment.py
+Updated 6 paths from df7d83f

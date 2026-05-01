@@ -1,0 +1,304 @@
+diff --git a/lib/streamlit/components/v1/component_arrow.py b/lib/streamlit/components/v1/component_arrow.py
+index 928c16000..cc85e393c 100644
+--- a/lib/streamlit/components/v1/component_arrow.py
++++ b/lib/streamlit/components/v1/component_arrow.py
+@@ -34,6 +34,20 @@ def _maybe_tuple_to_list(item: Any) -> Any:
+     return list(item) if isinstance(item, tuple) else item
+ 
+ 
++def _convert_df_to_component_arrow_bytes(df: DataFrame) -> bytes:
++    """Convert a DataFrame to Arrow IPC bytes for custom component v1.
++
++    Uses ``convert_pandas_df_to_arrow_bytes`` with large-type downcasting
++    enabled for pandas >= 3.0, where ``StringDtype`` is backed by
++    ``large_string`` in Arrow. Third-party custom components bundling
++    older Arrow JS libraries cannot decode these large type codes.
++    """
++    return dataframe_util.convert_pandas_df_to_arrow_bytes(
++        df,
++        downcast_large_types=not dataframe_util.is_pandas_version_less_than("3.0.0"),
++    )
++
++
+ def marshall(
+     proto: ArrowTableProto, data: Any, default_uuid: str | None = None
+ ) -> None:
+@@ -74,7 +88,7 @@ def _marshall_index(proto: ArrowTableProto, index: Index[Any]) -> None:
+ 
+     index_values = list(map(_maybe_tuple_to_list, index.values))
+     index_df = pd.DataFrame(index_values)
+-    proto.index = dataframe_util.convert_pandas_df_to_arrow_bytes(index_df)
++    proto.index = _convert_df_to_component_arrow_bytes(index_df)
+ 
+ 
+ def _marshall_columns(proto: ArrowTableProto, columns: Index[Any]) -> None:
+@@ -94,7 +108,7 @@ def _marshall_columns(proto: ArrowTableProto, columns: Index[Any]) -> None:
+ 
+     column_values = list(map(_maybe_tuple_to_list, columns.values))
+     columns_df = pd.DataFrame(column_values)
+-    proto.columns = dataframe_util.convert_pandas_df_to_arrow_bytes(columns_df)
++    proto.columns = _convert_df_to_component_arrow_bytes(columns_df)
+ 
+ 
+ def _marshall_data(proto: ArrowTableProto, df: DataFrame) -> None:
+@@ -109,7 +123,7 @@ def _marshall_data(proto: ArrowTableProto, df: DataFrame) -> None:
+         A dataframe to marshall.
+ 
+     """
+-    proto.data = dataframe_util.convert_pandas_df_to_arrow_bytes(df)
++    proto.data = _convert_df_to_component_arrow_bytes(df)
+ 
+ 
+ def arrow_proto_to_dataframe(proto: ArrowTableProto) -> DataFrame:
+diff --git a/lib/streamlit/dataframe_util.py b/lib/streamlit/dataframe_util.py
+index 723b4affe..63eeb1555 100644
+--- a/lib/streamlit/dataframe_util.py
++++ b/lib/streamlit/dataframe_util.py
+@@ -814,6 +814,53 @@ Offending object:
+         ) from ex
+ 
+ 
++def _downcast_large_type(arrow_type: pa.DataType) -> pa.DataType:
++    """Recursively downcast a single Arrow type to its standard counterpart.
++
++    Handles ``large_string`` -> ``string``, ``large_binary`` -> ``binary``,
++    and ``large_list`` -> ``list`` (with recursive value-type downcasting).
++    Returns the type unchanged if no downcasting is needed.
++    """
++    import pyarrow as pa
++
++    large_type_map: dict[pa.DataType, pa.DataType] = {
++        pa.large_string(): pa.string(),
++        pa.large_binary(): pa.binary(),
++    }
++
++    if isinstance(arrow_type, pa.LargeListType):
++        return pa.list_(_downcast_large_type(arrow_type.value_type))
++    if arrow_type in large_type_map:
++        return large_type_map[arrow_type]
++    return arrow_type
++
++
++def _downcast_large_arrow_types(table: pa.Table) -> pa.Table:
++    """Downcast large Arrow types to their standard counterparts.
++
++    Pandas 3.x defaults to StringDtype backed by ``large_string`` in Arrow.
++    Third-party custom components that bundle older Arrow JS libraries cannot
++    decode ``LargeUtf8`` / ``LargeBinary`` / ``LargeList`` type codes, so we
++    convert them to the standard-width variants before serializing.
++    """
++    import pyarrow as pa
++
++    new_fields: list[pa.Field] = []
++    needs_cast = False
++    for field in table.schema:
++        downcast = _downcast_large_type(field.type)
++        if downcast != field.type:
++            new_fields.append(field.with_type(downcast))
++            needs_cast = True
++        else:
++            new_fields.append(field)
++
++    if not needs_cast:
++        return table
++
++    return table.cast(pa.schema(new_fields, metadata=table.schema.metadata))
++
++
+ def convert_arrow_table_to_arrow_bytes(table: pa.Table) -> bytes:
+     """Serialize pyarrow.Table to Arrow IPC bytes.
+ 
+@@ -850,7 +897,11 @@ def convert_arrow_table_to_arrow_bytes(table: pa.Table) -> bytes:
+     return cast("bytes", sink.getvalue().to_pybytes())
+ 
+ 
+-def convert_pandas_df_to_arrow_bytes(df: DataFrame) -> bytes:
++def convert_pandas_df_to_arrow_bytes(
++    df: DataFrame,
++    *,
++    downcast_large_types: bool = False,
++) -> bytes:
+     """Serialize pandas.DataFrame to Arrow IPC bytes.
+ 
+     Parameters
+@@ -858,6 +909,13 @@ def convert_pandas_df_to_arrow_bytes(df: DataFrame) -> bytes:
+     df : pandas.DataFrame
+         A dataframe to convert.
+ 
++    downcast_large_types : bool
++        If ``True``, downcast ``large_string``, ``large_binary``, and
++        ``large_list`` Arrow types to their standard-width counterparts
++        before serializing. This is needed for consumers that bundle older
++        Arrow libraries which cannot decode the large type codes
++        (e.g. custom components v1).
++
+     Returns
+     -------
+     bytes
+@@ -876,6 +934,10 @@ def convert_pandas_df_to_arrow_bytes(df: DataFrame) -> bytes:
+         )
+         df = fix_arrow_incompatible_column_types(df)
+         table = pa.Table.from_pandas(df)
++
++    if downcast_large_types:
++        table = _downcast_large_arrow_types(table)
++
+     return convert_arrow_table_to_arrow_bytes(table)
+ 
+ 
+diff --git a/lib/tests/streamlit/components_test.py b/lib/tests/streamlit/components_test.py
+index de2e02376..39b6b44e8 100644
+--- a/lib/tests/streamlit/components_test.py
++++ b/lib/tests/streamlit/components_test.py
+@@ -38,7 +38,10 @@ from streamlit.components.v1.component_registry import (
+     _get_module_name,
+ )
+ from streamlit.components.v1.custom_component import CustomComponent
+-from streamlit.dataframe_util import is_pyarrow_version_less_than
++from streamlit.dataframe_util import (
++    is_pandas_version_less_than,
++    is_pyarrow_version_less_than,
++)
+ from streamlit.errors import DuplicateWidgetID, StreamlitAPIException
+ from streamlit.proto.Components_pb2 import ArrowTable as ArrowTableProto
+ from streamlit.proto.Components_pb2 import SpecialArg
+@@ -766,6 +769,101 @@ class ComponentArrowTest(unittest.TestCase):
+         assert len(proto.data) > 0
+         assert len(proto.columns) > 0
+ 
++    @pytest.mark.skipif(
++        is_pandas_version_less_than("3.0.0"),
++        reason="Downcasting is only enabled for pandas >= 3.0",
++    )
++    def test_marshall_downcasts_large_string(self):
++        """Test that large_string columns are downcast to string for custom components."""
++        import pyarrow as pa
++
++        df = pd.DataFrame({"col": pd.array(["a", "b", "c"], dtype="string[pyarrow]")})
++
++        proto = ArrowTableProto()
++        component_arrow.marshall(proto, df)
++
++        result_table = pa.ipc.open_stream(proto.data).read_all()
++        for field in result_table.schema:
++            assert field.type == pa.string(), f"Expected string type, got {field.type}"
++
++    @pytest.mark.skipif(
++        is_pandas_version_less_than("3.0.0"),
++        reason="Downcasting is only enabled for pandas >= 3.0",
++    )
++    def test_marshall_downcasts_large_binary(self):
++        """Test that large_binary columns are downcast to binary for custom components."""
++        import pyarrow as pa
++
++        table = pa.table({"col": pa.array([b"x", b"y", b"z"], type=pa.large_binary())})
++        df = table.to_pandas()
++
++        proto = ArrowTableProto()
++        component_arrow.marshall(proto, df)
++
++        result_table = pa.ipc.open_stream(proto.data).read_all()
++        for field in result_table.schema:
++            if field.name == "col":
++                assert field.type == pa.binary(), (
++                    f"Expected binary type, got {field.type}"
++                )
++
++    @pytest.mark.skipif(
++        is_pandas_version_less_than("3.0.0"),
++        reason="Downcasting is only enabled for pandas >= 3.0",
++    )
++    def test_marshall_downcasts_large_list(self):
++        """Test that large_list columns are downcast to list for custom components."""
++        import pyarrow as pa
++
++        large_list_type = pa.large_list(pa.int64())
++        table = pa.table({"col": pa.array([[1, 2], [3]], type=large_list_type)})
++        df = table.to_pandas()
++
++        proto = ArrowTableProto()
++        component_arrow.marshall(proto, df)
++
++        result_table = pa.ipc.open_stream(proto.data).read_all()
++        for field in result_table.schema:
++            if field.name == "col":
++                assert field.type == pa.list_(pa.int64()), (
++                    f"Expected list type, got {field.type}"
++                )
++
++    @pytest.mark.skipif(
++        is_pandas_version_less_than("3.0.0"),
++        reason="Downcasting is only enabled for pandas >= 3.0",
++    )
++    def test_marshall_downcasts_nested_large_list_with_large_string(self):
++        """Test that large_list(large_string()) is recursively downcast to list(string)."""
++        import pyarrow as pa
++
++        nested_type = pa.large_list(pa.large_string())
++        table = pa.table({"col": pa.array([["a", "b"], ["c"]], type=nested_type)})
++        df = table.to_pandas()
++
++        proto = ArrowTableProto()
++        component_arrow.marshall(proto, df)
++
++        result_table = pa.ipc.open_stream(proto.data).read_all()
++        col_field = result_table.schema.field("col")
++        assert col_field.type == pa.list_(pa.string()), (
++            f"Expected list(string), got {col_field.type}"
++        )
++
++    def test_marshall_preserves_non_large_types(self):
++        """Test that non-large types are not modified during marshalling."""
++        import pyarrow as pa
++
++        df = pd.DataFrame({"int_col": [1, 2, 3], "float_col": [1.0, 2.0, 3.0]})
++
++        proto = ArrowTableProto()
++        component_arrow.marshall(proto, df)
++
++        result_table = pa.ipc.open_stream(proto.data).read_all()
++        type_names = {field.name: field.type for field in result_table.schema}
++        assert pa.types.is_integer(type_names["int_col"])
++        assert pa.types.is_floating(type_names["float_col"])
++
+ 
+ @pytest.mark.parametrize(
+     ("input_value", "expected"),
+diff --git a/lib/tests/streamlit/dataframe_util_test.py b/lib/tests/streamlit/dataframe_util_test.py
+index 02c21ec9a..590e99b13 100644
+--- a/lib/tests/streamlit/dataframe_util_test.py
++++ b/lib/tests/streamlit/dataframe_util_test.py
+@@ -60,6 +60,33 @@ class DataframeUtilTest(unittest.TestCase):
+         except Exception as ex:
+             self.fail(f"Converting dtype dataframes to Arrow should not fail: {ex}")
+ 
++    def test_convert_pandas_df_to_arrow_bytes_downcasts_large_types(self):
++        """Test that downcast_large_types converts large Arrow types to standard ones."""
++        import pyarrow as pa
++
++        df = pd.DataFrame(
++            {"col": pd.array(["hello", "world"], dtype="string[pyarrow]")}
++        )
++        result_bytes = dataframe_util.convert_pandas_df_to_arrow_bytes(
++            df, downcast_large_types=True
++        )
++        result_table = pa.ipc.open_stream(result_bytes).read_all()
++        assert result_table.schema.field("col").type == pa.string()
++
++    def test_convert_pandas_df_to_arrow_bytes_no_downcast_by_default(self):
++        """Test that large types are preserved when downcast_large_types is False."""
++        import pyarrow as pa
++
++        df = pd.DataFrame(
++            {"col": pd.array(["hello", "world"], dtype="string[pyarrow]")}
++        )
++        result_bytes = dataframe_util.convert_pandas_df_to_arrow_bytes(df)
++        result_table = pa.ipc.open_stream(result_bytes).read_all()
++        # The default ArrowDtype("string[pyarrow]") uses large_string on
++        # pandas >= 3.0. Without downcasting the type should be preserved.
++        col_type = result_table.schema.field("col").type
++        assert col_type in {pa.string(), pa.large_string()}
++
+     @parameterized.expand(
+         SHARED_TEST_CASES,
+     )

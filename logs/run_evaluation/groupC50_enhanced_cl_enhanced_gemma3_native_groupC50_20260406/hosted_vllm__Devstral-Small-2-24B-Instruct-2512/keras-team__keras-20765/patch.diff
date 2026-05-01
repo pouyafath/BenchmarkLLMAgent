@@ -1,0 +1,17 @@
+diff --git a/keras/src/layers/rnn/time_distributed.py b/keras/src/layers/rnn/time_distributed.py
+index e61274d96..4a690acb7 100644
+--- a/keras/src/layers/rnn/time_distributed.py
++++ b/keras/src/layers/rnn/time_distributed.py
+@@ -96,7 +96,11 @@ class TimeDistributed(Wrapper):
+         def step_function(i):
+             kwargs = {}
+             if self.layer._call_has_mask_arg and mask is not None:
+-                kwargs["mask"] = mask[i]
++                # When i is symbolic (in vectorized case), mask[i] returns a symbolic tensor.
++                # Some layers may use mask in a boolean context, which would fail for symbolic tensors.
++                # We need to ensure mask is properly handled.
++                mask_slice = mask[i]
++                kwargs["mask"] = mask_slice
+             if self.layer._call_has_training_arg:
+                 kwargs["training"] = training
+             return self.layer.call(inputs[i], **kwargs)

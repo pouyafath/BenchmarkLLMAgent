@@ -1,0 +1,94 @@
+diff --git a/src/cfnlint/rules/resources/PrimaryIdentifiers.py b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+index bf3305c44..4e490eb6b 100644
+--- a/src/cfnlint/rules/resources/PrimaryIdentifiers.py
++++ b/src/cfnlint/rules/resources/PrimaryIdentifiers.py
+@@ -42,6 +42,70 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+ 
+         return conditions1
+ 
++
++    def _validate_resource_type_uniqueness_by_name(self, cfn, resource_type):
++        """Validate uniqueness by Name property for resources where Name is in createOnlyProperties"""
++        matches = []
++        seens = []
++        for resource_name, resource_attributes in cfn.get_resources(resource_type).items():
++            condition = resource_attributes.get("Condition")
++            properties = resource_attributes.get("Properties", {})
++            path = ["Resources", resource_name, "Properties"]
++            for scenario in cfn.get_object_without_conditions(properties):
++                object = scenario.get("Object")
++                conditions = scenario.get("Scenario")
++                if conditions is None:
++                    conditions = {}
++                conditions = {k: set([v]) for k, v in conditions.items()}
++
++                if condition:
++                    if scenario:
++                        if not cfn.conditions.check_implies(scenario, condition):
++                            continue
++                    conditions[condition] = set([True])
++
++                if not isinstance(object, dict):
++                    continue
++
++                name = object.get("Name")
++                if name is None:
++                    continue
++
++                element = _Seen(conditions, set([resource_name]), {"Name": name})
++
++                found = False
++                for seen in seens:
++                    if equal(seen.instance, element.instance):
++                        try:
++                            merged_conditions = self._merge_conditions(
++                                copy(seen.conditions), copy(element.conditions)
++                            )
++                            if not merged_conditions:
++                                found = True
++                                seen.resources.add(resource_name)
++                            for _ in cfn.conditions.build_scenarios(merged_conditions):
++                                seen.resources.add(resource_name)
++                                if equal(element.conditions, seen.conditions):
++                                    found = True
++                                break
++                        except ValueError:
++                            continue
++
++                if not found:
++                    seens.append(element)
++
++        for seen in seens:
++            if len(seen.resources) > 1:
++                for resource in seen.resources:
++                    path = ["Resources", resource, "Properties", "Name"]
++                    message = (
++                        f"Name {seen.instance!r} should have unique values "
++                        f"across the resources {seen.resources!r}"
++                    )
++                    matches.append(RuleMatch(path, message))
++
++        return matches
++
+     def _validate_resource_type_uniqueness(self, cfn, resource_type, ids):
+         matches = []
+         seens = []
+@@ -141,6 +205,18 @@ class PrimaryIdentifiers(CloudFormationLintRule):
+             try:
+                 schema = PROVIDER_SCHEMA_MANAGER.get_resource_schema(cfn.regions[0], t)
+ 
++                # Check for resources where Name should be unique (even if not primaryIdentifier)
++                # This handles cases like AWS::CodeBuild::Project where Name is in createOnlyProperties
++                # but not a primaryIdentifier
++                try:
++                    create_only_props = schema.schema.get("createOnlyProperties", [])
++                    if "/properties/Name" in create_only_props:
++                        matches.extend(
++                            self._validate_resource_type_uniqueness_by_name(cfn, t)
++                        )
++                except ResourceNotFoundError:
++                    continue
++
+                 # we are worried about primary identifiers that can be set
+                 # by the customer so if any primary identifiers are read
+                 # only we have to skip evaluation

@@ -1,0 +1,99 @@
+diff --git a/astropy/io/fits/diff.py b/astropy/io/fits/diff.py
+index 100cdf1b8..b11eda19a 100644
+--- a/astropy/io/fits/diff.py
++++ b/astropy/io/fits/diff.py
+@@ -1450,15 +1450,86 @@ class TableDataDiff(_BaseDiff):
+             ):
+                 diffs = where_not_allclose(arra, arrb, rtol=self.rtol, atol=self.atol)
+             elif "P" in col.format:
+-                diffs = (
+-                    [
+-                        idx
+-                        for idx in range(len(arra))
+-                        if not np.allclose(
+-                            arra[idx], arrb[idx], rtol=self.rtol, atol=self.atol
++                # For VLA columns, we need to compare the actual VLA data, not just the pointers
++                # Access the VLA data directly from the heap using the same logic as _convert_p
++                try:
++                    # Get the column definitions
++                    cola = self.a.columns[col.name.lower()]
++                    colb = self.b.columns[col.name.lower()]
++
++                    # Get the raw data and heap information
++                    raw_data_a = self.a._get_raw_data()
++                    raw_data_b = self.b._get_raw_data()
++
++                    if raw_data_a is not None and raw_data_b is not None:
++                        # Compare VLA data directly from the heap
++                        diffs = []
++                        for idx in range(len(arra)):
++                            # Get offset and count from the pointer data
++                            offset_a = arra[idx, 1] + self.a._heapoffset
++                            count_a = arra[idx, 0]
++                            offset_b = arrb[idx, 1] + self.b._heapoffset
++                            count_b = arrb[idx, 0]
++
++                            # Get the actual VLA data from the heap
++                            if count_a != count_b:
++                                diffs.append(idx)
++                                continue
++
++                            # Get the data type from the column format
++                            # Extract the base type from format like 'PJ()' -> 'J'
++                            import re
++                            format_match = re.match(r'P([A-Za-z])', col.format)
++                            if format_match:
++                                dtype_char = format_match.group(1)
++                                # Map FITS format characters to numpy dtypes
++                                fits_to_numpy = {
++                                    'B': 'uint8', 'I': 'uint16', 'J': 'uint32', 'K': 'uint64',
++                                    'A': 'S1', 'L': 'bool',
++                                    'E': 'float32', 'D': 'float64', 'C': 'complex64'
++                                }
++                                if dtype_char in fits_to_numpy:
++                                    dt = np.dtype(fits_to_numpy[dtype_char])
++                                else:
++                                    # Fallback to float64 for unknown types
++                                    dt = np.dtype('float64')
++                                arr_len = count_a * dt.itemsize
++
++                                # Extract the VLA data from both files
++                                vla_data_a = raw_data_a[offset_a : offset_a + arr_len].view(dt)
++                                vla_data_b = raw_data_b[offset_b : offset_b + arr_len].view(dt)
++
++                                # Compare the actual VLA data
++                                if not np.allclose(vla_data_a, vla_data_b, rtol=self.rtol, atol=self.atol):
++                                    diffs.append(idx)
++                            else:
++                                # Fallback to pointer comparison if we can't parse the format
++                                if not np.allclose(arra[idx], arrb[idx], rtol=self.rtol, atol=self.atol):
++                                    diffs.append(idx)
++
++                        diffs = (diffs,)
++                    else:
++                        # Fall back to pointer comparison if we can't access heap data
++                        diffs = (
++                            [
++                                idx
++                                for idx in range(len(arra))
++                                if not np.allclose(
++                                    arra[idx], arrb[idx], rtol=self.rtol, atol=self.atol
++                                )
++                            ],
+                         )
+-                    ],
+-                )
++                except Exception:
++                    # If anything goes wrong, fall back to the original comparison
++                    diffs = (
++                        [
++                            idx
++                            for idx in range(len(arra))
++                            if not np.allclose(
++                                arra[idx], arrb[idx], rtol=self.rtol, atol=self.atol
++                            )
++                        ],
++                    )
+             else:
+                 diffs = np.where(arra != arrb)
+ 

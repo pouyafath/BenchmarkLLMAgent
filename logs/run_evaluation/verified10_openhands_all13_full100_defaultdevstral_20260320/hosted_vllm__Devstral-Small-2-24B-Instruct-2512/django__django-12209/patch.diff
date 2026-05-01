@@ -1,0 +1,24 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index e3b14a41a0..f1766fef99 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -848,14 +848,17 @@ class Model(metaclass=ModelBase):
+             raise ValueError("Cannot force an update in save() with no primary key.")
+         updated = False
+         # Skip an UPDATE when adding an instance and primary key has a default.
++        # However, if the PK value already exists in the database, we should
++        # perform an UPDATE instead of an INSERT to avoid duplicate records.
+         if (
+             not force_insert and
+             self._state.adding and
+             self._meta.pk.default and
+             self._meta.pk.default is not NOT_PROVIDED
+         ):
+-            force_insert = True
+-        # If possible, try an UPDATE. If that doesn't update anything, do an INSERT.
++            # Only force INSERT if the PK value doesn't exist in the database
++            if not cls._base_manager.using(using).filter(pk=pk_val).exists():
++                force_insert = True
+         if pk_set and not force_insert:
+             base_qs = cls._base_manager.using(using)
+             values = [(f, None, (getattr(self, f.attname) if raw else f.pre_save(self, False)))

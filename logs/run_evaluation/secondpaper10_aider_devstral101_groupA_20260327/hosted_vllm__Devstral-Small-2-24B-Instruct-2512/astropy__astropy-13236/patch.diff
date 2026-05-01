@@ -1,0 +1,22 @@
+Fix for Python 3.11+ compatibility - longintrepr.h removal
+==========================================================
+
+The issue: Cython-generated .c files were trying to include 'longintrepr.h'
+which was removed in Python 3.11. This caused build failures.
+
+The fix: Added a condition to disable CYTHON_USE_PYLONG_INTERNALS for Python 3.11+
+
+Files modified:
+  - astropy/table/_column_mixins.c
+  - astropy/cosmology/flrw/scalar_inv_efuncs.c
+  - astropy/io/fits/_utils.c
+
+Change made in each file:
+  Added after line '#define CYTHON_USE_PYLONG_INTERNALS 1':
+
+    #elif PY_VERSION_HEX >= 0x030B0000
+      #undef CYTHON_USE_PYLONG_INTERNALS
+      #define CYTHON_USE_PYLONG_INTERNALS 0
+
+This ensures that for Python 3.11 and later, the pylong internals
+are not used, avoiding the missing longintrepr.h header.

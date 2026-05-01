@@ -1,0 +1,53 @@
+{
+  "issue_id": "pydata/xarray#4094",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "to_unstacked_dataset broken for single-dim variables",
+  "original_body": "to_unstacked_dataset broken for single-dim variables\n<!-- A short summary of the issue, if appropriate -->\r\n\r\n\r\n#### MCVE Code Sample\r\n\r\n```python\r\narr = xr.DataArray(\r\n     np.arange(3),\r\n     coords=[(\"x\", [0, 1, 2])],\r\n )\r\ndata = xr.Dataset({\"a\": arr, \"b\": arr})\r\nstacked = data.to_stacked_array('y', sample_dims=['x'])\r\nunstacked = stacked.to_unstacked_dataset('y')\r\n# MergeError: conflicting values for variable 'y' on objects to be combined. You can skip this check by specifying compat='override'.\r\n```\r\n\r\n#### Expected Output\r\nA working roundtrip.\r\n\r\n#### Problem Description\r\nI need to stack a bunch of variables and later unstack them again, however this doesn't work if the variables only have a single dimension.\r\n\r\n#### Versions\r\n\r\n<details><summary>Output of <tt>xr.show_versions()</tt></summary>\r\n\r\nINSTALLED VERSIONS\r\n------------------\r\ncommit: None\r\npython: 3.7.3 (default, Mar 27 2019, 22:11:17) \r\n[GCC 7.3.0]\r\npython-bits: 64\r\nOS: Linux\r\nOS-release: 4.15.0-96-generic\r\nmachine: x86_64\r\nprocessor: x86_64\r\nbyteorder: little\r\nLC_ALL: None\r\nLANG: en_GB.UTF-8\r\nLOCALE: en_GB.UTF-8\r\nlibhdf5: 1.10.4\r\nlibnetcdf: 4.6.2\r\n\r\nxarray: 0.15.1\r\npandas: 1.0.3\r\nnumpy: 1.17.3\r\nscipy: 1.3.1\r\nnetCDF4: 1.4.2\r\npydap: None\r\nh5netcdf: None\r\nh5py: 2.10.0\r\nNio: None\r\nzarr: None\r\ncftime: 1.0.4.2\r\nnc_time_axis: None\r\nPseudoNetCDF: None\r\nrasterio: None\r\ncfgrib: None\r\niris: None\r\nbottleneck: None\r\ndask: 2.10.1\r\ndistributed: 2.10.0\r\nmatplotlib: 3.1.1\r\ncartopy: None\r\nseaborn: 0.10.0\r\nnumbagg: None\r\nsetuptools: 41.0.0\r\npip: 19.0.3\r\nconda: 4.8.3\r\npytest: 5.3.5\r\nIPython: 7.9.0\r\nsphinx: None\r\n\r\n\r\n</details>\r\n\n",
+  "enhanced_title": "to_unstacked_dataset` fails for single-dimension variables with MergeError",
+  "enhanced_body": "## Summary\nThe `to_unstacked_dataset` method fails when attempting to unstack a stacked array that was created from variables with only a single dimension. The operation raises a `MergeError` about conflicting values for the stacked dimension.\n\n## Steps to Reproduce\n1. Create a DataArray with a single dimension coordinate\n2. Create a Dataset containing this DataArray as multiple variables\n3. Stack the dataset using `to_stacked_array` with the single dimension as sample_dims\n4. Attempt to unstack using `to_unstacked_dataset`\n\n```python\nimport numpy as np\nimport xarray as xr\n\n# Step 1: Create single-dimension DataArray\narr = xr.DataArray(\n    np.arange(3),\n    coords=[(\"x\", [0, 1, 2])],\n)\n\n# Step 2: Create Dataset with multiple variables\ndata = xr.Dataset({\"a\": arr, \"b\": arr})\n\n# Step 3: Stack the dataset\nstacked = data.to_stacked_array('y', sample_dims=['x'])\n\n# Step 4: Attempt to unstack (this fails)\nunstacked = stacked.to_unstacked_dataset('y')\n```\n\n## Expected Behavior\nThe unstacking operation should successfully reverse the stacking operation, returning a Dataset with the original structure where variables \"a\" and \"b\" each have dimension \"x\".\n\n## Actual Behavior\nThe operation raises a `MergeError` with the message:\n```\nconflicting values for variable 'y' on objects to be combined. You can skip this check by specifying compat='override'.\n```\n\n## Scope / Affected Areas\n- Method: `to_unstacked_dataset` in the stacked array implementation\n- Affected files (based on hints): Likely in `xarray/core/stacked.py` or related stacking/unstacking logic\n- Impact: Users cannot perform roundtrip stacking/unstacking operations with single-dimension variables\n- Workaround: None identified - the operation completely fails\n\n## Environment\n- xarray version: 0.15.1\n- Python version: 3.7.3\n- Key dependencies: numpy 1.17.3, pandas 1.0.3\n- Platform: Linux (x86_64)\n\n## Additional Context\nThis issue specifically affects variables with only one dimension. The problem appears to be in how the unstacking operation handles the merging of coordinate information when the original variables had single dimensions.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpior1_3wh/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 2,
+    "noop_retry_used": true,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": true
+      },
+      {
+        "attempt": 2,
+        "force_rewrite": true,
+        "temperature": 0.2,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": true
+  }
+}

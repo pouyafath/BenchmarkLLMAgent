@@ -1,0 +1,643 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 350 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   mcpgateway/config.py
+	modified:   mcpgateway/federation/discovery.py
+	modified:   mcpgateway/main.py
+	modified:   mcpgateway/transports/sse_transport.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 4089d82159eed4027fbcde1530c9f959854d10a8
+Author: Mihai Criveti <crivetimihai@gmail.com>
+Date:   Tue Jul 22 07:23:11 2025 +0100
+
+    Added .depsorter .depupdate to FILES_TO_CLEAN
+    
+    Signed-off-by: Mihai Criveti <crivetimihai@gmail.com>
+
+diff --git a/Makefile b/Makefile
+index d1b58c3d..055f74b7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,7 +38,8 @@ FILES_TO_CLEAN := .coverage coverage.xml mcp.prof mcp.pstats \
+                   $(DOCS_DIR)/docs/test/sbom.md \
+                   $(DOCS_DIR)/docs/test/{unittest,full,index,test}.md \
+ 				  $(DOCS_DIR)/docs/images/coverage.svg $(LICENSES_MD) $(METRICS_MD) \
+-                  *.db *.sqlite *.sqlite3 mcp.db-journal *.py,cover
++                  *.db *.sqlite *.sqlite3 mcp.db-journal *.py,cover \
++				  .depsorter_cache.json .depupdate.*
+ 
+ COVERAGE_DIR ?= $(DOCS_DIR)/docs/coverage
+ LICENSES_MD  ?= $(DOCS_DIR)/docs/test/licenses.md
+diff --git a/docs/requirements.txt b/docs/requirements.txt
+index 76c9f3ed..80755645 100644
+--- a/docs/requirements.txt
++++ b/docs/requirements.txt
+@@ -87,4 +87,4 @@ weasyprint>=65.1
+ webcolors>=24.11.1
+ webencodings>=0.5.1
+ zipp>=3.23.0
+-zopfli>=0.2.3.post1
++zopfli>=0.2.3.post1
+\ No newline at end of file
++ git -c core.fileMode=false diff 4089d82159eed4027fbcde1530c9f959854d10a8
+diff --git a/mcpgateway/config.py b/mcpgateway/config.py
+index 297a97fa..b65c3027 100644
+--- a/mcpgateway/config.py
++++ b/mcpgateway/config.py
+@@ -98,6 +98,7 @@ class Settings(BaseSettings):
+     app_name: str = "MCP_Gateway"
+     host: str = "127.0.0.1"
+     port: int = 4444
++    gateway_protocol: str = "auto"  # http, https, or auto
+     database_url: str = "sqlite:///./mcp.db"
+     templates_dir: Path = Path("mcpgateway/templates")
+     # Absolute paths resolved at import-time (still override-able via env vars)
+diff --git a/mcpgateway/federation/discovery.py b/mcpgateway/federation/discovery.py
+index 894f16f2..9f73e7dd 100644
+--- a/mcpgateway/federation/discovery.py
++++ b/mcpgateway/federation/discovery.py
+@@ -583,7 +583,12 @@ class DiscoveryService(LocalDiscoveryService):
+                     addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
+                     if addresses:
+                         port = info.port
+-                        url = f"http://{addresses[0]}:{port}"
++                        # Detect protocol - use https if available, otherwise http
++                        protocol = "https" if settings.gateway_protocol == "https" else "http"
++                        if settings.gateway_protocol == "auto":
++                            # Try to detect from environment or use default
++                            protocol = "https" if os.environ.get("GATEWAY_PROTOCOL") == "https" else "http"
++                        url = f"{protocol}://{addresses[0]}:{port}"
+                         name = info.properties.get(b"name", b"").decode()
+ 
+                         # Add peer
+diff --git a/mcpgateway/main.py b/mcpgateway/main.py
+index 7aa7bd61..8990c7a0 100644
+--- a/mcpgateway/main.py
++++ b/mcpgateway/main.py
+@@ -921,7 +921,7 @@ async def sse_endpoint(request: Request, server_id: str, user: str = Depends(req
+         logger.debug(f"User {user} is establishing SSE connection for server {server_id}")
+         base_url = str(request.base_url).rstrip("/")
+         server_sse_url = f"{base_url}/servers/{server_id}"
+-        transport = SSETransport(base_url=server_sse_url)
++        transport = SSETransport(base_url=server_sse_url, request=request)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+         response = await transport.create_sse_response(request)
+@@ -2056,7 +2056,7 @@ async def utility_sse_endpoint(request: Request, user: str = Depends(require_aut
+     try:
+         logger.debug("User %s requested SSE connection", user)
+         base_url = str(request.base_url).rstrip("/")
+-        transport = SSETransport(base_url=base_url)
++        transport = SSETransport(base_url=base_url, request=request)
+         await transport.connect()
+         await session_registry.add_session(transport.session_id, transport)
+ 
+diff --git a/mcpgateway/transports/sse_transport.py b/mcpgateway/transports/sse_transport.py
+index c0f9d3cd..fa774169 100644
+--- a/mcpgateway/transports/sse_transport.py
++++ b/mcpgateway/transports/sse_transport.py
+@@ -76,11 +76,12 @@ class SSETransport(Transport):
+         True
+     """
+ 
+-    def __init__(self, base_url: str = None):
++    def __init__(self, base_url: str = None, request: Request = None):
+         """Initialize SSE transport.
+ 
+         Args:
+             base_url: Base URL for client message endpoints
++            request: Optional FastAPI request object for protocol detection
+ 
+         Examples:
+             >>> # Test default initialization
+@@ -105,7 +106,15 @@ class SSETransport(Transport):
+             >>> transport1.session_id != transport2.session_id
+             True
+         """
+-        self._base_url = base_url or f"http://{settings.host}:{settings.port}"
++        if base_url:
++            self._base_url = base_url
++        elif request:
++            # Detect protocol from request
++            protocol = "https" if request.url.scheme == "https" else "http"
++            self._base_url = f"{protocol}://{settings.host}:{settings.port}"
++        else:
++            # Fallback to default (http)
++            self._base_url = f"http://{settings.host}:{settings.port}"
+         self._connected = False
+         self._message_queue = asyncio.Queue()
+         self._client_gone = asyncio.Event()
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.2 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  configuration error: `project.license` must be valid exactly by one definition (2 matches found):
+
+      - keys:
+          'file': {type: string}
+        required: ['file']
+      - keys:
+          'text': {type: string}
+        required: ['text']
+
+  DESCRIPTION:
+      `Project license <https://www.python.org/dev/peps/pep-0621/#license>`_.
+
+  GIVEN VALUE:
+      "Apache-2.0"
+
+  OFFENDING RULE: 'oneOf'
+
+  DEFINITION:
+      {
+          "oneOf": [
+              {
+                  "properties": {
+                      "file": {
+                          "type": "string",
+                          "$$description": [
+                              "Relative path to the file (UTF-8) which contains the license for the",
+                              "project."
+                          ]
+                      }
+                  },
+                  "required": [
+                      "file"
+                  ]
+              },
+              {
+                  "properties": {
+                      "text": {
+                          "type": "string",
+                          "$$description": [
+                              "The license of the project whose meaning is that of the",
+                              "`License field from the core metadata",
+                              "<https://packaging.python.org/specifications/core-metadata/#license>`_."
+                          ]
+                      }
+                  },
+                  "required": [
+                      "text"
+                  ]
+              }
+          ]
+      }
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 389, in <module>
+      main()
+    File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 373, in main
+      json_out["return_val"] = hook(**hook_input["kwargs"])
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 209, in prepare_metadata_for_build_editable
+      return hook(metadata_directory, config_settings)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/build_meta.py", line 450, in prepare_metadata_for_build_editable
+      return self.prepare_metadata_for_build_wheel(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/build_meta.py", line 377, in prepare_metadata_for_build_wheel
+      self.run_setup()
+    File "/usr/local/lib/python3.11/site-packages/setuptools/build_meta.py", line 335, in run_setup
+      exec(code, locals())
+    File "<string>", line 1, in <module>
+    File "/usr/local/lib/python3.11/site-packages/setuptools/__init__.py", line 87, in setup
+      return distutils.core.setup(**attrs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/_distutils/core.py", line 159, in setup
+      dist.parse_config_files()
+    File "/usr/local/lib/python3.11/site-packages/setuptools/dist.py", line 868, in parse_config_files
+      pyprojecttoml.apply_configuration(self, filename, ignore_option_errors)
+    File "/usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py", line 62, in apply_configuration
+      config = read_configuration(filepath, True, ignore_option_errors, dist)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py", line 126, in read_configuration
+      validate(subset, filepath)
+    File "/usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py", line 51, in validate
+      raise ValueError(f"{error}\n{summary}") from None
+  ValueError: invalid pyproject.toml config: `project.license`.
+  configuration error: `project.license` must be valid exactly by one definition (2 matches found):
+
+      - keys:
+          'file': {type: string}
+        required: ['file']
+      - keys:
+          'text': {type: string}
+        required: ['text']
+
+  error: subprocess-exited-with-error
+  
+  × Preparing editable metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  full command: /usr/local/bin/python /usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py prepare_metadata_for_build_editable /tmp/tmprxi6j87q
+  cwd: /testbed
+  Preparing editable metadata (pyproject.toml): finished with status 'error'
+
+[notice] A new release of pip is available: 25.2 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> See above for output.
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
++ python -m pip install -e . --no-build-isolation --verbose
+Using pip 25.2 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  configuration error: `project.license` must be valid exactly by one definition (2 matches found):
+
+      - keys:
+          'file': {type: string}
+        required: ['file']
+      - keys:
+          'text': {type: string}
+        required: ['text']
+
+  DESCRIPTION:
+      `Project license <https://www.python.org/dev/peps/pep-0621/#license>`_.
+
+  GIVEN VALUE:
+      "Apache-2.0"
+
+  OFFENDING RULE: 'oneOf'
+
+  DEFINITION:
+      {
+          "oneOf": [
+              {
+                  "properties": {
+                      "file": {
+                          "type": "string",
+                          "$$description": [
+                              "Relative path to the file (UTF-8) which contains the license for the",
+                              "project."
+                          ]
+                      }
+                  },
+                  "required": [
+                      "file"
+                  ]
+              },
+              {
+                  "properties": {
+                      "text": {
+                          "type": "string",
+                          "$$description": [
+                              "The license of the project whose meaning is that of the",
+                              "`License field from the core metadata",
+                              "<https://packaging.python.org/specifications/core-metadata/#license>`_."
+                          ]
+                      }
+                  },
+                  "required": [
+                      "text"
+                  ]
+              }
+          ]
+      }
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 389, in <module>
+      main()
+    File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 373, in main
+      json_out["return_val"] = hook(**hook_input["kwargs"])
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py", line 209, in prepare_metadata_for_build_editable
+      return hook(metadata_directory, config_settings)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/build_meta.py", line 450, in prepare_metadata_for_build_editable
+      return self.prepare_metadata_for_build_wheel(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/build_meta.py", line 377, in prepare_metadata_for_build_wheel
+      self.run_setup()
+    File "/usr/local/lib/python3.11/site-packages/setuptools/build_meta.py", line 335, in run_setup
+      exec(code, locals())
+    File "<string>", line 1, in <module>
+    File "/usr/local/lib/python3.11/site-packages/setuptools/__init__.py", line 87, in setup
+      return distutils.core.setup(**attrs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/_distutils/core.py", line 159, in setup
+      dist.parse_config_files()
+    File "/usr/local/lib/python3.11/site-packages/setuptools/dist.py", line 868, in parse_config_files
+      pyprojecttoml.apply_configuration(self, filename, ignore_option_errors)
+    File "/usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py", line 62, in apply_configuration
+      config = read_configuration(filepath, True, ignore_option_errors, dist)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py", line 126, in read_configuration
+      validate(subset, filepath)
+    File "/usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py", line 51, in validate
+      raise ValueError(f"{error}\n{summary}") from None
+  ValueError: invalid pyproject.toml config: `project.license`.
+  configuration error: `project.license` must be valid exactly by one definition (2 matches found):
+
+      - keys:
+          'file': {type: string}
+        required: ['file']
+      - keys:
+          'text': {type: string}
+        required: ['text']
+
+  error: subprocess-exited-with-error
+  
+  × Preparing editable metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  full command: /usr/local/bin/python /usr/local/lib/python3.11/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py prepare_metadata_for_build_editable /tmp/tmp6qwn82n3
+  cwd: /testbed
+  Preparing editable metadata (pyproject.toml): finished with status 'error'
+
+[notice] A new release of pip is available: 25.2 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> See above for output.
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
++ git checkout 4089d82159eed4027fbcde1530c9f959854d10a8 tests/unit/mcpgateway/test_main.py
+Updated 0 paths from dbccf0c1
++ git apply -v -
+Checking patch tests/unit/mcpgateway/test_main.py...
+Applied patch tests/unit/mcpgateway/test_main.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA tests/unit/mcpgateway/test_main.py
+...........................................................F............ [ 96%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+___________________ TestRealtimeEndpoints.test_sse_endpoint ____________________
+
+args = (<tests.unit.mcpgateway.test_main.TestRealtimeEndpoints object at 0x7f5dfce6bd50>,)
+keywargs = {'auth_headers': {'Authorization': 'Bearer 123.123.this_is_a_test_token'}, 'test_client': <starlette.testclient.TestClient object at 0x7f5dfa36e3d0>}
+
+    @wraps(func)
+    def patched(*args, **keywargs):
+>       with self.decoration_helper(patched,
+                                    args,
+                                    keywargs) as (newargs, newkeywargs):
+
+/usr/local/lib/python3.11/unittest/mock.py:1375: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.11/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1357: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/contextlib.py:517: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1446: in __enter__
+    original, local = self.get_original()
+                      ^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <unittest.mock._patch object at 0x7f5dfccda650>
+
+    def get_original(self):
+        target = self.getter()
+        name = self.attribute
+    
+        original = DEFAULT
+        local = False
+    
+        try:
+            original = target.__dict__[name]
+        except (AttributeError, KeyError):
+            original = getattr(target, name, DEFAULT)
+        else:
+            local = True
+    
+        if name in _builtins and isinstance(target, ModuleType):
+            self.create = True
+    
+        if not self.create and original is DEFAULT:
+>           raise AttributeError(
+                "%s does not have the attribute %r" % (target, name)
+            )
+E           AttributeError: <module 'mcpgateway.main' from '/testbed/mcpgateway/main.py'> does not have the attribute 'update_url_protocol'
+
+/usr/local/lib/python3.11/unittest/mock.py:1419: AttributeError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/_pytest/config/__init__.py:1474
+  /usr/local/lib/python3.11/site-packages/_pytest/config/__init__.py:1474: PytestConfigWarning: Unknown config option: env
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+________________ TestHealthAndInfrastructure.test_health_check _________________
+---------------------------- Captured stderr setup -----------------------------
+02:22:32 - db_isready - INFO - Probing sqlite at ./mcp.db (timeout=2s, interval=2.0s, max_tries=3)
+02:22:32 - db_isready - INFO - Database ready after 0.00s (attempt 1)
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [mcpgateway.bootstrap_db] Database ready
+INFO  [mcpgateway] Admin UI enabled: False
+INFO  [mcpgateway] Admin API enabled: False
+WARNI [mcpgateway] Admin API routes not mounted - Admin API disabled via MCPGATEWAY_ADMIN_API_ENABLED=False
+WARNI [mcpgateway] Static files not mounted - UI disabled via MCPGATEWAY_UI_ENABLED=False
+------------------------------ Captured log setup ------------------------------
+INFO     db_isready:db_isready.py:267 Probing sqlite at ./mcp.db (timeout=2s, interval=2.0s, max_tries=3)
+INFO     db_isready:db_isready.py:298 Database ready after 0.00s (attempt 1)
+________________ TestHealthAndInfrastructure.test_root_redirect ________________
+----------------------------- Captured stderr call -----------------------------
+INFO  [mcpgateway] UI disabled, serving API info at root path
+------------------------------ Captured log call -------------------------------
+INFO     mcpgateway:main.py:2335 UI disabled, serving API info at root path
+__________ TestProtocolEndpoints.test_handle_notification_initialized __________
+----------------------------- Captured stderr call -----------------------------
+INFO  [mcpgateway] Client initialized
+------------------------------ Captured log call -------------------------------
+INFO     mcpgateway:main.py:682 Client initialized
+___________ TestProtocolEndpoints.test_handle_notification_cancelled ___________
+----------------------------- Captured stderr call -----------------------------
+INFO  [mcpgateway] Request cancelled: 123
+------------------------------ Captured log call -------------------------------
+INFO     mcpgateway:main.py:686 Request cancelled: 123
+__________________ TestRPCEndpoints.test_rpc_invalid_request ___________________
+----------------------------- Captured stderr call -----------------------------
+ERROR [mcpgateway] RPC error: Invalid request
+------------------------------ Captured log call -------------------------------
+ERROR    mcpgateway:main.py:1982 RPC error: Invalid request
+____________________ TestRPCEndpoints.test_rpc_invalid_json ____________________
+----------------------------- Captured stderr call -----------------------------
+ERROR [mcpgateway] RPC error: Expecting value: line 1 column 1 (char 0)
+------------------------------ Captured log call -------------------------------
+ERROR    mcpgateway:main.py:1982 RPC error: Expecting value: line 1 column 1 (char 0)
+________________ TestRealtimeEndpoints.test_websocket_endpoint _________________
+----------------------------- Captured stderr call -----------------------------
+ERROR [mcpgateway] WebSocket error: (1000, None)
+------------------------------ Captured log call -------------------------------
+ERROR    mcpgateway:main.py:2027 WebSocket error: (1000, None)
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.13-final-0 _______________
+
+Name                                                                        Stmts   Miss Branch BrPart  Cover
+-------------------------------------------------------------------------------------------------------------
+mcpgateway/__init__.py                                                          8      0      0      0   100%
+mcpgateway/admin.py                                                           496    390     58      0    19%
+mcpgateway/alembic/env.py                                                      35     10      8      4    67%
+mcpgateway/alembic/versions/b77ca9d2de7e_uuid_pk_and_slug_refactor.py         175    161     22      0     7%
+mcpgateway/alembic/versions/e4fc04d1a442_add_annotations_to_tables.py          21     12      4      0    36%
+mcpgateway/alembic/versions/e75490e949b1_add_improved_status_to_tables.py      17      8      0      0    53%
+mcpgateway/bootstrap_db.py                                                     24      3      2      1    85%
+mcpgateway/cache/__init__.py                                                    3      0      0      0   100%
+mcpgateway/cache/resource_cache.py                                             56     26     10      2    48%
+mcpgateway/cache/session_registry.py                                          420    367    140      6    11%
+mcpgateway/cli.py                                                              29     29     10      0     0%
+mcpgateway/config.py                                                          228     77     38      6    59%
+mcpgateway/db.py                                                              434    154     54      2    58%
+mcpgateway/federation/__init__.py                                               3      3      0      0     0%
+mcpgateway/federation/discovery.py                                            180    180     42      0     0%
+mcpgateway/federation/forward.py                                              122    122     38      0     0%
+mcpgateway/handlers/__init__.py                                                 2      0      0      0   100%
+mcpgateway/handlers/sampling.py                                                87     71     44      0    12%
+mcpgateway/main.py                                                            743    223     86     26    68%
+mcpgateway/models.py                                                          207      3      2      0    98%
+mcpgateway/schemas.py                                                         766    208    156     33    64%
+mcpgateway/services/__init__.py                                                 5      0      0      0   100%
+mcpgateway/services/completion_service.py                                      70     51     26      0    20%
+mcpgateway/services/gateway_service.py                                        430    350    130      3    15%
+mcpgateway/services/logging_service.py                                         55     32     10      1    37%
+mcpgateway/services/prompt_service.py                                         270    222     72      0    14%
+mcpgateway/services/resource_service.py                                       290    235     80      0    15%
+mcpgateway/services/root_service.py                                            69     46     10      0    29%
+mcpgateway/services/server_service.py                                         232    189     70      0    14%
+mcpgateway/services/tool_service.py                                           339    272     92      1    16%
+mcpgateway/translate.py                                                       202    202     46      0     0%
+mcpgateway/transports/__init__.py                                               5      0      0      0   100%
+mcpgateway/transports/base.py                                                  13      0      0      0   100%
+mcpgateway/transports/sse_transport.py                                         82     60     14      0    23%
+mcpgateway/transports/stdio_transport.py                                       55     41      8      0    22%
+mcpgateway/transports/streamablehttp_transport.py                             142     86     26      2    35%
+mcpgateway/transports/websocket_transport.py                                   80     64     18      0    16%
+mcpgateway/utils/create_jwt_token.py                                           54     34     10      0    31%
+mcpgateway/utils/create_slug.py                                                13      6      2      0    47%
+mcpgateway/utils/db_isready.py                                                 76     21     12      6    69%
+mcpgateway/utils/error_formatter.py                                            46     34     26      0    17%
+mcpgateway/utils/redis_isready.py                                              44     30     10      0    26%
+mcpgateway/utils/retry_manager.py                                              80     53     22      0    26%
+mcpgateway/utils/services_auth.py                                              33     22      6      1    31%
+mcpgateway/utils/verify_credentials.py                                         45     24     12      2    40%
+mcpgateway/validation/__init__.py                                               2      0      0      0   100%
+mcpgateway/validation/jsonrpc.py                                               58     36     34      6    30%
+mcpgateway/validators.py                                                      170     75    114     39    49%
+mcpgateway/version.py                                                         123     86     18      0    26%
+mcpgateway/wrapper.py                                                         218    218     50      0     0%
+-------------------------------------------------------------------------------------------------------------
+TOTAL                                                                        7357   4536   1632    141    33%
+=========================== short test summary info ============================
+PASSED tests/unit/mcpgateway/test_main.py::TestHealthAndInfrastructure::test_health_check
+PASSED tests/unit/mcpgateway/test_main.py::TestHealthAndInfrastructure::test_ready_check
+PASSED tests/unit/mcpgateway/test_main.py::TestHealthAndInfrastructure::test_root_redirect
+PASSED tests/unit/mcpgateway/test_main.py::TestHealthAndInfrastructure::test_static_files
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_initialize_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_ping_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_ping_invalid_method
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_handle_notification_initialized
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_handle_notification_cancelled
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_handle_notification_message
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_handle_completion_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestProtocolEndpoints::test_handle_sampling_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_list_servers_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_get_server_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_create_server_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_update_server_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_toggle_server_status
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_delete_server_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_server_get_tools
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_server_get_resources
+PASSED tests/unit/mcpgateway/test_main.py::TestServerEndpoints::test_server_get_prompts
+PASSED tests/unit/mcpgateway/test_main.py::TestToolEndpoints::test_list_tools_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestToolEndpoints::test_create_tool_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestToolEndpoints::test_get_tool_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestToolEndpoints::test_update_tool_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestToolEndpoints::test_toggle_tool_status
+PASSED tests/unit/mcpgateway/test_main.py::TestToolEndpoints::test_delete_tool_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_list_resources_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_create_resource_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_read_resource_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_update_resource_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_delete_resource_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_list_resource_templates
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_toggle_resource_status
+PASSED tests/unit/mcpgateway/test_main.py::TestResourceEndpoints::test_subscribe_resource_events
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_list_prompts_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_create_prompt_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_get_prompt_with_args
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_get_prompt_no_args
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_update_prompt_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_delete_prompt_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestPromptEndpoints::test_toggle_prompt_status
+PASSED tests/unit/mcpgateway/test_main.py::TestGatewayEndpoints::test_list_gateways_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestGatewayEndpoints::test_create_gateway_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestGatewayEndpoints::test_get_gateway_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestGatewayEndpoints::test_update_gateway_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestGatewayEndpoints::test_delete_gateway_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestGatewayEndpoints::test_toggle_gateway_status
+PASSED tests/unit/mcpgateway/test_main.py::TestRootEndpoints::test_list_roots_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestRootEndpoints::test_add_root_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestRootEndpoints::test_remove_root_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestRootEndpoints::test_subscribe_root_changes
+PASSED tests/unit/mcpgateway/test_main.py::TestRPCEndpoints::test_rpc_tool_invocation
+PASSED tests/unit/mcpgateway/test_main.py::TestRPCEndpoints::test_rpc_prompt_get
+PASSED tests/unit/mcpgateway/test_main.py::TestRPCEndpoints::test_rpc_list_tools
+PASSED tests/unit/mcpgateway/test_main.py::TestRPCEndpoints::test_rpc_invalid_request
+PASSED tests/unit/mcpgateway/test_main.py::TestRPCEndpoints::test_rpc_invalid_json
+PASSED tests/unit/mcpgateway/test_main.py::TestRPCEndpoints::test_set_log_level_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestRealtimeEndpoints::test_websocket_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestRealtimeEndpoints::test_message_endpoint
+PASSED tests/unit/mcpgateway/test_main.py::TestMetricsEndpoints::test_get_metrics
+PASSED tests/unit/mcpgateway/test_main.py::TestMetricsEndpoints::test_reset_all_metrics
+PASSED tests/unit/mcpgateway/test_main.py::TestMetricsEndpoints::test_reset_specific_entity_metrics
+PASSED tests/unit/mcpgateway/test_main.py::TestMetricsEndpoints::test_reset_invalid_entity_metrics
+PASSED tests/unit/mcpgateway/test_main.py::TestMiddlewareAndSecurity::test_docs_auth_middleware_protected_path
+PASSED tests/unit/mcpgateway/test_main.py::TestMiddlewareAndSecurity::test_docs_auth_middleware_unprotected_path
+PASSED tests/unit/mcpgateway/test_main.py::TestMiddlewareAndSecurity::test_openapi_protected
+PASSED tests/unit/mcpgateway/test_main.py::TestMiddlewareAndSecurity::test_redoc_protected
+PASSED tests/unit/mcpgateway/test_main.py::TestMiddlewareAndSecurity::test_cors_headers
+PASSED tests/unit/mcpgateway/test_main.py::TestErrorHandling::test_invalid_json_body
+PASSED tests/unit/mcpgateway/test_main.py::TestErrorHandling::test_server_not_found
+PASSED tests/unit/mcpgateway/test_main.py::TestErrorHandling::test_resource_not_found
+PASSED tests/unit/mcpgateway/test_main.py::TestErrorHandling::test_tool_name_conflict
+PASSED tests/unit/mcpgateway/test_main.py::TestErrorHandling::test_missing_required_fields
+FAILED tests/unit/mcpgateway/test_main.py::TestRealtimeEndpoints::test_sse_endpoint
+1 failed, 74 passed, 1 warning in 3.99s
++ : '>>>>> End Test Output'
++ git checkout 4089d82159eed4027fbcde1530c9f959854d10a8 tests/unit/mcpgateway/test_main.py
+Updated 1 path from dbccf0c1

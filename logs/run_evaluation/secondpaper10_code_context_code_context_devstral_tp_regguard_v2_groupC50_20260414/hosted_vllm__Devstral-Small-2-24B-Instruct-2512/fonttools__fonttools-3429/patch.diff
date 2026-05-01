@@ -1,0 +1,110 @@
+diff --git a/Lib/fontTools/feaLib/builder.py b/Lib/fontTools/feaLib/builder.py
+index 36eed9514..2d0a6da23 100644
+--- a/Lib/fontTools/feaLib/builder.py
++++ b/Lib/fontTools/feaLib/builder.py
+@@ -1338,7 +1338,7 @@ class Builder(object):
+         # substitutions to be specified on target sequences that contain
+         # glyph classes, the implementation software will enumerate
+         # all specific glyph sequences if glyph classes are detected"
+-        for g in sorted(itertools.product(*glyphs)):
++        for g in sorted(itertools.product(*glyphs), key=lambda components: (-len(components),)):
+             lookup.ligatures[g] = replacement
+ 
+     # GSUB 5/6
+diff --git a/Lib/fontTools/otlLib/builder.py b/Lib/fontTools/otlLib/builder.py
+index 4b457f4d9..dd382e5b2 100644
+--- a/Lib/fontTools/otlLib/builder.py
++++ b/Lib/fontTools/otlLib/builder.py
+@@ -1573,11 +1573,13 @@ def _getLigatureKey(components):
+     # When building the OpenType lookup, we need to make sure that
+     # the longest sequence of components is listed first, so we
+     # use the negative length as the primary key for sorting.
+-    # To make buildLigatureSubstSubtable() deterministic, we use the
+-    # component sequence as the secondary key.
++    # To preserve the original declaration order for ligatures with the same length,
++    # we don't use a secondary key. Python's stable sort will maintain the
++    # original order for ligatures with equal length.
+ 
+-    # For example, this will sort (f,f,f) < (f,f,i) < (f,f) < (f,i) < (f,l).
+-    return (-len(components), components)
++    # For example, this will sort (f,f,f) first (length 3), then preserve
++    # the original order for (f,f), (f,i), (f,l) (all length 2).
++    return (-len(components),)
+ 
+ 
+ def buildLigatureSubstSubtable(mapping):
+diff --git a/Tests/feaLib/data/spec4h1.ttx b/Tests/feaLib/data/spec4h1.ttx
+index 0e42fc56e..a399ab2b4 100644
+--- a/Tests/feaLib/data/spec4h1.ttx
++++ b/Tests/feaLib/data/spec4h1.ttx
+@@ -147,8 +147,8 @@
+         <!-- SubTableCount=1 -->
+         <LigatureSubst index="0">
+           <LigatureSet glyph="c">
+-            <Ligature components="s" glyph="c_s"/>
+             <Ligature components="t" glyph="c_t"/>
++            <Ligature components="s" glyph="c_s"/>
+           </LigatureSet>
+         </LigatureSubst>
+       </Lookup>
+diff --git a/Tests/feaLib/data/spec5d1.ttx b/Tests/feaLib/data/spec5d1.ttx
+index 77dfc93b8..8763c931e 100644
+--- a/Tests/feaLib/data/spec5d1.ttx
++++ b/Tests/feaLib/data/spec5d1.ttx
+@@ -43,16 +43,16 @@
+         <!-- SubTableCount=1 -->
+         <LigatureSubst index="0">
+           <LigatureSet glyph="one">
+-            <Ligature components="fraction,two" glyph="onehalf"/>
+-            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+             <Ligature components="slash,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
+-          </LigatureSet>
+-          <LigatureSet glyph="one.oldstyle">
+             <Ligature components="fraction,two" glyph="onehalf"/>
+             <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
++          </LigatureSet>
++          <LigatureSet glyph="one.oldstyle">
+             <Ligature components="slash,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
++            <Ligature components="fraction,two" glyph="onehalf"/>
++            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+           </LigatureSet>
+         </LigatureSubst>
+       </Lookup>
+@@ -62,16 +62,16 @@
+         <!-- SubTableCount=1 -->
+         <LigatureSubst index="0">
+           <LigatureSet glyph="one">
+-            <Ligature components="fraction,two" glyph="onehalf"/>
+-            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+             <Ligature components="slash,two" glyph="onehalf"/>
++            <Ligature components="fraction,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
++            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+           </LigatureSet>
+           <LigatureSet glyph="one.oldstyle">
+-            <Ligature components="fraction,two" glyph="onehalf"/>
+-            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+             <Ligature components="slash,two" glyph="onehalf"/>
++            <Ligature components="fraction,two" glyph="onehalf"/>
+             <Ligature components="slash,two.oldstyle" glyph="onehalf"/>
++            <Ligature components="fraction,two.oldstyle" glyph="onehalf"/>
+           </LigatureSet>
+         </LigatureSubst>
+       </Lookup>
+diff --git a/Tests/otlLib/builder_test.py b/Tests/otlLib/builder_test.py
+index b7a6caa2f..1645a4edb 100644
+--- a/Tests/otlLib/builder_test.py
++++ b/Tests/otlLib/builder_test.py
+@@ -1055,7 +1055,9 @@ class BuilderTest(object):
+         components = lambda s: [tuple(word) for word in s.split()]
+         c = components("fi fl ff ffi fff")
+         c.sort(key=builder._getLigatureKey)
+-        assert c == components("fff ffi ff fi fl")
++        # With stable sort by length only, ligatures with the same length
++        # preserve their original declaration order
++        assert c == components("ffi fff fi fl ff")
+ 
+     def test_getSinglePosValueKey(self):
+         device = builder.buildDevice({10: 1, 11: 3})

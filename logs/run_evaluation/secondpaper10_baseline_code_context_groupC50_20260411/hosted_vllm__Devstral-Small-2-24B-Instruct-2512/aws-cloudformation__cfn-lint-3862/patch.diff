@@ -1,0 +1,139 @@
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..723782577 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -22,6 +22,9 @@ from cfnlint.helpers import REGIONS, format_json_string
+ from cfnlint.jsonschema import StandardValidator
+ from cfnlint.version import __version__
+ 
++# Import exception for file not found errors
++from cfnlint.exceptions import CfnLintExitException
++
+ # pylint: disable=too-many-public-methods
+ LOGGER = logging.getLogger("cfnlint")
+ 
+@@ -792,6 +795,7 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+         # handle different shells and Config files
+         # some shells don't expand * and configparser won't expand wildcards
+         all_filenames = []
++        missing_files = []
+ 
+         for filename in filenames:
+             add_filenames = glob.glob(filename, recursive=True)
+@@ -801,6 +805,31 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+             else:
+                 LOGGER.error(f"{filename} could not be processed by glob.glob")
+ 
++            # Check if this specific filename resulted in any files
++            if not add_filenames:
++                missing_files.append(filename)
++
++        # Check if any files were found for the provided filenames
++        if missing_files:
++            # Build error message for all missing files
++            error_messages = []
++            for filename in missing_files:
++                # Check if the filename contains wildcards
++                if '*' in filename or '?' in filename:
++                    # Wildcard pattern didn't match any files
++                    error_messages.append(f"No files found matching pattern: {filename}")
++                else:
++                    # Specific file doesn't exist
++                    if os.path.isdir(filename):
++                        error_messages.append(f"Template references a directory, not a file: {filename}")
++                    elif not os.path.exists(filename):
++                        error_messages.append(f"Template file not found: {filename}")
++                    else:
++                        error_messages.append(f"Template file not found: {filename}")
++
++            # Raise exception with all error messages
++            raise CfnLintExitException("; ".join(error_messages), 32)
++
+         return sorted(list(map(str, map(Path, all_filenames))))
+ 
+     @property
+diff --git a/src/cfnlint/exceptions.py b/src/cfnlint/exceptions.py
+index cedb10369..4b776d2f6 100644
+--- a/src/cfnlint/exceptions.py
++++ b/src/cfnlint/exceptions.py
+@@ -19,3 +19,27 @@ class DuplicateRuleError(CfnLintError):
+     """
+ 
+     fmt = "Rule already included: {rule_id}"
++
++class CfnLintExitException(Exception):
++    """
++    An exception that is raised to indicate that the CloudFormation linter should exit.
++
++    This exception is used to signal that the linter should exit
++    with a specific exit code, typically indicating the severity
++    of the issues found in the CloudFormation template.
++
++    :ivar exit_code: The exit code to be used when the linter exits.
++    """
++
++    def __init__(self, msg=None, exit_code=1):
++        """
++        Initialize a new CfnLintExitException instance with the specified exit code.
++
++        Args:
++            msg: The error message.
++            exit_code: The exit code to be used when the linter exits.
++        """
++        if msg is None:
++            msg = f"process failed with exit code {exit_code}"
++        super().__init__(msg)
++        self.exit_code = exit_code
+\ No newline at end of file
+diff --git a/src/cfnlint/runner.py b/src/cfnlint/runner.py
+index e1954650c..632a063a5 100644
+--- a/src/cfnlint/runner.py
++++ b/src/cfnlint/runner.py
+@@ -449,38 +449,17 @@ class Runner:
+ 
+ 
+ def main() -> None:
+-    config = ConfigMixIn(sys.argv[1:])
+-    runner = Runner(config)
+-    runner.cli()
++    try:
++        config = ConfigMixIn(sys.argv[1:])
++        runner = Runner(config)
++        runner.cli()
++    except CfnLintExitException as e:
++        LOGGER.error(str(e))
++        sys.exit(e.exit_code)
+ 
+ 
+-class CfnLintExitException(Exception):
+-    """
+-    An exception that is raised to indicate that the CloudFormation linter should exit.
+-
+-    This exception is used to signal that the linter should exit
+-    with a specific exit code, typically indicating the severity
+-    of the issues found in the CloudFormation template.
+-
+-    Attributes:
+-        exit_code (int): The exit code to be used when the linter exits.
+-
+-    Methods:
+-        __init__(self, exit_code: int) -> None:
+-            Initialize a new CfnLintExitException instance with the specified exit code.
+-    """
+-
+-    def __init__(self, msg=None, exit_code=1):
+-        """
+-        Initialize a new CfnLintExitException instance with the specified exit code.
+-
+-        Args:
+-            exit_code (int): The exit code to be used when the linter exits.
+-        """
+-        if msg is None:
+-            msg = f"process failed with exit code {exit_code}"
+-        super().__init__(msg)
+-        self.exit_code = exit_code
++# Import exception from exceptions module
++from cfnlint.exceptions import CfnLintExitException
+ 
+ 
+ class InvalidRegionException(CfnLintExitException):

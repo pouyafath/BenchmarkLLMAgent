@@ -1,0 +1,53 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 7d226955d5..8233a50072 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -90,14 +90,40 @@ class DeconstructableSerializer(BaseSerializer):
+ 
+     @staticmethod
+     def _serialize_path(path):
+-        module, name = path.rsplit(".", 1)
+-        if module == "django.db.models":
+-            imports = {"from django.db import models"}
+-            name = "models.%s" % name
+-        else:
+-            imports = {"import %s" % module}
+-            name = path
+-        return name, imports
++        """
++        Find the boundary between module path and class path.
++        Returns (name, imports) tuple where name is the full import path
++        and imports is a set of import statements.
++        """
++        parts = path.split('.')
++
++        # Special case for django.db.models
++        if parts[:3] == ['django', 'db', 'models']:
++            return "models.%s" % '.'.join(parts[3:]), {"from django.db import models"}
++
++        # Try to find the longest importable module prefix
++        # We try from the shortest to longest to find the most specific module
++        for i in range(1, len(parts)):
++            module_candidate = '.'.join(parts[:i])
++            try:
++                import importlib
++                importlib.import_module(module_candidate)
++                # If we can import it, check if the rest looks like a class path
++                # (i.e., not importable as a module)
++                remaining = '.'.join(parts[i:])
++                if remaining and not remaining.replace('_', '').isdigit():
++                    try:
++                        importlib.import_module(remaining)
++                        # If the remaining part is also importable, we need to continue
++                    except (ImportError, ValueError):
++                        # The remaining part is not importable, so we found our boundary
++                        return "%s.%s" % (module_candidate, remaining), {"import %s" % module_candidate}
++            except (ImportError, ValueError):
++                continue
++
++        # If we can't find a clear boundary, use the whole path as name
++        # and no imports (caller will handle this)
++        return path, set()
+ 
+     def serialize(self):
+         return self.serialize_deconstructed(*self.value.deconstruct())

@@ -1,0 +1,165 @@
+diff --git a/benchmarks/benchmarks/benchmark_chordal.py b/benchmarks/benchmarks/benchmark_chordal.py
+new file mode 100644
+index 00000000..3f93b76d
+--- /dev/null
++++ b/benchmarks/benchmarks/benchmark_chordal.py
+@@ -0,0 +1,33 @@
++import networkx as nx
++
++
++class ChordalBenchmarks:
++    param_names = ["num_nodes"]
++    params = [5, 10, 50, 100]
++
++    def setup(self, num_nodes):
++        self.star_graph = nx.star_graph(num_nodes)
++        self.wheel_graph = nx.wheel_graph(num_nodes)
++        self.complete_graph = nx.complete_graph(num_nodes)
++        self.path_graph = nx.path_graph(num_nodes)
++        self.cycle_graph = nx.cycle_graph(num_nodes)
++
++    def time_is_chordal_complete(self, num_nodes):
++        """complete graphs are chordal"""
++        nx.is_chordal(self.complete_graph)
++
++    def time_is_chordal_star(self, num_nodes):
++        """star graph -> no cycles -> trivially chordal"""
++        nx.is_chordal(self.star_graph)
++
++    def time_is_chordal_path(self, num_nodes):
++        """Same with path: no cycles, therefore trivially chordal"""
++        nx.is_chordal(self.path_graph)
++
++    def time_is_chordal_wheel(self, num_nodes):
++        """Like star graph, except all triangles"""
++        nx.is_chordal(self.wheel_graph)
++
++    def time_is_chordal_cycle_graph(self, num_nodes):
++        """Not chordal, finding chordality breaker requires querying whole graph"""
++        nx.is_chordal(self.cycle_graph)
+diff --git a/networkx/algorithms/distance_measures.py b/networkx/algorithms/distance_measures.py
+index 728cc5f1..7b744c78 100644
+--- a/networkx/algorithms/distance_measures.py
++++ b/networkx/algorithms/distance_measures.py
+@@ -286,6 +286,11 @@ def eccentricity(G, v=None, sp=None, weight=None):
+     ecc : dictionary
+        A dictionary of eccentricity values keyed by node.
+ 
++    Raises
++    ------
++    NetworkXPointlessConcept
++        If G is a null graph.
++
+     Examples
+     --------
+     >>> G = nx.Graph([(1, 2), (1, 3), (1, 4), (3, 4), (3, 5), (4, 5)])
+@@ -304,6 +309,12 @@ def eccentricity(G, v=None, sp=None, weight=None):
+     #        nodes=[v]
+     #    else:                      # assume v is a container of nodes
+     #        nodes=v
++
++    if len(G) == 0:
++        raise nx.NetworkXPointlessConcept(
++            "Cannot compute eccentricity of a null graph."
++        )
++
+     order = G.order()
+     e = {}
+     for n in G.nbunch_iter(v):
+@@ -379,6 +390,13 @@ def diameter(G, e=None, usebounds=False, weight=None):
+     d : integer
+        Diameter of graph
+ 
++    Raises
++    ------
++    NetworkXError
++        If G has multiple components.
++    NetworkXPointlessConcept
++        If G is a null graph.
++
+     Notes
+     -----
+     When ``usebounds=True``, the computation makes use of smart lower
+@@ -595,6 +613,13 @@ def radius(G, e=None, usebounds=False, weight=None):
+     r : integer
+        Radius of graph
+ 
++    Raises
++    ------
++    NetworkXError
++        If G has multiple components.
++    NetworkXPointlessConcept
++        If G is a null graph.
++
+     Notes
+     -----
+     When ``usebounds=True``, the computation makes use of smart lower
+diff --git a/networkx/algorithms/tests/test_distance_measures.py b/networkx/algorithms/tests/test_distance_measures.py
+index 1668fefd..f3fe7e66 100644
+--- a/networkx/algorithms/tests/test_distance_measures.py
++++ b/networkx/algorithms/tests/test_distance_measures.py
+@@ -74,10 +74,9 @@ class TestDistance:
+         assert e == 0
+         pytest.raises(nx.NetworkXError, nx.eccentricity, G, 1)
+ 
+-        # test against empty graph
+-        G = nx.empty_graph()
+-        e = nx.eccentricity(G)
+-        assert e == {}
++        # test against null graph
++        G = nx.Graph()
++        pytest.raises(nx.NetworkXPointlessConcept, nx.eccentricity, G)
+ 
+     def test_diameter(self):
+         assert nx.diameter(self.G) == 6
+@@ -171,6 +170,13 @@ class TestDistance:
+             DG = nx.DiGraph([(1, 2), (1, 3)])
+             nx.eccentricity(DG)
+ 
++    def test_diameter_radius_empty_graph(self):
++        G = nx.Graph()
++        with pytest.raises(nx.NetworkXPointlessConcept, match="null graph"):
++            nx.diameter(G)
++        with pytest.raises(nx.NetworkXPointlessConcept, match="null graph"):
++            nx.radius(G)
++
+ 
+ class TestWeightedDistance:
+     def setup_method(self):
+diff --git a/networkx/classes/function.py b/networkx/classes/function.py
+index 31f088ed..a055be21 100644
+--- a/networkx/classes/function.py
++++ b/networkx/classes/function.py
+@@ -448,6 +448,32 @@ def edge_subgraph(G, edges):
+     [0, 1, 3, 4]
+     >>> list(H.edges)
+     [(0, 1), (3, 4)]
++
++    For multi graphs, `edges` must include the edge keys:
++
++    >>> G = nx.MultiGraph(G)
++    >>> H = nx.edge_subgraph(G, [(0, 1, 0), (3, 4, 0)])
++    >>> list(H.edges)
++    [(0, 1, 0), (3, 4, 0)]
++
++    Edge attributes can be used to filter multiedges:
++
++    >>> G.add_edge(0, 1, color="blue")
++    1
++    >>> G.add_edge(0, 1, color="green", weight=10)
++    2
++    >>> H = nx.edge_subgraph(
++    ...     G,
++    ...     (
++    ...         (u, v, k)
++    ...         for u, v, k, clr in G.edges(keys=True, data="color")
++    ...         if clr == "green"
++    ...     ),
++    ... )
++    >>> H.edges(keys=True, data=True)
++    MultiEdgeDataView([(0, 1, 2, {'color': 'green', 'weight': 10})])
++
++
+     """
+     nxf = nx.filters
+     edges = set(edges)

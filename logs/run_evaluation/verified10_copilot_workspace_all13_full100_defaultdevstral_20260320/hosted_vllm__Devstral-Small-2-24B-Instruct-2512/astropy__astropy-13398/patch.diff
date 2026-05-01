@@ -1,0 +1,220 @@
+diff --git a/astropy/coordinates/builtin_frames/altaz.py b/astropy/coordinates/builtin_frames/altaz.py
+index 05cb4df0e..a489d173b 100644
+--- a/astropy/coordinates/builtin_frames/altaz.py
++++ b/astropy/coordinates/builtin_frames/altaz.py
+@@ -11,6 +11,8 @@ from astropy.coordinates.attributes import (TimeAttribute,
+                                             EarthLocationAttribute)
+ 
+ __all__ = ['AltAz']
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from .itrs import ITRS
+ 
+ 
+ _90DEG = 90*u.deg
+@@ -124,3 +126,57 @@ class AltAz(BaseCoordinateFrame):
+ 
+ 
+ # self-transform defined in icrs_observed_transforms.py
++
++
++# Register ITRS <-> AltAz transforms
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import DynamicMatrixTransform
++
++@frame_transform_graph.transform(DynamicMatrixTransform, ITRS, AltAz)
++def _itrs_to_altaz_matrix(altaz_frame):
++    """Matrix function for ITRS to AltAz transform."""
++    from astropy.coordinates.transformations import itrs_to_observed_mat
++    return itrs_to_observed_mat(altaz_frame)
++
++@frame_transform_graph.transform(DynamicMatrixTransform, AltAz, ITRS)
++def _altaz_to_itrs_matrix(altaz_frame):
++    """Matrix function for AltAz to ITRS transform."""
++    from astropy.coordinates.transformations import observed_to_itrs_mat
++    return observed_to_itrs_mat(altaz_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++def itrs_to_altaz(itrs_coo, altaz_frame):
++    """
++    Transform from ITRS to AltAz without geocentric aberration.
++
++    This transform stays entirely within ITRS and treats ITRS positions as
++    time-invariant, adopting the output frame's obstime.
++    """
++    # Transform the coordinate
++    new_cart = itrs_coo.cartesian.transform(_itrs_to_altaz_matrix(altaz_frame))
++
++    # Create AltAz frame with the transformed coordinates
++    # Use the observed frame's obstime and location, but ignore time differences for ITRS positions
++    if itrs_coo.obstime is None:
++        obstime = altaz_frame.obstime
++    else:
++        obstime = altaz_frame.obstime if altaz_frame.obstime is not None else itrs_coo.obstime
++
++    return altaz_frame.realize_frame(new_cart, obstime=obstime)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++def altaz_to_itrs(altaz_coo, itrs_frame):
++    """
++    Transform from AltAz to ITRS without geocentric aberration.
++    """
++    # Transform the coordinate
++    new_cart = altaz_coo.cartesian.transform(_altaz_to_itrs_matrix(altaz_coo))
++
++    # Create ITRS frame with the transformed coordinates
++    # Preserve location but ignore time differences for ITRS positions
++    if itrs_frame.obstime is None:
++        obstime = altaz_coo.obstime
++    else:
++        obstime = itrs_frame.obstime if itrs_frame.obstime is not None else altaz_coo.obstime
++
++    return itrs_frame.realize_frame(new_cart, obstime=obstime)
+diff --git a/astropy/coordinates/builtin_frames/hadec.py b/astropy/coordinates/builtin_frames/hadec.py
+index bf64c1583..67c4b00de 100644
+--- a/astropy/coordinates/builtin_frames/hadec.py
++++ b/astropy/coordinates/builtin_frames/hadec.py
+@@ -8,6 +8,8 @@ from astropy.coordinates.attributes import (TimeAttribute,
+                                             QuantityAttribute,
+                                             EarthLocationAttribute)
+ 
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from .itrs import ITRS
+ __all__ = ['HADec']
+ 
+ 
+@@ -122,3 +124,57 @@ class HADec(BaseCoordinateFrame):
+ 
+ 
+ # self-transform defined in icrs_observed_transforms.py
++
++
++# Register ITRS <-> HADec transforms
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import DynamicMatrixTransform
++
++@frame_transform_graph.transform(DynamicMatrixTransform, ITRS, HADec)
++def _itrs_to_hadec_matrix(hadec_frame):
++    """Matrix function for ITRS to HADec transform."""
++    from astropy.coordinates.transformations import itrs_to_observed_mat
++    return itrs_to_observed_mat(hadec_frame)
++
++@frame_transform_graph.transform(DynamicMatrixTransform, HADec, ITRS)
++def _hadec_to_itrs_matrix(hadec_frame):
++    """Matrix function for HADec to ITRS transform."""
++    from astropy.coordinates.transformations import observed_to_itrs_mat
++    return observed_to_itrs_mat(hadec_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_hadec(itrs_coo, hadec_frame):
++    """
++    Transform from ITRS to HADec without geocentric aberration.
++
++    This transform stays entirely within ITRS and treats ITRS positions as
++    time-invariant, adopting the output frame's obstime.
++    """
++    # Transform the coordinate
++    new_cart = itrs_coo.cartesian.transform(_itrs_to_hadec_matrix(hadec_frame))
++
++    # Create HADec frame with the transformed coordinates
++    # Use the observed frame's obstime and location, but ignore time differences for ITRS positions
++    if itrs_coo.obstime is None:
++        obstime = hadec_frame.obstime
++    else:
++        obstime = hadec_frame.obstime if hadec_frame.obstime is not None else itrs_coo.obstime
++
++    return hadec_frame.realize_frame(new_cart, obstime=obstime)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def hadec_to_itrs(hadec_coo, itrs_frame):
++    """
++    Transform from HADec to ITRS without geocentric aberration.
++    """
++    # Transform the coordinate
++    new_cart = hadec_coo.cartesian.transform(_hadec_to_itrs_matrix(hadec_coo))
++
++    # Create ITRS frame with the transformed coordinates
++    # Preserve location but ignore time differences for ITRS positions
++    if itrs_frame.obstime is None:
++        obstime = hadec_coo.obstime
++    else:
++        obstime = itrs_frame.obstime if itrs_frame.obstime is not None else hadec_coo.obstime
++
++    return itrs_frame.realize_frame(new_cart, obstime=obstime)
+diff --git a/astropy/coordinates/transformations.py b/astropy/coordinates/transformations.py
+index b34f33532..1740547c4 100644
+--- a/astropy/coordinates/transformations.py
++++ b/astropy/coordinates/transformations.py
+@@ -1607,3 +1607,73 @@ trans_to_color[FunctionTransform] = '#783001'  # dark red-ish/brown
+ trans_to_color[FunctionTransformWithFiniteDifference] = '#d95f02'  # red-ish
+ trans_to_color[StaticMatrixTransform] = '#7570b3'  # blue-ish
+ trans_to_color[DynamicMatrixTransform] = '#1b9e77'  # green-ish
++
++# Constants for ITRS to observed frame transformations
++_minus_x = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
++_minus_y = np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]])
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Create a rotation matrix for transforming from ITRS to an observed frame.
++
++    This function creates a rotation matrix that transforms ITRS coordinates
++    directly to an observed frame (AltAz or HADec) without geocentric aberration.
++
++    Parameters
++    ----------
++    observed_frame : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
++        The observed frame to transform to.
++
++    Returns
++    -------
++    matrix : `~numpy.ndarray`
++        A 3x3 rotation matrix.
++    """
++    from .builtin_frames.utils import PIOVER2
++    from .matrix_utilities import rotation_matrix
++    from .earth import EarthLocation
++
++    # Get geodetic coordinates from the observed frame's location
++    lon, lat, _ = observed_frame.location.to_geodetic('WGS84')
++    elong = lon.to_value(u.radian)
++
++    if observed_frame.__class__.__name__ == 'AltAz':
++        # AltAz case
++        elat = lat.to_value(u.radian)
++        return matrix_product(_minus_x, rotation_matrix(PIOVER2 - elat, 'y'), rotation_matrix(elong, 'z'))
++    else:
++        # HADec case
++        return matrix_product(_minus_y, rotation_matrix(elong, 'z'))
++
++def observed_to_itrs_mat(observed_frame):
++    """
++    Create a rotation matrix for transforming from an observed frame to ITRS.
++
++    This function creates a rotation matrix that transforms observed frame
++    coordinates (AltAz or HADec) directly to ITRS without geocentric aberration.
++
++    Parameters
++    ----------
++    observed_frame : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
++        The observed frame to transform from.
++
++    Returns
++    -------
++    matrix : `~numpy.ndarray`
++        A 3x3 rotation matrix.
++    """
++    from .builtin_frames.utils import PIOVER2
++    from .matrix_utilities import rotation_matrix
++    from .earth import EarthLocation
++
++    # Get geodetic coordinates from the observed frame's location
++    lon, lat, _ = observed_frame.location.to_geodetic('WGS84')
++    elong = lon.to_value(u.radian)
++
++    if observed_frame.__class__.__name__ == 'AltAz':
++        # AltAz case - transpose the matrix
++        elat = lat.to_value(u.radian)
++        return matrix_product(rotation_matrix(-elong, 'z'), rotation_matrix(elat - PIOVER2, 'y'), _minus_x)
++    else:
++        # HADec case - transpose the matrix
++        return matrix_product(rotation_matrix(-elong, 'z'), _minus_y)

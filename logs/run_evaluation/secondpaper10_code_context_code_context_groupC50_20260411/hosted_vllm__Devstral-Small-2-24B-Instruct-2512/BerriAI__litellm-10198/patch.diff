@@ -1,0 +1,71 @@
+diff --git a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+index d4c74f491..11b1b86bb 100644
+--- a/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
++++ b/litellm/llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py
+@@ -220,6 +220,7 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+         if supports_reasoning(model):
+             supported_params.append("reasoning_effort")
+             supported_params.append("thinking")
++            supported_params.append("thinking_config")
+         return supported_params
+ 
+     def map_tool_choice_values(
+@@ -361,21 +362,22 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+     @staticmethod
+     def _map_reasoning_effort_to_thinking_budget(
+         reasoning_effort: str,
++        include_thoughts: bool = True,
+     ) -> GeminiThinkingConfig:
+         if reasoning_effort == "low":
+             return {
+                 "thinkingBudget": DEFAULT_REASONING_EFFORT_LOW_THINKING_BUDGET,
+-                "includeThoughts": True,
++                "includeThoughts": include_thoughts,
+             }
+         elif reasoning_effort == "medium":
+             return {
+                 "thinkingBudget": DEFAULT_REASONING_EFFORT_MEDIUM_THINKING_BUDGET,
+-                "includeThoughts": True,
++                "includeThoughts": include_thoughts,
+             }
+         elif reasoning_effort == "high":
+             return {
+                 "thinkingBudget": DEFAULT_REASONING_EFFORT_HIGH_THINKING_BUDGET,
+-                "includeThoughts": True,
++                "includeThoughts": include_thoughts,
+             }
+         else:
+             raise ValueError(f"Invalid reasoning effort: {reasoning_effort}")
+@@ -452,6 +454,8 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+             elif param == "seed":
+                 optional_params["seed"] = value
+             elif param == "reasoning_effort" and isinstance(value, str):
++                # Default behavior: include thoughts when reasoning_effort is specified
++                # But allow overriding via thinking_config parameter
+                 optional_params[
+                     "thinkingConfig"
+                 ] = VertexGeminiConfig._map_reasoning_effort_to_thinking_budget(value)
+@@ -461,6 +465,23 @@ class VertexGeminiConfig(VertexAIBaseConfig, BaseConfig):
+                 ] = VertexGeminiConfig._map_thinking_param(
+                     cast(AnthropicThinkingParam, value)
+                 )
++            elif param == "thinking_config" and isinstance(value, dict):
++                # Allow explicit control over thinking configuration
++                thinking_config = value
++                if "reasoning_effort" in thinking_config:
++                    reasoning_effort = thinking_config["reasoning_effort"]
++                    include_thoughts = thinking_config.get("include_thoughts", True)
++                    optional_params[
++                        "thinkingConfig"
++                    ] = VertexGeminiConfig._map_reasoning_effort_to_thinking_budget(
++                        reasoning_effort, include_thoughts
++                    )
++                elif "thinking" in thinking_config:
++                    optional_params[
++                        "thinkingConfig"
++                    ] = VertexGeminiConfig._map_thinking_param(
++                        cast(AnthropicThinkingParam, thinking_config["thinking"])
++                    )
+             elif param == "modalities" and isinstance(value, list):
+                 response_modalities = []
+                 for modality in value:

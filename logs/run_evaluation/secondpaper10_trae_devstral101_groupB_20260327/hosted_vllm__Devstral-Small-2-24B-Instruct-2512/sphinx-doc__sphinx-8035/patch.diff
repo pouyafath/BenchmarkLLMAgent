@@ -1,0 +1,67 @@
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index 8c3509c3b..23264e805 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -87,6 +87,27 @@ def members_set_option(arg: Any) -> Union[object, Set[str]]:
+     return {x.strip() for x in arg.split(',') if x.strip()}
+ 
+ 
++
++def private_members_option(arg: Any) -> Union[object, List[str]]:
++    """Used to convert the :private-members: option to auto directives.
++
++    If arg is None or True, return ALL (document all private members).
++    If arg is a string, return a list of specific private members to document.
++    """
++    if arg is None or arg is True:
++        return ALL
++    return [x.strip() for x in arg.split(',') if x.strip()]
++
++
++def _should_include_private_member(private_members_option: Union[object, List[str]], membername: str) -> bool:
++    """Check if a private member should be included based on private_members option."""
++    if private_members_option is ALL:
++        return True
++    elif isinstance(private_members_option, list):
++        return membername in private_members_option
++    else:  # None or False
++        return False
++
+ def inherited_members_option(arg: Any) -> Union[object, Set[str]]:
+     """Used to convert the :members: option to auto directives."""
+     if arg is None:
+@@ -649,14 +670,14 @@ class Documenter:
+             elif (namespace, membername) in attr_docs:
+                 if want_all and isprivate:
+                     # ignore members whose name starts with _ by default
+-                    keep = self.options.private_members
++                    keep = _should_include_private_member(self.options.private_members, membername)
+                 else:
+                     # keep documented attributes
+                     keep = True
+                 isattr = True
+             elif want_all and isprivate:
+                 # ignore members whose name starts with _ by default
+-                keep = self.options.private_members and \
++                keep = _should_include_private_member(self.options.private_members, membername) and \
+                     (has_doc or self.options.undoc_members)
+             else:
+                 if self.options.members is ALL and is_filtered_inherited_member(membername):
+@@ -859,7 +880,7 @@ class ModuleDocumenter(Documenter):
+         'show-inheritance': bool_option, 'synopsis': identity,
+         'platform': identity, 'deprecated': bool_option,
+         'member-order': member_order_option, 'exclude-members': members_set_option,
+-        'private-members': bool_option, 'special-members': members_option,
++        'private-members': private_members_option, 'special-members': members_option,
+         'imported-members': bool_option, 'ignore-module-all': bool_option
+     }  # type: Dict[str, Callable]
+ 
+@@ -1279,7 +1300,7 @@ class ClassDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # type:
+         'noindex': bool_option, 'inherited-members': inherited_members_option,
+         'show-inheritance': bool_option, 'member-order': member_order_option,
+         'exclude-members': members_set_option,
+-        'private-members': bool_option, 'special-members': members_option,
++        'private-members': private_members_option, 'special-members': members_option,
+     }  # type: Dict[str, Callable]
+ 
+     _signature_class = None  # type: Any

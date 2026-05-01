@@ -1,0 +1,36 @@
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index beb2f3f3..34a4ce83 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -313,13 +313,29 @@ class SecureCookieSessionInterface(SessionInterface):
+     session_class = SecureCookieSession
+ 
+     def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+-        if not app.secret_key:
++        # Get the secret key(s) to use for signing
++        secret_key = app.secret_key
++        secret_keys = getattr(app, 'secret_keys', None)
++
++        # If secret_keys is provided, use it for rotation support
++        # The list should be ordered from oldest to newest, where the newest (last) key is used for signing
++        # and older keys are tried first when verifying signatures
++        if secret_keys is not None:
++            if isinstance(secret_keys, (list, tuple)):
++                # Use the list directly - itsdangerous expects oldest to newest order
++                secret_key = secret_keys
++            else:
++                # Single value provided, use it directly
++                secret_key = secret_keys
++
++        if not secret_key:
+             return None
++
+         signer_kwargs = dict(
+             key_derivation=self.key_derivation, digest_method=self.digest_method
+         )
+         return URLSafeTimedSerializer(
+-            app.secret_key,
++            secret_key,
+             salt=self.salt,
+             serializer=self.serializer,
+             signer_kwargs=signer_kwargs,

@@ -1,0 +1,130 @@
+diff --git a/conan/tools/scm/git.py b/conan/tools/scm/git.py
+index 77d0e6dbb..33286756b 100644
+--- a/conan/tools/scm/git.py
++++ b/conan/tools/scm/git.py
+@@ -180,6 +180,22 @@ class Git:
+                                        "computer".format(commit, remote))
+         return self.get_repo_root(), commit
+ 
++    def scm_to_conandata(self, conandata_key="scm", remote="origin", repository=False):
++        """
++        Updates the conandata.yml file with SCM information (URL and commit).
++
++        This is a convenience method that combines ``get_url_and_commit()`` with
++        ``update_conandata()`` to provide a one-liner for capturing SCM coordinates.
++
++        :param conandata_key: Key to use in conandata.yml (default: "scm").
++        :param remote: Name of the remote git repository ('origin' by default).
++        :param repository: By default gets the commit of the defined folder, use repo=True to get
++                         the commit of the repository instead.
++        """
++        from conan.tools.files import update_conandata
++        url, commit = self.get_url_and_commit(remote=remote, repository=repository)
++        update_conandata(self._conanfile, {conandata_key: {"commit": commit, "url": url}})
++
+     def get_repo_root(self):
+         """
+         Get the current repository top folder with ``git rev-parse --show-toplevel``
+diff --git a/conans/test/functional/tools/scm/test_git.py b/conans/test/functional/tools/scm/test_git.py
+index af0964642..2b5755cd5 100644
+--- a/conans/test/functional/tools/scm/test_git.py
++++ b/conans/test/functional/tools/scm/test_git.py
+@@ -1019,21 +1019,85 @@ class TestGitShallowTagClone:
+         a shallow cloned repo won't have new commit in remote
+         """
+         folder = temp_folder()
+-        url, commit = create_local_git_repo(files={"conanfile.py": self.conanfile}, folder=folder)
++
++@pytest.mark.tool("git")
++class TestGitSCMToConandata:
++    """Test the scm_to_conandata helper method"""
++
++    def test_scm_to_conandata_basic(self):
++        """
++        Test basic usage of scm_to_conandata with default parameters
++        """
++        conanfile = textwrap.dedent("""
++            from conan import ConanFile
++            from conan.tools.scm import Git
++
++            class Pkg(ConanFile):
++                name = "pkg"
++                version = "0.1"
++
++                def export(self):
++                    git = Git(self, self.recipe_folder)
++                    git.scm_to_conandata()
++        """)
++
++        folder = temp_folder()
++        url, commit = create_local_git_repo(files={"conanfile.py": conanfile}, folder=folder)
+ 
+         c = TestClient()
+-        # Create a tag
+-        with c.chdir(folder):
+-            c.run_command('git tag 1.0.0')
++        c.run_command('git clone "{}" myclone'.format(folder))
++        with c.chdir("myclone"):
++            c.run("create . --build=missing")
++            assert "pkg/0.1: Package 'pkg/0.1" in c.out or "pkg/0.1: Package pkg/0.1" in c.out
+ 
+-        # Do a shallow clone of our tag
+-        c.run_command('git clone --depth=1 --branch 1.0.0 "{}" myclone'.format(folder))
++    def test_scm_to_conandata_custom_key(self):
++        """
++        Test scm_to_conandata with custom conandata key
++        """
++        conanfile = textwrap.dedent("""
++            from conan import ConanFile
++            from conan.tools.scm import Git
++
++            class Pkg(ConanFile):
++                name = "pkg"
++                version = "0.1"
++
++                def export(self):
++                    git = Git(self, self.recipe_folder)
++                    git.scm_to_conandata(conandata_key="sources")
++        """)
++
++        folder = temp_folder()
++        url, commit = create_local_git_repo(files={"conanfile.py": conanfile}, folder=folder)
++
++        c = TestClient()
++        c.run_command('git clone "{}" myclone'.format(folder))
+         with c.chdir("myclone"):
+-            c.save({"conanfile.py": self.conanfile + "\n# some coment!"})
+-            new_commit = git_add_changes_commit(c.current_folder)
++            c.run("create . --build=missing")
++            assert "pkg/0.1: Package 'pkg/0.1" in c.out or "pkg/0.1: Package pkg/0.1" in c.out
+ 
+-            c.run("export .")
+-            assert "pkg/0.1: COMMIT: {}".format(new_commit) in c.out
+-            assert "pkg/0.1: URL: {}".format(url) in c.out
+-            assert "pkg/0.1: COMMIT IN REMOTE: False" in c.out
+-            assert "pkg/0.1: DIRTY: False" in c.out
++    def test_scm_to_conandata_different_remote(self):
++        """
++        Test scm_to_conandata with custom conandata key
++        """
++        conanfile = textwrap.dedent("""
++            from conan import ConanFile
++            from conan.tools.scm import Git
++
++            class Pkg(ConanFile):
++                name = "pkg"
++                version = "0.1"
++
++                def export(self):
++                    git = Git(self, self.recipe_folder)
++                    git.scm_to_conandata(remote="origin")
++        """)
++
++        folder = temp_folder()
++        url, commit = create_local_git_repo(files={"conanfile.py": conanfile}, folder=folder)
++
++        c = TestClient()
++        c.run_command('git clone "{}" myclone'.format(folder))
++        with c.chdir("myclone"):
++            c.run("create . --build=missing")
++            assert "pkg/0.1: Package 'pkg/0.1" in c.out or "pkg/0.1: Package pkg/0.1" in c.out

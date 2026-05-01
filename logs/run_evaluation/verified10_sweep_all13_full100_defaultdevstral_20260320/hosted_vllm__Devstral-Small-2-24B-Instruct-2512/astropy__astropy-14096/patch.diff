@@ -1,0 +1,30 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..c79b786bd 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -895,6 +895,25 @@ class SkyCoord(ShapedLikeNDArray):
+                 return self.transform_to(attr)
+ 
+         # Fail
++        # Check if this attribute is a property or method that might be trying
++        # to access another attribute. If so, let the original AttributeError
++        # propagate with its original message.
++        if hasattr(type(self), attr):
++            attr_obj = getattr(type(self), attr)
++            if isinstance(attr_obj, property):
++                try:
++                    return attr_obj.fget(self)
++                except AttributeError as e:
++                    # If the property itself raises an AttributeError, it's likely
++                    # due to a missing nested attribute. Re-raise the original error.
++                    raise
++            elif callable(attr_obj):
++                try:
++                    return attr_obj(self)
++                except AttributeError as e:
++                    # If the method raises an AttributeError, re-raise the original error.
++                    raise
++
+         raise AttributeError(
+             f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+         )

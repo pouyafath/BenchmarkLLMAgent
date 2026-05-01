@@ -1,0 +1,50 @@
+diff --git a/doc/whats_new/v1.5.rst b/doc/whats_new/v1.5.rst
+index 8286f4044941f..60b8dadc97373 100644
+--- a/doc/whats_new/v1.5.rst
++++ b/doc/whats_new/v1.5.rst
+@@ -23,12 +23,20 @@ Version 1.5.1
+ Changelog
+ ---------
+ 
++:mod:`sklearn.metrics`
++......................
++
++- |Fix| Fix a regression in :func:`metrics.r2_score`. Passing torch CPU tensors
++  with array API dispatched disabled would complain about non-CPU devices
++  instead of implicitly converting those inputs as regular NumPy arrays.
++  :pr:`29119` by :user:`Olivier Grisel`.
++
+ :mod:`sklearn.model_selection`
+ ..............................
+ 
+ - |Fix| Fix a regression in :class:`model_selection.GridSearchCV` for parameter
+   grids that have heterogeneous parameter values.
+-  :pr:`29078` by :user:`Loïc Estève <lesteve>`
++  :pr:`29078` by :user:`Loïc Estève <lesteve>`.
+ 
+ 
+ .. _changes_1_5:
+diff --git a/sklearn/utils/_array_api.py b/sklearn/utils/_array_api.py
+index 8374dc35ff4f0..7bf9183c80772 100644
+--- a/sklearn/utils/_array_api.py
++++ b/sklearn/utils/_array_api.py
+@@ -568,10 +568,15 @@ def get_namespace_and_device(*array_list, remove_none=True, remove_types=(str,))
+ 
+     skip_remove_kwargs = dict(remove_none=False, remove_types=[])
+ 
+-    return (
+-        *get_namespace(*array_list, **skip_remove_kwargs),
+-        device(*array_list, **skip_remove_kwargs),
+-    )
++    xp, is_array_api = get_namespace(*array_list, **skip_remove_kwargs)
++    if is_array_api:
++        return (
++            xp,
++            is_array_api,
++            device(*array_list, **skip_remove_kwargs),
++        )
++    else:
++        return xp, False, None
+ 
+ 
+ def _expit(X, xp=None):

@@ -1,0 +1,57 @@
+diff --git a/gateway/platforms/discord.py b/gateway/platforms/discord.py
+index f3f13b6f..30055f62 100644
+--- a/gateway/platforms/discord.py
++++ b/gateway/platforms/discord.py
+@@ -2105,6 +2105,7 @@ class DiscordAdapter(BasePlatformAdapter):
+             user_id=str(interaction.user.id),
+             user_name=interaction.user.display_name,
+             thread_id=thread_id,
++            is_bot=getattr(message.author, "bot", False),
+             chat_topic=chat_topic,
+         )
+ 
+@@ -2184,6 +2185,7 @@ class DiscordAdapter(BasePlatformAdapter):
+             user_id=str(interaction.user.id),
+             user_name=interaction.user.display_name,
+             thread_id=thread_id,
++            is_bot=getattr(message.author, "bot", False),
+             chat_topic=chat_topic,
+         )
+ 
+@@ -2786,6 +2788,7 @@ class DiscordAdapter(BasePlatformAdapter):
+             user_id=str(message.author.id),
+             user_name=message.author.display_name,
+             thread_id=thread_id,
++            is_bot=getattr(message.author, "bot", False),
+             chat_topic=chat_topic,
+         )
+ 
+diff --git a/gateway/run.py b/gateway/run.py
+index eea7bf27..a1ecd0ce 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -2647,6 +2647,12 @@ class GatewayRunner:
+ 
+         # Check pairing store (always checked, regardless of allowlists)
+         platform_name = source.platform.value if source.platform else ""
++        # For Discord bots: check DISCORD_ALLOW_BOTS setting
++        if source.platform == Platform.DISCORD and source.is_bot:
++            allow_bots = os.getenv("DISCORD_ALLOW_BOTS", "none").lower().strip()
++            if allow_bots in ("all", "mentions"):
++                return True
++            # "none" falls through to normal allowlist check
+         if self.pairing_store.is_approved(platform_name, user_id):
+             return True
+ 
+diff --git a/gateway/session.py b/gateway/session.py
+index c14e9bd0..038e281f 100644
+--- a/gateway/session.py
++++ b/gateway/session.py
+@@ -81,6 +81,7 @@ class SessionSource:
+     thread_id: Optional[str] = None  # For forum topics, Discord threads, etc.
+     chat_topic: Optional[str] = None  # Channel topic/description (Discord, Slack)
+     user_id_alt: Optional[str] = None  # Signal UUID (alternative to phone number)
++    is_bot: bool = False  # Whether the sender is a bot account
+     chat_id_alt: Optional[str] = None  # Signal group internal ID
+     
+     @property

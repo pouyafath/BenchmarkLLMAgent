@@ -1,0 +1,68 @@
+--- a/keras/src/ops/core.py
++++ b/keras/src/ops/core.py
+@@
+ from keras.src.backend import any_symbolic_tensors
+ from keras.src.backend.common.backend_utils import slice_along_axis
+ from keras.src.ops.operation import Operation
+ from keras.src.utils import traceback_utils
+@@
+     return backend.core.map(f, xs)
+ 
+ 
++class StopGradient(Operation):
++    """Keras operation that stops gradient flow for a tensor."""
++
++    def __init__(self):
++        super().__init__()
++
++    def call(self, x):
++        # In eager mode we delegate to the backend implementation.
++        return backend.core.stop_gradient(x)
++
++    def compute_output_spec(self, x):
++        """
++        The output of `stop_gradient` has the same shape, dtype and sparsity
++        as the input. For symbolic tensors we simply return the input spec.
++        """
++        # `x` is expected to be a KerasTensor when this method is called.
++        # Returning `x` directly preserves the symbolic information.
++        return x
++
++
+ @keras_export("keras.ops.map")
+ def map(f, xs):
+@@
+     return backend.core.map(f, xs)
+ 
+ 
+ @keras_export("keras.ops.scan")
+ def scan(f, init, xs=None, length=None, reverse=False, unroll=1):
+@@
+     return backend.core.scan(
+         f, init, xs, length, reverse=reverse, unroll=unroll
+     )
+ 
+ 
++@keras_export("keras.ops.stop_gradient")
++def stop_gradient(x):
++    """
++    Stop gradient propagation for a tensor or KerasTensor.
++
++    This mirrors `tf.stop_gradient` but also supports symbolic `KerasTensor`
++    objects used in the Keras functional API. When a symbolic tensor is
++    provided, the operation returns a new symbolic tensor with the same
++    shape, dtype, and sparsity, ensuring the graph can be built without
++    invoking TensorFlow's eager `tf.stop_gradient` on a placeholder.
++    """
++    if any_symbolic_tensors((x,)):
++        # Use the symbolic operation which simply returns a KerasTensor with
++        # identical spec, effectively cutting gradient flow in the graph.
++        return StopGradient().symbolic_call(x)
++    return backend.core.stop_gradient(x)
++
++
+ class Scan(Operation):
+     def __init__(self, reverse=False, unroll=1):
+         super().__init__()
+         self.reverse = reverse
+*** End of File ***

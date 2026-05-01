@@ -1,0 +1,45 @@
+{
+  "issue_id": "psf/requests#1766",
+  "agent": "swe_agent",
+  "cache_key": "744eba3dd6e3631a",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_b_101/group_b_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "quote qop options in Digest Auth",
+  "original_body": "quote qop options in Digest Auth\nBased on RFC2617 (http://tools.ietf.org/html/rfc2617), the value of\n'qop-options' directive should be quoted with double quotes:\n\n```\nqop-options\n     This directive is optional, but is made so only for backward\n     compatibility with RFC 2069 [6]; it SHOULD be used by all\n     implementations compliant with this version of the Digest\n     scheme. If present, it is a quoted string of one or more\n     tokens indicating the \"quality of protection\" values supported by\n     the server.  The value \"auth\" indicates authentication; the\n     value \"auth-int\" indicates authentication with\n     integrity protection; see the\n```\n\ncurl comamnd-line tool also appends these quotes. You can see this\nby `curl -v --digest --user user:passwd http://example.com/digest-auth`.\nUnfortunately, some minor server-side implementations seem to be sensitive\non this difference.\n\n",
+  "enhanced_title": "Fix Digest Auth to properly quote qop options per RFC2617",
+  "enhanced_body": "## Summary\nThe requests library's Digest Authentication implementation doesn't properly quote the qop (quality of protection) options in the Authorization header, which violates RFC2617 specifications.\n\n## Problem Description\nAccording to RFC2617 Section 3.2.1, the qop-options directive in Digest Authentication must be enclosed in double quotes. The current implementation sends unquoted values, which:\n1. Violates the RFC specification\n2. Causes issues with some strict server implementations\n3. Differs from other tools like curl which properly quote these values\n\n## Expected Behavior\nThe Authorization header should include quoted qop values, for example:\n```\nAuthorization: Digest username=\\\"user\\\", realm=\\\"...\\\", qop=\\\"auth,auth-int\\\", ...\n```\n\n## Actual Behavior\nThe current implementation sends unquoted qop values:\n```\nAuthorization: Digest username=\\\"user\\\", realm=\\\"...\\\", qop=auth,auth-int, ...\n```\n\n## Reproduction Steps\n1. Use requests to authenticate with a Digest Auth server\n2. Compare the Authorization header with what curl generates:\n```bash\ncurl -v --digest --user user:passwd http://example.com/digest-auth\n```\n3. Observe that curl properly quotes the qop values while requests does not\n\n## Environment\n- Library: requests\n- Affected component: Digest Authentication implementation\n- Likely affected files: requests/auth.py (based on hints)\n\n## References\n- RFC2617 Section 3.2.1\n- Similar behavior in curl command-line tool\n\n## Impact\nWhile many servers are lenient with this, some strict implementations may reject the unquoted format, causing authentication failures.\n\n## Proposed Fix\nModify the Digest Authentication implementation to properly quote the qop options in the Authorization header, bringing it into compliance with RFC2617.",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmpptido539/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

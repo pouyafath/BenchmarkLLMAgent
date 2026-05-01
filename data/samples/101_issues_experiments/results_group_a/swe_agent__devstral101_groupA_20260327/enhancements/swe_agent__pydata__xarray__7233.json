@@ -1,0 +1,45 @@
+{
+  "issue_id": "pydata/xarray#7233",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "ds.Coarsen.construct demotes non-dimensional coordinates to variables",
+  "original_body": "ds.Coarsen.construct demotes non-dimensional coordinates to variables\n### What happened?\n\n`ds.Coarsen.construct` demotes non-dimensional coordinates to variables\n\n### What did you expect to happen?\n\nAll variables that were coordinates before the coarsen.construct stay as coordinates afterwards.\n\n### Minimal Complete Verifiable Example\n\n```Python\nIn [3]: da = xr.DataArray(np.arange(24), dims=[\"time\"])\r\n   ...: da = da.assign_coords(day=365 * da)\r\n   ...: ds = da.to_dataset(name=\"T\")\r\n\r\nIn [4]: ds\r\nOut[4]: \r\n<xarray.Dataset>\r\nDimensions:  (time: 24)\r\nCoordinates:\r\n    day      (time) int64 0 365 730 1095 1460 1825 ... 6935 7300 7665 8030 8395\r\nDimensions without coordinates: time\r\nData variables:\r\n    T        (time) int64 0 1 2 3 4 5 6 7 8 9 ... 14 15 16 17 18 19 20 21 22 23\r\n\r\nIn [5]: ds.coarsen(time=12).construct(time=(\"year\", \"month\"))\r\nOut[5]: \r\n<xarray.Dataset>\r\nDimensions:  (year: 2, month: 12)\r\nCoordinates:\r\n    day      (year, month) int64 0 365 730 1095 1460 ... 7300 7665 8030 8395\r\nDimensions without coordinates: year, month\r\nData variables:\r\n    T        (year, month) int64 0 1 2 3 4 5 6 7 8 ... 16 17 18 19 20 21 22 23\n```\n\n\n### MVCE confirmation\n\n- [X] Minimal example \u2014 the example is as focused as reasonably possible to demonstrate the underlying issue in xarray.\n- [X] Complete example \u2014 the example is self-contained, including all data and the text of any traceback.\n- [X] Verifiable example \u2014 the example copy & pastes into an IPython prompt or [Binder notebook](https://mybinder.org/v2/gh/pydata/xarray/main?urlpath=lab/tree/doc/examples/blank_template.ipynb), returning the result.\n- [X] New issue \u2014 a search of GitHub Issues suggests this is not a duplicate.\n\n### Relevant log output\n\n_No response_\n\n### Anything else we need to know?\n\n_No response_\n\n### Environment\n\n`main`\r\n\n",
+  "enhanced_title": "ds.Coarsen.construct` incorrectly demotes non-dimensional coordinates to variables",
+  "enhanced_body": "## Summary\nWhen using `ds.Coarsen.construct`, non-dimensional coordinates are incorrectly demoted to data variables in the resulting dataset. This breaks the expected behavior where coordinates should retain their coordinate status after coarsening operations.\n\n## Steps to Reproduce\n1. Create a DataArray with a non-dimensional coordinate (e.g., `day` derived from the time dimension)\n2. Convert the DataArray to a Dataset\n3. Apply `coarsen()` with a new dimension grouping (e.g., `time=12`)\n4. Use `construct()` to reshape the data\n5. Observe that the `day` coordinate is now a data variable\n\n## Expected Behavior\nAll variables that were coordinates before `coarsen.construct` should remain as coordinates in the output dataset, regardless of whether they are dimensional or non-dimensional.\n\n## Actual Behavior\nNon-dimensional coordinates (like `day` in the example) are incorrectly converted to data variables after the `construct()` operation.\n\n## Minimal Complete Verifiable Example\n```python\nimport numpy as np\nimport xarray as xr\n\n# Create DataArray with non-dimensional coordinate\nda = xr.DataArray(np.arange(24), dims=[\"time\"])\nda = da.assign_coords(day=365 * da)\nds = da.to_dataset(name=\"T\")\n\nprint(\"Original dataset:\")\nprint(ds)\nprint(\"\\nCoordinates before coarsen:\", list(ds.coords))\n\n# Apply coarsen and construct\nresult = ds.coarsen(time=12).construct(time=(\"year\", \"month\"))\n\nprint(\"\\nResult after coarsen.construct:\")\nprint(result)\nprint(\"\\nCoordinates after coarsen:\", list(result.coords))\nprint(\"\\nData variables after coarsen:\", list(result.data_vars))\n```\n\n## Environment\n- xarray version: `main` (development branch)\n- Python version: Inferred from development environment\n- Dependencies: Standard xarray dependencies\n\n## Technical Details\nThe issue affects the `construct()` method in the coarsening functionality. Based on the hints, the relevant files likely include:\n- `xarray/core/coarsen.py` (coarsening implementation)\n- `xarray/core/coordinates.py` (coordinate handling)\n- `xarray/core/dataset.py` (dataset structure)\n\n## Impact\nThis bug affects any workflow using coarsening operations where non-dimensional coordinates need to be preserved, potentially breaking downstream analysis that relies on coordinate status.\n\n## Verification\nThe example can be verified by:\n1. Running the code snippet above\n2. Confirming that `day` appears in `ds.coords` but not in `result.coords`\n3. Verifying that `day` appears in `result.data_vars` instead",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp14_8b6fn/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

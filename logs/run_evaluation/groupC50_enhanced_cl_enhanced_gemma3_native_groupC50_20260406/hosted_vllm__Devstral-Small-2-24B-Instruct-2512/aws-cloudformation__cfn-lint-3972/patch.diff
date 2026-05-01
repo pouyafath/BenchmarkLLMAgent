@@ -1,0 +1,94 @@
+diff --git a/src/cfnlint/rules/resources/codebuild/CodeBuildProjectNameUnique.py b/src/cfnlint/rules/resources/codebuild/CodeBuildProjectNameUnique.py
+new file mode 100644
+index 000000000..cfcb8b1a7
+--- /dev/null
++++ b/src/cfnlint/rules/resources/codebuild/CodeBuildProjectNameUnique.py
+@@ -0,0 +1,78 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from cfnlint.rules import CloudFormationLintRule, RuleMatch
++from cfnlint.template import Template
++
++
++class CodeBuildProjectNameUnique(CloudFormationLintRule):
++    """Check that AWS::CodeBuild::Project resources have unique Name properties."""
++
++    id = "E3059"
++    shortdesc = "AWS::CodeBuild::Project Name properties must be unique"
++    description = (
++        "AWS::CodeBuild::Project resources must have unique Name properties. "
++        "Duplicate names will cause deployment failures in AWS CodeBuild."
++    )
++    source_url = "https://docs.aws.amazon.com/codebuild/latest/userguide/create-project.html"
++    tags = ["resources", "codebuild"]
++
++    def __init__(self):
++        super().__init__()
++        self.project_names = {}
++
++    def _get_name_display(self, name_value):
++        """Get a user-friendly display string for the name value."""
++        if isinstance(name_value, dict):
++            # This is an intrinsic function
++            for func_name in ['Ref', 'Fn::Ref', 'Sub', 'Fn::Sub', 'GetAtt', 'Fn::GetAtt']:
++                if func_name in name_value:
++                    if func_name in ['Ref', 'Fn::Ref']:
++                        return f"Parameter reference: {name_value[func_name]}"
++                    elif func_name in ['Sub', 'Fn::Sub']:
++                        return f"String substitution: {name_value[func_name]}"
++                    elif func_name in ['GetAtt', 'Fn::GetAtt']:
++                        return f"Attribute reference: {name_value[func_name]}"
++            return f"Intrinsic function: {name_value}"
++        else:
++            return str(name_value)
++
++    def match(self, cfn: Template):
++        matches = []
++        self.project_names = {}  # Reset for each template
++
++        for resource_name, resource_attrs in cfn.get_resources().items():
++            if resource_attrs.get("Type") == "AWS::CodeBuild::Project":
++                properties = resource_attrs.get("Properties", {})
++                project_name = properties.get("Name")
++
++                if project_name:
++                    # Handle intrinsic functions - convert to string representation
++                    if isinstance(project_name, dict):
++                        # This is an intrinsic function like !Ref, !Sub, etc.
++                        # We can't determine the actual value at lint time, so we skip uniqueness check
++                        # But we still track it to detect duplicates of the same intrinsic function
++                        name_key = str(project_name)
++                    else:
++                        # This is a static string
++                        name_key = project_name
++
++                    # Check if this name has been used before
++                    if name_key in self.project_names:
++                        existing_resource = self.project_names[name_key]
++                        display_name = self._get_name_display(project_name)
++                        matches.append(
++                            RuleMatch(
++                                ["Resources", resource_name, "Properties", "Name"],
++                                f"Duplicate AWS::CodeBuild::Project Name '{display_name}'. "
++                                f"First used in resource '{existing_resource}', "
++                                f"also used in resource '{resource_name}'"
++                            )
++                        )
++                    else:
++                        # Track this name
++                        self.project_names[name_key] = resource_name
++
++        return matches
+diff --git a/src/cfnlint/rules/resources/codebuild/__init__.py b/src/cfnlint/rules/resources/codebuild/__init__.py
+new file mode 100644
+index 000000000..e58049dc7
+--- /dev/null
++++ b/src/cfnlint/rules/resources/codebuild/__init__.py
+@@ -0,0 +1,4 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""

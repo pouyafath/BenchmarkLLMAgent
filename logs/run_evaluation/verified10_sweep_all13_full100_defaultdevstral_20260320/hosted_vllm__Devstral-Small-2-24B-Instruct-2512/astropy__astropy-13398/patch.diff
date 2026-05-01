@@ -1,0 +1,134 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..17b524478 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -48,6 +48,7 @@ from . import supergalactic_transforms
+ from . import icrs_cirs_transforms
+ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
++from . import itrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
+ 
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..0b50169e7
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,116 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS.
++"""
++import erfa
++import numpy as np
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                CartesianRepresentation,
++                                                UnitSphericalRepresentation)
++
++from .itrs import ITRS
++from .altaz import AltAz
++from .hadec import HADec
++from .utils import PIOVER2
++from .cirs import CIRS
++from .utils import EARTH_CENTER
++from .intermediate_rotation_transforms import cirs_to_itrs_mat
++from .erfa_astrom import erfa_astrom
++
++__all__ = ['itrs_to_observed', 'observed_to_itrs']
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_observed(itrs_coo, observed_frame):
++    """
++    Transform from ITRS to observed frames (AltAz or HADec).
++
++    This transform operates entirely within ITRS and treats ITRS positions as
++    time-invariant, avoiding the 'lost in Earth's orbit' issue when transforming
++    ITRS coordinates across times.
++
++    The approach is:
++    1. Transform the ITRS coordinate to CIRS at the observation time
++    2. Create a topocentric CIRS frame and subtract the observer's position
++    3. Transform from topocentric CIRS to the observed frame
++
++    Parameters
++    ----------
++    itrs_coo : `~astropy.coordinates.ITRS`
++        The ITRS coordinate to transform
++    observed_frame : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
++        The observed frame to transform to
++
++    Returns
++    -------
++    observed_coo : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
++        The coordinate in the observed frame
++    """
++    # Check if the data are UnitSphericalRepresentation
++    is_unitspherical = (isinstance(itrs_coo.data, UnitSphericalRepresentation) or
++                        itrs_coo.cartesian.x.unit == u.one)
++
++    # First transform ITRS to CIRS at the observation time
++    # This gives us geocentric CIRS coordinates
++    cirs_geo = itrs_coo.transform_to(CIRS(obstime=observed_frame.obstime))
++
++    # Get the observer's position in CIRS at the observation time
++    observer_cirs = observed_frame.location.get_itrs(observed_frame.obstime).transform_to(
++        CIRS(obstime=observed_frame.obstime))
++
++    # Get topocentric CIRS vector (object position relative to observer)
++    topocentric_cirs = cirs_geo.cartesian - observer_cirs.cartesian
++
++    # Create a topocentric CIRS frame
++    topocentric_cirs_frame = CIRS(obstime=observed_frame.obstime, location=observed_frame.location)
++    topocentric_cirs_coo = topocentric_cirs_frame.realize_frame(topocentric_cirs)
++
++    # Now transform from topocentric CIRS to the observed frame
++    # This uses the existing CIRS to observed transform which handles
++    # the final conversion properly
++    return topocentric_cirs_coo.transform_to(observed_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def observed_to_itrs(observed_coo, itrs_frame):
++    """
++    Transform from observed frames (AltAz or HADec) to ITRS.
++
++    Parameters
++    ----------
++    observed_coo : `~astropy.coordinates.AltAz` or `~astropy.coordinates.HADec`
++        The observed coordinate to transform
++    itrs_frame : `~astropy.coordinates.ITRS`
++        The ITRS frame to transform to
++
++    Returns
++    -------
++    itrs_coo : `~astropy.coordinates.ITRS`
++        The coordinate in ITRS
++    """
++    # Check if the data are UnitSphericalRepresentation
++    is_unitspherical = (isinstance(observed_coo.data, UnitSphericalRepresentation) or
++                        observed_coo.cartesian.x.unit == u.one)
++
++    # First transform observed coordinates to topocentric CIRS
++    # This uses the existing observed to CIRS transform
++    topocentric_cirs_coo = observed_coo.transform_to(
++        CIRS(obstime=observed_coo.obstime, location=observed_coo.location))
++
++    # Get the observer's position in CIRS
++    observer_cirs = observed_coo.location.get_itrs(observed_coo.obstime).transform_to(
++        CIRS(obstime=observed_coo.obstime))
++
++    # Convert topocentric CIRS to geocentric CIRS
++    geocentric_cirs = topocentric_cirs_coo.cartesian + observer_cirs.cartesian
++
++    # Create geocentric CIRS coordinate
++    geocentric_cirs_frame = CIRS(obstime=observed_coo.obstime, location=EARTH_CENTER)
++    geocentric_cirs_coo = geocentric_cirs_frame.realize_frame(geocentric_cirs)
++
++    # Transform from CIRS to ITRS
++    return geocentric_cirs_coo.transform_to(itrs_frame)

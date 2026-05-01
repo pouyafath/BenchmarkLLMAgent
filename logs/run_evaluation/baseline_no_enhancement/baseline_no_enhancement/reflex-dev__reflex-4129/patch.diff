@@ -1,0 +1,57 @@
+diff --git a/reflex/istate/dynamic.py b/reflex/istate/dynamic.py
+--- a/reflex/istate/dynamic.py
++++ b/reflex/istate/dynamic.py
+@@ -1,2 +1,37 @@
+ 
+-from reflex.state import State
++from reflex.state import State
++import sys
++from types import ModuleType
++
++# Cache for dynamically created State subclasses.
++_DYNAMIC_STATE_CACHE: dict[str, type[State]] = {}
++
++
++def _register_dynamic_state(cls: type[State]) -> type[State]:
++    """Register a dynamically created State subclass so it can be pickled.
++
++    Dynamically created classes have a ``__module__`` attribute that points to
++    ``<locals>`` which makes ``pickle`` unable to locate them during unpickling.
++    This helper moves the class into a known module (``reflex.state``) and
++    stores a reference in that module's globals. The class is also cached in
++    ``_DYNAMIC_STATE_CACHE`` to avoid re‑registration.
++
++    Args:
++        cls: The dynamically created State subclass.
++
++    Returns:
++        The same class, after being registered.
++    """
++    module_name = "reflex.state"
++    # Ensure the target module exists.
++    module: ModuleType = sys.modules.get(module_name)
++    if module is None:
++        module = ModuleType(module_name)
++        sys.modules[module_name] = module
++    # Register the class in the module's namespace.
++    setattr(module, cls.__name__, cls)
++    # Update the class's __module__ so pickle can locate it.
++    cls.__module__ = module_name
++    # Cache the class to avoid duplicate work.
++    _DYNAMIC_STATE_CACHE[cls.__name__] = cls
++    return cls
+@@ -103,4 +138,10 @@
+-def dynamic_state():
+-    class _DynamicState(State):
+-        ...
+-    return _DynamicState
++def dynamic_state():
++    \"\"\"Create a dynamic ``State`` subclass.
++
++    The returned class is registered in a known module to make it pickle‑able.
++    \"\"\"
++    class _DynamicState(State):
++        ...
++
++    # Register the dynamically created class before returning it.
++    return _register_dynamic_state(_DynamicState)

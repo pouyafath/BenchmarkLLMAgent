@@ -1,0 +1,31 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 3a462f1c4c..166250b161 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -231,10 +231,25 @@ class Collector:
+     def related_objects(self, related, objs):
+         """
+         Get a QuerySet of objects related to `objs` via the relation `related`.
++        Only fetch the primary key and foreign key fields needed for deletion
++        to avoid UnicodeDecodeError with invalid UTF-8 data.
+         """
+-        return related.related_model._base_manager.using(self.using).filter(
++        qs = related.related_model._base_manager.using(self.using).filter(
+             **{"%s__in" % related.field.name: objs}
+         )
++        # Only fetch the primary key and any foreign key fields that might be
++        # updated during cascade operations (e.g., SET_NULL, SET_DEFAULT, etc.)
++        fields_to_fetch = [related.related_model._meta.pk.name]
++        for model, field_updates in self.field_updates.items():
++            if model == related.related_model:
++                for (field, value) in field_updates.keys():
++                    fields_to_fetch.append(field.name)
++        # Remove duplicates while preserving order
++        seen = set()
++        fields_to_fetch = [f for f in fields_to_fetch if not (f in seen or seen.add(f))]
++        if fields_to_fetch:
++            qs = qs.only(*fields_to_fetch)
++        return qs
+ 
+     def instances_with_model(self):
+         for model, instances in self.data.items():

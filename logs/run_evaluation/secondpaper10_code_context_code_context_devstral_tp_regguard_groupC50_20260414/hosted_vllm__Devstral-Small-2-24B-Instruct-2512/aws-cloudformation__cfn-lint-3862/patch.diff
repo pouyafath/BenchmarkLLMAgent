@@ -1,0 +1,96 @@
+diff --git a/src/cfnlint/rules/errors/config.py b/src/cfnlint/rules/errors/config.py
+new file mode 100644
+index 000000000..4ae9ba463
+--- /dev/null
++++ b/src/cfnlint/rules/errors/config.py
+@@ -0,0 +1,15 @@
++"""
++Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
++SPDX-License-Identifier: MIT-0
++"""
++
++from cfnlint.rules._rule import CloudFormationLintRule
++
++class ConfigError(CloudFormationLintRule):
++    """Configuration Error"""
++
++    id = "E0003"
++    shortdesc = "Error with cfn-lint configuration"
++    description = "Error as a result of the cfn-lint configuration"
++    source_url = "https://github.com/aws-cloudformation/cfn-lint"
++    tags = ["base", "rule"]
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index 7e81b9820..032bd9eb3 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -773,6 +773,15 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+         LOGGER.debug(
+             f"List of Cloudformation Templates to lint: {found_files} from {filenames}"
+         )
++
++        # Check if any files were found
++        if not found_files:
++            # Only raise error if we're processing templates (not ignore_templates)
++            # and ignore_bad_template is False
++            if hasattr(self, 'templates_to_process') and self.templates_to_process:
++                if not self.ignore_bad_template:
++                    raise ValueError(f"{filenames[0]} could not be processed by glob.glob")
++
+         return found_files
+ 
+     def _ignore_templates(self):
+diff --git a/src/cfnlint/rules/errors/__init__.py b/src/cfnlint/rules/errors/__init__.py
+index 142af3703..b380bbaba 100644
+--- a/src/cfnlint/rules/errors/__init__.py
++++ b/src/cfnlint/rules/errors/__init__.py
+@@ -6,3 +6,4 @@ SPDX-License-Identifier: MIT-0
+ from cfnlint.rules.errors.parse import ParseError
+ from cfnlint.rules.errors.rule import RuleError
+ from cfnlint.rules.errors.transform import TransformError
++from cfnlint.rules.errors.config import ConfigError
+diff --git a/src/cfnlint/runner.py b/src/cfnlint/runner.py
+index e1954650c..714d9bcc7 100644
+--- a/src/cfnlint/runner.py
++++ b/src/cfnlint/runner.py
+@@ -223,7 +223,14 @@ class Runner:
+                 settings for the template scan.
+         """
+         self.config = config
+-        self.config.templates
++        self._config_error = None
++        try:
++            self.config.templates
++        except ValueError as e:
++            # Only treat as error if ignore_bad_template is False
++            if not self.config.ignore_bad_template:
++                self._config_error = str(e)
++
+         self.formatter = get_formatter(self.config)
+         self.rules: Rules = Rules()
+         self._get_rules()
+@@ -394,6 +401,25 @@ class Runner:
+             yield from self._validate_filenames([None])
+             return
+ 
++        # Check if there was a config error during initialization
++        if self._config_error:
++            from cfnlint.rules.errors import ConfigError
++            from cfnlint.rules import Match
++
++            # Extract the filename from the error message
++            filename = self._config_error.split(" could not be processed by glob.glob")[0]
++
++            # Create a match for the config error
++            match = Match(
++                rule=ConfigError(),
++                filename=filename,
++                linenumber=1,
++                columnnumber=1,
++                message=self._config_error
++            )
++            yield match
++            return
++
+         yield from self._validate_filenames(self.config.templates)
+ 
+     def cli(self) -> None:

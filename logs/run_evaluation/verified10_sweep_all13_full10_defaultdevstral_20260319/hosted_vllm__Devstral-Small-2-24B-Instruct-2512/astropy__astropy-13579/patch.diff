@@ -1,0 +1,28 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..0dbf9b446 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -251,7 +251,22 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                # For dropped world dimensions, we need to determine the appropriate
++                # world coordinate value. This is done by finding the pixel coordinate
++                # that was sliced and determining what world coordinate it corresponds to.
++                # We use pixel_to_world to find the world coordinate for the sliced pixel.
++                pixel_for_world = []
++                for ipixel in range(self._wcs.pixel_n_dim):
++                    if ipixel in self._pixel_keep:
++                        # This pixel dimension is kept, so we need to provide a dummy value
++                        # that will be ignored in the transformation
++                        pixel_for_world.append(0.)
++                    else:
++                        # This pixel dimension was sliced, so we use the actual slice value
++                        pixel_for_world.append(self._slices_pixel[ipixel])
++                # Convert pixel coordinates to world coordinates to get the value for dropped dimensions
++                world_for_dropped = self._wcs.pixel_to_world_values(*pixel_for_world)
++                world_arrays_new.append(world_for_dropped[iworld])
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

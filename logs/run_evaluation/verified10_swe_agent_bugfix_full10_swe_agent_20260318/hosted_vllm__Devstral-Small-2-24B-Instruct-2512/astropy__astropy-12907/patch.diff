@@ -1,0 +1,97 @@
+diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py
+index a308e2729..e33e71254 100644
+--- a/astropy/modeling/separable.py
++++ b/astropy/modeling/separable.py
+@@ -20,10 +20,8 @@ import numpy as np
+ from .core import Model, ModelDefinitionError, CompoundModel
+ from .mappings import Mapping
+ 
+-
+ __all__ = ["is_separable", "separability_matrix"]
+ 
+-
+ def is_separable(transform):
+     """
+     A separability test for the outputs of a transform.
+@@ -62,7 +60,6 @@ def is_separable(transform):
+     is_separable = np.where(is_separable != 1, False, True)
+     return is_separable
+ 
+-
+ def separability_matrix(transform):
+     """
+     Compute the correlation between outputs and inputs.
+@@ -101,7 +98,6 @@ def separability_matrix(transform):
+     separable_matrix = np.where(separable_matrix != 0, True, False)
+     return separable_matrix
+ 
+-
+ def _compute_n_outputs(left, right):
+     """
+     Compute the number of outputs of two models.
+@@ -126,7 +122,6 @@ def _compute_n_outputs(left, right):
+     noutp = lnout + rnout
+     return noutp
+ 
+-
+ def _arith_oper(left, right):
+     """
+     Function corresponding to one of the arithmetic operators
+@@ -167,7 +162,6 @@ def _arith_oper(left, right):
+     result = np.ones((left_outputs, left_inputs))
+     return result
+ 
+-
+ def _coord_matrix(model, pos, noutp):
+     """
+     Create an array representing inputs and outputs of a simple model.
+@@ -199,7 +193,16 @@ def _coord_matrix(model, pos, noutp):
+         else:
+             mat[-model.n_outputs:, -model.n_inputs:] = m
+         return mat
+-    if not model.separable:
++    elif isinstance(model, CompoundModel):
++        # For CompoundModels, use the separability matrix directly
++        sep_matrix = _separable(model)
++        mat = np.zeros((noutp, model.n_inputs))
++        if pos == 'left':
++            mat[:model.n_outputs, :model.n_inputs] = sep_matrix
++        else:
++            mat[-model.n_outputs:, -model.n_inputs:] = sep_matrix
++        return mat
++    elif not model.separable:
+         # this does not work for more than 2 coordinates
+         mat = np.zeros((noutp, model.n_inputs))
+         if pos == 'left':
+@@ -215,7 +218,6 @@ def _coord_matrix(model, pos, noutp):
+             mat = np.roll(mat, (noutp - model.n_outputs))
+     return mat
+ 
+-
+ def _cstack(left, right):
+     """
+     Function corresponding to '&' operation.
+@@ -246,7 +248,6 @@ def _cstack(left, right):
+ 
+     return np.hstack([cleft, cright])
+ 
+-
+ def _cdot(left, right):
+     """
+     Function corresponding to "|" operation.
+@@ -286,7 +287,6 @@ def _cdot(left, right):
+                 cright, cleft))
+     return result
+ 
+-
+ def _separable(transform):
+     """
+     Calculate the separability of outputs.
+@@ -310,7 +310,6 @@ def _separable(transform):
+     elif isinstance(transform, Model):
+         return _coord_matrix(transform, 'left', transform.n_outputs)
+ 
+-
+ # Maps modeling operators to a function computing and represents the
+ # relationship of axes as an array of 0-es and 1-s
+ _operators = {'&': _cstack, '|': _cdot, '+': _arith_oper, '-': _arith_oper,

@@ -1,0 +1,83 @@
+diff --git a/supervisor/store/__init__.py b/supervisor/store/__init__.py
+index 787e560d..0c705ca8 100644
+--- a/supervisor/store/__init__.py
++++ b/supervisor/store/__init__.py
+@@ -143,11 +143,16 @@ class StoreManager(CoreSysAttributes, FileConfiguration):
+             raise StoreError(f"Can't add {url}, already in the store", _LOGGER.error)
+ 
+         # Load the repository
++        loaded = False
+         try:
+             await repository.load()
++            loaded = True
+         except StoreGitCloneError as err:
+             _LOGGER.error("Can't retrieve data from %s due to %s", url, err)
+-            if add_with_errors:
++            # If this is a built-in repository or we have local data, don't fail
++            if repository.type in (StoreType.CORE, StoreType.LOCAL) or repository.git and repository.git.path.is_dir():
++                _LOGGER.warning("Repository %s failed to load but has local data, continuing", url)
++            elif add_with_errors:
+                 self.sys_resolution.create_issue(
+                     IssueType.FATAL_ERROR,
+                     ContextType.STORE,
+@@ -160,7 +165,10 @@ class StoreManager(CoreSysAttributes, FileConfiguration):
+ 
+         except StoreGitError as err:
+             _LOGGER.error("Can't load data from repository %s due to %s", url, err)
+-            if add_with_errors:
++            # If this is a built-in repository or we have local data, don't fail
++            if repository.type in (StoreType.CORE, StoreType.LOCAL) or repository.git and repository.git.path.is_dir():
++                _LOGGER.warning("Repository %s failed to load but has local data, continuing", url)
++            elif add_with_errors:
+                 self.sys_resolution.create_issue(
+                     IssueType.FATAL_ERROR,
+                     ContextType.STORE,
+@@ -173,7 +181,10 @@ class StoreManager(CoreSysAttributes, FileConfiguration):
+ 
+         except StoreJobError as err:
+             _LOGGER.error("Can't add repository %s due to %s", url, err)
+-            if add_with_errors:
++            # If this is a built-in repository or we have local data, don't fail
++            if repository.type in (StoreType.CORE, StoreType.LOCAL) or repository.git and repository.git.path.is_dir():
++                _LOGGER.warning("Repository %s failed to load but has local data, continuing", url)
++            elif add_with_errors:
+                 self.sys_resolution.create_issue(
+                     IssueType.FATAL_ERROR,
+                     ContextType.STORE,
+@@ -185,20 +196,22 @@ class StoreManager(CoreSysAttributes, FileConfiguration):
+                 raise err
+ 
+         else:
+-            if not repository.validate():
+-                if add_with_errors:
+-                    _LOGGER.error("%s is not a valid add-on repository", url)
+-                    self.sys_resolution.create_issue(
+-                        IssueType.CORRUPT_REPOSITORY,
+-                        ContextType.STORE,
+-                        reference=repository.slug,
+-                        suggestions=[SuggestionType.EXECUTE_REMOVE],
+-                    )
+-                else:
+-                    await repository.remove()
+-                    raise StoreInvalidAddonRepo(
+-                        f"{url} is not a valid add-on repository", logger=_LOGGER.error
+-                    )
++            loaded = True
++
++        if loaded and not repository.validate():
++            if add_with_errors:
++                _LOGGER.error("%s is not a valid add-on repository", url)
++                self.sys_resolution.create_issue(
++                    IssueType.CORRUPT_REPOSITORY,
++                    ContextType.STORE,
++                    reference=repository.slug,
++                    suggestions=[SuggestionType.EXECUTE_REMOVE],
++                )
++            else:
++                await repository.remove()
++                raise StoreInvalidAddonRepo(
++                    f"{url} is not a valid add-on repository", logger=_LOGGER.error
++                )
+ 
+         # Add Repository to list
+         self.repositories[repository.slug] = repository

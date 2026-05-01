@@ -1,0 +1,35 @@
+diff --git a/haystack/dataclasses/streaming_chunk.py b/haystack/dataclasses/streaming_chunk.py
+index 7cd30e46..93e9c6c8 100644
+--- a/haystack/dataclasses/streaming_chunk.py
++++ b/haystack/dataclasses/streaming_chunk.py
+@@ -33,8 +33,8 @@ class ToolCallDelta:
+     def __post_init__(self):
+         # NOTE: We allow for name and arguments to both be present because some providers like Mistral provide the
+         # name and full arguments in one chunk
+-        if self.tool_name is None and self.arguments is None:
+-            raise ValueError("At least one of tool_name or arguments must be provided.")
++        # We also allow both to be None as some providers like qwen-plus can send delta chunks with empty name and arguments
++        pass
+ 
+ 
+ @dataclass
+diff --git a/test/dataclasses/test_streaming_chunk.py b/test/dataclasses/test_streaming_chunk.py
+index 1d536330..0ae0f9a6 100644
+--- a/test/dataclasses/test_streaming_chunk.py
++++ b/test/dataclasses/test_streaming_chunk.py
+@@ -100,8 +100,13 @@ def test_tool_call_delta():
+ 
+ 
+ def test_tool_call_delta_with_missing_fields():
+-    with pytest.raises(ValueError):
+-        _ = ToolCallDelta(id="123", index=0)
++    # This should now pass without raising an exception
++    # as some providers can send delta chunks with both tool_name and arguments as None
++    tool_call = ToolCallDelta(id="123", index=0)
++    assert tool_call.id == "123"
++    assert tool_call.index == 0
++    assert tool_call.tool_name is None
++    assert tool_call.arguments is None
+ 
+ 
+ def test_create_chunk_with_finish_reason():

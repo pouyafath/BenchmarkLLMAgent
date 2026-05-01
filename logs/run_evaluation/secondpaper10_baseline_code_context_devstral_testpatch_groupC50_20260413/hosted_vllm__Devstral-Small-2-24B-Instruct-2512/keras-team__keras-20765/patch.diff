@@ -1,0 +1,38 @@
+diff --git a/keras/src/layers/rnn/time_distributed.py b/keras/src/layers/rnn/time_distributed.py
+index e61274d96..641fa5483 100644
+--- a/keras/src/layers/rnn/time_distributed.py
++++ b/keras/src/layers/rnn/time_distributed.py
+@@ -77,12 +77,27 @@ class TimeDistributed(Wrapper):
+         batch_size = input_shape[0]
+         timesteps = input_shape[1]
+ 
+-        if mask_shape is not None and mask_shape[:2] != (batch_size, timesteps):
+-            raise ValueError(
+-                "`TimeDistributed` Layer should be passed a `mask` of shape "
+-                f"({batch_size}, {timesteps}, ...), "
+-                f"received: mask.shape={mask_shape}"
+-            )
++        if mask_shape is not None:
++            # Check mask shape compatibility in a graph-compatible way
++            expected_shape = ops.convert_to_tensor((batch_size, timesteps))
++            mask_shape_2d = mask_shape[:2]
++
++            def raise_error():
++                raise ValueError(
++                    "`TimeDistributed` Layer should be passed a `mask` of shape "
++                    f"({batch_size}, {timesteps}, ...), "
++                    f"received: mask.shape={mask_shape}"
++                )
++
++            def continue_execution():
++                return inputs
++
++            # Check if shapes match
++            shape_match = ops.equal(mask_shape_2d[0], expected_shape[0])
++            shape_match = ops.logical_and(shape_match, ops.equal(mask_shape_2d[1], expected_shape[1]))
++
++            # Use conditional execution to handle the shape mismatch
++            inputs = backend.cond(shape_match, continue_execution, raise_error)
+ 
+         def time_distributed_transpose(data):
+             """Swaps the timestep and batch dimensions of a tensor."""

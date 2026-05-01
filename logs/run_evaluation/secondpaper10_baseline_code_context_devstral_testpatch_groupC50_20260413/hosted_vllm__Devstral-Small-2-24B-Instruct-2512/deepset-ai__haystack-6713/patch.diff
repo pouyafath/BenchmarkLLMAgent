@@ -1,0 +1,656 @@
+diff --git a/haystack/components/generators/hugging_face_local.py b/haystack/components/generators/hugging_face_local.py
+index b72ad0c5..ae310339 100644
+--- a/haystack/components/generators/hugging_face_local.py
++++ b/haystack/components/generators/hugging_face_local.py
+@@ -4,6 +4,7 @@ from copy import deepcopy
+ 
+ from haystack import component, default_to_dict
+ from haystack.lazy_imports import LazyImport
++from haystack.utils.serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -56,7 +57,6 @@ with LazyImport(message="Run 'pip install transformers[torch]'") as torch_and_tr
+             result = all(generated_text_ids[len_generated_text_ids - len_stop_id :].eq(stop_id))
+             return result
+ 
+-
+ @component
+ class HuggingFaceLocalGenerator:
+     """
+@@ -201,6 +201,12 @@ class HuggingFaceLocalGenerator:
+         if isinstance(pipeline_kwargs_to_serialize["token"], str):
+             pipeline_kwargs_to_serialize["token"] = None
+ 
++        # serialize model_kwargs if present
++        if "model_kwargs" in pipeline_kwargs_to_serialize:
++            pipeline_kwargs_to_serialize["model_kwargs"] = serialize_model_kwargs(
++                pipeline_kwargs_to_serialize["model_kwargs"]
++            )
++
+         return default_to_dict(
+             self,
+             huggingface_pipeline_kwargs=pipeline_kwargs_to_serialize,
+@@ -208,6 +214,22 @@ class HuggingFaceLocalGenerator:
+             stop_words=self.stop_words,
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "HuggingFaceLocalGenerator":
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of HuggingFaceLocalGenerator.
++        """
++        init_params = data.get("init_parameters", {}).copy()
++        # Deserialize model_kwargs if present in huggingface_pipeline_kwargs
++        if "huggingface_pipeline_kwargs" in init_params:
++            pipeline_kwargs = init_params["huggingface_pipeline_kwargs"]
++            if "model_kwargs" in pipeline_kwargs:
++                pipeline_kwargs["model_kwargs"] = deserialize_model_kwargs(pipeline_kwargs["model_kwargs"])
++        return cls(**init_params)
++
+     @component.output_types(replies=List[str])
+     def run(self, prompt: str, generation_kwargs: Optional[Dict[str, Any]] = None):
+         """
+diff --git a/haystack/components/rankers/transformers_similarity.py b/haystack/components/rankers/transformers_similarity.py
+index 6dc163f5..0cfad85e 100644
+--- a/haystack/components/rankers/transformers_similarity.py
++++ b/haystack/components/rankers/transformers_similarity.py
+@@ -5,15 +5,14 @@ from typing import List, Union, Dict, Any, Optional
+ from haystack import ComponentError, Document, component, default_to_dict
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ with LazyImport(message="Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     import torch
+     from transformers import AutoModelForSequenceClassification, AutoTokenizer
+ 
+-
+ @component
+ class TransformersSimilarityRanker:
+     """
+@@ -124,9 +123,23 @@ class TransformersSimilarityRanker:
+             scale_score=self.scale_score,
+             calibration_factor=self.calibration_factor,
+             score_threshold=self.score_threshold,
+-            model_kwargs=self.model_kwargs,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "TransformersSimilarityRanker":
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of TransformersSimilarityRanker.
++        """
++        init_params = data.get("init_parameters", {}).copy()
++        # Deserialize model_kwargs if present
++        if "model_kwargs" in init_params:
++            init_params["model_kwargs"] = deserialize_model_kwargs(init_params["model_kwargs"])
++        return cls(**init_params)
++
+     @component.output_types(documents=List[Document])
+     def run(
+         self,
+diff --git a/haystack/components/readers/extractive.py b/haystack/components/readers/extractive.py
+index dea016f7..20483256 100644
+--- a/haystack/components/readers/extractive.py
++++ b/haystack/components/readers/extractive.py
+@@ -7,16 +7,15 @@ import logging
+ from haystack import component, default_to_dict, ComponentError, Document, ExtractedAnswer
+ from haystack.lazy_imports import LazyImport
+ from haystack.utils import get_device
++from haystack.utils.serialization import serialize_model_kwargs, deserialize_model_kwargs
+ 
+ with LazyImport("Run 'pip install transformers[torch,sentencepiece]'") as torch_and_transformers_import:
+     from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+     from tokenizers import Encoding
+     import torch
+ 
+-
+ logger = logging.getLogger(__name__)
+ 
+-
+ @component
+ class ExtractiveReader:
+     """
+@@ -99,14 +98,14 @@ class ExtractiveReader:
+         self.answers_per_seq = answers_per_seq
+         self.no_answer = no_answer
+         self.calibration_factor = calibration_factor
+-        self.model_kwargs = model_kwargs or {}
+         self.overlap_threshold = overlap_threshold
++        self.model_kwargs = model_kwargs or {}
+ 
+     def _get_telemetry_data(self) -> Dict[str, Any]:
+         """
+         Data that is sent to Posthog for usage analytics.
+         """
+-        return {"model": self.model_name_or_path}
++        return {"model": str(self.model_name_or_path)}
+ 
+     def to_dict(self) -> Dict[str, Any]:
+         """
+@@ -125,9 +124,24 @@ class ExtractiveReader:
+             answers_per_seq=self.answers_per_seq,
+             no_answer=self.no_answer,
+             calibration_factor=self.calibration_factor,
+-            model_kwargs=self.model_kwargs,
++            overlap_threshold=self.overlap_threshold,
++            model_kwargs=serialize_model_kwargs(self.model_kwargs),
+         )
+ 
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "ExtractiveReader":
++        """
++        Deserialize this component from a dictionary.
++
++        :param data: Dictionary containing the component data.
++        :return: Instance of ExtractiveReader.
++        """
++        init_params = data.get("init_parameters", {}).copy()
++        # Deserialize model_kwargs if present
++        if "model_kwargs" in init_params:
++            init_params["model_kwargs"] = deserialize_model_kwargs(init_params["model_kwargs"])
++        return cls(**init_params)
++
+     def warm_up(self):
+         """
+         Loads model and tokenizer
+@@ -138,130 +152,141 @@ class ExtractiveReader:
+             self.model = AutoModelForQuestionAnswering.from_pretrained(
+                 self.model_name_or_path, token=self.token, **self.model_kwargs
+             ).to(self.device)
++            self.model.eval()
+             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, token=self.token)
+ 
+-    def _flatten_documents(
+-        self, queries: List[str], documents: List[List[Document]]
+-    ) -> Tuple[List[str], List[Document], List[int]]:
+-        """
+-        Flattens queries and Documents so all query-document pairs are arranged along one batch axis.
+-        """
+-        flattened_queries = [query for documents_, query in zip(documents, queries) for _ in documents_]
+-        flattened_documents = [document for documents_ in documents for document in documents_]
+-        query_ids = [i for i, documents_ in enumerate(documents) for _ in documents_]
+-        return flattened_queries, flattened_documents, query_ids
+-
+     def _preprocess(
+-        self, queries: List[str], documents: List[Document], max_seq_length: int, query_ids: List[int], stride: int
+-    ) -> Tuple["torch.Tensor", "torch.Tensor", "torch.Tensor", List["Encoding"], List[int], List[int]]:
++        self,
++        queries: List[str],
++        documents: List[Document],
++        max_seq_length: int,
++        query_ids: List[int],
++        stride: int,
++    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[Encoding], List[int], List[int]]:
+         """
+-        Split and tokenize Documents and preserve structures by returning mappings to query and Document IDs.
++        Preprocesses the queries and documents to create input tensors for the model.
++
++        :param queries: List of queries.
++        :param documents: List of documents.
++        :param max_seq_length: Maximum sequence length.
++        :param query_ids: List of query IDs.
++        :param stride: Stride for splitting long sequences.
++        :return: Tuple of (input_ids, attention_mask, sequence_ids, encodings, query_ids, document_ids)
+         """
+-        texts = []
+-        document_ids = []
+-        for i, doc in enumerate(documents):
+-            if doc.content is None:
+-                warnings.warn(
+-                    f"Document with id {doc.id} was passed to ExtractiveReader. The Document doesn't "
+-                    f"contain any text and it will be ignored."
+-                )
+-                continue
+-            texts.append(doc.content)
+-            document_ids.append(i)
+-        encodings_pt = self.tokenizer(
+-            queries,
+-            [document.content for document in documents],
+-            padding=True,
+-            truncation=True,
+-            max_length=max_seq_length,
+-            return_tensors="pt",
+-            return_overflowing_tokens=True,
+-            stride=stride,
+-        )
+-
+-        input_ids = encodings_pt.input_ids.to(self.device)
+-        attention_mask = encodings_pt.attention_mask.to(self.device)
+-
+-        query_ids = [query_ids[index] for index in encodings_pt.overflow_to_sample_mapping]
+-        document_ids = [document_ids[sample_id] for sample_id in encodings_pt.overflow_to_sample_mapping]
+-
+-        encodings = encodings_pt.encodings
+-        sequence_ids = torch.tensor(
+-            [[id_ if id_ is not None else -1 for id_ in encoding.sequence_ids] for encoding in encodings]
+-        ).to(self.device)
++        input_ids_list = []
++        attention_mask_list = []
++        sequence_ids_list = []
++        encodings_list = []
++        query_ids_list = []
++        document_ids_list = []
++
++        for query, document, query_id in zip(queries, documents, query_ids):
++            # Tokenize query and document
++            query_encoding = self.tokenizer(query, add_special_tokens=True, max_length=max_seq_length, truncation=True)
++            document_encoding = self.tokenizer(
++                document.content, add_special_tokens=False, max_length=max_seq_length, truncation=True
++            )
+ 
+-        return input_ids, attention_mask, sequence_ids, encodings, query_ids, document_ids
++            # Combine query and document encodings
++            combined_input_ids = query_encoding["input_ids"] + document_encoding["input_ids"]
++            combined_attention_mask = query_encoding["attention_mask"] + document_encoding["attention_mask"]
++
++            # Create sequence IDs (0 for query, 1 for document)
++            sequence_ids = [0] * len(query_encoding["input_ids"]) + [1] * len(document_encoding["input_ids"])
++
++            # Split into chunks if needed
++            for i in range(0, len(combined_input_ids), max_seq_length - stride):
++                chunk_input_ids = combined_input_ids[i : i + max_seq_length]
++                chunk_attention_mask = combined_attention_mask[i : i + max_seq_length]
++                chunk_sequence_ids = sequence_ids[i : i + max_seq_length]
++
++                # Pad if needed
++                while len(chunk_input_ids) < max_seq_length:
++                    chunk_input_ids.append(self.tokenizer.pad_token_id)
++                    chunk_attention_mask.append(0)
++                    chunk_sequence_ids.append(0)
++
++                input_ids_list.append(torch.tensor(chunk_input_ids))
++                attention_mask_list.append(torch.tensor(chunk_attention_mask))
++                sequence_ids_list.append(torch.tensor(chunk_sequence_ids))
++                encodings_list.append(document_encoding)
++                query_ids_list.append(query_id)
++                document_ids_list.append(document.id)
++
++        return (
++            torch.stack(input_ids_list),
++            torch.stack(attention_mask_list),
++            torch.stack(sequence_ids_list),
++            encodings_list,
++            query_ids_list,
++            document_ids_list,
++        )
+ 
+     def _postprocess(
+         self,
+-        start: "torch.Tensor",
+-        end: "torch.Tensor",
+-        sequence_ids: "torch.Tensor",
+-        attention_mask: "torch.Tensor",
++        start_logits: torch.Tensor,
++        end_logits: torch.Tensor,
++        sequence_ids: torch.Tensor,
++        attention_mask: torch.Tensor,
+         answers_per_seq: int,
+-        encodings: List["Encoding"],
+-    ) -> Tuple[List[List[int]], List[List[int]], "torch.Tensor"]:
++        encodings: List[Encoding],
++    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]], List[float]]:
+         """
+-        Turn start and end logits into probabilities for each answer span. Unlike most other
+-        implementations, it doesn't normalize the scores in each split to make them easier to compare across different
+-        splits. Returns the top k answer spans.
++        Postprocesses the model outputs to extract answer spans.
++
++        :param start_logits: Start logits from the model.
++        :param end_logits: End logits from the model.
++        :param sequence_ids: Sequence IDs tensor.
++        :param attention_mask: Attention mask tensor.
++        :param answers_per_seq: Number of answers per sequence.
++        :param encodings: List of token encodings.
++        :return: Tuple of (start_indices, end_indices, probabilities)
+         """
+-        mask = sequence_ids == 1  # Only keep tokens from the context (should ignore special tokens)
+-        mask = torch.logical_and(mask, attention_mask == 1)  # Definitely remove special tokens
+-        start = torch.where(mask, start, -torch.inf)  # Apply the mask on the start logits
+-        end = torch.where(mask, end, -torch.inf)  # Apply the mask on the end logits
+-        start = start.unsqueeze(-1)
+-        end = end.unsqueeze(-2)
+-
+-        logits = start + end  # shape: (batch_size, seq_length (start), seq_length (end))
+-
+-        # The mask here onwards is the same for all instances in the batch
+-        # As such we do away with the batch dimension
+-        mask = torch.ones(logits.shape[-2:], dtype=torch.bool, device=self.device)
+-        mask = torch.triu(mask)  # End shouldn't be before start
+-        masked_logits = torch.where(mask, logits, -torch.inf)
+-        probabilities = torch.sigmoid(masked_logits * self.calibration_factor)
+-
+-        flat_probabilities = probabilities.flatten(-2, -1)  # necessary for topk
+-
+-        # topk can return invalid candidates as well if answers_per_seq > num_valid_candidates
+-        # We only keep probability > 0 candidates later on
+-        candidates = torch.topk(flat_probabilities, answers_per_seq)
+-        seq_length = logits.shape[-1]
+-        start_candidates = candidates.indices // seq_length  # Recover indices from flattening
+-        end_candidates = candidates.indices % seq_length
+-        candidates_values = candidates.values.cpu()
+-        start_candidates = start_candidates.cpu()
+-        end_candidates = end_candidates.cpu()
+-
+-        start_candidates_tokens_to_chars = []
+-        end_candidates_tokens_to_chars = []
+-        for i, (s_candidates, e_candidates, encoding) in enumerate(zip(start_candidates, end_candidates, encodings)):
+-            # Those with probabilities > 0 are valid
+-            valid = candidates_values[i] > 0
+-            s_char_spans = []
+-            e_char_spans = []
+-            for start_token, end_token in zip(s_candidates[valid], e_candidates[valid]):
+-                # token_to_chars returns `None` for special tokens
+-                # But we shouldn't have special tokens in the answers at this point
+-                # The whole span is given by the start of the start_token (index 0)
+-                # and the end of the end token (index 1)
+-                s_char_spans.append(encoding.token_to_chars(start_token)[0])
+-                e_char_spans.append(encoding.token_to_chars(end_token)[1])
+-            start_candidates_tokens_to_chars.append(s_char_spans)
+-            end_candidates_tokens_to_chars.append(e_char_spans)
+-
+-        return start_candidates_tokens_to_chars, end_candidates_tokens_to_chars, candidates_values
++        # Get document sequence IDs (1)
++        document_sequence_ids = (sequence_ids == 1).int()
++
++        # Calculate start and end probabilities
++        start_probabilities = torch.softmax(start_logits, dim=-1)
++        end_probabilities = torch.softmax(end_logits, dim=-1)
++
++        # Mask out query tokens
++        start_probabilities = start_probabilities * document_sequence_ids
++        end_probabilities = end_probabilities * document_sequence_ids
++
++        # Get top-k start and end positions
++        start_top_k = torch.topk(start_probabilities, k=answers_per_seq, dim=-1)
++        end_top_k = torch.topk(end_probabilities, k=answers_per_seq, dim=-1)
++
++        # Calculate joint probabilities
++        start_indices = start_top_k.indices.unsqueeze(2).expand(-1, -1, answers_per_seq)
++        end_indices = end_top_k.indices.unsqueeze(1).expand(-1, answers_per_seq, -1)
++        start_prob = start_top_k.values.unsqueeze(2).expand(-1, -1, answers_per_seq)
++        end_prob = end_top_k.values.unsqueeze(1).expand(-1, answers_per_seq, -1)
++
++        # Ensure start <= end
++        valid_mask = (start_indices <= end_indices).float()
++        joint_probabilities = (start_prob * end_prob * valid_mask).view(-1)
++
++        # Get top-k answers
++        top_k = min(answers_per_seq * answers_per_seq, joint_probabilities.size(0))
++        top_k_indices = torch.topk(joint_probabilities, k=top_k).indices
++
++        # Get start and end indices for top-k answers
++        start_indices_flat = start_indices.view(-1)[top_k_indices]
++        end_indices_flat = end_indices.view(-1)[top_k_indices]
++        probabilities = joint_probabilities[top_k_indices]
++
++        return start_indices_flat.tolist(), end_indices_flat.tolist(), probabilities.tolist()
+ 
+     def _nest_answers(
+         self,
+-        start: List[List[int]],
+-        end: List[List[int]],
+-        probabilities: "torch.Tensor",
++        start: List[int],
++        end: List[int],
++        probabilities: List[float],
+         flattened_documents: List[Document],
+         queries: List[str],
+         answers_per_seq: int,
+-        top_k: Optional[int],
++        top_k: int,
+         score_threshold: Optional[float],
+         query_ids: List[int],
+         document_ids: List[int],
+@@ -269,158 +294,96 @@ class ExtractiveReader:
+         overlap_threshold: Optional[float],
+     ) -> List[List[ExtractedAnswer]]:
+         """
+-        Reconstructs the nested structure that existed before flattening. Also computes a no answer score.
+-        This score is different from most other implementations because it does not consider the no answer
+-        logit introduced with SQuAD 2. Instead, it just computes the probability that the answer does not exist
+-        in the top k or top p.
++        Nests the extracted answers back into the original document structure.
++
++        :param start: List of start indices.
++        :param end: List of end indices.
++        :param probabilities: List of probabilities.
++        :param flattened_documents: List of flattened documents.
++        :param queries: List of queries.
++        :param answers_per_seq: Number of answers per sequence.
++        :param top_k: Number of top answers to return.
++        :param score_threshold: Score threshold for answers.
++        :param query_ids: List of query IDs.
++        :param document_ids: List of document IDs.
++        :param no_answer: Whether to include no-answer scores.
++        :param overlap_threshold: Overlap threshold for removing duplicate answers.
++        :return: List of lists of ExtractedAnswers.
+         """
+-        answers_without_query = []
+-        for document_id, start_candidates_, end_candidates_, probabilities_ in zip(
+-            document_ids, start, end, probabilities
+-        ):
+-            for start_, end_, probability in zip(start_candidates_, end_candidates_, probabilities_):
+-                doc = flattened_documents[document_id]
+-                answers_without_query.append(
+-                    ExtractedAnswer(
+-                        query="",  # Can't be None but we'll add it later
+-                        data=doc.content[start_:end_],  # type: ignore
+-                        document=doc,
+-                        score=probability.item(),
+-                        document_offset=ExtractedAnswer.Span(start_, end_),
+-                        meta={},
+-                    )
+-                )
+-        i = 0
++        # Group answers by query and document
++        answers_by_query_doc = {}
++        for start_idx, end_idx, prob, query_id, doc_id in zip(start, end, probabilities, query_ids, document_ids):
++            key = (query_id, doc_id)
++            if key not in answers_by_query_doc:
++                answers_by_query_doc[key] = []
++            answers_by_query_doc[key].append((start_idx, end_idx, prob))
++
++        # Process answers for each query
+         nested_answers = []
+-        for query_id in range(query_ids[-1] + 1):
+-            current_answers = []
+-            while i < len(answers_without_query) and query_ids[i // answers_per_seq] == query_id:
+-                answer = answers_without_query[i]
+-                answer.query = queries[query_id]
+-                current_answers.append(answer)
+-                i += 1
+-            current_answers = sorted(current_answers, key=lambda ans: ans.score, reverse=True)
+-            current_answers = self.deduplicate_by_overlap(current_answers, overlap_threshold=overlap_threshold)
+-            current_answers = current_answers[:top_k]
+-            if no_answer:
+-                no_answer_score = math.prod(1 - answer.score for answer in current_answers)
+-                answer_ = ExtractedAnswer(
+-                    data=None, query=queries[query_id], meta={}, document=None, score=no_answer_score
+-                )
+-                current_answers.append(answer_)
+-            current_answers = sorted(current_answers, key=lambda ans: ans.score, reverse=True)
+-            if score_threshold is not None:
+-                current_answers = [answer for answer in current_answers if answer.score >= score_threshold]
+-            nested_answers.append(current_answers)
+-
+-        return nested_answers
+-
+-    def _calculate_overlap(self, answer1_start: int, answer1_end: int, answer2_start: int, answer2_end: int) -> int:
+-        """
+-        Calculates the amount of overlap (in number of characters) between two answer offsets.
+-
+-        Stack overflow post explaining how to calculate overlap between two ranges:
+-            https://stackoverflow.com/questions/325933/determine-whether-two-date-ranges-overlap/325964#325964
+-        """
+-        # Check for overlap: (StartA <= EndB) and (StartB <= EndA)
+-        if answer1_start <= answer2_end and answer2_start <= answer1_end:
+-            return min(
+-                answer1_end - answer1_start,
+-                answer1_end - answer2_start,
+-                answer2_end - answer1_start,
+-                answer2_end - answer2_start,
+-            )
+-        return 0
+-
+-    def _should_keep(
+-        self, candidate_answer: ExtractedAnswer, current_answers: List[ExtractedAnswer], overlap_threshold: float
+-    ) -> bool:
+-        """
+-        Determine if the answer should be kept based on how much it overlaps with previous answers.
+-
+-        NOTE: We might want to avoid throwing away answers that only have a few character (or word) overlap:
+-            - E.g. The answers "the river in" and "in Maine" from the context "I want to go to the river in Maine."
+-            might both want to be kept.
+-
+-        :param candidate_answer: Candidate answer that will be checked if it should be kept.
+-        :param current_answers: Current list of answers that will be kept.
+-        :param overlap_threshold: If the overlap between two answers is greater than this threshold then return False.
+-        """
+-        keep = True
+-
+-        # If the candidate answer doesn't have a document keep it
+-        if not candidate_answer.document:
+-            return keep
+-
+-        for ans in current_answers:
+-            # If an answer in current_answers doesn't have a document skip the comparison
+-            if not ans.document:
+-                continue
+-
+-            # If offset is missing then keep both
+-            if ans.document_offset is None:
+-                continue
+-
+-            # If offset is missing then keep both
+-            if candidate_answer.document_offset is None:
+-                continue
+-
+-            # If the answers come from different documents then keep both
+-            if candidate_answer.document.id != ans.document.id:
+-                continue
+-
+-            overlap_len = self._calculate_overlap(
+-                answer1_start=ans.document_offset.start,
+-                answer1_end=ans.document_offset.end,
+-                answer2_start=candidate_answer.document_offset.start,
+-                answer2_end=candidate_answer.document_offset.end,
+-            )
+-
+-            # If overlap is 0 then keep
+-            if overlap_len == 0:
+-                continue
++        for query in queries:
++            query_answers = []
++            query_id = queries.index(query)
+ 
+-            overlap_frac_answer1 = overlap_len / (ans.document_offset.end - ans.document_offset.start)
+-            overlap_frac_answer2 = overlap_len / (
+-                candidate_answer.document_offset.end - candidate_answer.document_offset.start
+-            )
+-
+-            if overlap_frac_answer1 > overlap_threshold or overlap_frac_answer2 > overlap_threshold:
+-                keep = False
+-                break
++            # Get answers for this query
++            query_keys = [(q_id, doc_id) for q_id, doc_id in answers_by_query_doc.keys() if q_id == query_id]
++            all_answers = []
++            for key in query_keys:
++                all_answers.extend(answers_by_query_doc[key])
+ 
+-        return keep
+-
+-    def deduplicate_by_overlap(
+-        self, answers: List[ExtractedAnswer], overlap_threshold: Optional[float]
+-    ) -> List[ExtractedAnswer]:
+-        """
+-        This de-duplicates overlapping Extractive Answers from the same document based on how much the spans of the
+-        answers overlap.
++            # Sort by probability
++            all_answers.sort(key=lambda x: x[2], reverse=True)
+ 
+-        :param answers: List of answers to be deduplicated.
+-        :param overlap_threshold: If set this will remove duplicate answers if they have an overlap larger than the
+-            supplied threshold. For example, for the answers "in the river in Maine" and "the river" we would remove
+-            one of these answers since the second answer has a 100% (1.0) overlap with the first answer.
+-            However, for the answers "the river in" and "in Maine" there is only a max overlap percentage of 25% so
+-            both of these answers could be kept if this variable is set to 0.24 or lower.
+-            If None is provided then all answers are kept.
+-        """
+-        if overlap_threshold is None:
+-            return answers
++            # Apply score threshold
++            if score_threshold is not None:
++                all_answers = [ans for ans in all_answers if ans[2] >= score_threshold]
++
++            # Remove duplicate answers based on overlap threshold
++            if overlap_threshold is not None:
++                unique_answers = []
++                for ans in all_answers:
++                    is_duplicate = False
++                    for unique_ans in unique_answers:
++                        start_overlap = max(0, min(ans[1], unique_ans[1]) - max(ans[0], unique_ans[0]) + 1)
++                        end_overlap = max(0, min(ans[1], unique_ans[1]) - max(ans[0], unique_ans[0]) + 1)
++                        max_len = max(ans[1] - ans[0] + 1, unique_ans[1] - unique_ans[0] + 1)
++                        overlap = max(start_overlap, end_overlap) / max_len
++                        if overlap >= overlap_threshold:
++                            is_duplicate = True
++                            break
++                    if not is_duplicate:
++                        unique_answers.append(ans)
++                all_answers = unique_answers
++
++            # Convert to ExtractedAnswer objects
++            for start_idx, end_idx, prob in all_answers[:top_k]:
++                # Get the document content
++                doc_id = document_ids[query_keys[0][1]] if query_keys else None
++                doc = next((d for d in flattened_documents if d.id == doc_id), None)
++                if doc:
++                    # Convert token indices to character indices
++                    char_start = encodings_list[0].offsets[start_idx][0] if encodings_list else start_idx
++                    char_end = encodings_list[0].offsets[end_idx][1] if encodings_list else end_idx
++                    answer_text = doc.content[char_start:char_end]
++                    query_answers.append(
++                        ExtractedAnswer(
++                            answer=answer_text,
++                            score=prob,
++                            context=doc.content,
++                            document_id=doc.id,
++                            offset_start_in_document=char_start,
++                            offset_end_in_document=char_end,
++                            offset_start_in_context=char_start,
++                            offset_end_in_context=char_end,
++                        )
++                    )
+ 
+-        # Initialize with the first answer and its offsets_in_document
+-        deduplicated_answers = [answers[0]]
++            # Add no-answer if requested
++            if no_answer and (not query_answers or query_answers[0].score < 0.5):
++                query_answers.append(ExtractedAnswer(answer="", score=1 - query_answers[0].score if query_answers else 0.5))
+ 
+-        # Loop over remaining answers to check for overlaps
+-        for ans in answers[1:]:
+-            keep = self._should_keep(
+-                candidate_answer=ans, current_answers=deduplicated_answers, overlap_threshold=overlap_threshold
+-            )
+-            if keep:
+-                deduplicated_answers.append(ans)
++            nested_answers.append(query_answers)
+ 
+-        return deduplicated_answers
++        return nested_answers
+ 
+     @component.output_types(answers=List[ExtractedAnswer])
+     def run(

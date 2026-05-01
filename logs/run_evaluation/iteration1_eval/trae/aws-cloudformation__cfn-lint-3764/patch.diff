@@ -1,0 +1,94 @@
+diff --git a/src/cfnlint/template/transforms/_language_extensions.py b/src/cfnlint/template/transforms/_language_extensions.py
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@ -1,1 +1,1 @@
+ class _ForEach:
+@@ -1,39 +1,50 @@
+-    def items(self, cfn):
+-        """
+-        Resolve the values for the foreach and return an iterator over them.
+-        """
+-        # The foreach definition must be a list of exactly three elements:
+-        #   1) the variable name,
+-        #   2) the list of values to iterate over,
+-        #   3) the template to apply for each value.
+-        if not isinstance(self.value, list) or len(self.value) != 3:
+-            raise _ValueError(
+-                "Fn::ForEach must be a list of three elements", self.key
+-            )
+-
+-        var_name, values, _ = self.value
+-
+-        # Resolve the values list.  It may itself contain intrinsic functions
+-        # that need to be evaluated (e.g., Fn::FindInMap, Ref, etc.).
+-        # We reuse the same walk logic that the rest of the transformer uses.
+-        try:
+-            resolved_values = self._resolve(values, cfn)
+-        except Exception as exc:  # pylint: disable=broad-except
+-            raise _ResolveError(
+-                "Fn::ForEach could not be resolved", self.key
+-            ) from exc
+-
+-        if not isinstance(resolved_values, list):
+-            raise _ResolveError(
+-                "Fn::ForEach could not be resolved", self.key
+-            )
+-
+-        # If the list is empty we previously raised an error, but an empty
+-        # collection is a valid case – it simply results in no resources being
+-        # generated.  Therefore we now return an empty iterator.
+-        if len(resolved_values) == 0:
+-            return iter([])
+-
+-        for item in resolved_values:
+-            yield item
++    def items(self, cfn):
++        """
++        Resolve the values for the foreach and return an iterator over them.
++
++        The ``Fn::ForEach`` intrinsic expects a three‑element list:
++
++        1. The name of the variable that will be substituted.
++        2. The collection of values to iterate over.
++        3. The template fragment that will be instantiated for each value.
++
++        Historically the implementation raised an error when the collection
++        (element 2) resolved to an empty list.  An empty collection is a perfectly
++        valid scenario – it simply means that no resources are generated – so
++        the transformer now treats it as a no‑op instead of an error.
++        """
++        # Validate the overall structure of the ``Fn::ForEach`` definition.
++        if not isinstance(self.value, list) or len(self.value) != 3:
++            raise _ValueError(
++                "Fn::ForEach must be a list of three elements", self.key
++            )
++
++        var_name, values, _ = self.value
++
++        # Resolve the values list.  It may itself contain intrinsic functions
++        # that need to be evaluated (e.g., Fn::FindInMap, Ref, etc.).
++        # We reuse the same walk logic that the rest of the transformer uses.
++        try:
++            resolved_values = self._resolve(values, cfn)
++        except Exception as exc:  # pylint: disable=broad-except
++            # Propagate a clear error if the values cannot be resolved.
++            raise _ResolveError(
++                "Fn::ForEach could not be resolved", self.key
++            ) from exc
++
++        # ``resolved_values`` must be a list (or a scalar that can be iterated as a
++        # single element).  If it is not a list we treat it as an unresolved
++        # intrinsic and raise an error.
++        if not isinstance(resolved_values, list):
++            raise _ResolveError(
++                "Fn::ForEach could not be resolved", self.key
++            )
++
++        # An empty list is now considered a valid, no‑op case.
++        if len(resolved_values) == 0:
++            return iter([])
++
++        # Yield each item in the resolved collection.
++        for item in resolved_values:
++            yield item
+ *** End of File ***

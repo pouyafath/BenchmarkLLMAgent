@@ -1,0 +1,61 @@
+--- a/keras/src/ops/core.py
++++ b/keras/src/ops/core.py
+@@
+ from keras.src.backend import any_symbolic_tensors
+ from keras.src.backend.common.backend_utils import slice_along_axis
+ from keras.src.ops.operation import Operation
+ from keras.src.utils import traceback_utils
+@@
+     return backend.core.map(f, xs)
+ 
+ 
++class StopGradient(Operation):
++    """Operation that stops gradient flow for symbolic tensors."""
++
++    def __init__(self):
++        super().__init__()
++
++    def call(self, x):
++        # Eager execution: delegate to backend implementation.
++        return backend.core.stop_gradient(x)
++
++    def compute_output_spec(self, x):
++        """Return a KerasTensor (or nested structure) with the same spec as ``x``."""
++        # ``x`` may be a nested structure of KerasTensors.
++        def spec(t):
++            # ``t`` is expected to be a KerasTensor.
++            return KerasTensor(shape=t.shape, dtype=t.dtype, sparse=t.sparse)
++
++        return tree.map_structure(spec, x)
++
++
+ @keras_export("keras.ops.map")
+ def map(f, xs):
+@@
+     return backend.core.map(f, xs)
+ 
+ 
+ @keras_export("keras.ops.scan")
+@@
+     return backend.core.scan(
+         f, init, xs, length, reverse=reverse, unroll=unroll
+     )
+ 
+ 
++@keras_export("keras.ops.stop_gradient")
++def stop_gradient(x):
++    """Stop gradient propagation for ``x``.
++
++    This works both in eager mode and when building a symbolic Keras model.
++    """
++    if any_symbolic_tensors((x,)):
++        # Use the symbolic operation to preserve KerasTensor metadata.
++        return StopGradient().symbolic_call(x)
++    return backend.core.stop_gradient(x)
++
++
+ class AssociativeScan(Operation):
+     def __init__(self, reverse=False):
+         super().__init__()
+         self.reverse = reverse
+*** End of File ***

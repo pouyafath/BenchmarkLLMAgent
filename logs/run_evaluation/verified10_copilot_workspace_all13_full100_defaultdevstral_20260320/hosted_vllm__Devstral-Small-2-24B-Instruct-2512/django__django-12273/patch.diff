@@ -1,0 +1,35 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 844c01e95e..7bb8818d92 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -399,6 +399,7 @@ class ModelState:
+     # on the actual save.
+     adding = True
+     fields_cache = ModelStateFieldsCacheDescriptor()
++    original_pk = None
+ 
+ 
+ class Model(metaclass=ModelBase):
+@@ -788,6 +789,9 @@ class Model(metaclass=ModelBase):
+         self._state.db = using
+         # Once saved, this is no longer a to-be-added instance.
+         self._state.adding = False
++        # Store the original primary key value for future reference
++        if self._state.adding:
++            self._state.original_pk = self._get_pk_val(meta)
+ 
+         # Signal that the save is complete
+         if not meta.auto_created:
+@@ -840,7 +844,11 @@ class Model(metaclass=ModelBase):
+                        if f.name in update_fields or f.attname in update_fields]
+ 
+         pk_val = self._get_pk_val(meta)
+-        if pk_val is None:
++        # If the primary key is None and this object has been saved before,
++        # use the original primary key value to identify which record to update
++        if pk_val is None and not self._state.adding and self._state.original_pk is not None:
++            pk_val = self._state.original_pk
++        elif pk_val is None:
+             pk_val = meta.pk.get_pk_value_on_save(self)
+             setattr(self, meta.pk.attname, pk_val)
+         pk_set = pk_val is not None

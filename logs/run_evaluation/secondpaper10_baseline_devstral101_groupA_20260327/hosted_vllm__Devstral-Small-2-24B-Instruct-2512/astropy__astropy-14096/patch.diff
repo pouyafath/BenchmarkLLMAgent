@@ -1,0 +1,73 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..9f6b73f8e 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -2,6 +2,7 @@ import copy
+ import operator
+ import re
+ import warnings
++import threading
+ 
+ import erfa
+ import numpy as np
+@@ -166,6 +167,9 @@ class SkyCoordInfo(MixinInfo):
+ 
+ 
+ class SkyCoord(ShapedLikeNDArray):
++    
++    # Thread-local storage for tracking property access during __getattr__
++    _sky_coord_thread_local = threading.local()
+     """High-level object providing a flexible interface for celestial coordinate
+     representation, manipulation, and transformation between systems.
+ 
+@@ -871,6 +875,16 @@ class SkyCoord(ShapedLikeNDArray):
+         Overrides getattr to return coordinates that this can be transformed
+         to, based on the alias attr in the primary transform graph.
+         """
++        # Check if we're already processing a property access that failed
++        if hasattr(_sky_coord_thread_local, 'property_missing_attr'):
++            # This is a property trying to access a missing attribute
++            # Restore the original missing attribute name
++            missing_attr = _sky_coord_thread_local.property_missing_attr
++            del _sky_coord_thread_local.property_missing_attr
++            raise AttributeError(
++                f"'{self.__class__.__name__}' object has no attribute '{missing_attr}'"
++            )
++
+         if "_sky_coord_frame" in self.__dict__:
+             if self._is_name(attr):
+                 return self  # Should this be a deepcopy of self?
+@@ -894,10 +908,29 @@ class SkyCoord(ShapedLikeNDArray):
+             if frame_cls is not None and self.frame.is_transformable_to(frame_cls):
+                 return self.transform_to(attr)
+ 
+-        # Fail
+-        raise AttributeError(
+-            f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+-        )
++        # Fail - but first check if this is a property accessing a missing attribute
++        import inspect
++        frame = inspect.currentframe()
++        try:
++            caller_frame = frame.f_back
++            if caller_frame is not None:
++                caller_name = caller_frame.f_code.co_name
++                # Check if caller is a property getter
++                if (hasattr(self.__class__, caller_name) and
++                    isinstance(getattr(self.__class__, caller_name), property)):
++                    # Mark that we're in a property access context and store the missing attr
++                    _sky_coord_thread_local.property_missing_attr = attr
++                    # Let the original AttributeError propagate
++                    raise AttributeError(
++                        f"'{self.__class__.__name__}' object has no attribute '{attr}'"
++                    )
++
++            # Normal case - direct attribute access
++            raise AttributeError(
++                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
++            )
++        finally:
++            del frame
+ 
+     def __setattr__(self, attr, val):
+         # This is to make anything available through __getattr__ immutable

@@ -1,0 +1,237 @@
+diff --git a/src/instructlab/model/evaluate.py b/src/instructlab/model/evaluate.py
+index 92ff92cc..7f5864a2 100644
+--- a/src/instructlab/model/evaluate.py
++++ b/src/instructlab/model/evaluate.py
+@@ -146,17 +146,29 @@ def sort_score(pairing: tuple[str, float]) -> float:
+     return pairing[1]
+ 
+ 
+-def display_models(model, base_model) -> None:
+-    """prints the base_model and model with a header"""
+-    print("## BASE MODEL")
+-    print(base_model)
+-    display_model(model)
+-
+-
+-def display_model(model) -> None:
+-    """prints the given model with a header"""
+-    print("\n## MODEL")
+-    print(model)
++def display_models(model, base_model, base_score=None, model_score=None) -> None:
++    """prints the base_model and model with a header and optional scores"""
++    base_header = "## BASE MODEL"
++    if base_score is not None:
++        base_header += " (SCORE)"
++    print(base_header)
++    if base_score is not None:
++        print(f"{base_model} ({base_score})")
++    else:
++        print(base_model)
++    display_model(model, model_score)
++
++
++def display_model(model, score=None) -> None:
++    """prints the given model with a header and optional score"""
++    header = "\n## MODEL"
++    if score is not None:
++        header += " (SCORE)"
++    print(header)
++    if score is not None:
++        print(f"{model} ({score})")
++    else:
++        print(model)
+ 
+ 
+ def display_error_rate(error_rate) -> None:
+@@ -167,37 +179,79 @@ def display_error_rate(error_rate) -> None:
+ 
+ 
+ def display_branch_eval_summary(
+-    improvements: list[tuple[str, float]],
+-    regressions: list[tuple[str, float]],
+-    no_changes: list[str],
++    improvements: list[tuple],
++    regressions: list[tuple],
++    no_changes: list,
+     new=None,
++    score_range=None,
+ ):
+     """takes in results lists from mt_bench_branch benchmark evaluation
+     prints out diff between the branches to the user
+     """
++    def sort_by_delta(pairing: tuple) -> float:
++        """helper func to sort by delta"""
++        if len(pairing) == 2:  # (task, delta)
++            return pairing[1]
++        else:  # (task, base_score, model_score)
++            return pairing[2] - pairing[1]
++
+     if len(improvements) > 0:
+-        improvements.sort(key=sort_score, reverse=True)
+-        print("\n### IMPROVEMENTS:")
++        improvements.sort(key=sort_by_delta, reverse=True)
++        header = "\n### IMPROVEMENTS:"
++        if score_range:
++            header += f" ({score_range}):"
++        print(header)
+         for index, improvement in enumerate(improvements):
+-            task, delta = improvement
+-            print(f"{index+1}. {task} (+{delta})")
++            task = improvement[0]
++            if len(improvement) == 2:  # old format (task, delta)
++                delta = improvement[1]
++                print(f"{index+1}. {task} (+{delta})")
++            else:  # new format (task, base_score, model_score)
++                base_score, model_score = improvement[1], improvement[2]
++                delta = round(model_score - base_score, 2)
++                print(f"{index+1}. {task}: {base_score} -> {model_score} (+{delta})")
+ 
+     if len(regressions) > 0:
+-        regressions.sort(key=sort_score)
+-        print("\n### REGRESSIONS:")
++        regressions.sort(key=sort_by_delta)
++        header = "\n### REGRESSIONS:"
++        if score_range:
++            header += f" ({score_range}):"
++        print(header)
+         for index, regression in enumerate(regressions):
+-            task, delta = regression
+-            print(f"{index+1}. {task} ({delta})")
++            task = regression[0]
++            if len(regression) == 2:  # old format (task, delta)
++                delta = regression[1]
++                print(f"{index+1}. {task} ({delta})")
++            else:  # new format (task, base_score, model_score)
++                base_score, model_score = regression[1], regression[2]
++                delta = round(model_score - base_score, 2)
++                print(f"{index+1}. {task}: {base_score} -> {model_score} ({delta})")
+ 
+     if len(no_changes) > 0:
+-        print("\n### NO CHANGE:")
+-        for index, task in enumerate(no_changes):
+-            print(f"{index+1}. {task}")
++        header = "\n### NO CHANGE:"
++        if score_range:
++            header += f" ({score_range}):"
++        print(header)
++        for index, no_change in enumerate(no_changes):
++            task = no_change[0]
++            if len(no_change) == 1:  # old format (task)
++                print(f"{index+1}. {task}")
++            else:  # new format (task, score)
++                score = no_change[1]
++                print(f"{index+1}. {task} ({score})")
+ 
+     if new is not None and len(new) > 0:
+-        print("\n### NEW:")
+-        for index, qna in enumerate(new):
+-            print(f"{index+1}. {qna}")
++        header = "\n### NEW:"
++        if score_range:
++            header += f" ({score_range}):"
++        print(header)
++        for index, qna_tuple in enumerate(new):
++            qna = qna_tuple[0]
++            if len(qna_tuple) == 1:  # old format (qna)
++                print(f"{index+1}. {qna}")
++            else:  # new format (qna, score)
++                score = qna_tuple[1]
++                print(f"{index+1}. {qna} ({score})")
+ 
+ 
+ def qa_pairs_to_qna_to_avg_scores(qa_pairs: list[dict]) -> dict[str, float]:
+@@ -577,12 +631,12 @@ def evaluate(
+                     server.shutdown()
+ 
+             print("# SKILL EVALUATION REPORT")
+-            display_model(model)
++            display_model(model, f"{round(overall_score, 2)}/{len(qa_pairs)}")
+             print("\n### AVERAGE:")
+             print(f"{round(overall_score, 2)} (across {len(qa_pairs)})")
+-            print("\n### TURN ONE:")
++            print("\n### TURN ONE (0.0 to 10.0):")
+             print(round(turn_scores[0], 2))
+-            print("\n### TURN TWO:")
++            print("\n### TURN TWO (0.0 to 10.0):")
+             turn2_score = turn_scores[1]
+             if isinstance(turn2_score, float):
+                 turn2_score = round(turn2_score, 2)
+@@ -682,23 +736,28 @@ def evaluate(
+             base_qna_to_avg_scores = qa_pairs_to_qna_to_avg_scores(base_qa_pairs)
+ 
+             print("# SKILL EVALUATION REPORT\n")
+-            display_models(model, base_model)
++
++            # Calculate average scores for display
++            base_avg_score = sum(base_qna_to_avg_scores.values()) / len(base_qna_to_avg_scores) if base_qna_to_avg_scores else 0
++            model_avg_score = sum(qna_to_avg_scores.values()) / len(qna_to_avg_scores) if qna_to_avg_scores else 0
++
++            display_models(model, base_model, f"{round(base_avg_score, 2)}/{len(base_qna_to_avg_scores)}", f"{round(model_avg_score, 2)}/{len(qna_to_avg_scores)}")
+ 
+             improvements, regressions, no_changes, new_qnas = [], [], [], []
+             for qna, avg_score in qna_to_avg_scores.items():
+                 base_avg_score = base_qna_to_avg_scores.get(qna)
+                 if base_avg_score is not None:
+                     if avg_score > base_avg_score:
+-                        improvements.append((qna, round(avg_score - base_avg_score, 2)))
++                        improvements.append((qna, base_avg_score, avg_score))
+                     elif avg_score == base_avg_score:
+-                        no_changes.append(qna)
++                        no_changes.append((qna, base_avg_score))
+                     else:
+-                        regressions.append((qna, round(avg_score - base_avg_score, 2)))
++                        regressions.append((qna, base_avg_score, avg_score))
+                 else:
+-                    new_qnas.append((qna))
++                    new_qnas.append((qna, avg_score))
+ 
+             # display summary of evaluation before exiting
+-            display_branch_eval_summary(improvements, regressions, no_changes, new_qnas)
++            display_branch_eval_summary(improvements, regressions, no_changes, new_qnas, "0.0 to 10.0")
+             display_error_rate((error_rate + base_error_rate) / 2)
+ 
+         elif benchmark == Benchmark.MMLU:
+@@ -733,11 +792,11 @@ def evaluate(
+                     server.shutdown()
+ 
+             print("# KNOWLEDGE EVALUATION REPORT")
+-            display_model(model)
++            display_model(model, f"{round(overall_score, 2)}/{len(individual_scores)}")
+             print("\n### AVERAGE:")
+             print(f"{round(overall_score, 2)} (across {len(individual_scores)})\n")
+ 
+-            print("### SCORES:")
++            print("### SCORES (0.0 to 1.0):")
+             for task, score in individual_scores.items():
+                 s = round(score["score"], 2)
+                 print(f"{task} - {s}")
+@@ -791,7 +850,7 @@ def evaluate(
+             base_individual_scores = individual_scores_list[1]
+ 
+             print("# KNOWLEDGE EVALUATION REPORT\n")
+-            display_models(model, base_model)
++            display_models(model, base_model, f"{round(base_overall_score, 2)}/{len(individual_scores)}", f"{round(overall_score, 2)}/{len(individual_scores)}")
+ 
+             print("\n### AVERAGE:")
+             delta = round(overall_score - base_overall_score, 2)
+@@ -807,16 +866,15 @@ def evaluate(
+                 base_score = base_individual_scores[task]
+                 s = score["score"]
+                 b_s = base_score["score"]
+-                d = round(s - b_s, 2)
+                 if s > b_s:
+-                    improvements.append((task, d))
++                    improvements.append((task, b_s, s))
+                 elif b_s > s:
+-                    regressions.append((task, d))
++                    regressions.append((task, b_s, s))
+                 else:
+-                    no_changes.append(task)
++                    no_changes.append((task, b_s))
+ 
+             # display summary of evaluation before exiting
+-            display_branch_eval_summary(improvements, regressions, no_changes)
++            display_branch_eval_summary(improvements, regressions, no_changes, score_range="0.0 to 1.0")
+     except EvalError as ee:
+         print(ee.message)
+         raise click.exceptions.Exit(1)

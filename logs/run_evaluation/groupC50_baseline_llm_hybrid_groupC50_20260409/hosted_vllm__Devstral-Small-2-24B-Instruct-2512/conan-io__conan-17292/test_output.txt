@@ -1,0 +1,221 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch develop2
+Your branch is behind 'origin/develop2' by 352 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   conan/tools/microsoft/msbuild.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 7ea2b7bcee377f4ae7baccc8126730d25e5fbc83
+Merge: 49ef96f6d 6e3d908bd
+Author: czoido <mrgalleta@gmail.com>
+Date:   Thu Nov 7 12:43:59 2024 +0100
+
+    Merge branch 'release/2.9' into develop2
+
++ git -c core.fileMode=false diff 7ea2b7bcee377f4ae7baccc8126730d25e5fbc83
+diff --git a/conan/tools/microsoft/msbuild.py b/conan/tools/microsoft/msbuild.py
+index a2ec898ca..1e360f86f 100644
+--- a/conan/tools/microsoft/msbuild.py
++++ b/conan/tools/microsoft/msbuild.py
+@@ -1,6 +1,5 @@
+ from conan.errors import ConanException
+ 
+-
+ def msbuild_verbosity_cmd_line_arg(conanfile):
+     """
+     Controls msbuild verbosity.
+@@ -16,14 +15,12 @@ def msbuild_verbosity_cmd_line_arg(conanfile):
+         return f'/verbosity:{verbosity}'
+     return ""
+ 
+-
+ def msbuild_arch(arch):
+     return {'x86': 'x86',
+             'x86_64': 'x64',
+             'armv7': 'ARM',
+             'armv8': 'ARM64'}.get(str(arch))
+ 
+-
+ class MSBuild(object):
+     """
+     MSBuild build helper class
+@@ -62,10 +59,15 @@ class MSBuild(object):
+         if verbosity:
+             cmd += " {}".format(verbosity)
+ 
+-        maxcpucount = self._conanfile.conf.get("tools.microsoft.msbuild:max_cpu_count",
+-                                               check_type=int)
+-        if maxcpucount:
+-            cmd += " /m:{}".format(maxcpucount)
++        maxcpucount = self._conanfile.conf.get("tools.microsoft.msbuild:max_cpu_count")
++        if maxcpucount is not None:
++            # Support "all" (case-insensitive) or 0 to use all available CPUs
++            if str(maxcpucount).lower() == "all" or maxcpucount == 0:
++                cmd += " /m"
++            elif isinstance(maxcpucount, int) and maxcpucount > 0:
++                cmd += " /m:{}".format(maxcpucount)
++            else:
++                raise ConanException("tools.microsoft.msbuild:max_cpu_count must be a positive integer, 0, or 'all'")
+ 
+         if targets:
+             if not isinstance(targets, list):
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.8/site-packages/pip (python 3.8)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  running dist_info
+  creating /tmp/pip-modern-metadata-97tsk7em/conan.egg-info
+  writing /tmp/pip-modern-metadata-97tsk7em/conan.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-97tsk7em/conan.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-97tsk7em/conan.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-97tsk7em/conan.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-97tsk7em/conan.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-97tsk7em/conan.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-97tsk7em/conan.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.md'
+  writing manifest file '/tmp/pip-modern-metadata-97tsk7em/conan.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-97tsk7em/conan.dist-info'
+  /usr/local/lib/python3.8/site-packages/setuptools/dist.py:484: UserWarning: Normalizing '2.10.0-dev' to '2.10.0.dev0'
+    warnings.warn(tmpl.format(**locals()))
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: requests<3.0.0,>=2.25 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (2.32.3)
+Requirement already satisfied: urllib3<1.27,>=1.26.6 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (1.26.20)
+Requirement already satisfied: colorama<0.5.0,>=0.4.3 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (0.4.6)
+Requirement already satisfied: PyYAML<7.0,>=6.0 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (6.0.2)
+Requirement already satisfied: patch-ng<1.19,>=1.18.0 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (1.18.1)
+Requirement already satisfied: fasteners>=0.15 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (0.19)
+Requirement already satisfied: Jinja2<4.0.0,>=3.0 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (3.1.4)
+Requirement already satisfied: python-dateutil<3,>=2.8.0 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (2.9.0.post0)
+Requirement already satisfied: distro<=1.8.0,>=1.4.0 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (1.8.0)
+Requirement already satisfied: pytest<8.0.0,>=7 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (7.4.4)
+Requirement already satisfied: pytest-xdist in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (3.6.1)
+Requirement already satisfied: parameterized>=0.6.3 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (0.9.0)
+Requirement already satisfied: mock<1.4.0,>=1.3.0 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (1.3.0)
+Requirement already satisfied: WebTest<2.1.0,>=2.0.18 in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (2.0.35)
+Requirement already satisfied: bottle in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (0.12.25)
+Requirement already satisfied: PyJWT in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (2.9.0)
+Requirement already satisfied: pluginbase in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (1.0.1)
+Requirement already satisfied: docker in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (7.1.0)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.8/site-packages (from conan==2.10.0.dev0) (57.5.0)
+Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.8/site-packages (from Jinja2<4.0.0,>=3.0->conan==2.10.0.dev0) (2.1.5)
+Requirement already satisfied: pbr>=0.11 in /usr/local/lib/python3.8/site-packages (from mock<1.4.0,>=1.3.0->conan==2.10.0.dev0) (6.1.0)
+Requirement already satisfied: six>=1.7 in /usr/local/lib/python3.8/site-packages (from mock<1.4.0,>=1.3.0->conan==2.10.0.dev0) (1.16.0)
+Requirement already satisfied: iniconfig in /usr/local/lib/python3.8/site-packages (from pytest<8.0.0,>=7->conan==2.10.0.dev0) (2.0.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.8/site-packages (from pytest<8.0.0,>=7->conan==2.10.0.dev0) (24.1)
+Requirement already satisfied: pluggy<2.0,>=0.12 in /usr/local/lib/python3.8/site-packages (from pytest<8.0.0,>=7->conan==2.10.0.dev0) (1.5.0)
+Requirement already satisfied: exceptiongroup>=1.0.0rc8 in /usr/local/lib/python3.8/site-packages (from pytest<8.0.0,>=7->conan==2.10.0.dev0) (1.2.2)
+Requirement already satisfied: tomli>=1.0.0 in /usr/local/lib/python3.8/site-packages (from pytest<8.0.0,>=7->conan==2.10.0.dev0) (2.0.2)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.8/site-packages (from requests<3.0.0,>=2.25->conan==2.10.0.dev0) (3.4.0)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.8/site-packages (from requests<3.0.0,>=2.25->conan==2.10.0.dev0) (3.10)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.8/site-packages (from requests<3.0.0,>=2.25->conan==2.10.0.dev0) (2024.8.30)
+Requirement already satisfied: WebOb>=1.2 in /usr/local/lib/python3.8/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.10.0.dev0) (1.8.9)
+Requirement already satisfied: waitress>=0.8.5 in /usr/local/lib/python3.8/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.10.0.dev0) (3.0.0)
+Requirement already satisfied: beautifulsoup4 in /usr/local/lib/python3.8/site-packages (from WebTest<2.1.0,>=2.0.18->conan==2.10.0.dev0) (4.12.3)
+Requirement already satisfied: execnet>=2.1 in /usr/local/lib/python3.8/site-packages (from pytest-xdist->conan==2.10.0.dev0) (2.1.1)
+Requirement already satisfied: soupsieve>1.2 in /usr/local/lib/python3.8/site-packages (from beautifulsoup4->WebTest<2.1.0,>=2.0.18->conan==2.10.0.dev0) (2.6)
+Installing collected packages: conan
+  Attempting uninstall: conan
+    Found existing installation: conan 2.10.0.dev0
+    Uninstalling conan-2.10.0.dev0:
+      Removing file or directory /usr/local/bin/conan
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__editable__.conan-2.10.0.dev0.pth
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__editable___conan_2_10_0_dev0_finder.py
+      Removing file or directory /usr/local/lib/python3.8/site-packages/__pycache__/__editable___conan_2_10_0_dev0_finder.cpython-38.pyc
+      Removing file or directory /usr/local/lib/python3.8/site-packages/conan-2.10.0.dev0.dist-info/
+      Successfully uninstalled conan-2.10.0.dev0
+  DEPRECATION: Legacy editable install of conan[test]==2.10.0.dev0 from file:///testbed (setup.py develop) is deprecated. pip 25.1 will enforce this behaviour change. A possible replacement is to add a pyproject.toml or enable --use-pep517, and use setuptools >= 64. If the resulting installation is not behaving as expected, try using --config-settings editable_mode=compat. Please consult the setuptools documentation for more information. Discussion can be found at https://github.com/pypa/pip/issues/11457
+  Running setup.py develop for conan
+    Running command python setup.py develop
+    running develop
+    running egg_info
+    writing conan.egg-info/PKG-INFO
+    writing dependency_links to conan.egg-info/dependency_links.txt
+    writing entry points to conan.egg-info/entry_points.txt
+    writing requirements to conan.egg-info/requires.txt
+    writing top-level names to conan.egg-info/top_level.txt
+    reading manifest file 'conan.egg-info/SOURCES.txt'
+    reading manifest template 'MANIFEST.in'
+    adding license file 'LICENSE.md'
+    writing manifest file 'conan.egg-info/SOURCES.txt'
+    running build_ext
+    Creating /usr/local/lib/python3.8/site-packages/conan.egg-link (link to .)
+    Adding conan 2.10.0.dev0 to easy-install.pth file
+    Installing conan script to /usr/local/bin
+
+    Installed /testbed
+    /usr/local/lib/python3.8/site-packages/setuptools/dist.py:484: UserWarning: Normalizing '2.10.0-dev' to '2.10.0.dev0'
+      warnings.warn(tmpl.format(**locals()))
+Successfully installed conan
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/e0/f0/8a2806114cd36e282823fd4d8e88e3b94dc943c2569c350d0c826a49db38/pip-25.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/79/67/c06f625e2968c417052b3a4a0eef40656d5d4d44033e57b40ec474af1d28/pip-25.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/3c/d717024885424591d5376220b5e836c2d5293ce2011523c9de23ff7bf068/pip-25.3-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/fe/6e/74a3f0179a4a73a53d66ce57fdb4de0080a8baa1de0063de206d6167acc2/pip-25.3.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/69/00/5ac7aa77688ec4d34148b423d34dc0c9bc4febe0d872a9a1ad9860b2f6f1/pip-26.0-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/44/c2/65686a7783a7c27a329706207147e82f23c41221ee9ae33128fc331670a0/pip-26.0.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
+  Link requires a different Python (3.8.20 not in: '>=3.9'): https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz (from https://pypi.org/simple/pip/) (requires-python:>=3.9)
++ git checkout 7ea2b7bcee377f4ae7baccc8126730d25e5fbc83 test/unittests/tools/cmake/test_cmake_cmd_line_args.py
+Updated 0 paths from 3641a57e0
++ git apply -v -
+Checking patch test/unittests/tools/cmake/test_cmake_cmd_line_args.py...
+Applied patch test/unittests/tools/cmake/test_cmake_cmd_line_args.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA test/unittests/tools/cmake/test_cmake_cmd_line_args.py
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-7.4.4, pluggy-1.5.0
+rootdir: /testbed
+configfile: pytest.ini
+plugins: xdist-3.6.1
+collected 4 items
+
+test/unittests/tools/cmake/test_cmake_cmd_line_args.py ...F              [100%]
+
+=================================== FAILURES ===================================
+______________________________ test_visual_studio ______________________________
+
+conanfile = 
+
+    def test_visual_studio(conanfile):
+        args = _cmake_cmd_line_args(conanfile, 'Visual Studio 16 2019')
+>       assert ["/m:23"] == args
+E       AssertionError: assert ['/m:23'] == ['/m:10']
+E         At index 0 diff: '/m:23' != '/m:10'
+E         Use -v to get more diff
+
+test/unittests/tools/cmake/test_cmake_cmd_line_args.py:43: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED test/unittests/tools/cmake/test_cmake_cmd_line_args.py::test_no_generator
+PASSED test/unittests/tools/cmake/test_cmake_cmd_line_args.py::test_makefiles
+PASSED test/unittests/tools/cmake/test_cmake_cmd_line_args.py::test_ninja
+FAILED test/unittests/tools/cmake/test_cmake_cmd_line_args.py::test_visual_studio
+========================= 1 failed, 3 passed in 0.22s ==========================
++ : '>>>>> End Test Output'
++ git checkout 7ea2b7bcee377f4ae7baccc8126730d25e5fbc83 test/unittests/tools/cmake/test_cmake_cmd_line_args.py
+Updated 1 path from 3641a57e0

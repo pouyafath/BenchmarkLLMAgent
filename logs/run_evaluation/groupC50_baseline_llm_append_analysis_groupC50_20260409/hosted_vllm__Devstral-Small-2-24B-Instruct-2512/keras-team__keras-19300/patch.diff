@@ -1,0 +1,31 @@
+diff --git a/keras/ops/nn.py b/keras/ops/nn.py
+index 6731d9980..688b0f284 100644
+--- a/keras/ops/nn.py
++++ b/keras/ops/nn.py
+@@ -1,6 +1,7 @@
+ """Commonly-used neural network operations not included in NumPy."""
+ 
+ import warnings
++import tensorflow as tf
+ 
+ from keras import backend
+ from keras.api_export import keras_export
+@@ -538,6 +539,9 @@ def softmax(x, axis=-1):
+     array([0.09003057, 0.24472847, 0.66524096], shape=(3,), dtype=float64)
+ 
+     """
++    # Check for both KerasTensor and TensorFlow symbolic tensors
++    if any_symbolic_tensors((x,)) or tf.is_tensor(x):
++        return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, int) and backend.shape(x)[axis] == 1:
+         warnings.warn(
+             f"You are using a softmax over axis {axis} "
+@@ -546,8 +550,6 @@ def softmax(x, axis=-1):
+             "the value 1, which is likely not what you intended. "
+             "Did you mean to use a sigmoid instead?"
+         )
+-    if any_symbolic_tensors((x,)):
+-        return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, tuple):
+         original_shape = x.shape
+         new_shape = []

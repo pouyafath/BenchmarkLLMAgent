@@ -1,0 +1,46 @@
+diff --git a/conan/tools/files/__init__.py b/conan/tools/files/__init__.py
+index 3aaa9eb2d..2dd24a0d8 100644
+--- a/conan/tools/files/__init__.py
++++ b/conan/tools/files/__init__.py
+@@ -6,4 +6,4 @@ from conan.tools.files.patches import patch, apply_conandata_patches, export_con
+ from conan.tools.files.packager import AutoPackager
+ from conan.tools.files.symlinks import symlinks
+ from conan.tools.files.copy_pattern import copy
+-from conan.tools.files.conandata import update_conandata, trim_conandata
++from conan.tools.files.conandata import update_conandata, trim_conandata, scm_to_conandata
+diff --git a/conan/tools/files/conandata.py b/conan/tools/files/conandata.py
+index c69254508..32f5a328e 100644
+--- a/conan/tools/files/conandata.py
++++ b/conan/tools/files/conandata.py
+@@ -67,3 +67,31 @@ def trim_conandata(conanfile):
+ 
+     new_conandata_yml = yaml.safe_dump(result, default_flow_style=False)
+     save(path, new_conandata_yml)
++
++def scm_to_conandata(conanfile, folder=None, remote="origin", repository=False):
++    """
++    Captures SCM information (URL and commit) and stores it in conandata.yml under
++    the '.conan.scm' key. This is a convenience helper to simplify the common pattern
++    of storing SCM coordinates.
++
++    This helper function combines the following operations into a single call:
++    - Create a Git instance
++    - Get the URL and commit
++    - Update conandata.yml with the SCM information
++
++    The SCM information is stored under the '.conan.scm' key in conandata.yml, following
++    the convention from Conan 1.X.
++
++    :param conanfile: The current recipe object. Always use ``self``.
++    :param folder: The folder to analyze. If None, uses the recipe folder.
++    :param remote: Name of the remote git repository ('origin' by default).
++    :param repository: By default gets the commit of the defined folder, use repo=True to get
++                     the commit of the repository instead.
++    """
++    from conan.tools.scm import Git
++    from conan.tools.files import update_conandata
++
++    folder = folder or conanfile.recipe_folder
++    git = Git(conanfile, folder)
++    url, commit = git.get_url_and_commit(remote=remote, repository=repository)
++    update_conandata(conanfile, {".conan": {"scm": {"commit": commit, "url": url}}})

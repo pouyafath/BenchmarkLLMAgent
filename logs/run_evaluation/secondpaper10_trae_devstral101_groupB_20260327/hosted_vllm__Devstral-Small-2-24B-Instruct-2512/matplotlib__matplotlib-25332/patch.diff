@@ -1,0 +1,64 @@
+diff --git a/lib/matplotlib/cbook.py b/lib/matplotlib/cbook.py
+index c9699b2e21..d717f00b63 100644
+--- a/lib/matplotlib/cbook.py
++++ b/lib/matplotlib/cbook.py
+@@ -847,6 +847,59 @@ class Grouper:
+         return [x() for x in siblings]
+ 
+ 
++
++    def __getstate__(self):
++        """Return state for pickling by converting weakrefs to strong refs."""
++        state = self.__dict__.copy()
++        # Convert weak references to strong references for pickling
++        new_mapping = {}
++        for weak_key, weak_list in state["_mapping"].items():
++            key_obj = weak_key()
++            if key_obj is not None:  # Only include live references
++                new_list = []
++                for weak_item in weak_list:
++                    item_obj = weak_item()
++                    if item_obj is not None:
++                        new_list.append(item_obj)
++                if key_obj and new_list:  # Only add if both key and list are valid
++                    new_mapping[key_obj] = new_list
++        state["_mapping"] = new_mapping
++        return state
++
++    def __setstate__(self, state):
++        """Restore state from pickling by converting strong refs to weakrefs."""
++        # Convert strong references back to weak references
++        # Preserve the disjoint-set structure by maintaining the same list references
++        new_mapping = {}
++        # Create a mapping from strong refs to weak refs
++        strong_to_weak = {}
++        for key_obj, obj_list in state["_mapping"].items():
++            if key_obj not in strong_to_weak:
++                strong_to_weak[key_obj] = weakref.ref(key_obj)
++            for obj in obj_list:
++                if obj not in strong_to_weak:
++                    strong_to_weak[obj] = weakref.ref(obj)
++
++        # Recreate the mapping with weak references, preserving list identities
++        for key_obj, obj_list in state["_mapping"].items():
++            # Find the existing list that contains this key (if any)
++            existing_list = None
++            for existing_key, existing_list_ref in new_mapping.items():
++                if key_obj in [wr() for wr in existing_list_ref if wr() is not None]:
++                    existing_list = existing_list_ref
++                    break
++
++            if existing_list is None:
++                # Create new set with weak references
++                new_list = [strong_to_weak[obj] for obj in obj_list]
++                new_mapping[strong_to_weak[key_obj]] = new_list
++            else:
++                # Point to existing set
++                new_mapping[strong_to_weak[key_obj]] = existing_list
++
++        state["_mapping"] = new_mapping
++        self.__dict__.update(state)
++
+ class GrouperView:
+     """Immutable view over a `.Grouper`."""
+ 

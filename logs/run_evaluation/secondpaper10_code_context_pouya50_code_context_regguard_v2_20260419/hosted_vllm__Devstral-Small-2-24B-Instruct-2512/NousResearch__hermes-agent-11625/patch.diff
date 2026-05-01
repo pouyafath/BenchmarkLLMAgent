@@ -1,0 +1,114 @@
+diff --git a/cli.py b/cli.py
+index 85a7b508..e80a3920 100644
+--- a/cli.py
++++ b/cli.py
+@@ -8528,6 +8528,7 @@ class HermesCLI:
+             # --- /model picker modal ---
+             if self._model_picker_state:
+                 self._handle_model_picker_selection()
++                event.app.current_buffer.reset()
+                 event.app.invalidate()
+                 return
+ 
+@@ -8810,7 +8811,7 @@ class HermesCLI:
+             event.app.exit()
+ 
+         _modal_prompt_active = Condition(
+-            lambda: bool(self._secret_state or self._sudo_state)
++            lambda: bool(self._secret_state or self._sudo_state or self._model_picker_state)
+         )
+ 
+         @kb.add('escape', filter=_modal_prompt_active, eager=True)
+@@ -8826,6 +8827,11 @@ class HermesCLI:
+                 self._sudo_state = None
+                 event.app.invalidate()
+                 return
++            if self._model_picker_state:
++                self._close_model_picker()
++                event.app.current_buffer.reset()
++                event.app.invalidate()
++                return
+ 
+         @kb.add('c-z')
+         def handle_ctrl_z(event):
+@@ -9494,6 +9500,60 @@ class HermesCLI:
+ 
+             box_width = _panel_box_width(title, [hint] + choices, min_width=46, max_width=84)
+             inner_text_width = max(8, box_width - 6)
++
++            # Budget vertical space so HSplit never clips the last items or border.
++            # Panel chrome: top border + title + blank_after_title + blank_between_hint_choices + bottom border = 5 rows.
++            # reserved_below: rows consumed below the model picker by spinner/tool-progress, status bar,
++            # input area, separators, and prompt symbol. Budget 6 rows to match approval panel.
++            term_rows = shutil.get_terminal_size((100, 24)).lines
++            chrome_rows = 5
++            reserved_below = 6
++            available = max(0, term_rows - reserved_below)
++
++            # Pre-wrap all choices to calculate their display height
++            wrapped_choices = []
++            for idx, choice in enumerate(choices):
++                style = 'class:clarify-selected' if idx == state.get("selected", 0) else 'class:clarify-choice'
++                prefix = '❯ ' if idx == state.get("selected", 0) else '  '
++                wrapped = _wrap_panel_text(prefix + choice, inner_text_width, subsequent_indent='  ')
++                wrapped_choices.append((idx, wrapped))
++
++            # Calculate mandatory rows: chrome + hint + choices
++            mandatory_rows = chrome_rows + 1  # hint line
++            for idx, wrapped in wrapped_choices:
++                mandatory_rows += len(wrapped)
++
++            # If the panel doesn't fit, cap the number of visible choices while keeping
++            # the selected item on screen. We need at least 3 visible choices (selected + 1 above + 1 below).
++            visible_choices = []
++            scroll_offset = 0
++            selected_idx = state.get("selected", 0)
++
++            if mandatory_rows > available:
++                # Calculate how many choices can fit
++                max_choice_rows = available - chrome_rows - 1  # available rows minus chrome and hint
++                visible_choice_rows = 0
++                visible_choices = []
++                for idx, wrapped in wrapped_choices:
++                    if visible_choice_rows + len(wrapped) <= max_choice_rows:
++                        visible_choices.append((idx, wrapped))
++                        visible_choice_rows += len(wrapped)
++                    else:
++                        break
++
++                # Ensure selected item is visible: scroll to show it
++                selected_visible = any(idx == selected_idx for idx, _ in visible_choices)
++                if not selected_visible and visible_choices:
++                    # Find the selected item and adjust scroll offset
++                    selected_wrapped = next((w for i, w in wrapped_choices if i == selected_idx), [])
++                    if selected_wrapped:
++                        # Show selected item with context (try to show 1 item above and below)
++                        selected_pos = next((i for i, (idx, _) in enumerate(wrapped_choices) if idx == selected_idx), 0)
++                        start_idx = max(0, selected_pos - 1)
++                        end_idx = min(len(wrapped_choices), selected_pos + 2)
++                        visible_choices = wrapped_choices[start_idx:end_idx]
++                        scroll_offset = start_idx
++
+             lines = []
+             lines.append(('class:clarify-border', '╭─ '))
+             lines.append(('class:clarify-title', title))
+@@ -9501,12 +9561,13 @@ class HermesCLI:
+             _append_blank_panel_line(lines, 'class:clarify-border', box_width)
+             _append_panel_line(lines, 'class:clarify-border', 'class:clarify-hint', hint, box_width)
+             _append_blank_panel_line(lines, 'class:clarify-border', box_width)
+-            selected = state.get("selected", 0)
+-            for idx, choice in enumerate(choices):
+-                style = 'class:clarify-selected' if idx == selected else 'class:clarify-choice'
+-                prefix = '❯ ' if idx == selected else '  '
+-                for wrapped in _wrap_panel_text(prefix + choice, inner_text_width, subsequent_indent='  '):
+-                    _append_panel_line(lines, 'class:clarify-border', style, wrapped, box_width)
++
++            # Show visible choices (may be a subset with scroll offset)
++            for idx, wrapped in visible_choices:
++                style = 'class:clarify-selected' if idx == state.get("selected", 0) else 'class:clarify-choice'
++                for line in wrapped:
++                    _append_panel_line(lines, 'class:clarify-border', style, line, box_width)
++
+             _append_blank_panel_line(lines, 'class:clarify-border', box_width)
+             lines.append(('class:clarify-border', '╰' + ('─' * box_width) + '╯\n'))
+             return lines

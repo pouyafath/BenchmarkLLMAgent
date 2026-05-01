@@ -1,0 +1,96 @@
+diff --git a/requests/adapters.py b/requests/adapters.py
+index fe22ff45..b5b0c4d7 100644
+--- a/requests/adapters.py
++++ b/requests/adapters.py
+@@ -8,6 +8,7 @@ This module contains the transport adapters that Requests uses to define
+ and maintain connections.
+ """
+ 
++import ssl
+ import os.path
+ import socket
+ 
+@@ -176,11 +177,16 @@ class HTTPAdapter(BaseAdapter):
+         :returns: ProxyManager
+         :rtype: urllib3.ProxyManager
+         """
+-        if proxy in self.proxy_manager:
+-            manager = self.proxy_manager[proxy]
++        # Create cache key that includes SSL parameters
++        cache_key = proxy
++        if 'verify' in proxy_kwargs and 'cert' in proxy_kwargs:
++            cache_key = (proxy, proxy_kwargs['verify'], proxy_kwargs.get('cert'))
++
++        if cache_key in self.proxy_manager:
++            manager = self.proxy_manager[cache_key]
+         elif proxy.lower().startswith('socks'):
+             username, password = get_auth_from_url(proxy)
+-            manager = self.proxy_manager[proxy] = SOCKSProxyManager(
++            manager = self.proxy_manager[cache_key] = SOCKSProxyManager(
+                 proxy,
+                 username=username,
+                 password=password,
+@@ -191,7 +197,35 @@ class HTTPAdapter(BaseAdapter):
+             )
+         else:
+             proxy_headers = self.proxy_headers(proxy)
+-            manager = self.proxy_manager[proxy] = proxy_from_url(
++            # Create SSL context for proxy if verify/cert parameters are provided
++
++            if 'verify' in proxy_kwargs and 'cert' in proxy_kwargs:
++
++                verify = proxy_kwargs.pop('verify')
++
++                cert = proxy_kwargs.pop('cert')
++
++                if verify:
++
++                    ssl_context = ssl.create_default_context()
++
++                    if cert:
++
++                        ssl_context.load_cert_chain(cert)
++
++                    proxy_kwargs['proxy_ssl_context'] = ssl_context
++
++                else:
++
++                    ssl_context = ssl.create_default_context()
++
++                    ssl_context.check_hostname = False
++
++                    ssl_context.verify_mode = ssl.CERT_NONE
++
++                    proxy_kwargs['proxy_ssl_context'] = ssl_context
++
++            manager = self.proxy_manager[cache_key] = proxy_from_url(
+                 proxy,
+                 proxy_headers=proxy_headers,
+                 num_pools=self._pool_connections,
+@@ -290,7 +324,7 @@ class HTTPAdapter(BaseAdapter):
+ 
+         return response
+ 
+-    def get_connection(self, url, proxies=None):
++    def get_connection(self, url, proxies=None, verify=None, cert=None):
+         """Returns a urllib3 connection for the given URL. This should not be
+         called from user code, and is only exposed for use when subclassing the
+         :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+@@ -307,7 +341,7 @@ class HTTPAdapter(BaseAdapter):
+             if not proxy_url.host:
+                 raise InvalidProxyURL("Please check proxy URL. It is malformed"
+                                       " and could be missing the host.")
+-            proxy_manager = self.proxy_manager_for(proxy)
++            proxy_manager = self.proxy_manager_for(proxy, verify=verify, cert=cert)
+             conn = proxy_manager.connection_from_url(url)
+         else:
+             # Only scheme should be lower case
+@@ -410,7 +444,7 @@ class HTTPAdapter(BaseAdapter):
+         """
+ 
+         try:
+-            conn = self.get_connection(request.url, proxies)
++            conn = self.get_connection(request.url, proxies, verify=verify, cert=cert)
+         except LocationValueError as e:
+             raise InvalidURL(e, request=request)
+ 

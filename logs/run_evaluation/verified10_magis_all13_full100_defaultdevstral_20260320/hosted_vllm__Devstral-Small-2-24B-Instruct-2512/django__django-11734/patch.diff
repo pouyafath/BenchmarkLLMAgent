@@ -1,0 +1,32 @@
+diff --git a/django/db/models/expressions.py b/django/db/models/expressions.py
+index 2b59dd301a..361c0faeb2 100644
+--- a/django/db/models/expressions.py
++++ b/django/db/models/expressions.py
+@@ -552,11 +552,22 @@ class ResolvedOuterRef(F):
+     """
+     contains_aggregate = False
+ 
+-    def as_sql(self, *args, **kwargs):
+-        raise ValueError(
+-            'This queryset contains a reference to an outer query and may '
+-            'only be used in a subquery.'
+-        )
++    def as_sql(self, compiler, connection, *args, **kwargs):
++        # ResolvedOuterRef should be allowed in subquery contexts
++        # Check if we are in a subquery by looking at the compiler context
++        if (hasattr(compiler, "query") and
++            hasattr(compiler.query, "subquery") and
++            compiler.query.subquery):
++            # We are in a subquery context, so this is allowed
++            # Resolve the outer reference through the compiler's query
++            resolved = compiler.query.resolve_ref(self.name, allow_joins=True, reuse=None)
++            return compiler.compile(resolved)
++        else:
++            # We are not in a subquery context, so raise an error
++            raise ValueError(
++                "This queryset contains a reference to an outer query and may "
++                "only be used in a subquery."
++            )
+ 
+     def relabeled_clone(self, relabels):
+         return self

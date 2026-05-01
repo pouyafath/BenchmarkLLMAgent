@@ -1,0 +1,44 @@
+diff --git a/django/core/cache/backends/db.py b/django/core/cache/backends/db.py
+index 33c79c5a14..900e9af54a 100644
+--- a/django/core/cache/backends/db.py
++++ b/django/core/cache/backends/db.py
+@@ -118,7 +118,11 @@ class DatabaseCache(BaseDatabaseCache):
+ 
+         with connection.cursor() as cursor:
+             cursor.execute("SELECT COUNT(*) FROM %s" % table)
+-            num = cursor.fetchone()[0]
++            result = cursor.fetchone()
++            if result:
++                num = result[0]
++            else:
++                num = 0
+             now = timezone.now()
+             now = now.replace(microsecond=0)
+             if timeout is None:
+@@ -261,15 +265,22 @@ class DatabaseCache(BaseDatabaseCache):
+             cursor.execute("DELETE FROM %s WHERE expires < %%s" % table,
+                            [connection.ops.adapt_datetimefield_value(now)])
+             cursor.execute("SELECT COUNT(*) FROM %s" % table)
+-            num = cursor.fetchone()[0]
++            result = cursor.fetchone()
++            if result:
++                num = result[0]
++            else:
++                num = 0
+             if num > self._max_entries:
+                 cull_num = num // self._cull_frequency
+                 cursor.execute(
+                     connection.ops.cache_key_culling_sql() % table,
+                     [cull_num])
+-                cursor.execute("DELETE FROM %s "
+-                               "WHERE cache_key < %%s" % table,
+-                               [cursor.fetchone()[0]])
++                result = cursor.fetchone()
++                if result:
++                    cursor.execute("DELETE FROM %s "
++                                   "WHERE cache_key < %%s" % table,
++                                   [result[0]])
++                # If result is None, no entries to delete, so do nothing
+ 
+     def clear(self):
+         db = router.db_for_write(self.cache_model_class)

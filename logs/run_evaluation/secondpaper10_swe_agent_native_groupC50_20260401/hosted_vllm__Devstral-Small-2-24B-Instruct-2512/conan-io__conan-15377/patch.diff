@@ -1,0 +1,40 @@
+diff --git a/conan/tools/files/__init__.py b/conan/tools/files/__init__.py
+index 3aaa9eb2d..d77588682 100644
+--- a/conan/tools/files/__init__.py
++++ b/conan/tools/files/__init__.py
+@@ -6,4 +6,4 @@ from conan.tools.files.patches import patch, apply_conandata_patches, export_con
+ from conan.tools.files.packager import AutoPackager
+ from conan.tools.files.symlinks import symlinks
+ from conan.tools.files.copy_pattern import copy
+-from conan.tools.files.conandata import update_conandata, trim_conandata
++from conan.tools.files.conandata import update_conandata, trim_conandata, export_scm_data
+diff --git a/conan/tools/files/conandata.py b/conan/tools/files/conandata.py
+index c69254508..0e31943ab 100644
+--- a/conan/tools/files/conandata.py
++++ b/conan/tools/files/conandata.py
+@@ -67,3 +67,25 @@ def trim_conandata(conanfile):
+ 
+     new_conandata_yml = yaml.safe_dump(result, default_flow_style=False)
+     save(path, new_conandata_yml)
++
++def export_scm_data(conanfile, scm_type="git", remote="origin", repository=False):
++    """
++    Helper function to simplify exporting SCM data to conandata.yml.
++
++    This function encapsulates the logic for fetching SCM URL and commit hash
++    and updating conandata.yml with the SCM data in a standardized format.
++
++    :param conanfile: The current recipe object. Always use ``self``.
++    :param scm_type: Type of SCM system (default: "git").
++    :param remote: Name of the remote git repository (default: "origin").
++    :param repository: By default gets the commit of the defined folder, use repo=True to get
++                     the commit of the repository instead.
++    """
++    from conan.tools.scm.git import Git
++
++    if scm_type == "git":
++        git = Git(conanfile, conanfile.recipe_folder)
++        scm_url, scm_commit = git.get_url_and_commit(remote=remote, repository=repository)
++        update_conandata(conanfile, {"scm": {"commit": scm_commit, "url": scm_url}})
++    else:
++        raise ConanException("Unsupported SCM type: {}".format(scm_type))

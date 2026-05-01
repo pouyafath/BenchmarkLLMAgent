@@ -1,0 +1,39 @@
+diff --git a/astropy/timeseries/core.py b/astropy/timeseries/core.py
+index c279f35f8..192704d57 100644
+--- a/astropy/timeseries/core.py
++++ b/astropy/timeseries/core.py
+@@ -75,10 +75,30 @@ class BaseTimeSeries(QTable):
+                                  .format(self.__class__.__name__, required_columns[0], plural))
+ 
+             elif self.colnames[:len(required_columns)] != required_columns:
+-
+-                raise ValueError("{} object is invalid - expected '{}' "
+-                                 "as the first column{} but found '{}'"
+-                                 .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))
++                # Determine which columns are missing
++                missing_columns = []
++                for i, req_col in enumerate(required_columns):
++                    if i >= len(self.colnames):
++                        missing_columns.append(req_col)
++                    elif self.colnames[i] != req_col:
++                        # Column at this position doesn't match
++                        pass
++
++                if missing_columns:
++                    # Show all missing columns in the error message
++                    if len(missing_columns) == 1:
++                        error_msg = ("{} object is invalid - missing required column '{}'")
++                        error_msg = error_msg.format(self.__class__.__name__, missing_columns[0])
++                    else:
++                        error_msg = ("{} object is invalid - missing required columns {}")
++                        error_msg = error_msg.format(self.__class__.__name__, missing_columns)
++                else:
++                    # Columns exist but are in wrong order - keep original message for backward compatibility
++                    error_msg = ("{} object is invalid - expected '{}' "
++                                 "as the first column{} but found '{}'")
++                    error_msg = error_msg.format(self.__class__.__name__, required_columns[0], plural, self.colnames[0])
++
++                raise ValueError(error_msg)
+ 
+             if (self._required_columns_relax
+                     and self._required_columns == self.colnames[:len(self._required_columns)]):

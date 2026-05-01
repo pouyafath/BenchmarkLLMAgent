@@ -1,0 +1,39 @@
+diff --git a/lib/matplotlib/_constrained_layout.py b/lib/matplotlib/_constrained_layout.py
+--- a/lib/matplotlib/_constrained_layout.py
++++ b/lib/matplotlib/_constrained_layout.py
+@@ -1,10 +1,15 @@
+         if compress:
+-                layoutgrids = compress_fixed_aspect(layoutgrids, fig)
+-                layoutgrids[fig].update_variables()
+-                if check_no_collapsed_axes(layoutgrids, fig):
+-                    reposition_axes(layoutgrids, fig, renderer, h_pad=h_pad,
+-                                    w_pad=w_pad, hspace=hspace, wspace=wspace)
+-                else:
+-                    _api.warn_external(warn_collapsed)
++                layoutgrids = compress_fixed_aspect(layoutgrids, fig)
++                layoutgrids[fig].update_variables()
++                # Recompute suptitle margins without the extra padding.
++                # This prevents the unwanted space between the suptitle and
++                # the axes when using a compressed layout.
++                make_margin_suptitles(layoutgrids, fig, renderer,
++                                      h_pad=0, w_pad=w_pad)
++                if check_no_collapsed_axes(layoutgrids, fig):
++                    reposition_axes(layoutgrids, fig, renderer, h_pad=h_pad,
++                                    w_pad=w_pad, hspace=hspace, wspace=wspace)
++                else:
++                    _api.warn_external(warn_collapsed)
+         reset_margins(layoutgrids, fig)
+     return layoutgrids
+diff --git a/doc/api/next_api_changes/behavior/28734-REC.rst b/doc/api/next_api_changes/behavior/28734-REC.rst
+--- a/doc/api/next_api_changes/behavior/28734-REC.rst
++++ b/doc/api/next_api_changes/behavior/28734-REC.rst
+@@ -1,2 +1,8 @@
+ 
+-   * No changes.
++   * No changes.
++
++   * Fixed a spacing issue when using ``layout="compressed"`` together with
++     ``Figure.suptitle``.  The extra padding that previously appeared between the
++     suptitle and the axes is now removed, with the excess space correctly
++     allocated below the subplots.  This change affects Matplotlib 3.8.0 and
++     later.

@@ -1,0 +1,29 @@
+diff --git a/sphinx/ext/napoleon/docstring.py b/sphinx/ext/napoleon/docstring.py
+index b3daa06f1..04aa5962e 100644
+--- a/sphinx/ext/napoleon/docstring.py
++++ b/sphinx/ext/napoleon/docstring.py
+@@ -1079,6 +1079,24 @@ class NumpyDocstring(GoogleDocstring):
+ 
+         return ":".join([filepath, "docstring of %s" % name])
+ 
++    def _consume_fields(self, parse_type: bool = True, prefer_type: bool = False
++                        ) -> List[Tuple[str, str, List[str]]]:
++        self._consume_empty()
++        fields = []
++        while not self._is_section_break():
++            _name, _type, _desc = self._consume_field(parse_type, prefer_type)
++            if _name or _type or _desc:
++                # Handle multiple parameter names separated by commas
++                if ',' in _name:
++                    # Split parameter names and create separate entries
++                    param_names = [p.strip() for p in _name.split(',')]
++                    for param_name in param_names:
++                        if param_name:  # Skip empty parameter names
++                            fields.append((param_name, _type, _desc,))
++                else:
++                    fields.append((_name, _type, _desc,))
++        return fields
++
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         func = super()._escape_args_and_kwargs
+ 

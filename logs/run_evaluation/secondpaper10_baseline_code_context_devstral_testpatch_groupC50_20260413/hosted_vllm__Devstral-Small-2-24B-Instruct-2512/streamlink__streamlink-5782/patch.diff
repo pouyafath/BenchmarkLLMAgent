@@ -1,0 +1,89 @@
+diff --git a/src/streamlink/plugins/bilibili.py b/src/streamlink/plugins/bilibili.py
+index 1a5a1121..733ffff1 100644
+--- a/src/streamlink/plugins/bilibili.py
++++ b/src/streamlink/plugins/bilibili.py
+@@ -11,10 +11,19 @@ from streamlink.exceptions import NoStreamsError
+ from streamlink.plugin import Plugin, pluginmatcher
+ from streamlink.plugin.api import validate
+ from streamlink.stream.hls import HLSStream
++from streamlink.stream import HTTPStream
+ 
+ 
+ log = logging.getLogger(__name__)
+ 
++# Quality number to suffix mapping
++QN_SUFFIX_MAP = {
++    10000: "_10000",
++    400: "_4000",
++    250: "_2500",
++    150: "_1500",
++    80: "_800",
++}
+ 
+ @pluginmatcher(
+     re.compile(r"https?://live\.bilibili\.com/(?P<channel>[^/]+)"),
+@@ -47,17 +56,16 @@ class Bilibili(Plugin):
+                                                     "extra": str,
+                                                 },
+                                             ],
++                                            validate.optional("current_qn"): int,
++                                            validate.optional("accept_qn"): [int],
+                                         },
+                                     ],
+-                                    validate.filter(lambda item: item["codec_name"] == "avc"),
+                                 ),
+                             },
+                         ],
+-                        validate.filter(lambda item: item["format_name"] in ("fmp4", "ts")),
+                     ),
+                 },
+             ],
+-            validate.filter(lambda item: item["protocol_name"] == "http_hls"),
+         )
+ 
+     def _get_api_playinfo(self, room_id):
+@@ -162,9 +170,41 @@ class Bilibili(Plugin):
+         for stream in streams or []:
+             for stream_format in stream["format"]:
+                 for codec in stream_format["codec"]:
+-                    for url_info in codec["url_info"]:
+-                        url = f"{url_info['host']}{codec['base_url']}{url_info['extra']}"
+-                        yield "live", HLSStream(self.session, url)
++                    # Get all available quality levels
++                    accept_qn = codec.get("accept_qn", [])
++                    current_qn = codec.get("current_qn", 250)
++                    if not accept_qn:
++                        accept_qn = [current_qn]
+ 
++                    for url_info in codec["url_info"]:
++                        base_url = codec["base_url"]
++                        # Extract the current quality suffix from the base_url
++                        for qn in accept_qn:
++                            # Construct the URL for this quality level
++                            # Replace the quality suffix in the base_url
++                            new_base_url = base_url
++                            for old_suffix, new_suffix in QN_SUFFIX_MAP.items():
++                                if f"_{old_suffix}" in base_url:
++                                    new_base_url = base_url.replace(f"_{old_suffix}", new_suffix)
++                                    break
++
++                            url = f"{url_info['host']}{new_base_url}{url_info['extra']}"
++                            # Replace qn parameter in the URL
++                            url = url.replace(f"qn={current_qn}", f"qn={qn}")
++                            url = url.replace(f"expected_qn={current_qn}", f"expected_qn={qn}")
++
++                            # Generate a quality name
++                            quality_name = self._get_quality_name(qn)
++                            yield quality_name, HLSStream(self.session, url)
++
++    def _get_quality_name(self, qn):
++        quality_map = {
++            10000: "source",
++            400: "1080p",
++            250: "720p",
++            150: "480p",
++            80: "360p",
++        }
++        return quality_map.get(qn, f"qn{qn}")
+ 
+ __plugin__ = Bilibili

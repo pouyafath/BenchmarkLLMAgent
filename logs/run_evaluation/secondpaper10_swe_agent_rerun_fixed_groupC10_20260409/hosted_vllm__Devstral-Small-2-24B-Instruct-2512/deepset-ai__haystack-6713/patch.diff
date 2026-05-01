@@ -1,0 +1,118 @@
+diff --git a/haystack/marshal/yaml.py b/haystack/marshal/yaml.py
+index 5fca27fb..9e431c7f 100644
+--- a/haystack/marshal/yaml.py
++++ b/haystack/marshal/yaml.py
+@@ -1,11 +1,110 @@
+ from typing import Dict, Any, Union
+-
+ import yaml
++import logging
++
++logger = logging.getLogger(__name__)
++
++class _CustomDumper(yaml.SafeDumper):
++    """
++    Custom YAML dumper that handles non-serializable types.
++    """
++    def represent_data(self, data):
++        # Handle torch dtypes (instances of torch.dtype)
++        if hasattr(data, '__module__') and data.__module__.startswith('torch'):
++            return self.represent_str(str(data))
++
++        # Handle numpy dtypes (instances of np.dtype)
++        if hasattr(data, 'dtype') and hasattr(data.dtype, '__module__') and data.dtype.__module__.startswith('numpy'):
++            return self.represent_str(str(data))
++
++        # Handle numpy type objects (like np.float32 which is a type)
++        if isinstance(data, type) and hasattr(data, '__module__') and data.__module__.startswith('numpy'):
++            return self.represent_str(str(data))
++
++        # Fall back to default representation
++        return super().represent_data(data)
++
++def _deserialize_value(value: str) -> Any:
++    """
++    Attempts to deserialize a string representation back to its original type.
++    Handles torch dtypes, numpy dtypes, and other common non-serializable types.
++    """
++    if not isinstance(value, str):
++        return value
++
++    # Handle torch dtypes
++    if value.startswith('torch.'):
++        try:
++            import torch
++            dtype_name = value.split('.')[-1]
++            return getattr(torch, dtype_name)
++        except (ImportError, AttributeError):
++            logger.warning(f"Could not import torch to deserialize {value}, returning string representation")
++            return value
+ 
++    # Handle numpy dtypes
++    if value.startswith('numpy.') or value.startswith('float') or value.startswith('int') or value.startswith('bool'):
++        try:
++            import numpy as np
++            # Handle cases like "float32", "int64", etc.
++            if hasattr(np, value):
++                return getattr(np, value)
++            # Handle cases like "numpy.float32"
++            elif value.startswith('numpy.'):
++                dtype_name = value.split('.')[-1]
++                if hasattr(np, dtype_name):
++                    return getattr(np, dtype_name)
++        except (ImportError, AttributeError):
++            logger.warning(f"Could not import numpy to deserialize {value}, returning string representation")
++            return value
++
++    # Handle other common types
++    if value == 'True':
++        return True
++    elif value == 'False':
++        return False
++    elif value == 'None':
++        return None
++
++    # Try to evaluate simple types like int, float
++    try:
++        if '.' in value:
++            return float(value)
++        else:
++            return int(value)
++    except ValueError:
++        pass
++
++    return value
+ 
+ class YamlMarshaller:
++    def __init__(self):
++        # Register custom dumper for non-serializable types
++        pass  # The custom dumper is used in the marshal method
++
+     def marshal(self, dict_: Dict[str, Any]) -> str:
+-        return yaml.dump(dict_)
++        return yaml.dump(dict_, Dumper=_CustomDumper)
+ 
+     def unmarshal(self, data_: Union[str, bytes, bytearray]) -> Dict[str, Any]:
+-        return yaml.safe_load(data_)
++        if isinstance(data_, bytes):
++            data_ = data_.decode('utf-8')
++        elif isinstance(data_, bytearray):
++            data_ = bytes(data_).decode('utf-8')
++
++        result = yaml.safe_load(data_)
++        if result is None:
++            result = {}
++
++        # Recursively deserialize values in the result
++        return self._deserialize_dict(result)
++
++    def _deserialize_dict(self, data: Any) -> Any:
++        """
++        Recursively deserialize values in a dictionary or list.
++        """
++        if isinstance(data, dict):
++            return {k: self._deserialize_dict(v) for k, v in data.items()}
++        elif isinstance(data, list):
++            return [self._deserialize_dict(item) for item in data]
++        else:
++            return _deserialize_value(data)

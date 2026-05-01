@@ -1,0 +1,211 @@
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..b412cab8f
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,173 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS
++without geocentric aberration corrections.
++"""
++import numpy as np
++import erfa
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                CartesianRepresentation,
++                                                UnitSphericalRepresentation)
++from astropy.coordinates.matrix_utilities import matrix_transpose
++
++from .altaz import AltAz
++from .hadec import HADec
++from .itrs import ITRS
++from .cirs import CIRS
++from .utils import get_polar_motion, get_jd12
++
++__all__ = ['itrs_to_observed_mat']
++
++def itrs_to_observed_mat(observed_frame):
++    """
++    Create a rotation matrix for transforming ITRS coordinates to observed frames
++    (AltAz or HADec) without geocentric aberration corrections.
++
++    This function creates a matrix that transforms ITRS coordinates directly to
++    the observed frame, treating ITRS positions as time-invariant and adopting
++    the output frame's obstime and location.
++
++    Parameters
++    ----------
++    observed_frame : AltAz or HADec
++        The observed frame to transform to
++
++    Returns
++    -------
++    matrix : numpy.ndarray
++        3x3 rotation matrix for ITRS -> observed frame transformation
++    """
++    # Get observer location in geodetic coordinates
++    lon, lat, height = observed_frame.location.to_geodetic('WGS84')
++    elong = lon.to_value(u.radian)
++    phi = lat.to_value(u.radian)
++
++    # Get polar motion and Earth Rotation Angle
++    xp, yp = get_polar_motion(observed_frame.obstime)
++    sp = erfa.sp00(*get_jd12(observed_frame.obstime, 'tt'))
++    pmmat = erfa.pom00(xp, yp, sp)
++
++    # Get Earth Rotation Angle
++    era = erfa.era00(*get_jd12(observed_frame.obstime, 'ut1'))
++
++    # Create the rotation matrix components
++    # This follows the approach used in cirs_to_itrs_mat but adapted for observed frames
++
++    # First, get the CIRS to ITRS matrix (this is the inverse of what we need)
++    # We'll use this as a basis and modify it for observed frames
++    cirs_to_itrs_matrix = erfa.c2tcio(np.eye(3), era, pmmat)
++
++    # For observed frames, we need to rotate from ITRS to the local horizontal/equatorial system
++    # This involves rotating by the observer's longitude and latitude
++
++    # Create rotation matrices for the local coordinate system
++    # Rotation by longitude (East rotation)
++    rot_elong = np.array([
++        [np.cos(elong), np.sin(elong), 0],
++        [-np.sin(elong), np.cos(elong), 0],
++        [0, 0, 1]
++    ])
++
++    # Rotation by latitude (up rotation for AltAz, or different for HADec)
++    if isinstance(observed_frame, AltAz):
++        # For AltAz: rotate by (90° - latitude) around the new y-axis
++        rot_lat = np.array([
++            [np.sin(phi), 0, np.cos(phi)],
++            [0, 1, 0],
++            [-np.cos(phi), 0, np.sin(phi)]
++        ])
++    else:  # HADec
++        # For HADec: rotate by latitude around the new x-axis
++        rot_lat = np.array([
++            [1, 0, 0],
++            [0, np.sin(phi), np.cos(phi)],
++            [0, -np.cos(phi), np.sin(phi)]
++        ])
++
++    # Combine the rotations: ITRS -> local -> observed
++    # The order is important: first apply polar motion/ERA, then longitude, then latitude
++    itrs_to_observed = np.dot(rot_lat, np.dot(rot_elong, cirs_to_itrs_matrix))
++
++    return itrs_to_observed
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++def itrs_to_altaz(itrs_coo, altaz_frame):
++    """
++    Transform ITRS coordinates to AltAz without geocentric aberration corrections.
++
++    This transformation treats ITRS positions as time-invariant and adopts the
++    output frame's obstime and location.
++    """
++    # Get the rotation matrix
++    rot_matrix = itrs_to_observed_mat(altaz_frame)
++
++    # Transform the Cartesian representation
++    new_cartesian = itrs_coo.cartesian.transform(rot_matrix)
++
++    # Create the AltAz frame
++    return altaz_frame.realize_frame(new_cartesian)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++def altaz_to_itrs(altaz_coo, itrs_frame):
++    """
++    Transform AltAz coordinates back to ITRS.
++    """
++    # Get the rotation matrix and transpose it for the reverse transformation
++    # We need to create a temporary observed frame with the same attributes
++    # Extract location from the AltAz coordinate if available
++    if hasattr(altaz_coo, 'location') and altaz_coo.location is not None:
++        temp_frame = AltAz(obstime=itrs_frame.obstime, location=altaz_coo.location)
++    else:
++        # Fallback: use Earth center if location is not available
++        from .utils import EARTH_CENTER
++        temp_frame = AltAz(obstime=itrs_frame.obstime, location=EARTH_CENTER)
++    rot_matrix = itrs_to_observed_mat(temp_frame)
++
++    # Transform the Cartesian representation using the transpose
++    new_cartesian = altaz_coo.cartesian.transform(matrix_transpose(rot_matrix))
++
++    # Create the ITRS frame
++    return itrs_frame.realize_frame(new_cartesian)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_hadec(itrs_coo, hadec_frame):
++    """
++    Transform ITRS coordinates to HADec without geocentric aberration corrections.
++
++    This transformation treats ITRS positions as time-invariant and adopts the
++    output frame's obstime and location.
++    """
++    # Get the rotation matrix
++    rot_matrix = itrs_to_observed_mat(hadec_frame)
++
++    # Transform the Cartesian representation
++    new_cartesian = itrs_coo.cartesian.transform(rot_matrix)
++
++    # Create the HADec frame
++    return hadec_frame.realize_frame(new_cartesian)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def hadec_to_itrs(hadec_coo, itrs_frame):
++    """
++    Transform HADec coordinates back to ITRS.
++    """
++    # Get the rotation matrix and transpose it for the reverse transformation
++    # We need to create a temporary observed frame with the same attributes
++    # Extract location from the HADec coordinate if available
++    if hasattr(hadec_coo, 'location') and hadec_coo.location is not None:
++        temp_frame = HADec(obstime=itrs_frame.obstime, location=hadec_coo.location)
++    else:
++        # Fallback: use Earth center if location is not available
++        from .utils import EARTH_CENTER
++        temp_frame = HADec(obstime=itrs_frame.obstime, location=EARTH_CENTER)
++    rot_matrix = itrs_to_observed_mat(temp_frame)
++
++    # Transform the Cartesian representation using the transpose
++    new_cartesian = hadec_coo.cartesian.transform(matrix_transpose(rot_matrix))
++
++    # Create the ITRS frame
++    return itrs_frame.realize_frame(new_cartesian)
+diff --git a/astropy/coordinates/transformations.py b/astropy/coordinates/transformations.py
+index b34f33532..550f033cc 100644
+--- a/astropy/coordinates/transformations.py
++++ b/astropy/coordinates/transformations.py
+@@ -32,7 +32,7 @@ from astropy.utils.exceptions import AstropyWarning
+ 
+ from .matrix_utilities import matrix_product
+ 
+-__all__ = ['TransformGraph', 'CoordinateTransform', 'FunctionTransform',
++__all__ = ['TransformGraph', 'CoordinateTransform', 'FunctionTransform', 'itrs_to_observed_mat',
+            'BaseAffineTransform', 'AffineTransform',
+            'StaticMatrixTransform', 'DynamicMatrixTransform',
+            'FunctionTransformWithFiniteDifference', 'CompositeTransform']
+@@ -1607,3 +1607,18 @@ trans_to_color[FunctionTransform] = '#783001'  # dark red-ish/brown
+ trans_to_color[FunctionTransformWithFiniteDifference] = '#d95f02'  # red-ish
+ trans_to_color[StaticMatrixTransform] = '#7570b3'  # blue-ish
+ trans_to_color[DynamicMatrixTransform] = '#1b9e77'  # green-ish
++
++def _lazy_import_itrs_to_observed_mat():
++    from .builtin_frames.itrs_observed_transforms import itrs_to_observed_mat
++    return itrs_to_observed_mat
++
++# Create a property that lazy loads the function
++itrs_to_observed_mat = property(lambda self: _lazy_import_itrs_to_observed_mat())
++
++# But we need to handle this differently since itrs_to_observed_mat is a function, not a property
++# Let's use a different approach - define it as a module-level function that does lazy loading
++def itrs_to_observed_mat(observed_frame):
++    """Lazy loaded wrapper for itrs_to_observed_mat function."""
++    from .builtin_frames.itrs_observed_transforms import itrs_to_observed_mat as _real_func
++    return _real_func(observed_frame)
++

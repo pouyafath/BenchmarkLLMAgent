@@ -1,0 +1,20 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..a854ea04c 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -895,6 +895,15 @@ class SkyCoord(ShapedLikeNDArray):
+                 return self.transform_to(attr)
+ 
+         # Fail
++        # Check if the attribute is defined on the class (e.g., as a property)
++        # If it is, we should not mask any AttributeError that comes from accessing it
++        for cls in self.__class__.__mro__:
++            if attr in cls.__dict__:
++                # The attribute is defined on this class - it could be a property, method, etc.
++                # Let the original AttributeError propagate by not catching it here
++                # We need to use object.__getattribute__ to bypass __getattr__
++                return object.__getattribute__(self, attr)
++        
+         raise AttributeError(
+             f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+         )

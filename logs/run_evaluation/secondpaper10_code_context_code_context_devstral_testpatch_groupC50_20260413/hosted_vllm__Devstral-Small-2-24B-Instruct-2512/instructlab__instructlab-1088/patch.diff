@@ -1,0 +1,31 @@
+diff --git a/src/instructlab/lab.py b/src/instructlab/lab.py
+index 2e56ac09..6cce620b 100644
+--- a/src/instructlab/lab.py
++++ b/src/instructlab/lab.py
+@@ -930,6 +930,13 @@ def train(
+                     f"Found multiple files from `ilab generate`. Using the most recent generation.",
+                     fg="yellow",
+                 )
++            # Check if files exist before trying to copy them
++            if not train_files or not test_files:
++                click.secho(
++                    f"{input_dir} does not contain training or test files, did you run `ilab generate`?",
++                    fg="red",
++                )
++                raise click.exceptions.Exit(1)
+             # First file is latest (by above reverse sort and timestamped names)
+             shutil.copy(train_files[0], data_dir + "/train_gen.jsonl")
+             shutil.copy(test_files[0], data_dir + "/test_gen.jsonl")
+diff --git a/tests/test_lab_train.py b/tests/test_lab_train.py
+index 4407e656..3feb591c 100644
+--- a/tests/test_lab_train.py
++++ b/tests/test_lab_train.py
+@@ -158,7 +158,7 @@ class TestLabTrain(unittest.TestCase):
+             result = runner.invoke(lab.train, ["--input-dir", INPUT_DIR])
+             self.assertIsNotNone(result.exception)
+             self.assertIn(
+-                "Could not copy into data directory: list index out of range",
++                f"{INPUT_DIR} does not contain training or test files, did you run `ilab generate`?",
+                 result.output,
+             )
+             self.assertEqual(result.exit_code, 1)

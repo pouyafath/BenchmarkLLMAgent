@@ -1,0 +1,136 @@
+I read the official SWE-bench docs, SWE-bench paper, SWE-bench-Live site/dataset page, and SWE-bench-Live paper. Here is the clean breakdown.
+
+1. How They Collected The Datasets
+
+SWE-bench
+
+SWE-bench is built from real GitHub issues and the pull requests that fixed them.
+
+Collection pipeline:
+
+Start with 12 popular open-source Python repositories.
+Scrape merged pull requests, about 90,000 PRs in the original paper.
+Keep PRs that:
+resolve a GitHub issue,
+modify source code,
+add or modify tests.
+Reconstruct the repo at the PR’s base commit.
+Apply only the test patch and run tests before the fix.
+Apply the solution patch and run tests again.
+Keep only instances where at least one test goes from failing to passing.
+Remove instances with install/runtime failures.
+Final original SWE-bench: 2,294 instances. Official dataset variants now include Full, Lite, Verified, Multimodal, and Multilingual.
+
+Source: SWE-bench paper, SWE-bench datasets docs
+
+SWE-bench-Live
+
+SWE-bench-Live keeps the same basic task idea, but makes the collection pipeline more automated, fresher, and broader.
+
+Collection pipeline:
+
+Search GitHub for popular Python repositories.
+Initial repo filter:
+more than 1,000 stars,
+Python primary language.
+Further repo filters:
+more than 200 issues and PRs,
+more than 200 forks,
+at least 60% Python,
+valid open-source license.
+Extract issue-PR pairs, prioritizing issues created after January 2024.
+Require that the PR modifies tests.
+Use RepoLaunch, an agentic environment builder, to create a Docker environment per instance.
+Validate test behavior multiple times to avoid flaky tasks.
+Keep only tasks with consistent FAIL_TO_PASS behavior.
+Initial release: 1,319 tasks across 93 repositories. The Hugging Face page says SWE-bench-Live is designed for monthly updates, with 50 newly verified high-quality issues added each month.
+
+Source: SWE-bench-Live site, SWE-bench-Live HF dataset, SWE-bench-Live paper
+
+2. Collection Criteria And Differences
+
+Main criteria both follow:
+
+The task must come from a real GitHub issue.
+There must be an associated PR that resolves the issue.
+The PR must include tests or test changes.
+The original repo state must be reconstructable.
+There must be at least one FAIL_TO_PASS test.
+The final fixed state must pass evaluation.
+The environment must be runnable.
+Key differences:
+
+Aspect	SWE-bench	SWE-bench-Live
+Freshness	Static historical dataset	Continuously updated / live
+Repositories	12 Python repos originally	Much broader repo pool, initial 93 repos
+Main goal	Realistic issue-solving benchmark	Fresh, contamination-resistant benchmark
+Environment setup	More manual / version-based Docker setup	Automated per-instance Docker via RepoLaunch
+Contamination risk	Higher, because public/static and older	Lower, because newer issues and monthly updates
+Scale style	Fixed benchmark variants	Full, Lite, Verified/live-updated splits
+Validation	Test transition validation	Test transition plus repeated consistency checks
+Repository diversity	Narrower	Broader application domains
+Important: SWE-bench Verified is not a different collection source. It is a human-validated subset of SWE-bench. OpenAI and SWE-bench authors reviewed 1,699 samples and filtered down to 500 samples with better-specified issues and less problematic tests. Source: Introducing SWE-bench Verified
+
+3. How They Tested Issue Solver Agents
+
+The testing setup is basically:
+
+Give the agent:
+the issue description,
+the repository at the base commit, before the fix.
+Hide the gold patch and hidden tests from the agent.
+Agent generates a patch.
+Evaluation harness applies the patch.
+The harness runs tests.
+The instance is resolved only if:
+the patch applies successfully,
+all FAIL_TO_PASS tests pass,
+all PASS_TO_PASS tests pass.
+Metric meanings:
+
+F2P, or FAIL_TO_PASS: tests that failed before the developer fix and should pass after the generated fix. This measures whether the issue was solved.
+P2P, or PASS_TO_PASS: tests that passed before and should still pass after. This measures whether the agent broke existing functionality.
+RESOLVED: usually means both F2P and P2P are 100% successful for the instance.
+SWE-bench’s official harness defines resolution this way: full resolution requires F2P = 1 and P2P = 1. Source: SWE-bench harness docs
+
+But no, these are not the only criteria people report.
+
+SWE-bench-Live also reports:
+
+Resolved Rate
+Patch Apply Rate
+Localization Success Rate, file-level match between generated patch files and gold patch files
+Source: SWE-bench-Live paper
+
+Other studies often also report:
+
+pass@k,
+cost,
+number of tokens,
+number of tool calls,
+wall-clock time,
+retry count,
+patch size,
+file localization accuracy,
+test regression rate,
+failure categories.
+But the official SWE-bench-style core is still test-based resolution.
+
+4. Are F2P / P2P / RESOLVED Standard Metrics?
+
+Yes, for SWE-bench-style issue-solving benchmarks, they are the de facto standard core metrics.
+
+But I would not call them sufficient by themselves.
+
+They are standard because they answer the most important question:
+
+Did the generated patch fix the issue without breaking existing behavior?
+
+However, they have limitations:
+
+Tests may be too narrow and reject valid solutions.
+Tests may be too wide and require behavior not stated in the issue.
+Public/static datasets can be contaminated by model training.
+Passing tests does not always mean the patch is semantically correct.
+F2P/P2P do not measure cost, time, robustness, maintainability, or whether the agent found the right files for the right reason.
+So for your new dataset, I’d use F2P, P2P, and RESOLVED as the required core, but add secondary metrics such as patch apply rate, localization accuracy, regression rate, cost/time, and maybe human review for a subset. That will make your benchmark much stronger than only reporting resolved rate.

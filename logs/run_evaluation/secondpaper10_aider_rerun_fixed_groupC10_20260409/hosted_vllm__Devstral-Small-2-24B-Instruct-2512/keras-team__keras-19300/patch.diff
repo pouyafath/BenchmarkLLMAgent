@@ -1,0 +1,49 @@
+diff --git a/keras/backend/common/keras_tensor.py b/keras/backend/common/keras_tensor.py
+index c741d5ce8..d19a0e1c1 100644
+--- a/keras/backend/common/keras_tensor.py
++++ b/keras/backend/common/keras_tensor.py
+@@ -296,6 +296,9 @@ def any_symbolic_tensors(args=None, kwargs=None):
+     for x in tree.flatten((args, kwargs)):
+         if isinstance(x, KerasTensor):
+             return True
++        # Also check for TensorFlow symbolic tensors (have graph attribute that is not None)
++        if hasattr(x, "graph") and x.graph is not None:
++            return True
+     return False
+ 
+ 
+diff --git a/keras/ops/nn.py b/keras/ops/nn.py
+index 6731d9980..5cec6ac9a 100644
+--- a/keras/ops/nn.py
++++ b/keras/ops/nn.py
+@@ -538,14 +538,7 @@ def softmax(x, axis=-1):
+     array([0.09003057, 0.24472847, 0.66524096], shape=(3,), dtype=float64)
+ 
+     """
+-    if isinstance(axis, int) and backend.shape(x)[axis] == 1:
+-        warnings.warn(
+-            f"You are using a softmax over axis {axis} "
+-            f"of a tensor of shape {backend.shape(x)}. This axis "
+-            "has size 1. The softmax operation will always return "
+-            "the value 1, which is likely not what you intended. "
+-            "Did you mean to use a sigmoid instead?"
+-        )
++
+     if any_symbolic_tensors((x,)):
+         return Softmax(axis).symbolic_call(x)
+     if isinstance(axis, tuple):
+@@ -568,6 +561,14 @@ def softmax(x, axis=-1):
+         x = backend.numpy.reshape(x, original_shape)
+         return x
+     else:
++        if isinstance(axis, int) and backend.shape(x)[axis] == 1:
++            warnings.warn(
++                f"You are using a softmax over axis {axis} "
++                f"of a tensor of shape {backend.shape(x)}. This axis "
++                "has size 1. The softmax operation will always return "
++                "the value 1, which is likely not what you intended. "
++                "Did you mean to use a sigmoid instead?"
++            )
+         return backend.nn.softmax(x, axis=axis)
+ 
+ 

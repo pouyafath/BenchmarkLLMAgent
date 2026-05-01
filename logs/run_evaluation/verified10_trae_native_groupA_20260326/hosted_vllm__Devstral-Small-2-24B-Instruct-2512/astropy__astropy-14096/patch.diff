@@ -1,0 +1,29 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0..4203f2aa8 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -894,7 +894,23 @@ class SkyCoord(ShapedLikeNDArray):
+             if frame_cls is not None and self.frame.is_transformable_to(frame_cls):
+                 return self.transform_to(attr)
+ 
+-        # Fail
++        # Check if this attribute is defined as a property or method in the class
++        # This handles the case where a subclass property tries to access a missing attribute
++        for cls in self.__class__.__mro__:
++            if attr in cls.__dict__:
++                class_attr = cls.__dict__[attr]
++                if isinstance(class_attr, property):
++                    # This is a property that exists in the class but its getter failed
++                    # Provide a more helpful error message
++                    raise AttributeError(
++                        f"Could not get attribute '{attr}': "
++                        f"the property getter failed (likely trying to access a missing attribute)"
++                    )
++                elif callable(class_attr):
++                    # This is a method that exists in the class
++                    return class_attr
++
++        # Fail - attribute doesn't exist
+         raise AttributeError(
+             f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+         )

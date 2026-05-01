@@ -1,0 +1,90 @@
+diff --git a/astropy/units/format/cds.py b/astropy/units/format/cds.py
+index 307e987ed..2000f0843 100644
+--- a/astropy/units/format/cds.py
++++ b/astropy/units/format/cds.py
+@@ -314,13 +314,29 @@ class CDS(Base):
+ 
+     @classmethod
+     def _format_unit_list(cls, units):
+-        out = []
++        positive_out = []
++        negative_out = []
+         for base, power in units:
++            unit_name = cls._get_unit_name(base)
++            # For CDS format, handle powers appropriately
+             if power == 1:
+-                out.append(cls._get_unit_name(base))
++                unit_str = unit_name
++            elif power == -1:
++                unit_str = unit_name
++            elif power > 1:
++                unit_str = f"{unit_name}{int(power)}"
++            else:  # power < -1
++                unit_str = f"{unit_name}{int(abs(power))}"
++
++            if power > 0:
++                positive_out.append(unit_str)
+             else:
+-                out.append(f"{cls._get_unit_name(base)}{int(power)}")
+-        return ".".join(out)
++                negative_out.append(unit_str)
++
++        result = ".".join(positive_out)
++        if negative_out:
++            result += "/" + ".".join(negative_out)
++        return result
+ 
+     @classmethod
+     def to_string(cls, unit):
+@@ -336,19 +352,41 @@ class CDS(Base):
+             if unit.scale == 1:
+                 s = ""
+             else:
+-                m, e = utils.split_mantissa_exponent(unit.scale)
+-                parts = []
+-                if m not in ("", "1"):
+-                    parts.append(m)
+-                if e:
+-                    if not e.startswith("-"):
+-                        e = "+" + e
+-                    parts.append(f"10{e}")
+-                s = "x".join(parts)
++                # Handle powers of 10 specially for CDS format
++                import math
++                try:
++                    log10_scale = math.log10(abs(unit.scale))
++                    if log10_scale == int(log10_scale):
++                        exponent = int(log10_scale)
++                        if exponent >= 0:
++                            s = f"10+{exponent}"
++                        else:
++                            s = f"10{exponent}"
++                    else:
++                        # Not a power of 10, use original logic
++                        m, e = utils.split_mantissa_exponent(unit.scale)
++                        parts = []
++                        if m not in ("", "1"):
++                            parts.append(m)
++                        if e:
++                            if not e.startswith("-"):
++                                e = "+" + e
++                            parts.append(f"10{e}")
++                        s = "".join(parts)
++                except (ValueError, OverflowError):
++                    # Fallback to original logic for edge cases
++                    m, e = utils.split_mantissa_exponent(unit.scale)
++                    parts = []
++                    if m not in ("", "1"):
++                        parts.append(m)
++                    if e:
++                        if not e.startswith("-"):
++                            e = "+" + e
++                        parts.append(f"10{e}")
++                    s = "".join(parts)
+ 
+             pairs = list(zip(unit.bases, unit.powers))
+             if len(pairs) > 0:
+-                pairs.sort(key=operator.itemgetter(1), reverse=True)
+ 
+                 s += cls._format_unit_list(pairs)
+ 

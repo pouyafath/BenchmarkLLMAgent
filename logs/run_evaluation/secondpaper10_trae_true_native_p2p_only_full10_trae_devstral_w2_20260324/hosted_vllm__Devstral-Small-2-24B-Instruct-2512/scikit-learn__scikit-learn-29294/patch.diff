@@ -1,0 +1,33 @@
+diff --git a/sklearn/covariance/_graph_lasso.py b/sklearn/covariance/_graph_lasso.py
+index 73fa4f1fd..cff939d7b 100644
+--- a/sklearn/covariance/_graph_lasso.py
++++ b/sklearn/covariance/_graph_lasso.py
+@@ -189,11 +189,23 @@ def _graphical_lasso(
+                     "Non SPD result: the system is too ill-conditioned for this solver"
+                 )
+         else:
+-            warnings.warn(
+-                "graphical_lasso: did not converge after %i iteration: dual gap: %.3e"
+-                % (max_iter, d_gap),
+-                ConvergenceWarning,
+-            )
++            # Check if user has suppressed ConvergenceWarning
++            # by checking if there's an "ignore" filter for it
++            issue_warning = True
++            for filter_item in warnings.filters:
++                if filter_item[2] == ConvergenceWarning and filter_item[0] == "ignore":
++                    issue_warning = False
++                    break
++                elif filter_item[2] == Warning and filter_item[0] == "ignore":
++                    issue_warning = False
++                    break
++
++            if issue_warning:
++                warnings.warn(
++                    "graphical_lasso: did not converge after %i iteration: dual gap: %.3e"
++                    % (max_iter, d_gap),
++                    ConvergenceWarning,
++                )
+     except FloatingPointError as e:
+         e.args = (e.args[0] + ". The system is too ill-conditioned for this solver",)
+         raise e

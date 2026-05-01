@@ -1,0 +1,78 @@
+diff --git a/django/urls/base.py b/django/urls/base.py
+index 0e1c3d909c..7d87bf283c 100644
+--- a/django/urls/base.py
++++ b/django/urls/base.py
+@@ -7,7 +7,6 @@ from django.utils.functional import lazy
+ from django.utils.translation import override
+ 
+ from .exceptions import NoReverseMatch, Resolver404
+-from .resolvers import get_ns_resolver, get_resolver
+ from .utils import get_callable
+ 
+ # SCRIPT_NAME prefixes for each thread are stored here. If there's no entry for
+@@ -20,12 +19,14 @@ _urlconfs = Local()
+ 
+ 
+ def resolve(path, urlconf=None):
++    from .resolvers import get_resolver
+     if urlconf is None:
+         urlconf = get_urlconf()
+     return get_resolver(urlconf).resolve(path)
+ 
+ 
+ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
++    from .resolvers import get_resolver
+     if urlconf is None:
+         urlconf = get_urlconf()
+     resolver = get_resolver(urlconf)
+@@ -88,14 +89,13 @@ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
+ 
+ 
+ reverse_lazy = lazy(reverse, str)
+-
+-
+ def clear_url_caches():
++    from .resolvers import _get_resolver_cached, get_ns_resolver
++    from django.urls.utils import get_callable
+     get_callable.cache_clear()
+-    get_resolver.cache_clear()
++    _get_resolver_cached.cache_clear()
+     get_ns_resolver.cache_clear()
+ 
+-
+ def set_script_prefix(prefix):
+     """
+     Set the script prefix for the current thread.
+diff --git a/django/urls/resolvers.py b/django/urls/resolvers.py
+index 247e3680c0..d4a22aef4d 100644
+--- a/django/urls/resolvers.py
++++ b/django/urls/resolvers.py
+@@ -23,6 +23,7 @@ from django.utils.http import RFC3986_SUBDELIMS, escape_leading_slashes
+ from django.utils.regex_helper import normalize
+ from django.utils.translation import get_language
+ 
++from .base import get_urlconf
+ from .converters import get_converter
+ from .exceptions import NoReverseMatch, Resolver404
+ from .utils import get_callable
+@@ -62,11 +63,17 @@ class ResolverMatch:
+             self.app_names, self.namespaces, self.route,
+         )
+ 
+-
+-@functools.lru_cache(maxsize=None)
+ def get_resolver(urlconf=None):
++    # Normalize the urlconf parameter to ensure consistent cache keys
+     if urlconf is None:
+-        urlconf = settings.ROOT_URLCONF
++        urlconf = get_urlconf(settings.ROOT_URLCONF)
++    # Normalize cache key: if urlconf equals ROOT_URLCONF, use None as key
++    # to ensure get_resolver(None) and get_resolver(ROOT_URLCONF) use same cache entry
++    cache_key = None if urlconf == settings.ROOT_URLCONF else urlconf
++    return _get_resolver_cached(cache_key, urlconf)
++
++@functools.lru_cache(maxsize=None)
++def _get_resolver_cached(cache_key, urlconf):
+     return URLResolver(RegexPattern(r'^/'), urlconf)
+ 
+ 

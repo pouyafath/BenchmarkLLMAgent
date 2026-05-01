@@ -1,0 +1,75 @@
+diff --git a/reflex/config.py b/reflex/config.py
+index f10b38e9..22181d56 100644
+--- a/reflex/config.py
++++ b/reflex/config.py
+@@ -195,6 +195,8 @@ class Config(Base):
+ 
+     # Additional frontend packages to install.
+     frontend_packages: List[str] = []
++    # Packages to transpile in Next.js
++    transpile_packages: List[str] = []
+ 
+     # The hosting service backend URL.
+     cp_backend_url: str = Hosting.CP_BACKEND_URL
+diff --git a/reflex/config.pyi b/reflex/config.pyi
+index 57ce1123..b65d6d14 100644
+--- a/reflex/config.pyi
++++ b/reflex/config.pyi
+@@ -65,6 +65,7 @@ class Config(Base):
+     next_compression: bool
+     event_namespace: Optional[str]
+     frontend_packages: List[str]
++    transpile_packages: List[str]
+     rxdeploy_url: Optional[str]
+     cp_backend_url: str
+     cp_web_url: str
+@@ -92,6 +93,7 @@ class Config(Base):
+         next_compression: Optional[bool] = None,
+         event_namespace: Optional[str] = None,
+         frontend_packages: Optional[List[str]] = None,
++        transpile_packages: Optional[List[str]] = None,
+         rxdeploy_url: Optional[str] = None,
+         cp_backend_url: Optional[str] = None,
+         cp_web_url: Optional[str] = None,
+diff --git a/reflex/utils/prerequisites.py b/reflex/utils/prerequisites.py
+index 0502be60..eb3a5b83 100644
+--- a/reflex/utils/prerequisites.py
++++ b/reflex/utils/prerequisites.py
+@@ -552,6 +552,10 @@ def _update_next_config(config, export=False):
+         next_config["output"] = "export"
+         next_config["distDir"] = constants.Dirs.STATIC
+ 
++    # Add transpile_packages if specified
++    if config.transpile_packages:
++        next_config["transpilePackages"] = config.transpile_packages
++
+     next_config_json = re.sub(r'"([^"]+)"(?=:)', r"\1", json.dumps(next_config))
+     return f"module.exports = {next_config_json};"
+ 
+diff --git a/tests/test_prerequisites.py b/tests/test_prerequisites.py
+index 711826cb..02fe2b6d 100644
+--- a/tests/test_prerequisites.py
++++ b/tests/test_prerequisites.py
+@@ -54,6 +54,22 @@ from reflex.utils.prerequisites import (
+             True,
+             'module.exports = {basePath: "", compress: true, reactStrictMode: true, trailingSlash: true, output: "export", distDir: "_static"};',
+         ),
++        (
++            Config(
++                app_name="test",
++                transpile_packages=["@kitware/vtk.js", "react-vtk-js"],
++            ),
++            False,
++            'module.exports = {basePath: "", compress: true, reactStrictMode: true, trailingSlash: true, transpilePackages: ["@kitware/vtk.js", "react-vtk-js"]};',
++        ),
++        (
++            Config(
++                app_name="test",
++                transpile_packages=["package1"],
++            ),
++            True,
++            'module.exports = {basePath: "", compress: true, reactStrictMode: true, trailingSlash: true, output: "export", distDir: "_static", transpilePackages: ["package1"]};',
++        ),
+     ],
+ )
+ def test_update_next_config(config, export, expected_output):

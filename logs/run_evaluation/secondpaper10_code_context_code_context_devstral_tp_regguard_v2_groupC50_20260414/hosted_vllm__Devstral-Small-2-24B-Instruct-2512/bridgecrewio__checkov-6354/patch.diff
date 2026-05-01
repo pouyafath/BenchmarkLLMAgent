@@ -1,0 +1,35 @@
+diff --git a/checkov/terraform/checks/module/generic/RevisionVersionTag.py b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+index 14626ecf0..d7de331b4 100644
+--- a/checkov/terraform/checks/module/generic/RevisionVersionTag.py
++++ b/checkov/terraform/checks/module/generic/RevisionVersionTag.py
+@@ -7,8 +7,8 @@ from checkov.common.models.enums import CheckResult, CheckCategories
+ from checkov.terraform.checks.module.base_module_check import BaseModuleCheck
+ from .RevisionHash import check as RevisionHashCheck
+ 
+-VERSION_PATTERN = re.compile(r"[?&](ref=).*(\d\.\d).*")
+-
++VERSION_PATTERN = re.compile(r"[?&](ref=).*(\d\.\d)..*")
++VERSION_NUMBER_PATTERN = re.compile(r"^\d+\.\d+(\.\d+)?$")
+ 
+ class RevisionVersionTag(BaseModuleCheck):
+     def __init__(self) -> None:
+@@ -24,6 +24,13 @@ class RevisionVersionTag(BaseModuleCheck):
+         if hash_result != CheckResult.FAILED:
+             return hash_result
+ 
++        # Check for version field in Terraform Registry modules
++        version = conf.get("version")
++        if version and isinstance(version, list) and len(version) > 0:
++            version_str = version[0]
++            if isinstance(version_str, str) and re.search(VERSION_NUMBER_PATTERN, version_str):
++                return CheckResult.PASSED
++
+         source = conf.get("source")
+         if source and isinstance(source, list):
+             source_url = source[0]
+@@ -32,5 +39,4 @@ class RevisionVersionTag(BaseModuleCheck):
+ 
+         return CheckResult.FAILED
+ 
+-
+ check = RevisionVersionTag()

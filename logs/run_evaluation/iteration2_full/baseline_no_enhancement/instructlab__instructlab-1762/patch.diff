@@ -1,0 +1,33 @@
+diff --git a/instructlab/utils.py b/instructlab/utils.py
+--- a/instructlab/utils.py
++++ b/instructlab/utils.py
+@@ -1,10 +1,19 @@
+-def get_model_dir() -> str:
+-    """
+-    Return the directory where models are stored.
+-
+-    Historically this used XDG_DATA_HOME (defaulting to ~/.local/share) which is
+-    intended for persistent, roaming data. Models, however, are transient cache
+-    artifacts and belong in XDG_CACHE_HOME (defaulting to ~/.cache).
+-    """
+-    data_home = os.getenv("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+-    return os.path.join(data_home, "instructlab", "models")
++def get_model_dir() -> str:
++    """
++    Return the directory where models are stored.
++
++    Models are transient download artifacts and should be placed in the cache
++    directory according to the XDG Base Directory Specification.  Previously the
++    code used ``XDG_DATA_HOME`` (defaulting to ``~/.local/share``), which is meant
++    for persistent, roaming data.  This caused model files to be stored in a
++    location that is typically synchronized across machines, which is undesirable
++    for large, frequently‑changing model binaries.
++
++    The function now respects ``XDG_CACHE_HOME`` (defaulting to ``~/.cache``) so
++    that model downloads behave like other cache data (e.g., Hugging Face's
++    ``transformers`` library).  Existing installations that already have models
++    under the old path will continue to work because the download logic creates
++    the directory if it does not exist.
++    """
++    cache_home = os.getenv("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
++    return os.path.join(cache_home, "instructlab", "models")

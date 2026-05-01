@@ -1,0 +1,238 @@
+diff --git a/setup.cfg b/setup.cfg
+index 597eece14f..e858d13a20 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -87,7 +87,7 @@ per-file-ignores =
+     src/flask/__init__.py: F401
+ 
+ [mypy]
+-files = src/flask
++files = src/flask, tests/typing
+ python_version = 3.7
+ show_error_codes = True
+ allow_redefinition = True
+diff --git a/src/flask/app.py b/src/flask/app.py
+index 34ea5b294f..6b54918887 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -1033,7 +1033,7 @@ def add_url_rule(
+         self,
+         rule: str,
+         endpoint: t.Optional[str] = None,
+-        view_func: t.Optional[t.Callable] = None,
++        view_func: t.Optional[ft.ViewCallable] = None,
+         provide_automatic_options: t.Optional[bool] = None,
+         **options: t.Any,
+     ) -> None:
+@@ -1681,7 +1681,7 @@ def make_response(self, rv: ft.ResponseReturnValue) -> Response:
+                 if isinstance(rv[1], (Headers, dict, tuple, list)):
+                     rv, headers = rv
+                 else:
+-                    rv, status = rv  # type: ignore[misc]
++                    rv, status = rv  # type: ignore[assignment,misc]
+             # other sized tuples are not allowed
+             else:
+                 raise TypeError(
+diff --git a/src/flask/blueprints.py b/src/flask/blueprints.py
+index c60183fa27..87617989e0 100644
+--- a/src/flask/blueprints.py
++++ b/src/flask/blueprints.py
+@@ -384,7 +384,7 @@ def add_url_rule(
+         self,
+         rule: str,
+         endpoint: t.Optional[str] = None,
+-        view_func: t.Optional[t.Callable] = None,
++        view_func: t.Optional[ft.ViewCallable] = None,
+         provide_automatic_options: t.Optional[bool] = None,
+         **options: t.Any,
+     ) -> None:
+@@ -561,12 +561,14 @@ def app_context_processor(
+         )
+         return f
+ 
+-    def app_errorhandler(self, code: t.Union[t.Type[Exception], int]) -> t.Callable:
++    def app_errorhandler(
++        self, code: t.Union[t.Type[Exception], int]
++    ) -> t.Callable[[ft.ErrorHandlerDecorator], ft.ErrorHandlerDecorator]:
+         """Like :meth:`Flask.errorhandler` but for a blueprint.  This
+         handler is used for all requests, even if outside of the blueprint.
+         """
+ 
+-        def decorator(f: ft.ErrorHandlerCallable) -> ft.ErrorHandlerCallable:
++        def decorator(f: ft.ErrorHandlerDecorator) -> ft.ErrorHandlerDecorator:
+             self.record_once(lambda s: s.app.errorhandler(code)(f))
+             return f
+ 
+diff --git a/src/flask/scaffold.py b/src/flask/scaffold.py
+index 7cd8bab5d7..dedfe309f3 100644
+--- a/src/flask/scaffold.py
++++ b/src/flask/scaffold.py
+@@ -363,48 +363,60 @@ def _method_route(
+         method: str,
+         rule: str,
+         options: dict,
+-    ) -> t.Callable[[F], F]:
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         if "methods" in options:
+             raise TypeError("Use the 'route' decorator to use the 'methods' argument.")
+ 
+         return self.route(rule, methods=[method], **options)
+ 
+-    def get(self, rule: str, **options: t.Any) -> t.Callable[[F], F]:
++    def get(
++        self, rule: str, **options: t.Any
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         """Shortcut for :meth:`route` with ``methods=["GET"]``.
+ 
+         .. versionadded:: 2.0
+         """
+         return self._method_route("GET", rule, options)
+ 
+-    def post(self, rule: str, **options: t.Any) -> t.Callable[[F], F]:
++    def post(
++        self, rule: str, **options: t.Any
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         """Shortcut for :meth:`route` with ``methods=["POST"]``.
+ 
+         .. versionadded:: 2.0
+         """
+         return self._method_route("POST", rule, options)
+ 
+-    def put(self, rule: str, **options: t.Any) -> t.Callable[[F], F]:
++    def put(
++        self, rule: str, **options: t.Any
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         """Shortcut for :meth:`route` with ``methods=["PUT"]``.
+ 
+         .. versionadded:: 2.0
+         """
+         return self._method_route("PUT", rule, options)
+ 
+-    def delete(self, rule: str, **options: t.Any) -> t.Callable[[F], F]:
++    def delete(
++        self, rule: str, **options: t.Any
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         """Shortcut for :meth:`route` with ``methods=["DELETE"]``.
+ 
+         .. versionadded:: 2.0
+         """
+         return self._method_route("DELETE", rule, options)
+ 
+-    def patch(self, rule: str, **options: t.Any) -> t.Callable[[F], F]:
++    def patch(
++        self, rule: str, **options: t.Any
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         """Shortcut for :meth:`route` with ``methods=["PATCH"]``.
+ 
+         .. versionadded:: 2.0
+         """
+         return self._method_route("PATCH", rule, options)
+ 
+-    def route(self, rule: str, **options: t.Any) -> t.Callable[[F], F]:
++    def route(
++        self, rule: str, **options: t.Any
++    ) -> t.Callable[[ft.RouteDecorator], ft.RouteDecorator]:
+         """Decorate a view function to register it with the given URL
+         rule and options. Calls :meth:`add_url_rule`, which has more
+         details about the implementation.
+@@ -428,7 +440,7 @@ def index():
+             :class:`~werkzeug.routing.Rule` object.
+         """
+ 
+-        def decorator(f: F) -> F:
++        def decorator(f: ft.RouteDecorator) -> ft.RouteDecorator:
+             endpoint = options.pop("endpoint", None)
+             self.add_url_rule(rule, endpoint, f, **options)
+             return f
+@@ -440,7 +452,7 @@ def add_url_rule(
+         self,
+         rule: str,
+         endpoint: t.Optional[str] = None,
+-        view_func: t.Optional[t.Callable] = None,
++        view_func: t.Optional[ft.ViewCallable] = None,
+         provide_automatic_options: t.Optional[bool] = None,
+         **options: t.Any,
+     ) -> None:
+@@ -642,7 +654,7 @@ def url_defaults(self, f: ft.URLDefaultCallable) -> ft.URLDefaultCallable:
+     @setupmethod
+     def errorhandler(
+         self, code_or_exception: t.Union[t.Type[Exception], int]
+-    ) -> t.Callable[[ft.ErrorHandlerCallable], ft.ErrorHandlerCallable]:
++    ) -> t.Callable[[ft.ErrorHandlerDecorator], ft.ErrorHandlerDecorator]:
+         """Register a function to handle errors by code or exception class.
+ 
+         A decorator that is used to register a function given an
+@@ -672,7 +684,7 @@ def special_exception_handler(error):
+                                   an arbitrary exception
+         """
+ 
+-        def decorator(f: ft.ErrorHandlerCallable) -> ft.ErrorHandlerCallable:
++        def decorator(f: ft.ErrorHandlerDecorator) -> ft.ErrorHandlerDecorator:
+             self.register_error_handler(code_or_exception, f)
+             return f
+ 
+diff --git a/src/flask/typing.py b/src/flask/typing.py
+index ec7c7969bf..e6d67f2077 100644
+--- a/src/flask/typing.py
++++ b/src/flask/typing.py
+@@ -1,37 +1,30 @@
+ import typing as t
+ 
+-
+ if t.TYPE_CHECKING:
+     from _typeshed.wsgi import WSGIApplication  # noqa: F401
+     from werkzeug.datastructures import Headers  # noqa: F401
+     from werkzeug.wrappers import Response  # noqa: F401
+ 
+ # The possible types that are directly convertible or are a Response object.
+-ResponseValue = t.Union[
+-    "Response",
+-    str,
+-    bytes,
+-    t.Dict[str, t.Any],  # any jsonify-able dict
+-    t.Iterator[str],
+-    t.Iterator[bytes],
+-]
+-StatusCode = int
++ResponseValue = t.Union["Response", str, bytes, t.Dict[str, t.Any]]
+ 
+ # the possible types for an individual HTTP header
+-HeaderName = str
++# This should be a Union, but mypy doesn't pass unless it's a TypeVar.
+ HeaderValue = t.Union[str, t.List[str], t.Tuple[str, ...]]
+ 
+ # the possible types for HTTP headers
+ HeadersValue = t.Union[
+-    "Headers", t.Dict[HeaderName, HeaderValue], t.List[t.Tuple[HeaderName, HeaderValue]]
++    "Headers",
++    t.Mapping[str, HeaderValue],
++    t.Sequence[t.Tuple[str, HeaderValue]],
+ ]
+ 
+ # The possible types returned by a route function.
+ ResponseReturnValue = t.Union[
+     ResponseValue,
+     t.Tuple[ResponseValue, HeadersValue],
+-    t.Tuple[ResponseValue, StatusCode],
+-    t.Tuple[ResponseValue, StatusCode, HeadersValue],
++    t.Tuple[ResponseValue, int],
++    t.Tuple[ResponseValue, int, HeadersValue],
+     "WSGIApplication",
+ ]
+ 
+@@ -51,6 +44,7 @@
+ TemplateTestCallable = t.Callable[..., bool]
+ URLDefaultCallable = t.Callable[[str, dict], None]
+ URLValuePreprocessorCallable = t.Callable[[t.Optional[str], t.Optional[dict]], None]
++
+ # This should take Exception, but that either breaks typing the argument
+ # with a specific exception, or decorating multiple times with different
+ # exceptions (and using a union type on the argument).
+@@ -58,3 +52,7 @@
+ # https://github.com/pallets/flask/issues/4295
+ # https://github.com/pallets/flask/issues/4297
+ ErrorHandlerCallable = t.Callable[[t.Any], ResponseReturnValue]
++ErrorHandlerDecorator = t.TypeVar("ErrorHandlerDecorator", bound=ErrorHandlerCallable)
++
++ViewCallable = t.Callable[..., ResponseReturnValue]
++RouteDecorator = t.TypeVar("RouteDecorator", bound=ViewCallable)

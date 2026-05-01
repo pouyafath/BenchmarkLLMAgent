@@ -1,0 +1,28 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 3a462f1c4c..74c61dba26 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -231,10 +231,22 @@ class Collector:
+     def related_objects(self, related, objs):
+         """
+         Get a QuerySet of objects related to `objs` via the relation `related`.
++        Only fetch primary keys and foreign keys to avoid UnicodeDecodeError with invalid UTF-8 data.
+         """
+-        return related.related_model._base_manager.using(self.using).filter(
++        qs = related.related_model._base_manager.using(self.using).filter(
+             **{"%s__in" % related.field.name: objs}
+         )
++        # Only load the primary key and foreign key fields to avoid loading unnecessary data
++        # that might contain invalid UTF-8. We need to keep foreign keys so that signal handlers
++        # can access related objects.
++        pk_attname = related.related_model._meta.pk.attname
++        fk_fields = [f.attname for f in related.related_model._meta.fields 
++                     if f.is_relation and not f.auto_created]
++        fields_to_load = [pk_attname] + fk_fields
++        if fields_to_load:
++            return qs.only(*fields_to_load)
++        else:
++            return qs.only(pk_attname)
+ 
+     def instances_with_model(self):
+         for model, instances in self.data.items():

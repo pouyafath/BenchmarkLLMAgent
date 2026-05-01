@@ -1,0 +1,54 @@
+diff --git a/src/cfnlint/rules/resources/iam/StatementResources.py b/src/cfnlint/rules/resources/iam/StatementResources.py
+index c64216d71..6f3b9f930 100644
+--- a/src/cfnlint/rules/resources/iam/StatementResources.py
++++ b/src/cfnlint/rules/resources/iam/StatementResources.py
+@@ -152,21 +152,39 @@ class StatementResources(CfnLintKeyword):
+                     if using_fn_arns:
+                         continue
+                     resources = ensure_list(resources)
++
++                    # For actions that can work with multiple resource types,
++                    # check if ANY of the policy's resources match ANY of the allowed types
++                    # rather than requiring ALL allowed types to be present
++                    allowed_arns = []
+                     for resource in resources:
+                         arn_formats = self.service_map[service]["Resources"][
+                             resource
+                         ].get("ARNFormats")
+                         for arn_format in arn_formats:
+-                            arn = _Arn(arn_format)
+-                            if arn not in all_resource_arns:
+-                                yield ValidationError(
+-                                    (
+-                                        f"action {action!r} requires "
+-                                        f"a resource of {arn_formats!r}"
+-                                    ),
+-                                    path=deque(["Resource"]),
+-                                    rule=self,
+-                                )
++                            allowed_arns.append(_Arn(arn_format))
++
++                    # Check if any of the policy's resources match any of the allowed ARNs
++                    match_found = False
++                    for policy_arn in all_resource_arns:
++                        for allowed_arn in allowed_arns:
++                            if policy_arn == allowed_arn:
++                                match_found = True
++                                break
++                        if match_found:
++                            break
++
++                    if not match_found:
++                        # Convert allowed_arns back to string format for error message
++                        allowed_arn_strings = [str(arn) for arn in allowed_arns]
++                        yield ValidationError(
++                            (
++                                f"action {action!r} requires "
++                                f"a resource of {allowed_arn_strings!r}"
++                            ),
++                            path=deque(["Resource"]),
++                            rule=self,
++                        )
+                 else:
+                     LOGGER.debug(f"action {action!r} requires a resource of '*'")
+                     # yield ValidationError(

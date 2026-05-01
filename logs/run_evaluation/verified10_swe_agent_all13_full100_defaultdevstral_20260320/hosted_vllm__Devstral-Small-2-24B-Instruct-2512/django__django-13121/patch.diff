@@ -1,0 +1,29 @@
+diff --git a/django/db/backends/base/operations.py b/django/db/backends/base/operations.py
+index 2e283a3193..9ac1746baf 100644
+--- a/django/db/backends/base/operations.py
++++ b/django/db/backends/base/operations.py
+@@ -580,7 +580,23 @@ class BaseDatabaseOperations:
+ 
+     def convert_durationfield_value(self, value, expression, connection):
+         if value is not None:
+-            return datetime.timedelta(0, 0, value)
++            # Handle integer microseconds (direct from database)
++            if isinstance(value, int):
++                return datetime.timedelta(0, 0, value)
++            # Handle string representations (result of arithmetic operations)
++            elif isinstance(value, str):
++                try:
++                    # Try to parse as microseconds first
++                    return datetime.timedelta(0, 0, int(value))
++                except (ValueError, TypeError):
++                    # If that fails, try to parse as a timedelta string
++                    # This handles cases like '1 day, 2:30:00'
++                    from django.utils.dateparse import parse_duration
++                    return parse_duration(value)
++            # Handle other numeric types
++            elif isinstance(value, (float, decimal.Decimal)):
++                return datetime.timedelta(0, 0, int(value))
++        return value
+ 
+     def check_expression_support(self, expression):
+         """

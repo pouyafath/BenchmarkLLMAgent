@@ -1,0 +1,315 @@
+diff --git a/src/datamodel_code_generator/__init__.py b/src/datamodel_code_generator/__init__.py
+index 86472b08..dbb74283 100644
+--- a/src/datamodel_code_generator/__init__.py
++++ b/src/datamodel_code_generator/__init__.py
+@@ -285,6 +285,8 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
+     union_mode: UnionMode | None = None,
+     output_datetime_class: DatetimeClassType | None = None,
+     keyword_only: bool = False,
++    frozen_dataclasses: bool = False,
++    
+     no_alias: bool = False,
+     formatters: list[Formatter] = DEFAULT_FORMATTERS,
+     parent_scoped_naming: bool = False,
+@@ -481,6 +483,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
+         default_field_extras=default_field_extras,
+         target_datetime_class=output_datetime_class,
+         keyword_only=keyword_only,
++        frozen_dataclasses=frozen_dataclasses,
+         no_alias=no_alias,
+         formatters=formatters,
+         encoding=encoding,
+diff --git a/src/datamodel_code_generator/__main__.py b/src/datamodel_code_generator/__main__.py
+index e04b3e82..091bc62a 100644
+--- a/src/datamodel_code_generator/__main__.py
++++ b/src/datamodel_code_generator/__main__.py
+@@ -312,6 +312,7 @@ class Config(BaseModel):
+     union_mode: Optional[UnionMode] = None  # noqa: UP045
+     output_datetime_class: Optional[DatetimeClassType] = None  # noqa: UP045
+     keyword_only: bool = False
++    frozen_dataclasses: bool = False
+     no_alias: bool = False
+     formatters: list[Formatter] = DEFAULT_FORMATTERS
+     parent_scoped_naming: bool = False
+@@ -524,6 +525,7 @@ def main(args: Sequence[str] | None = None) -> Exit:  # noqa: PLR0911, PLR0912,
+             union_mode=config.union_mode,
+             output_datetime_class=config.output_datetime_class,
+             keyword_only=config.keyword_only,
++            frozen_dataclasses=config.frozen_dataclasses,
+             no_alias=config.no_alias,
+             formatters=config.formatters,
+             parent_scoped_naming=config.parent_scoped_naming,
+diff --git a/src/datamodel_code_generator/arguments.py b/src/datamodel_code_generator/arguments.py
+index 599cbb7f..76aa7ef8 100644
+--- a/src/datamodel_code_generator/arguments.py
++++ b/src/datamodel_code_generator/arguments.py
+@@ -135,6 +135,12 @@ model_options.add_argument(
+     action="store_true",
+     default=None,
+ )
++model_options.add_argument(
++    "--frozen-dataclasses",
++    help="Generate dataclasses with frozen=True",
++    action="store_true",
++    default=None,
++)
+ model_options.add_argument(
+     "--enable-version-header",
+     help="Enable package version on file headers",
+diff --git a/src/datamodel_code_generator/model/base.py b/src/datamodel_code_generator/model/base.py
+index e2cefcae..b37331d3 100644
+--- a/src/datamodel_code_generator/model/base.py
++++ b/src/datamodel_code_generator/model/base.py
+@@ -276,8 +276,11 @@ class DataModel(TemplateBase, Nullable, ABC):
+         nullable: bool = False,
+         keyword_only: bool = False,
+         treat_dot_as_module: bool = False,
++        frozen_dataclasses: bool = False,
++        
+     ) -> None:
+         self.keyword_only = keyword_only
++        self.frozen_dataclasses = frozen_dataclasses
+         if not self.TEMPLATE_FILE_PATH:
+             msg = "TEMPLATE_FILE_PATH is undefined"
+             raise Exception(msg)  # noqa: TRY002
+@@ -434,5 +437,6 @@ class DataModel(TemplateBase, Nullable, ABC):
+             methods=self.methods,
+             description=self.description,
+             keyword_only=self.keyword_only,
++            frozen_dataclasses=self.frozen_dataclasses,
+             **self.extra_template_data,
+         )
+diff --git a/src/datamodel_code_generator/model/dataclass.py b/src/datamodel_code_generator/model/dataclass.py
+index 190c6f63..fd156ca9 100644
+--- a/src/datamodel_code_generator/model/dataclass.py
++++ b/src/datamodel_code_generator/model/dataclass.py
+@@ -53,6 +53,8 @@ class DataClass(DataModel):
+         default: Any = UNDEFINED,
+         nullable: bool = False,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         treat_dot_as_module: bool = False,
+     ) -> None:
+         super().__init__(
+@@ -69,7 +71,8 @@ class DataClass(DataModel):
+             default=default,
+             nullable=nullable,
+             keyword_only=keyword_only,
+-            treat_dot_as_module=treat_dot_as_module,
++            frozen_dataclasses=frozen_dataclasses,
++        
+         )
+ 
+ 
+diff --git a/src/datamodel_code_generator/model/msgspec.py b/src/datamodel_code_generator/model/msgspec.py
+index be9ecbd3..092f7961 100644
+--- a/src/datamodel_code_generator/model/msgspec.py
++++ b/src/datamodel_code_generator/model/msgspec.py
+@@ -97,6 +97,8 @@ class Struct(DataModel):
+         default: Any = UNDEFINED,
+         nullable: bool = False,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         treat_dot_as_module: bool = False,
+     ) -> None:
+         super().__init__(
+@@ -114,6 +116,7 @@ class Struct(DataModel):
+             nullable=nullable,
+             keyword_only=keyword_only,
+             treat_dot_as_module=treat_dot_as_module,
++            frozen_dataclasses=frozen_dataclasses,
+         )
+         self.extra_template_data.setdefault("base_class_kwargs", {})
+         if self.keyword_only:
+diff --git a/src/datamodel_code_generator/model/pydantic/base_model.py b/src/datamodel_code_generator/model/pydantic/base_model.py
+index 2d5641ec..053adca4 100644
+--- a/src/datamodel_code_generator/model/pydantic/base_model.py
++++ b/src/datamodel_code_generator/model/pydantic/base_model.py
+@@ -213,6 +213,8 @@ class BaseModelBase(DataModel, ABC):
+         default: Any = UNDEFINED,
+         nullable: bool = False,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         treat_dot_as_module: bool = False,
+     ) -> None:
+         methods: list[str] = [field.method for field in fields if field.method]
+@@ -232,6 +234,7 @@ class BaseModelBase(DataModel, ABC):
+             nullable=nullable,
+             keyword_only=keyword_only,
+             treat_dot_as_module=treat_dot_as_module,
++            frozen_dataclasses=frozen_dataclasses,
+         )
+ 
+     @cached_property
+@@ -265,6 +268,8 @@ class BaseModel(BaseModelBase):
+         default: Any = UNDEFINED,
+         nullable: bool = False,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         treat_dot_as_module: bool = False,
+     ) -> None:
+         super().__init__(
+@@ -281,6 +286,7 @@ class BaseModel(BaseModelBase):
+             nullable=nullable,
+             keyword_only=keyword_only,
+             treat_dot_as_module=treat_dot_as_module,
++            frozen_dataclasses=frozen_dataclasses,
+         )
+         config_parameters: dict[str, Any] = {}
+ 
+diff --git a/src/datamodel_code_generator/model/pydantic_v2/base_model.py b/src/datamodel_code_generator/model/pydantic_v2/base_model.py
+index 918ed8e7..d4ff4e1b 100644
+--- a/src/datamodel_code_generator/model/pydantic_v2/base_model.py
++++ b/src/datamodel_code_generator/model/pydantic_v2/base_model.py
+@@ -179,6 +179,8 @@ class BaseModel(BaseModelBase):
+         default: Any = UNDEFINED,
+         nullable: bool = False,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         treat_dot_as_module: bool = False,
+     ) -> None:
+         super().__init__(
+@@ -195,6 +197,7 @@ class BaseModel(BaseModelBase):
+             nullable=nullable,
+             keyword_only=keyword_only,
+             treat_dot_as_module=treat_dot_as_module,
++            frozen_dataclasses=frozen_dataclasses,
+         )
+         config_parameters: dict[str, Any] = {}
+ 
+diff --git a/src/datamodel_code_generator/model/template/dataclass.jinja2 b/src/datamodel_code_generator/model/template/dataclass.jinja2
+index 632026b5..47a08a0e 100644
+--- a/src/datamodel_code_generator/model/template/dataclass.jinja2
++++ b/src/datamodel_code_generator/model/template/dataclass.jinja2
+@@ -1,7 +1,7 @@
+ {% for decorator in decorators -%}
+ {{ decorator }}
+ {% endfor -%}
+-@dataclass{%- if keyword_only -%}(kw_only=True){%- endif %}
++@dataclass{%- if frozen_dataclasses -%}(frozen=True){%- elif keyword_only -%}(kw_only=True){%- endif %}
+ {%- if base_class %}
+ class {{ class_name }}({{ base_class }}):
+ {%- else %}
+diff --git a/src/datamodel_code_generator/model/typed_dict.py b/src/datamodel_code_generator/model/typed_dict.py
+index 708812a1..c9eb8286 100644
+--- a/src/datamodel_code_generator/model/typed_dict.py
++++ b/src/datamodel_code_generator/model/typed_dict.py
+@@ -60,6 +60,8 @@ class TypedDict(DataModel):
+         default: Any = UNDEFINED,
+         nullable: bool = False,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         treat_dot_as_module: bool = False,
+     ) -> None:
+         super().__init__(
+@@ -77,6 +79,7 @@ class TypedDict(DataModel):
+             nullable=nullable,
+             keyword_only=keyword_only,
+             treat_dot_as_module=treat_dot_as_module,
++            frozen_dataclasses=frozen_dataclasses,
+         )
+ 
+     @property
+diff --git a/src/datamodel_code_generator/parser/base.py b/src/datamodel_code_generator/parser/base.py
+index 098ceea4..a8a47fc2 100644
+--- a/src/datamodel_code_generator/parser/base.py
++++ b/src/datamodel_code_generator/parser/base.py
+@@ -377,11 +377,14 @@ class Parser(ABC):
+         default_field_extras: dict[str, Any] | None = None,
+         target_datetime_class: DatetimeClassType | None = DatetimeClassType.Datetime,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         no_alias: bool = False,
+         formatters: list[Formatter] = DEFAULT_FORMATTERS,
+         parent_scoped_naming: bool = False,
+     ) -> None:
+         self.keyword_only = keyword_only
++        self.frozen_dataclasses = frozen_dataclasses
+         self.data_type_manager: DataTypeManager = data_type_manager_type(
+             python_version=target_python_version,
+             use_standard_collections=use_standard_collections,
+diff --git a/src/datamodel_code_generator/parser/graphql.py b/src/datamodel_code_generator/parser/graphql.py
+index 107a5164..f4aef78a 100644
+--- a/src/datamodel_code_generator/parser/graphql.py
++++ b/src/datamodel_code_generator/parser/graphql.py
+@@ -455,6 +455,7 @@ class GraphQLParser(Parser):
+             path=self.current_source_path,
+             description=obj.description,
+             keyword_only=self.keyword_only,
++            frozen_dataclasses=self.frozen_dataclasses,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
+         self.results.append(data_model_type)
+diff --git a/src/datamodel_code_generator/parser/jsonschema.py b/src/datamodel_code_generator/parser/jsonschema.py
+index 09cfc0af..b7ba0b9f 100644
+--- a/src/datamodel_code_generator/parser/jsonschema.py
++++ b/src/datamodel_code_generator/parser/jsonschema.py
+@@ -431,6 +431,8 @@ class JsonSchemaParser(Parser):
+         default_field_extras: dict[str, Any] | None = None,
+         target_datetime_class: DatetimeClassType = DatetimeClassType.Datetime,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         no_alias: bool = False,
+         formatters: list[Formatter] = DEFAULT_FORMATTERS,
+         parent_scoped_naming: bool = False,
+@@ -506,6 +508,7 @@ class JsonSchemaParser(Parser):
+             default_field_extras=default_field_extras,
+             target_datetime_class=target_datetime_class,
+             keyword_only=keyword_only,
++            frozen_dataclasses=frozen_dataclasses,
+             no_alias=no_alias,
+             formatters=formatters,
+             parent_scoped_naming=parent_scoped_naming,
+@@ -753,6 +756,7 @@ class JsonSchemaParser(Parser):
+             path=self.current_source_path,
+             description=obj.description if self.use_schema_description else None,
+             keyword_only=self.keyword_only,
++            frozen_dataclasses=self.frozen_dataclasses,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
+         self.results.append(data_model_type)
+@@ -992,6 +996,7 @@ class JsonSchemaParser(Parser):
+             description=obj.description if self.use_schema_description else None,
+             nullable=obj.type_has_null,
+             keyword_only=self.keyword_only,
++            frozen_dataclasses=self.frozen_dataclasses,
+             treat_dot_as_module=self.treat_dot_as_module,
+         )
+         self.results.append(data_model_type)
+diff --git a/src/datamodel_code_generator/parser/openapi.py b/src/datamodel_code_generator/parser/openapi.py
+index ec8bec14..6e16d8f4 100644
+--- a/src/datamodel_code_generator/parser/openapi.py
++++ b/src/datamodel_code_generator/parser/openapi.py
+@@ -214,6 +214,8 @@ class OpenAPIParser(JsonSchemaParser):
+         default_field_extras: dict[str, Any] | None = None,
+         target_datetime_class: DatetimeClassType = DatetimeClassType.Datetime,
+         keyword_only: bool = False,
++        frozen_dataclasses: bool = False,
++        
+         no_alias: bool = False,
+         formatters: list[Formatter] = DEFAULT_FORMATTERS,
+         parent_scoped_naming: bool = False,
+@@ -289,6 +291,7 @@ class OpenAPIParser(JsonSchemaParser):
+             default_field_extras=default_field_extras,
+             target_datetime_class=target_datetime_class,
+             keyword_only=keyword_only,
++            frozen_dataclasses=frozen_dataclasses,
+             no_alias=no_alias,
+             formatters=formatters,
+             parent_scoped_naming=parent_scoped_naming,
+@@ -490,6 +493,7 @@ class OpenAPIParser(JsonSchemaParser):
+                     custom_base_class=self.base_class,
+                     custom_template_dir=self.custom_template_dir,
+                     keyword_only=self.keyword_only,
++                    frozen_dataclasses=self.frozen_dataclasses,
+                     treat_dot_as_module=self.treat_dot_as_module,
+                 )
+             )

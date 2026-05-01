@@ -1,0 +1,32 @@
+diff --git a/llama_deploy/apiserver/config_parser.py b/llama_deploy/apiserver/config_parser.py
+index 774efa1..1f47e09 100644
+--- a/llama_deploy/apiserver/config_parser.py
++++ b/llama_deploy/apiserver/config_parser.py
+@@ -60,6 +60,7 @@ class Service(BaseModel):
+     port: int | None = None
+     python_dependencies: list[str] | None = Field(None, alias="python-dependencies")
+     ts_dependencies: dict[str, str] | None = Field(None, alias="ts-dependencies")
++    env: dict[str, str] | None = None
+ 
+ 
+ class Config(BaseModel):
+diff --git a/llama_deploy/apiserver/deployment.py b/llama_deploy/apiserver/deployment.py
+index 80243b0..a4eeae3 100644
+--- a/llama_deploy/apiserver/deployment.py
++++ b/llama_deploy/apiserver/deployment.py
+@@ -157,6 +157,15 @@ class Deployment:
+             # Search for a workflow instance in the service path
+             pythonpath = (destination / service_config.path).parent.resolve()
+             sys.path.append(str(pythonpath))
++
++            # Set environment variables for the service if defined
++            if service_config.env:
++                # Store current environment to restore later if needed
++                old_env = {}
++                for key, value in service_config.env.items():
++                    old_env[key] = os.environ.get(key)
++                    os.environ[key] = value
++
+             module_name, workflow_name = Path(service_config.path).name.split(":")
+             module = importlib.import_module(module_name)
+             workflow = getattr(module, workflow_name)

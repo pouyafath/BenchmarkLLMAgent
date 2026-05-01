@@ -1,0 +1,79 @@
+diff --git a/src/pdm/_types.py b/src/pdm/_types.py
+index dd753efb..9e04c54d 100644
+--- a/src/pdm/_types.py
++++ b/src/pdm/_types.py
+@@ -7,11 +7,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, Union
+ if TYPE_CHECKING:
+     from typing import Protocol
+ 
+-
+ def _normalize_pattern(pattern: str) -> str:
+     return re.sub(r"[^A-Za-z0-9?*\[\]-]+", "-", pattern).lower()
+ 
+-
+ @dc.dataclass
+ class RepositoryConfig:
+     """Private dataclass to be subclassed"""
+@@ -29,20 +27,31 @@ class RepositoryConfig:
+     client_key: str | None = None
+     include_packages: list[str] = dc.field(default_factory=list)
+     exclude_packages: list[str] = dc.field(default_factory=list)
++    _auth_populated: bool = dc.field(default=False, init=False)
++    _auth_cached: tuple[str, str] | None = dc.field(default=None, init=False, repr=False)
+ 
+     def __post_init__(self) -> None:
+         self.include_packages = [_normalize_pattern(p) for p in self.include_packages]
+         self.exclude_packages = [_normalize_pattern(p) for p in self.exclude_packages]
+ 
+     def populate_auth(self) -> None:
++        # If auth has already been populated, return early
++        if self._auth_populated:
++            if self._auth_cached is not None:
++                self.username, self.password = self._auth_cached
++            return
++
+         if self.username is None or self.password is None:
+             from pdm.models.auth import keyring
+ 
+             service = f"pdm-{self.config_prefix}-{self.name}"
+             auth = keyring.get_auth_info(service, self.username)
++            self._auth_cached = auth
+             if auth is not None:
+                 self.username, self.password = auth
+ 
++        self._auth_populated = True
++
+     def passive_update(self, other: RepositoryConfig | None = None, **kwargs: Any) -> None:
+         """An update method that prefers the existing value over the new one."""
+         if other is not None:
+@@ -72,20 +81,16 @@ class RepositoryConfig:
+             lines.append(f"[primary]{config_prefix}ca_certs[/] = {self.ca_certs}")
+         return "\n".join(lines)
+ 
+-
+ RequirementDict = Union[str, dict[str, Union[str, bool]]]
+ CandidateInfo = tuple[list[str], str, str]
+ 
+-
+ class SearchResult(NamedTuple):
+     name: str
+     version: str
+     summary: str
+ 
+-
+ SearchResults = list[SearchResult]
+ 
+-
+ if TYPE_CHECKING:
+     from typing import Required, TypedDict
+ 
+@@ -109,9 +114,7 @@ if TYPE_CHECKING:
+         hash: Required[str]
+         file: str
+ 
+-
+ class NotSetType:
+     pass
+ 
+-
+ NotSet = NotSetType()

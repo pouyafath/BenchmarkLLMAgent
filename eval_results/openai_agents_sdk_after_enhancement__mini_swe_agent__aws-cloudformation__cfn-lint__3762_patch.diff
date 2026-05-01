@@ -1,0 +1,49 @@
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@
+ class _Transform:
+@@
+         for k, v in deepcopy(obj).items():
+@@
+                 if re.match(FUNCTION_FOR_EACH, k):
+                     # only translate the foreach if its valid
+                     foreach = _ForEach(k, v, self._collections)
+                     # get the values will flatten the foreach
+-                    for collection_value in foreach.items(cfn):
++                    # If the foreach values resolve to an empty list, we simply
++                    # skip the iteration – this mirrors the expected CloudFormation
++                    # behaviour where an empty collection results in no resources
++                    # being generated. Previously this raised a generic
++                    # `_ResolveError` which surfaced as “Fn::ForEach could not be
++                    # resolved”. By handling the empty‑list case explicitly we
++                    # allow templates that legitimately have empty collections to
++                    # pass linting.
++                    for collection_value in foreach.items(cfn):
+                         flattened = self._walk(
+                             v[2], {**params, **{v[0]: collection_value}}, cfn
+                         )
+@@
+ class _ForEach:
+@@
+     def __init__(self, key: str, value: list, collections: MutableMapping[str, str]) -> None:
+@@
+         self._collections = collections
+         self._key = key
+         self._value = value
+@@
+         self._var_name = value[0]
+         self._values = value[1]
+         self._template = value[2]
+@@
+-    def items(self, cfn: Any) -> Iterator[Any]:
+-        \"\"\"Yield each resolved value for the foreach construct.\"\"\"
+-        # Resolve the values list – this may involve other transforms such as
+-        # Fn::FindInMap, Ref, etc. The resolution logic is encapsulated in the
+-        # `_resolve` helper which returns a list of concrete values.
+-        resolved_values = self._resolve(self._values, cfn)
+-        for val in resolved_values:
+-            yield val
++    def items(self, cfn: Any) -> Iterator[Any]:
++        \"\"\"Yield each resolved value for the foreach construct.\"
++
++        The original implementation attempted to resolve ``self._values``\n+        unconditionally. When ``self._values`` was an empty list (e.g.\n+        ``[]`` or a map that resolved to an empty list) the resolution step\n+        raised a ``_ResolveError`` which propagated up as the generic error\n+        *\"Fn::ForEach could not be resolved\"*. In CloudFormation an empty\n+        collection is a valid scenario – it simply results in no resources\n+        being generated. To align the linter with this behaviour we treat an\n+        empty list as a successful resolution that yields no items.\n+\n+        The method now:\n+        1. Checks if ``self._values`` is a list and is empty – if so, returns\n+           an empty iterator.\n+        2. Otherwise proceeds with the existing resolution logic.\n+        \"\"\"\n+        # Case 1: literal empty list – nothing to iterate over.\n+        if isinstance(self._values, list) and len(self._values) == 0:\n+            return iter([])\n+\n+        # Existing resolution path for non‑empty values.\n+        resolved_values = self._resolve(self._values, cfn)\n+        for val in resolved_values:\n+            yield val\n*** End of File ***

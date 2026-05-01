@@ -1,0 +1,189 @@
+diff --git a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+new file mode 100644
+index 000000000..4b9e0bf75
+--- /dev/null
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+@@ -0,0 +1,183 @@
++# Licensed under a 3-clause BSD style license - see LICENSE.rst
++"""
++Contains the transformation functions for getting to "observed" systems from ITRS.
++These transformations are designed for nearby objects (e.g., satellites, airplanes)
++where geocentric aberration corrections are not appropriate.
++"""
++
++import numpy as np
++import erfa
++
++from astropy import units as u
++from astropy.coordinates.baseframe import frame_transform_graph
++from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
++from astropy.coordinates.representation import (SphericalRepresentation,
++                                                CartesianRepresentation,
++                                                UnitSphericalRepresentation)
++from astropy.coordinates.builtin_frames.utils import PIOVER2
++
++from .itrs import ITRS
++from .altaz import AltAz
++from .hadec import HADec
++from .utils import get_polar_motion, get_jd12, EARTH_CENTER
++from ..erfa_astrom import erfa_astrom
++
++__all__ = ['itrs_to_observed', 'observed_to_itrs']
++
++def _get_itrs_to_cirs_matrix(itrs_coo):
++    """Get the transformation matrix from ITRS to CIRS."""
++    # compute the polar motion p-matrix
++    xp, yp = get_polar_motion(itrs_coo.obstime)
++    sp = erfa.sp00(*get_jd12(itrs_coo.obstime, 'tt'))
++    pmmat = erfa.pom00(xp, yp, sp)
++
++    # now determine the Earth Rotation Angle for the input obstime
++    # era00 accepts UT1, so we convert if need be
++    era = erfa.era00(*get_jd12(itrs_coo.obstime, 'ut1'))
++
++    # c2tcio expects a GCRS->CIRS matrix, but we just set that to an I-matrix
++    # because we're already in CIRS
++    return erfa.c2tcio(np.eye(3), era, pmmat)
++
++def _get_cirs_to_itrs_matrix(itrs_coo):
++    """Get the transformation matrix from CIRS to ITRS (transpose of ITRS to CIRS)."""
++    return np.transpose(_get_itrs_to_cirs_matrix(itrs_coo))
++
++def _get_observer_location_itrs(location, obstime):
++    """Get the observer location in ITRS coordinates."""
++    # Convert EarthLocation to ITRS
++    observer_itrs = location.get_itrs(obstime)
++    return observer_itrs.cartesian
++
++def _itrs_to_observed_direct(itrs_coo, observed_frame):
++    """
++    Direct transformation from ITRS to observed frames (AltAz/HADec) without
++    going through ICRS. This avoids geocentric aberration corrections that
++    are not appropriate for nearby objects.
++
++    The approach is:
++    1. Transform ITRS coordinates to CIRS (Celestial Intermediate Reference System)
++    2. Transform CIRS to observed coordinates (AltAz/HADec) using ERFA functions
++    3. Handle the left-handed coordinate systems of AltAz and HADec
++    """
++    # Get the observer location in ITRS
++    observer_itrs = _get_observer_location_itrs(observed_frame.location, observed_frame.obstime)
++
++    # Transform ITRS to CIRS
++    cirs_matrix = _get_itrs_to_cirs_matrix(itrs_coo)
++    cirs_cartesian = itrs_coo.cartesian.transform(cirs_matrix)
++
++    # For nearby objects, we need to account for the observer's position
++    # Subtract observer location from object location (both in CIRS)
++    if hasattr(cirs_cartesian, 'unit') and cirs_cartesian.unit == u.one:
++        # Unit spherical representation - no distance information
++        is_unitspherical = True
++        # For unit spherical, we can't do the subtraction, so we'll handle it differently
++        observer_cirs = observer_itrs.transform(cirs_matrix)
++        # Convert to spherical coordinates for the observed frame calculation
++        cirs_srepr = cirs_cartesian.represent_as(SphericalRepresentation)
++    else:
++        is_unitspherical = False
++        observer_cirs = observer_itrs.transform(cirs_matrix)
++        # Subtract observer position to get topocentric coordinates
++        topocentric_cirs = cirs_cartesian - observer_cirs
++        cirs_srepr = topocentric_cirs.represent_as(SphericalRepresentation)
++
++    # Convert CIRS spherical coordinates to observed frame
++    # We need to use ERFA functions that work with CIRS coordinates directly
++    cirs_ra = cirs_srepr.lon.to_value(u.radian)
++    cirs_dec = cirs_srepr.lat.to_value(u.radian)
++
++    # Set up astrometry context for the observed frame
++    astrom = erfa_astrom.get().apco(observed_frame)
++
++    # Convert CIRS to observed coordinates using the same approach as icrs_observed_transforms
++    # The key difference is that we're starting from CIRS instead of ICRS
++    if isinstance(observed_frame, AltAz):
++        lon, zen, _, _, _ = erfa.atioq(cirs_ra, cirs_dec, astrom)
++        lat = PIOVER2 - zen
++    else:  # HADec
++        _, _, lon, lat, _ = erfa.atioq(cirs_ra, cirs_dec, astrom)
++
++    if is_unitspherical:
++        obs_srepr = UnitSphericalRepresentation(lon << u.radian, lat << u.radian, copy=False)
++    else:
++        obs_srepr = SphericalRepresentation(lon << u.radian, lat << u.radian, cirs_srepr.distance, copy=False)
++
++    return observed_frame.realize_frame(obs_srepr)
++
++def _observed_to_itrs_direct(observed_coo, itrs_frame):
++    """
++    Direct transformation from observed frames (AltAz/HADec) to ITRS without
++    going through ICRS. This is the inverse of _itrs_to_observed_direct.
++    """
++    # Get the observer location in ITRS
++    observer_itrs = _get_observer_location_itrs(itrs_frame.location, itrs_frame.obstime)
++
++    # Convert observed coordinates to CIRS
++    usrepr = observed_coo.represent_as(UnitSphericalRepresentation)
++    lon = usrepr.lon.to_value(u.radian)
++    lat = usrepr.lat.to_value(u.radian)
++
++    if isinstance(observed_coo, AltAz):
++        # the 'A' indicates zen/az inputs
++        coord_type = 'A'
++        lat = PIOVER2 - lat
++    else:
++        coord_type = 'H'
++
++    # Set up astrometry context for the observed frame
++    astrom = erfa_astrom.get().apco(observed_coo)
++
++    # Topocentric CIRS
++    cirs_ra, cirs_dec = erfa.atoiq(coord_type, lon, lat, astrom) << u.radian
++
++    # Check if we have unit spherical representation
++    is_unitspherical = (isinstance(observed_coo.data, UnitSphericalRepresentation) or
++                        observed_coo.cartesian.x.unit == u.one)
++
++    if is_unitspherical:
++        # For unit spherical, we need to reconstruct the distance
++        # We'll use a default distance of 1 for the transformation
++        srepr = SphericalRepresentation(cirs_ra, cirs_dec, 1, copy=False)
++    else:
++        srepr = SphericalRepresentation(lon=cirs_ra, lat=cirs_dec,
++                                        distance=observed_coo.distance, copy=False)
++
++    # Convert CIRS spherical to Cartesian
++    cirs_cartesian = srepr.to_cartesian()
++
++    # Add observer position back to get geocentric coordinates
++    observer_cirs = observer_itrs.transform(_get_itrs_to_cirs_matrix(observed_coo))
++    geocentric_cirs = cirs_cartesian + observer_cirs
++
++    # Transform CIRS back to ITRS
++    cirs_to_itrs_matrix = _get_cirs_to_itrs_matrix(observed_coo)
++    itrs_cartesian = geocentric_cirs.transform(cirs_to_itrs_matrix)
++
++    # Create ITRS frame with the same obstime as the target frame
++    # Note: For nearby objects, the obstime should be adopted from the observed frame
++    return itrs_frame.realize_frame(itrs_cartesian)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_observed(itrs_coo, observed_frame):
++    """
++    Transform ITRS coordinates to observed frames (AltAz/HADec) directly,
++    without going through ICRS. This avoids geocentric aberration corrections
++    that are not appropriate for nearby objects.
++    """
++    return _itrs_to_observed_direct(itrs_coo, observed_frame)
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def observed_to_itrs(observed_coo, itrs_frame):
++    """
++    Transform observed frames (AltAz/HADec) to ITRS directly,
++    without going through ICRS. This is the inverse of itrs_to_observed.
++    """
++    return _observed_to_itrs_direct(observed_coo, itrs_frame)
++
++# Create loopback transformations
++frame_transform_graph._add_merged_transform(AltAz, ITRS, AltAz)
++frame_transform_graph._add_merged_transform(HADec, ITRS, HADec)

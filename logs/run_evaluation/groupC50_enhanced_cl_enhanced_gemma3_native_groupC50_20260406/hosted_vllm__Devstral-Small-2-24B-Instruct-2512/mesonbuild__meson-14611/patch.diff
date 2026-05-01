@@ -1,0 +1,73 @@
+diff --git a/mesonbuild/options.py b/mesonbuild/options.py
+index ac90b2292..60a88a1a6 100644
+--- a/mesonbuild/options.py
++++ b/mesonbuild/options.py
+@@ -817,6 +817,7 @@ class OptionStore:
+         # configuration dependent options like compiler options, or options for
+         # a different subproject
+         self.pending_options: T.Dict[OptionKey, ElementaryOptionValues] = {}
++        self._options_from_machine_files: T.Set[OptionKey] = set()
+ 
+     def clear_pending(self) -> None:
+         self.pending_options = {}
+@@ -1297,13 +1298,18 @@ class OptionStore:
+             if key.subproject:
+                 self.augments[key] = valstr
+             elif key in self.options:
++                self._options_from_machine_files.add(key)
+                 self.set_option(key, valstr, first_invocation)
+             else:
+                 proj_key = key.as_root()
+                 if proj_key in self.options:
++                    self._options_from_machine_files.add(proj_key)
+                     self.set_option(proj_key, valstr, first_invocation)
+                 else:
+-                    self.pending_options[key] = valstr
++                    # Don't add builtin options to pending_options as they should be treated as final
++                    # Command line options can still override them through the cmd_line_options processing
++                    if not self.is_builtin_option(key):
++                        self.pending_options[key] = valstr
+         for keystr, valstr in project_default_options.items():
+             # Ths is complicated by the fact that a string can have two meanings:
+             #
+@@ -1326,7 +1332,7 @@ class OptionStore:
+                 continue
+             if key.subproject:
+                 self.augments[key] = valstr
+-            elif key in self.options:
++            elif key in self.options and key not in self._options_from_machine_files:
+                 self.set_option(key, valstr, first_invocation)
+             else:
+                 # Setting a project option with default_options.
+@@ -1337,7 +1343,10 @@ class OptionStore:
+                 if self.is_project_option(proj_key):
+                     self.set_option(proj_key, valstr)
+                 else:
+-                    self.pending_options[key] = valstr
++                    # Don't add builtin options to pending_options as they should be treated as final
++                    # Command line options can still override them through the cmd_line_options processing
++                    if not self.is_builtin_option(key):
++                        self.pending_options[key] = valstr
+         for keystr, valstr in cmd_line_options.items():
+             if isinstance(keystr, str):
+                 key = OptionKey.from_string(keystr)
+@@ -1349,14 +1358,17 @@ class OptionStore:
+                 continue
+             if key.subproject:
+                 self.augments[key] = valstr
+-            elif key in self.options:
++            elif key in self.options or key in self._options_from_machine_files:
+                 self.set_option(key, valstr, True)
+             else:
+                 proj_key = key.as_root()
+                 if proj_key in self.options:
+                     self.set_option(proj_key, valstr, True)
+                 else:
+-                    self.pending_options[key] = valstr
++                    # Don't add builtin options to pending_options as they should be treated as final
++                    # Command line options can still override them through the cmd_line_options processing
++                    if not self.is_builtin_option(key):
++                        self.pending_options[key] = valstr
+ 
+     def accept_as_pending_option(self, key: OptionKey, known_subprojects: T.Optional[T.Union[T.Set[str], T.KeysView[str]]] = None) -> bool:
+         # Fail on unknown options that we can know must exist at this point in time.

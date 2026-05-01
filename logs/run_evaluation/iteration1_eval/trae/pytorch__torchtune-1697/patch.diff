@@ -1,0 +1,27 @@
+diff --git a/torchtune/datasets/_packed.py b/torchtune/datasets/_packed.py
+--- a/torchtune/datasets/_packed.py
++++ b/torchtune/datasets/_packed.py
+@@ -1,2 +1,2 @@
+         for sample in self.ds:
+             tokens, labels = sample["tokens"], sample["labels"]
+@@ -1,10 +1,18 @@
+             # If the current pack is over the max_seq_len, add it to self.packs and
+             # retain any truncated or bumped samples for next pack
+-            if len(current_pack["tokens"]) > self.max_seq_len:
+-                current_pack = self._split_and_add_pack(current_pack)
++            if len(current_pack["tokens"]) > self.max_seq_len:
++                # In cases where a single sample is longer than ``max_seq_len`` and
++                # ``split_across_pack`` is ``True``, the remaining portion after the
++                # first split can still exceed ``max_seq_len`` (e.g., a sample longer
++                # than ``2 * max_seq_len``).  We therefore need to keep splitting the
++                # pack until the leftover portion fits within the limit.
++                # ``_split_and_add_pack`` returns the remainder of the current pack,
++                # which may still be too large.
++                while len(current_pack["tokens"]) > self.max_seq_len:
++                    current_pack = self._split_and_add_pack(current_pack)
+ 
+             if rank == 0:
+                 pbar.update()
+ 
+             # Keep track of previous sample boundary
+ *** End of File ***

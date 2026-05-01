@@ -1,0 +1,58 @@
+diff --git a/autogen/agentchat/contrib/llava_agent.py b/autogen/agentchat/contrib/llava_agent.py
+index 65c39fd..0b7d626 100644
+--- a/autogen/agentchat/contrib/llava_agent.py
++++ b/autogen/agentchat/contrib/llava_agent.py
+@@ -98,10 +98,34 @@ class LLaVAAgent(MultimodalConversableAgent):
+         return True, out
+ 
+ 
++
++def _is_openai_api_url(base_url: str) -> bool:
++    """Check if a base_url looks like an OpenAI API compatible endpoint.
++
++    OpenAI API compatible endpoints typically include '/v1' in the URL path.
++    """
++    return "/v1" in base_url
++
+ def _llava_call_binary_with_config(
+     prompt: str, images: list, config: dict, max_new_tokens: int = 1000, temperature: float = 0.5, seed: int = 1
+ ):
+-    if config["base_url"].find("0.0.0.0") >= 0 or config["base_url"].find("localhost") >= 0:
++    base_url = config["base_url"]
++
++    # Check if this is an OpenAI API compatible endpoint
++    if _is_openai_api_url(base_url):
++        error_msg = (
++            f"LLaVAAgent does not support OpenAI API compatible endpoints (detected '/v1' in base_url: {base_url}).\n"
++            "Please use MultimodalConversableAgent instead, which supports OpenAI API compatible models.\n"
++            "Example configuration:\n"
++            "  assistant = MultimodalConversableAgent(\n"
++            "      name='image-explainer',\n"
++            "      llm_config={'config_list': [{'model': 'llava', 'api_key': 'NULL', 'base_url': 'http://0.0.0.0:8001/v1'}], ...}\n"
++            "  )"
++        )
++        logger.error(error_msg)
++        raise ValueError(error_msg)
++
++    if base_url.find("0.0.0.0") >= 0 or base_url.find("localhost") >= 0:
+         llava_mode = "local"
+     else:
+         llava_mode = "remote"
+@@ -118,7 +142,7 @@ def _llava_call_binary_with_config(
+         }
+ 
+         response = requests.post(
+-            config["base_url"].rstrip("/") + "/worker_generate_stream", headers=headers, json=pload, stream=False
++            base_url.rstrip("/") + "/worker_generate_stream", headers=headers, json=pload, stream=False
+         )
+ 
+         for chunk in response.iter_lines(chunk_size=8192, decode_unicode=False, delimiter=b"\0"):
+@@ -129,7 +153,7 @@ def _llava_call_binary_with_config(
+         # The Replicate version of the model only support 1 image for now.
+         img = "data:image/jpeg;base64," + images[0]
+         response = replicate.run(
+-            config["base_url"], input={"image": img, "prompt": prompt.replace("<image>", " "), "seed": seed}
++            base_url, input={"image": img, "prompt": prompt.replace("<image>", " "), "seed": seed}
+         )
+         # The yorickvp/llava-13b model can stream output as it's running.
+         # The predict method returns an iterator, and you can iterate over that output.

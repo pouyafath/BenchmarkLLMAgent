@@ -1,0 +1,55 @@
+diff --git a/src/flask/app.py b/src/flask/app.py
+index c4f309f3..126928c3 100644
+--- a/src/flask/app.py
++++ b/src/flask/app.py
+@@ -184,6 +184,7 @@ class Flask(App):
+             "PERMANENT_SESSION_LIFETIME": timedelta(days=31),
+             "USE_X_SENDFILE": False,
+             "SERVER_NAME": None,
++            "CANONICAL_URL": None,
+             "APPLICATION_ROOT": "/",
+             "SESSION_COOKIE_NAME": "session",
+             "SESSION_COOKIE_DOMAIN": None,
+@@ -451,9 +452,40 @@ class Flask(App):
+             )
+         # We need at the very least the server name to be set for this
+         # to work.
+-        if self.config["SERVER_NAME"] is not None:
++        canonical_url = self.config["CANONICAL_URL"]
++        server_name = self.config["SERVER_NAME"]
++
++        if canonical_url is not None:
++            # Parse CANONICAL_URL to extract host and scheme
++            from urllib.parse import urlparse
++
++            # Check if the URL has a scheme
++            if "://" in canonical_url:
++                parsed = urlparse(canonical_url)
++                host = parsed.netloc
++                scheme = parsed.scheme or self.config["PREFERRED_URL_SCHEME"]
++            else:
++                # No scheme, treat as netloc (host:port or just host)
++                host = canonical_url
++                scheme = self.config["PREFERRED_URL_SCHEME"]
++
++            return self.url_map.bind(
++                host,
++                script_name=self.config["APPLICATION_ROOT"],
++                url_scheme=scheme,
++            )
++        elif server_name is not None:
++            # Deprecation warning for using SERVER_NAME for URL generation
++            import warnings
++            warnings.warn(
++                "Using SERVER_NAME for URL generation outside request context "
++                "is deprecated and will be removed in Flask 3.1. "
++                "Use CANONICAL_URL instead.",
++                DeprecationWarning,
++                stacklevel=2
++            )
+             return self.url_map.bind(
+-                self.config["SERVER_NAME"],
++                server_name,
+                 script_name=self.config["APPLICATION_ROOT"],
+                 url_scheme=self.config["PREFERRED_URL_SCHEME"],
+             )

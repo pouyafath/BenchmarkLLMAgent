@@ -1,0 +1,23 @@
+diff --git a/lib/matplotlib/figure.py b/lib/matplotlib/figure.py
+index c55864243a..b92dfe51e1 100644
+--- a/lib/matplotlib/figure.py
++++ b/lib/matplotlib/figure.py
+@@ -3015,6 +3015,8 @@ class Figure(FigureBase):
+     def __getstate__(self):
+         state = super().__getstate__()
+ 
++        # Preserve _original_dpi for unpickling
++        state['_original_dpi'] = getattr(self, '_original_dpi', self.dpi)
+         # The canvas cannot currently be pickled, but this has the benefit
+         # of meaning that a figure can be detached from one canvas, and
+         # re-attached to another.
+@@ -3036,6 +3038,9 @@ class Figure(FigureBase):
+         version = state.pop('__mpl_version__')
+         restore_to_pylab = state.pop('_restore_to_pylab', False)
+ 
++        # Restore _original_dpi if it was saved
++        self._original_dpi = state.pop('_original_dpi', 100.0)
++
+         if version != mpl.__version__:
+             _api.warn_external(
+                 f"This figure was saved with matplotlib version {version} and "

@@ -1,0 +1,91 @@
+diff --git a/llama_deploy/apiserver/config_parser.py b/llama_deploy/apiserver/config_parser.py
+index 774efa1..1f47e09 100644
+--- a/llama_deploy/apiserver/config_parser.py
++++ b/llama_deploy/apiserver/config_parser.py
+@@ -60,6 +60,7 @@ class Service(BaseModel):
+     port: int | None = None
+     python_dependencies: list[str] | None = Field(None, alias="python-dependencies")
+     ts_dependencies: dict[str, str] | None = Field(None, alias="ts-dependencies")
++    env: dict[str, str] | None = None
+ 
+ 
+ class Config(BaseModel):
+diff --git a/llama_deploy/apiserver/deployment.py b/llama_deploy/apiserver/deployment.py
+index 80243b0..30e3634 100644
+--- a/llama_deploy/apiserver/deployment.py
++++ b/llama_deploy/apiserver/deployment.py
+@@ -1,6 +1,7 @@
+ import asyncio
+ import importlib
+ import subprocess
++import os
+ import sys
+ from multiprocessing.pool import ThreadPool
+ from pathlib import Path
+@@ -157,6 +158,12 @@ class Deployment:
+             # Search for a workflow instance in the service path
+             pythonpath = (destination / service_config.path).parent.resolve()
+             sys.path.append(str(pythonpath))
++
++            # Set environment variables if specified in the service config
++            if service_config.env:
++                for key, value in service_config.env.items():
++                    os.environ[key] = value
++
+             module_name, workflow_name = Path(service_config.path).name.split(":")
+             module = importlib.import_module(module_name)
+             workflow = getattr(module, workflow_name)
+diff --git a/tests/apiserver/test_config_parser.py b/tests/apiserver/test_config_parser.py
+index 6cbcf18..b1e1f95 100644
+--- a/tests/apiserver/test_config_parser.py
++++ b/tests/apiserver/test_config_parser.py
+@@ -53,3 +53,49 @@ def test_from_yaml_bytes(data_path: Path) -> None:
+     with open(data_path / "example.yaml", "rb") as config_f:
+         config = Config.from_yaml_bytes(config_f.read())
+         do_assert(config)
++def test_load_config_file_with_env_vars(data_path: Path) -> None:
++    """Test that environment variables are correctly parsed from YAML config."""
++    config = Config.from_yaml(data_path / "example_with_env.yaml")
++
++    # Basic config assertions
++    assert config.name == "MyDeploymentWithEnv"
++    assert config.control_plane.port == 8000
++    assert config.default_service == "myworkflow"
++
++    # Test myworkflow service with env variables
++    myworkflow = config.services["myworkflow"]
++    assert myworkflow.name == "My Python Workflow"
++    assert myworkflow.env is not None
++    assert myworkflow.env["OPENAI_API_KEY"] == "sk-test123"
++    assert myworkflow.env["ANOTHER_SECRET"] == "secret-value"
++    assert myworkflow.source.type == "git"
++    assert myworkflow.source.name == "git@github.com/myorg/myrepo"
++    assert myworkflow.path == "src/python/app"
++    assert myworkflow.port == 1313
++    assert myworkflow.python_dependencies is not None
++    assert len(myworkflow.python_dependencies) == 2
++
++    # Test another-workflow service with env variables
++    another_workflow = config.services["another-workflow"]
++    assert another_workflow.name == "My LITS Workflow"
++    assert another_workflow.env is not None
++    assert another_workflow.env["API_ENDPOINT"] == "https://api.example.com"
++    assert another_workflow.source.type == "git"
++    assert another_workflow.source.name == "git@github.com/myorg/myrepo"
++    assert another_workflow.path == "src/ts/app"
++    assert another_workflow.port == 1313
++    assert another_workflow.ts_dependencies is not None
++    assert len(another_workflow.ts_dependencies) == 2
++
++    # Test dockerservice without env variables
++    dockerservice = config.services["dockerservice"]
++    assert dockerservice.name == "My additional service"
++    assert dockerservice.env is None
++    assert dockerservice.source.type == "docker"
++    assert dockerservice.source.name == "myorg/myimage:latest"
++    assert dockerservice.port == 1313
++
++    # Test memory service without env variables
++    memory = config.services["memory"]
++    assert memory.name == "Chat Memory"
++    assert memory.env is None

@@ -1,0 +1,43 @@
+diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+index d7605b078..8671f304a 100644
+--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
++++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py
+@@ -251,7 +251,37 @@ class SlicedLowLevelWCS(BaseWCSWrapper):
+                 iworld_curr += 1
+                 world_arrays_new.append(world_arrays[iworld_curr])
+             else:
+-                world_arrays_new.append(1.)
++                # Find the pixel dimension that correlates with this dropped world dimension
++                correlated_pixels = np.nonzero(self._wcs.axis_correlation_matrix[iworld, :])[0]
++                if len(correlated_pixels) > 0:
++                    # Find the first dropped pixel dimension that correlates with this world dimension
++                    for ipixel in correlated_pixels:
++                        if ipixel not in self._pixel_keep:
++                            # Get the slice value for this pixel dimension
++                            slice_val = self._slices_pixel[ipixel]
++                            if isinstance(slice_val, numbers.Integral):
++                                # Convert pixel coordinate to world coordinate
++                                pixel_coord = np.full_like(world_arrays[0], slice_val, shape=world_arrays[0].shape)
++                                # Create a list of pixel coordinates for all dimensions
++                                pixel_coords_all = []
++                                for ip in range(self._wcs.pixel_n_dim):
++                                    if ip == ipixel:
++                                        pixel_coords_all.append(pixel_coord)
++                                    elif isinstance(self._slices_pixel[ip], numbers.Integral):
++                                        pixel_coords_all.append(np.full_like(world_arrays[0], self._slices_pixel[ip], shape=world_arrays[0].shape))
++                                    else:
++                                        # For kept dimensions, use a default value
++                                        pixel_coords_all.append(np.zeros_like(world_arrays[0]))
++                                # Convert to world coordinates
++                                world_coords = self._wcs.pixel_to_world_values(*pixel_coords_all)
++                                world_arrays_new.append(world_coords[iworld])
++                                break
++                    else:
++                        # If no dropped pixel dimension found, use 1. as before
++                        world_arrays_new.append(1.)
++                else:
++                    # No correlations found, use 1. as before
++                    world_arrays_new.append(1.)
+ 
+         world_arrays_new = np.broadcast_arrays(*world_arrays_new)
+         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))

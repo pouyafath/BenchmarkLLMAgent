@@ -1,0 +1,43 @@
+diff --git a/sklearn/ensemble/_gradient_boosting.pyx b/sklearn/ensemble/_gradient_boosting.pyx
+index 290250292..582a0712f 100644
+--- a/sklearn/ensemble/_gradient_boosting.pyx
++++ b/sklearn/ensemble/_gradient_boosting.pyx
+@@ -8,7 +8,7 @@
+ 
+ cimport cython
+ 
+-from libc.stdlib cimport free
++from libc.stdlib cimport free, malloc
+ from libc.string cimport memset
+ 
+ import numpy as np
+@@ -130,8 +130,12 @@ def _predict_regression_tree_stages_sparse(np.ndarray[object, ndim=2] estimators
+     cdef Tree tree
+     cdef Node** nodes = NULL
+     cdef double** values = NULL
+-    safe_realloc(&nodes, n_stages * n_outputs)
+-    safe_realloc(&values, n_stages * n_outputs)
++    nodes = <Node**>malloc(n_stages * n_outputs * sizeof(Node*))
++    values = <double**>malloc(n_stages * n_outputs * sizeof(double*))
++    if nodes == NULL or values == NULL:
++        free(nodes)
++        free(values)
++        raise MemoryError("could not allocate memory for tree arrays")
+     for stage_i in range(n_stages):
+         for output_i in range(n_outputs):
+             tree = estimators[stage_i, output_i].tree_
+@@ -147,8 +151,12 @@ def _predict_regression_tree_stages_sparse(np.ndarray[object, ndim=2] estimators
+     # which features are nonzero in the present sample.
+     cdef SIZE_t* feature_to_sample = NULL
+ 
+-    safe_realloc(&X_sample, n_features)
+-    safe_realloc(&feature_to_sample, n_features)
++    X_sample = <DTYPE_t*>malloc(n_features * sizeof(DTYPE_t))
++    feature_to_sample = <SIZE_t*>malloc(n_features * sizeof(SIZE_t))
++    if X_sample == NULL or feature_to_sample == NULL:
++        free(X_sample)
++        free(feature_to_sample)
++        raise MemoryError("could not allocate memory for feature arrays")
+ 
+     memset(feature_to_sample, -1, n_features * sizeof(SIZE_t))
+ 

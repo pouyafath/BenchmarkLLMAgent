@@ -1,0 +1,256 @@
+diff --git a/Lib/fontTools/annotations.py b/Lib/fontTools/annotations.py
+index 5ff5972e3..09f0632b4 100644
+--- a/Lib/fontTools/annotations.py
++++ b/Lib/fontTools/annotations.py
+@@ -1,6 +1,6 @@
+ from __future__ import annotations
+-from typing import TYPE_CHECKING, Iterable, Optional, TypeVar, Union
+-from collections.abc import Callable, Sequence
++from typing import TYPE_CHECKING, Dict, Iterable, Optional, Set, Tuple, TypeVar, Union
++from typing import Callable, Sequence
+ from fontTools.misc.filesystem._base import FS
+ from os import PathLike
+ from xml.etree.ElementTree import Element as ElementTreeElement
+@@ -15,16 +15,16 @@ T = TypeVar("T")  # Generic type
+ K = TypeVar("K")  # Generic dict key type
+ V = TypeVar("V")  # Generic dict value type
+ 
+-GlyphNameToFileNameFunc = Optional[Callable[[str, set[str]], str]]
++GlyphNameToFileNameFunc = Optional[Callable[[str, Set[str]], str]]
+ ElementType = Union[ElementTreeElement, "LxmlElement"]
+-FormatVersion = Union[int, tuple[int, int]]
++FormatVersion = Union[int, Tuple[int, int]]
+ FormatVersions = Optional[Iterable[FormatVersion]]
+-GLIFFormatVersionInput = Optional[Union[int, tuple[int, int], "GLIFFormatVersion"]]
+-UFOFormatVersionInput = Optional[Union[int, tuple[int, int], "UFOFormatVersion"]]
++GLIFFormatVersionInput = Optional[Union[int, Tuple[int, int], "GLIFFormatVersion"]]
++UFOFormatVersionInput = Optional[Union[int, Tuple[int, int], "UFOFormatVersion"]]
+ IntFloat = Union[int, float]
+-KerningPair = tuple[str, str]
+-KerningDict = dict[KerningPair, IntFloat]
+-KerningGroups = dict[str, Sequence[str]]
+-KerningNested = dict[str, dict[str, IntFloat]]
+-PathStr = Union[str, PathLike[str]]
++KerningPair = Tuple[str, str]
++KerningDict = Dict[KerningPair, IntFloat]
++KerningGroups = Dict[str, Sequence[str]]
++KerningNested = Dict[str, Dict[str, IntFloat]]
++PathStr = Union[str, PathLike]
+ PathOrFS = Union[PathStr, FS]
+diff --git a/Lib/fontTools/misc/filesystem/_path.py b/Lib/fontTools/misc/filesystem/_path.py
+index e89c00b3d..264cd46a1 100644
+--- a/Lib/fontTools/misc/filesystem/_path.py
++++ b/Lib/fontTools/misc/filesystem/_path.py
+@@ -1,3 +1,4 @@
++from typing import Tuple
+ import os
+ import platform
+ 
+@@ -10,7 +11,7 @@ def combine(path1: str, path2) -> str:
+     return "{}/{}".format(path1.rstrip("/"), path2.lstrip("/"))
+ 
+ 
+-def split(path: str) -> tuple[str, str]:
++def split(path: str) -> Tuple[str, str]:
+     if "/" not in path:
+         return ("", path)
+     split = path.rsplit("/", 1)
+diff --git a/Lib/fontTools/misc/loggingTools.py b/Lib/fontTools/misc/loggingTools.py
+index be6c2d369..82cad6a9e 100644
+--- a/Lib/fontTools/misc/loggingTools.py
++++ b/Lib/fontTools/misc/loggingTools.py
+@@ -2,7 +2,8 @@ import sys
+ import logging
+ import timeit
+ from functools import wraps
+-from collections.abc import Mapping, Callable
++from collections.abc import Mapping
++from typing_extensions import Callable
+ import warnings
+ from logging import PercentStyle
+ 
+diff --git a/Lib/fontTools/ufoLib/__init__.py b/Lib/fontTools/ufoLib/__init__.py
+index b0e425ff0..9c5dbe6e6 100755
+--- a/Lib/fontTools/ufoLib/__init__.py
++++ b/Lib/fontTools/ufoLib/__init__.py
+@@ -41,7 +41,7 @@ import zipfile
+ from collections import OrderedDict
+ from copy import deepcopy
+ from os import fsdecode
+-from typing import IO, TYPE_CHECKING, Any, Optional, Union, cast
++from typing import IO, TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
+ 
+ from fontTools.misc import filesystem as fs
+ from fontTools.misc import plistlib
+@@ -72,11 +72,11 @@ if TYPE_CHECKING:
+     from fontTools.misc.filesystem._base import FS
+     from fontTools.ufoLib.glifLib import GlyphSet
+ 
+-KerningGroupRenameMaps = dict[str, dict[str, str]]
+-LibDict = dict[str, Any]
+-LayerOrderList = Optional[list[Optional[str]]]
+-AttributeDataDict = dict[str, Any]
+-FontInfoAttributes = dict[str, AttributeDataDict]
++KerningGroupRenameMaps = Dict[str, Dict[str, str]]
++LibDict = Dict[str, Any]
++LayerOrderList = Optional[List[Optional[str]]]
++AttributeDataDict = Dict[str, Any]
++FontInfoAttributes = Dict[str, AttributeDataDict]
+ 
+ # client code can check this to see if the upstream `fs` package is being used
+ haveFS = fs._haveFS
+@@ -306,7 +306,7 @@ class UFOReader(_UFOBaseIO):
+             )
+         self._path: str = fsdecode(path)
+         self._validate: bool = validate
+-        self._upConvertedKerningData: Optional[dict[str, Any]] = None
++        self._upConvertedKerningData: Optional[Dict[str, Any]] = None
+ 
+         try:
+             self.readMetaInfo(validate=validate)
+@@ -451,7 +451,7 @@ class UFOReader(_UFOBaseIO):
+ 
+     # metainfo.plist
+ 
+-    def _readMetaInfo(self, validate: Optional[bool] = None) -> dict[str, Any]:
++    def _readMetaInfo(self, validate: Optional[bool] = None) -> Dict[str, Any]:
+         """
+         Read metainfo.plist and return raw data. Only used for internal operations.
+ 
+@@ -564,7 +564,7 @@ class UFOReader(_UFOBaseIO):
+ 
+     # fontinfo.plist
+ 
+-    def _readInfo(self, validate: bool) -> dict[str, Any]:
++    def _readInfo(self, validate: bool) -> Dict[str, Any]:
+         data = self._getPlist(FONTINFO_FILENAME, {})
+         if validate and not isinstance(data, dict):
+             raise UFOLibError("fontinfo.plist is not properly formatted.")
+@@ -663,7 +663,7 @@ class UFOReader(_UFOBaseIO):
+ 
+     # lib.plist
+ 
+-    def readLib(self, validate: Optional[bool] = None) -> dict[str, Any]:
++    def readLib(self, validate: Optional[bool] = None) -> Dict[str, Any]:
+         """
+         Read lib.plist. Returns a dict.
+ 
+@@ -1488,7 +1488,7 @@ class UFOWriter(UFOReader):
+         if self._formatVersion < UFOFormatVersion.FORMAT_3_0:
+             return
+         if layerOrder is not None:
+-            newOrder: list[Optional[str]] = []
++            newOrder: List[Optional[str]] = []
+             for layerName in layerOrder:
+                 if layerName is None:
+                     layerName = DEFAULT_LAYER_NAME
+@@ -1900,7 +1900,7 @@ def validateFontInfoVersion2ValueForAttribute(attr: str, value: Any) -> bool:
+     return isValidValue
+ 
+ 
+-def validateInfoVersion2Data(infoData: dict[str, Any]) -> dict[str, Any]:
++def validateInfoVersion2Data(infoData: Dict[str, Any]) -> dict[str, Any]:
+     """
+     This performs very basic validation of the value for infoData
+     following the UFO 2 fontinfo.plist specification. The results
+@@ -1946,7 +1946,7 @@ def validateFontInfoVersion3ValueForAttribute(attr: str, value: Any) -> bool:
+     return isValidValue
+ 
+ 
+-def validateInfoVersion3Data(infoData: dict[str, Any]) -> dict[str, Any]:
++def validateInfoVersion3Data(infoData: Dict[str, Any]) -> dict[str, Any]:
+     """
+     This performs very basic validation of the value for infoData
+     following the UFO 3 fontinfo.plist specification. The results
+@@ -2424,7 +2424,7 @@ def convertFontInfoValueForAttributeFromVersion2ToVersion1(
+     return attr, value
+ 
+ 
+-def _convertFontInfoDataVersion1ToVersion2(data: dict[str, Any]) -> dict[str, Any]:
++def _convertFontInfoDataVersion1ToVersion2(data: Dict[str, Any]) -> dict[str, Any]:
+     converted = {}
+     for attr, value in list(data.items()):
+         # FontLab gives -1 for the weightValue
+@@ -2448,7 +2448,7 @@ def _convertFontInfoDataVersion1ToVersion2(data: dict[str, Any]) -> dict[str, An
+     return converted
+ 
+ 
+-def _convertFontInfoDataVersion2ToVersion1(data: dict[str, Any]) -> dict[str, Any]:
++def _convertFontInfoDataVersion2ToVersion1(data: Dict[str, Any]) -> dict[str, Any]:
+     converted = {}
+     for attr, value in list(data.items()):
+         newAttr, newValue = convertFontInfoValueForAttributeFromVersion2ToVersion1(
+@@ -2547,7 +2547,7 @@ def convertFontInfoValueForAttributeFromVersion3ToVersion2(
+     return attr, value
+ 
+ 
+-def _convertFontInfoDataVersion3ToVersion2(data: dict[str, Any]) -> dict[str, Any]:
++def _convertFontInfoDataVersion3ToVersion2(data: Dict[str, Any]) -> dict[str, Any]:
+     converted = {}
+     for attr, value in list(data.items()):
+         newAttr, newValue = convertFontInfoValueForAttributeFromVersion3ToVersion2(
+@@ -2559,7 +2559,7 @@ def _convertFontInfoDataVersion3ToVersion2(data: dict[str, Any]) -> dict[str, An
+     return converted
+ 
+ 
+-def _convertFontInfoDataVersion2ToVersion3(data: dict[str, Any]) -> dict[str, Any]:
++def _convertFontInfoDataVersion2ToVersion3(data: Dict[str, Any]) -> dict[str, Any]:
+     converted = {}
+     for attr, value in list(data.items()):
+         attr, value = convertFontInfoValueForAttributeFromVersion2ToVersion3(
+diff --git a/Lib/fontTools/ufoLib/utils.py b/Lib/fontTools/ufoLib/utils.py
+index 3930d8931..f50315fae 100644
+--- a/Lib/fontTools/ufoLib/utils.py
++++ b/Lib/fontTools/ufoLib/utils.py
+@@ -7,15 +7,15 @@ the module.
+ 
+ from __future__ import annotations
+ 
+-from typing import Optional, Type, TypeVar, Union, cast
+-from collections.abc import Callable
++from typing import Optional, Tuple, Type, TypeVar, Union, cast
++from typing import Callable
+ import enum
+ import functools
+ import warnings
+ 
+ F = TypeVar("F", bound=Callable[..., object])
+ FormatVersion = TypeVar("FormatVersion", bound="BaseFormatVersion")
+-FormatVersionInput = Optional[Union[int, tuple[int, int], FormatVersion]]
++FormatVersionInput = Optional[Union[int, Tuple[int, int], FormatVersion]]
+ 
+ numberTypes = (int, float)
+ 
+@@ -64,10 +64,10 @@ def normalizeFormatVersion(
+ 
+ 
+ # Base class for UFOFormatVersion and GLIFFormatVersion
+-class BaseFormatVersion(tuple[int, int], enum.Enum):
+-    value: tuple[int, int]
++class BaseFormatVersion(enum.Enum):
++    value: Tuple[int, int]
+ 
+-    def __new__(cls: Type[FormatVersion], value: tuple[int, int]) -> BaseFormatVersion:
++    def __new__(cls: Type[FormatVersion], value: Tuple[int, int]) -> BaseFormatVersion:
+         return super().__new__(cls, value)
+ 
+     @property
+diff --git a/Lib/fontTools/ufoLib/validators.py b/Lib/fontTools/ufoLib/validators.py
+index baed5688d..a395b7585 100644
+--- a/Lib/fontTools/ufoLib/validators.py
++++ b/Lib/fontTools/ufoLib/validators.py
+@@ -7,12 +7,12 @@ from collections.abc import Mapping, Sequence
+ from io import open
+ 
+ import fontTools.misc.filesystem as fs
+-from typing import Any, Type, Optional, Union
++from typing import Any, Dict, Optional, Tuple, Type, Union
+ 
+ from fontTools.annotations import IntFloat
+ from fontTools.ufoLib.utils import numberTypes
+ 
+-GenericDict = dict[str, tuple[Union[type, tuple[Type[Any], ...]], bool]]
++GenericDict = Dict[str, Tuple[Union[type, Tuple[Type[Any], ...]], bool]]
+ 
+ # -------
+ # Generic

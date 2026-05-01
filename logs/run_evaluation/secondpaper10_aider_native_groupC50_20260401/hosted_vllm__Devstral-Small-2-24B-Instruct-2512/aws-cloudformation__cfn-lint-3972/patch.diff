@@ -1,0 +1,3036 @@
+diff --git a/src/cfnlint/api.py b/src/cfnlint/api.py
+index 68cccf9dd..6a0cc2b10 100644
+--- a/src/cfnlint/api.py
++++ b/src/cfnlint/api.py
+@@ -20,7 +20,7 @@ Matches = List[Match]
+ def lint(
+     s: str,
+     rules: RulesCollection | None = None,
+-    regions: list[str] | None = None,
++    regions: Optional[list] = None,
+     config: ManualArgs | None = None,
+ ) -> list[Match]:
+     """Validate a string template using the specified rules and regions.
+@@ -31,7 +31,7 @@ def lint(
+         the template string
+     rules : RulesCollection
+         The rules to run against s
+-    regions : list[str]
++    regions : list
+         The regions to test against s
+ 
+     Returns
+@@ -163,7 +163,7 @@ def lint_by_config(config: ManualArgs) -> list[Match]:
+     return list(runner.run())
+ 
+ 
+-def graph(s: str) -> str | None:
++def graph(s: str) -> Optional[str]:
+     """Generate a DOT graph from a template string.
+ 
+     Parameters
+diff --git a/src/cfnlint/conditions/_equals.py b/src/cfnlint/conditions/_equals.py
+index 401e48f17..f69e4e52a 100644
+--- a/src/cfnlint/conditions/_equals.py
++++ b/src/cfnlint/conditions/_equals.py
+@@ -89,7 +89,7 @@ class Equal:
+             return
+         raise ValueError("Equals has to be a list of two values")
+ 
+-    def _init_parameter(self, parameter: dict[str, Any] | str) -> EqualParameter | str:
++    def _init_parameter(self, parameter: dict | str) -> EqualParameter | str:
+         if isinstance(parameter, dict):
+             return EqualParameter(parameter)
+         return str(parameter)
+diff --git a/src/cfnlint/conditions/conditions.py b/src/cfnlint/conditions/conditions.py
+index df220841e..bad54675c 100644
+--- a/src/cfnlint/conditions/conditions.py
++++ b/src/cfnlint/conditions/conditions.py
+@@ -32,7 +32,7 @@ class Conditions:
+ 
+     def __init__(self, cfn) -> None:
+         self._conditions: dict[str, ConditionNamed] = {}
+-        self._parameters: dict[str, list[str]] = {}
++        self._parameters: dict[str, list] = {}
+         self._rules: list[Rule] = []
+         self._satisfiable_cache: dict[tuple[Any, ...], bool] = {}
+         self._init_conditions(cfn=cfn)
+@@ -106,8 +106,8 @@ class Conditions:
+         return self._conditions.get(name, default)
+ 
+     def _build_cnf(
+-        self, condition_names: list[str]
+-    ) -> Tuple[EncodedCNF, dict[str, Any]]:
++        self, condition_names: list
++    ) -> Tuple[EncodedCNF, dict]:
+         cnf = EncodedCNF()
+ 
+         # build parameters and equals into solver
+@@ -193,14 +193,14 @@ class Conditions:
+         return (cnf, equal_vars)
+ 
+     def build_scenarios(
+-        self, conditions: dict[str, Set[bool]], region: str | None = None
++        self, conditions: dict[str, Set[bool]], region: Optional[str] = None
+     ) -> Iterator[dict[str, bool]]:
+         """Given a list of condition names this function will
+         yield scenarios that represent those conditions and
+         there result (True/False)
+ 
+         Args:
+-            condition_names (list[str]): A list of condition names
++            condition_names (list): A list of condition names
+ 
+         Returns:
+             Iterator[dict[str, bool]]: yield dict objects of {ConditionName: True/False}
+diff --git a/src/cfnlint/config.py b/src/cfnlint/config.py
+index c8a5a82db..a043d0576 100644
+--- a/src/cfnlint/config.py
++++ b/src/cfnlint/config.py
+@@ -746,23 +746,23 @@ class TemplateArgs:
+ 
+ 
+ class ManualArgs(TypedDict, total=False):
+-    configure_rules: dict[str, dict[str, Any]]
+-    deployment_files: list[str]
++    configure_rules: dict[str, dict]
++    deployment_files: list
+     ignore_bad_template: bool
+-    ignore_checks: list[str]
++    ignore_checks: list
+     ignore_templates: list
+-    include_checks: list[str]
++    include_checks: list
+     include_experimental: bool
+-    mandatory_checks: list[str]
++    mandatory_checks: list
+     merge_configs: bool
+     non_zero_exit_code: str
+     output_file: str
+-    parameter_files: list[str]
++    parameter_files: list
+     parameters: list[ParameterSet]
+     regions: list
+-    registry_schemas: list[str]
+-    template_parameters: list[dict[str, Any]]
+-    templates: list[str]
++    registry_schemas: list
++    template_parameters: list[dict]
++    templates: list
+ 
+ 
+ def _merge_configs(
+@@ -795,7 +795,7 @@ def _merge_configs(
+ 
+ # pylint: disable=too-many-public-methods
+ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+-    def __init__(self, cli_args: list[str] | None = None, **kwargs: Unpack[ManualArgs]):
++    def __init__(self, cli_args: Optional[list] = None, **kwargs: Unpack[ManualArgs]):
+         self._manual_args = kwargs or ManualArgs()
+         CliArgs.__init__(self, cli_args)
+         # configure debug as soon as we can
+@@ -1047,7 +1047,7 @@ class ConfigMixIn(TemplateArgs, CliArgs, ConfigFileArgs):
+ 
+     def _glob_filenames(
+         self, filenames: Sequence[str], raise_exception: bool = True
+-    ) -> list[str]:
++    ) -> list:
+         # handle different shells and Config files
+         # some shells don't expand * and configparser won't expand wildcards
+         all_filenames = []
+diff --git a/src/cfnlint/context/conditions/_condition.py b/src/cfnlint/context/conditions/_condition.py
+index b8cb27843..f7083ee02 100644
+--- a/src/cfnlint/context/conditions/_condition.py
++++ b/src/cfnlint/context/conditions/_condition.py
+@@ -30,7 +30,7 @@ class Condition:
+ 
+     @classmethod
+     def create_from_instance(
+-        cls, instance: Any, all_conditions: dict[str, Any]
++        cls, instance: Any, all_conditions: dict
+     ) -> "Condition":
+         # Calculate hash here once
+         instance_hash = get_hash(instance)
+diff --git a/src/cfnlint/context/conditions/_equals.py b/src/cfnlint/context/conditions/_equals.py
+index 98c38a04f..1503a1505 100644
+--- a/src/cfnlint/context/conditions/_equals.py
++++ b/src/cfnlint/context/conditions/_equals.py
+@@ -44,7 +44,7 @@ _equals_cmp_key = cmp_to_key(_sorted)
+ 
+ @dataclass(frozen=True)
+ class EqualParameter:
+-    instance: dict[str, str] | str | None = field(init=True)
++    instance: dict[str, str] | Optional[str] = field(init=True)
+     hash: str = field(init=False)
+     is_region: bool = field(init=False, default=False)
+ 
+diff --git a/src/cfnlint/context/conditions/_utils.py b/src/cfnlint/context/conditions/_utils.py
+index 893868494..8e1fb0444 100644
+--- a/src/cfnlint/context/conditions/_utils.py
++++ b/src/cfnlint/context/conditions/_utils.py
+@@ -112,7 +112,7 @@ def build_instance_from_scenario(
+         if fn_k == "Ref" and fn_v == "AWS::NoValue" and "Ref" in context.functions:
+             return None
+         if is_root:
+-            new_obj: dict[str, Any] = dict_node(
++            new_obj: dict = dict_node(
+                 {},
+                 getattr(instance, "start_mark", Mark(0, 0)),
+                 getattr(instance, "end_mark", Mark(0, 0)),
+diff --git a/src/cfnlint/context/context.py b/src/cfnlint/context/context.py
+index 896453889..ec33d9296 100644
+--- a/src/cfnlint/context/context.py
++++ b/src/cfnlint/context/context.py
+@@ -38,8 +38,8 @@ _PSEUDOPARAMS_NON_REGION = ["AWS::AccountId", "AWS::NoValue", "AWS::StackName"]
+ @dataclass
+ class Transforms:
+     # Template level parameters
+-    obj: InitVar[str | list[str] | None]
+-    _transforms: list[str] = field(init=False, default_factory=list)
++    obj: InitVar[str | Optional[list]]
++    _transforms: list = field(init=False, default_factory=list)
+ 
+     def __post_init__(self, obj) -> None:
+         if obj is None:
+@@ -147,12 +147,12 @@ class Context:
+     """
+ 
+     # what regions we are processing
+-    regions: list[str] = field(
++    regions: list = field(
+         init=True, default_factory=lambda: list([REGION_PRIMARY])
+     )
+ 
+     # supported functions at this point in the template
+-    functions: list[str] = field(init=True, default_factory=list)
++    functions: list = field(init=True, default_factory=list)
+ 
+     path: Path = field(init=True, default_factory=Path)
+ 
+@@ -175,7 +175,7 @@ class Context:
+ 
+     # Combination of storing any resolved ref
+     # and adds in any Refs available from things like Fn::Sub
+-    ref_values: dict[str, Any] = field(init=True, default_factory=dict)
++    ref_values: dict = field(init=True, default_factory=dict)
+ 
+     transforms: Transforms = field(init=True, default_factory=lambda: Transforms([]))
+ 
+@@ -208,7 +208,7 @@ class Context:
+ 
+         return cls(**kwargs)
+ 
+-    def ref_value(self, instance: str) -> Iterator[Tuple[str | list[str], "Context"]]:
++    def ref_value(self, instance: str) -> Iterator[Tuple[str | list, "Context"]]:
+         if instance in PSEUDOPARAMS:
+             if not self.resolve_pseudo_parameters:
+                 return
+@@ -302,7 +302,7 @@ class Context:
+         )
+ 
+ 
+-def _get_pseudo_value(parameter: str) -> str | list[str] | None:
++def _get_pseudo_value(parameter: str) -> str | Optional[list]:
+     if parameter == "AWS::AccountId":
+         return "123456789012"
+     if parameter == "AWS::StackName":
+@@ -310,7 +310,7 @@ def _get_pseudo_value(parameter: str) -> str | list[str] | None:
+     return None
+ 
+ 
+-def _get_pseudo_value_by_region(parameter: str, region: str) -> str | list[str]:
++def _get_pseudo_value_by_region(parameter: str, region: str) -> str | list:
+     if parameter == "AWS::NotificationARNs":
+         return [f"arn:{_get_partition(region)}:sns:{region}:123456789012:notification"]
+     if parameter == "AWS::Partition":
+@@ -343,7 +343,7 @@ class _Ref(ABC):
+     """
+ 
+     @abstractmethod
+-    def ref(self, region: str) -> dict[str, Any]:
++    def ref(self, region: str) -> dict:
+         pass
+ 
+     @abstractmethod
+@@ -366,8 +366,8 @@ class Parameter(_Ref):
+     type: str = field(init=False)
+     default: Any = field(init=False)
+     allowed_values: Any = field(init=False)
+-    description: str | None = field(init=False)
+-    ssm_path: str | None = field(init=False, default=None)
++    description: Optional[str] = field(init=False)
++    ssm_path: Optional[str] = field(init=False, default=None)
+ 
+     parameter: InitVar[Any]
+ 
+@@ -420,10 +420,10 @@ class Parameter(_Ref):
+         if parameter.get("NoEcho") in list(BOOLEAN_STRINGS_TRUE) + [True]:
+             self.no_echo = True
+ 
+-    def ref(self, region: str = REGION_PRIMARY) -> dict[str, Any]:
++    def ref(self, region: str = REGION_PRIMARY) -> dict:
+         return {}
+ 
+-    def default_value(self) -> Iterator[Tuple[str | list[str], deque]]:
++    def default_value(self) -> Iterator[Tuple[str | list, deque]]:
+         if self.default is not None:
+             if isinstance(self.default, list):
+                 yield [str(x) for x in self.default], deque(["Default"])
+@@ -492,12 +492,12 @@ class Resource(_Ref):
+     """
+ 
+     type: str = field(init=False)
+-    condition: str | None = field(init=False, default=None)
++    condition: Optional[str] = field(init=False, default=None)
+     resource: InitVar[Any]
+-    filename: InitVar[str | None] = field(default=None)
++    filename: InitVar[Optional[str]] = field(default=None)
+     _nested_stack_get_atts: AttributeDict | None = field(init=False, default=None)
+ 
+-    def __post_init__(self, resource: Any, filename: str | None) -> None:
++    def __post_init__(self, resource: Any, filename: Optional[str]) -> None:
+         if not isinstance(resource, dict):
+             raise ValueError("Resource must be a object")
+         t = resource.get("Type")
+@@ -529,7 +529,7 @@ class Resource(_Ref):
+             return self._nested_stack_get_atts
+         return PROVIDER_SCHEMA_MANAGER.get_type_getatts(self.type, region)
+ 
+-    def ref(self, region: str = REGION_PRIMARY) -> dict[str, Any]:
++    def ref(self, region: str = REGION_PRIMARY) -> dict:
+         return PROVIDER_SCHEMA_MANAGER.get_type_ref(self.type, region)
+ 
+     def ref_value(self, context: Context) -> Iterator[Tuple[Any, deque]]:
+@@ -550,7 +550,7 @@ def _init_parameters(parameters: Any) -> dict[str, Parameter]:
+     return obj
+ 
+ 
+-def _init_resources(resources: Any, filename: str | None = None) -> dict[str, Resource]:
++def _init_resources(resources: Any, filename: Optional[str] = None) -> dict[str, Resource]:
+     obj = {}
+     if not isinstance(resources, dict):
+         raise ValueError("Resource must be a object")
+diff --git a/src/cfnlint/context/parameters.py b/src/cfnlint/context/parameters.py
+index 426d9afde..2dd9767b2 100644
+--- a/src/cfnlint/context/parameters.py
++++ b/src/cfnlint/context/parameters.py
+@@ -11,5 +11,5 @@ from typing import Any
+ 
+ @dataclass
+ class ParameterSet:
+-    source: str | None = field(default=None)
+-    parameters: dict[str, Any] = field(default_factory=dict)
++    source: Optional[str] = field(default=None)
++    parameters: dict = field(default_factory=dict)
+diff --git a/src/cfnlint/core.py b/src/cfnlint/core.py
+index fae5fc379..fd5dd5701 100644
+--- a/src/cfnlint/core.py
++++ b/src/cfnlint/core.py
+@@ -16,13 +16,13 @@ from cfnlint.runner.template.runner import _run_template
+ 
+ 
+ def get_rules(
+-    append_rules: list[str],
+-    ignore_rules: list[str],
+-    include_rules: list[str],
++    append_rules: list,
++    ignore_rules: list,
++    include_rules: list,
+     configure_rules=None,
+     include_experimental: bool = False,
+-    mandatory_rules: list[str] | None = None,
+-    custom_rules: str | None = None,
++    mandatory_rules: Optional[list] = None,
++    custom_rules: Optional[str] = None,
+ ) -> RulesCollection:
+     rules = RulesCollection(
+         ignore_rules,
+@@ -31,7 +31,7 @@ def get_rules(
+         include_experimental,
+         mandatory_rules,
+     )
+-    rules_paths: list[str] = [_DEFAULT_RULESDIR] + append_rules
++    rules_paths: list = [_DEFAULT_RULESDIR] + append_rules
+     try:
+         for rules_path in rules_paths:
+             if rules_path and os.path.isdir(os.path.expanduser(rules_path)):
+diff --git a/src/cfnlint/decode/decode.py b/src/cfnlint/decode/decode.py
+index 42240668e..ed072f582 100644
+--- a/src/cfnlint/decode/decode.py
++++ b/src/cfnlint/decode/decode.py
+@@ -27,13 +27,13 @@ def decode_str(s: str) -> Decode:
+     return _decode(cfn_yaml.loads, cfn_json.loads, s, None)
+ 
+ 
+-def decode(filename: str | None) -> Decode:
++def decode(filename: Optional[str]) -> Decode:
+     """Decode filename into an object."""
+     return _decode(cfn_yaml.load, cfn_json.load, filename, filename)
+ 
+ 
+ def _decode(
+-    yaml_f: Callable, json_f: Callable, payload: str | None, filename: str | None
++    yaml_f: Callable, json_f: Callable, payload: Optional[str], filename: Optional[str]
+ ) -> Decode:
+     """Decode payload using yaml_f and json_f, using filename for log output."""
+     template = None
+diff --git a/src/cfnlint/exceptions.py b/src/cfnlint/exceptions.py
+index 13d708389..b5868d373 100644
+--- a/src/cfnlint/exceptions.py
++++ b/src/cfnlint/exceptions.py
+@@ -23,11 +23,11 @@ class CfnLintExitException(Exception):
+         exit_code (int): The exit code to be used when the linter exits.
+ 
+     Methods:
+-        __init__(self, msg: str | None=None, exit_code: int=1) -> None:
++        __init__(self, msg: Optional[str]=None, exit_code: int=1) -> None:
+             Initialize a new CfnLintExitException instance with the specified exit code.
+     """
+ 
+-    def __init__(self, msg: str | None = None, exit_code: int = 1):
++    def __init__(self, msg: Optional[str] = None, exit_code: int = 1):
+         """
+         Initialize a new CfnLintExitException instance with the specified exit code.
+ 
+diff --git a/src/cfnlint/graph.py b/src/cfnlint/graph.py
+index 954c45877..b7bbd0572 100644
+--- a/src/cfnlint/graph.py
++++ b/src/cfnlint/graph.py
+@@ -60,7 +60,7 @@ class GraphSettings:
+ 
+     def subgraph_view(self, graph) -> networkx.MultiDiGraph:
+         view = networkx.MultiDiGraph(name="template")
+-        resources: list[str] = [
++        resources: list = [
+             n for n, v in graph.nodes.items() if v["type"] in ["Resource"]
+         ]
+ 
+@@ -100,7 +100,7 @@ class Graph:
+     """Models a template as a directed graph of resources"""
+ 
+     settings: GraphSettings
+-    __supported_types: list[str] = ["Resources", "Parameters", "Outputs"]
++    __supported_types: list = ["Resources", "Parameters", "Outputs"]
+ 
+     def __init__(self, cfn):
+         """Builds a graph where resources are nodes and edges are
+diff --git a/src/cfnlint/helpers.py b/src/cfnlint/helpers.py
+index f22ea1e12..a17ae7de7 100644
+--- a/src/cfnlint/helpers.py
++++ b/src/cfnlint/helpers.py
+@@ -262,7 +262,7 @@ PSEUDOPARAMS = frozenset(
+     ["AWS::NoValue"] + list(PSEUDOPARAMS_SINGLE) + list(PSEUDOPARAMS_MULTIPLE)
+ )
+ 
+-LIMITS: dict[str, Any] = {
++LIMITS: dict = {
+     "Mappings": {"number": 200, "attributes": 200, "name": 255},  # in characters
+     "Outputs": {
+         "number": 200,
+@@ -532,19 +532,13 @@ def save_metadata(metadata, filename):
+         json.dump(metadata, metadata_file)
+         metadata_file.write("\n")
+ 
+-
+ def load_resource(package, filename="us-east-1.json"):
+     """Load CloudSpec resources
+     :param filename: filename to load
+     :return: Json output of the resource laoded
+     """
+-    return json.loads(
+-        pkg_resources.files(package)  # pylint: disable=no-member
+-        .joinpath(filename)
+-        .read_text(encoding="utf-8")
+-    )
+-
+-
++    with pkg_resources.path(package, filename) as path:
++        return json.loads(path.read_text(encoding="utf-8"))
+ def is_custom_resource(resource_type):
+     """Return True if resource_type is a custom resource"""
+     return resource_type and (
+@@ -565,7 +559,7 @@ def bool_compare(first, second):
+     return first is second
+ 
+ 
+-def is_function(instance: Any) -> tuple[str | None, Any]:
++def is_function(instance: Any) -> tuple[Optional[str], Any]:
+     """
+     Checks if the given instance is a dictionary representing a function.
+ 
+@@ -587,7 +581,7 @@ def is_function(instance: Any) -> tuple[str | None, Any]:
+     return None, None
+ 
+ 
+-def _translate_types(types: Sequence[str]) -> list[str]:
++def _translate_types(types: Sequence[str]) -> list:
+     """
+     Return compatible types. This is an adventitious result
+     meaning a string could be an integer.
+diff --git a/src/cfnlint/jsonschema/_filter.py b/src/cfnlint/jsonschema/_filter.py
+index 9eb04be0d..3be623347 100644
+--- a/src/cfnlint/jsonschema/_filter.py
++++ b/src/cfnlint/jsonschema/_filter.py
+@@ -115,7 +115,7 @@ class FunctionFilter:
+ 
+     def filter(
+         self, validator: Any, instance: Any, schema: Any
+-    ) -> Iterator[tuple[Any, dict[str, Any], "Validator"]]:
++    ) -> Iterator[tuple[Any, dict, "Validator"]]:
+         # if cfnContext is in the schema it is singular and
+         # needs to be processed first
+         if any(s in schema for s in ["cfnContext"]):
+diff --git a/src/cfnlint/jsonschema/_keywords.py b/src/cfnlint/jsonschema/_keywords.py
+index cf84a7880..796dfc2f1 100644
+--- a/src/cfnlint/jsonschema/_keywords.py
++++ b/src/cfnlint/jsonschema/_keywords.py
+@@ -39,7 +39,7 @@ from cfnlint.jsonschema.exceptions import FormatError
+ 
+ 
+ def additionalProperties(
+-    validator: Validator, aP: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, aP: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -80,7 +80,7 @@ def additionalProperties(
+ 
+ 
+ def allOf(
+-    validator: Validator, allOf: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, allOf: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     validator = validator.evolve(
+         function_filter=validator.function_filter.evolve(
+@@ -115,7 +115,7 @@ def allOf(
+ 
+ 
+ def anyOf(
+-    validator: Validator, anyOf: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, anyOf: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     validator = validator.evolve(
+         function_filter=validator.function_filter.evolve(
+@@ -168,14 +168,14 @@ def anyOf(
+ 
+ 
+ def const(
+-    validator: Validator, const: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, const: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not equal(instance, const):
+         yield ValidationError(f"{const!r} was expected")
+ 
+ 
+ def contains(
+-    validator: Validator, contains: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, contains: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "array"):
+         return
+@@ -230,7 +230,7 @@ def contains(
+ 
+ 
+ def dependencies(
+-    validator: Validator, dependencies: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, dependencies: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -256,7 +256,7 @@ def dependentRequired(
+     validator: Validator,
+     dependentRequired: dict[str, Sequence[str]],
+     instance: Any,
+-    schema: dict[str, Any],
++    schema: dict,
+ ):
+     if not validator.is_type(instance, "object"):
+         return
+@@ -275,7 +275,7 @@ def dependentExcluded(
+     validator: Validator,
+     dependentExcluded: dict[str, Sequence[str]],
+     instance: Any,
+-    schema: dict[str, Any],
++    schema: dict,
+ ):
+     if not validator.is_type(instance, "object"):
+         return
+@@ -291,7 +291,7 @@ def dependentExcluded(
+ 
+ 
+ def enum(
+-    validator: Validator, enums: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, enums: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if instance in (0, 1):
+         unbooled = unbool(instance)
+@@ -303,7 +303,7 @@ def enum(
+ 
+ 
+ def enumCaseInsensitive(
+-    validator: Validator, enums: list[Any], instance: Any, schema: dict[str, Any]
++    validator: Validator, enums: list[Any], instance: Any, schema: dict
+ ) -> ValidationResult:
+     if validator.is_type(instance, "string"):
+         instance = instance.lower()
+@@ -321,7 +321,7 @@ def enumCaseInsensitive(
+ 
+ 
+ def exclusiveMaximum(
+-    validator: Validator, m: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, m: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     t_instance = deepcopy(instance)
+     if validator.is_type(t_instance, "string"):
+@@ -339,7 +339,7 @@ def exclusiveMaximum(
+ 
+ 
+ def exclusiveMinimum(
+-    validator: Validator, m: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, m: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     t_instance = deepcopy(instance)
+     if validator.is_type(t_instance, "string"):
+@@ -357,7 +357,7 @@ def exclusiveMinimum(
+ 
+ 
+ def format(
+-    validator: Validator, format: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, format: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if validator.format_checker is not None:  # type: ignore
+         try:
+@@ -367,7 +367,7 @@ def format(
+ 
+ 
+ def if_(
+-    validator: Validator, if_schema: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, if_schema: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     validator = validator.evolve(
+         function_filter=validator.function_filter.evolve(
+@@ -402,7 +402,7 @@ def if_(
+ 
+ 
+ def items(
+-    validator: Validator, items: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, items: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "array"):
+         return
+@@ -430,7 +430,7 @@ def items(
+ 
+ 
+ def maxItems(
+-    validator: Validator, mI: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, mI: Any, instance: Any, schema: dict
+ ) -> ValidationResult:  # pylint: disable=arguments-renamed
+     if validator.is_type(instance, "array") and len(instance) > mI:
+         yield ValidationError(
+@@ -439,7 +439,7 @@ def maxItems(
+ 
+ 
+ def maxLength(
+-    validator: Validator, mL: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, mL: Any, instance: Any, schema: dict
+ ) -> ValidationResult:  # pylint: disable=arguments-renamed
+     if not validator.is_type(instance, "string"):
+         return
+@@ -449,7 +449,7 @@ def maxLength(
+ 
+ 
+ def maxProperties(
+-    validator: Validator, mP: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, mP: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -460,7 +460,7 @@ def maxProperties(
+ 
+ 
+ def maximum(
+-    validator: Validator, m: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, m: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     t_instance = deepcopy(instance)
+     if validator.is_type(t_instance, "string"):
+@@ -477,7 +477,7 @@ def maximum(
+ 
+ 
+ def minItems(
+-    validator: Validator, mI: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, mI: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if validator.is_type(instance, "array") and len(instance) < mI:
+         yield ValidationError(
+@@ -486,7 +486,7 @@ def minItems(
+ 
+ 
+ def minLength(
+-    validator: Validator, mL: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, mL: Any, instance: Any, schema: dict
+ ) -> ValidationResult:  # pylint: disable=arguments-renamed
+     if not validator.is_type(instance, "string"):
+         return
+@@ -496,7 +496,7 @@ def minLength(
+ 
+ 
+ def minProperties(
+-    validator: Validator, mP: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, mP: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if validator.is_type(instance, "object") and len(instance) < mP:
+         yield ValidationError(
+@@ -505,7 +505,7 @@ def minProperties(
+ 
+ 
+ def minimum(
+-    validator: Validator, m: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, m: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     t_instance = deepcopy(instance)
+     if validator.is_type(t_instance, "string"):
+@@ -522,7 +522,7 @@ def minimum(
+ 
+ 
+ def multipleOf(
+-    validator: Validator, dB: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, dB: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     t_instance = deepcopy(instance)
+     if validator.is_type(t_instance, "string"):
+@@ -547,7 +547,7 @@ def multipleOf(
+ 
+ 
+ def not_(
+-    validator: Validator, not_schema: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, not_schema: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     validator = validator.evolve(
+         function_filter=validator.function_filter.evolve(
+@@ -575,7 +575,7 @@ def not_(
+ 
+ 
+ def oneOf(
+-    validator: Validator, oneOf: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, oneOf: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     validator = validator.evolve(
+         function_filter=validator.function_filter.evolve(
+@@ -626,7 +626,7 @@ def oneOf(
+ 
+ 
+ def pattern(
+-    validator: Validator, patrn: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, patrn: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "string"):
+         return
+@@ -636,7 +636,7 @@ def pattern(
+ 
+ 
+ def patternProperties(
+-    validator: Validator, patternProperties: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, patternProperties: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -656,7 +656,7 @@ def patternProperties(
+ 
+ 
+ def properties(
+-    validator: Validator, properties: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, properties: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -675,7 +675,7 @@ def properties(
+ 
+ 
+ def propertyNames(
+-    validator: Validator, propertyNames: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, propertyNames: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -689,7 +689,7 @@ def propertyNames(
+ 
+ 
+ def ref(
+-    validator: Validator, ref: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, ref: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     scope, resolved = validator.resolver.resolve(ref)
+     validator.resolver.push_scope(scope)
+@@ -701,7 +701,7 @@ def ref(
+ 
+ 
+ def required(
+-    validator: Validator, required: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, required: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -711,7 +711,7 @@ def required(
+ 
+ 
+ def requiredOr(
+-    validator: Validator, required: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, required: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -722,7 +722,7 @@ def requiredOr(
+ 
+ 
+ def requiredXor(
+-    validator: Validator, required: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, required: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if not validator.is_type(instance, "object"):
+         return
+@@ -738,21 +738,21 @@ def requiredXor(
+ 
+ 
+ def uniqueItems(
+-    validator: Validator, uI: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, uI: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if uI and validator.is_type(instance, "array") and not uniq(instance):
+         yield ValidationError("array items are not unique")
+ 
+ 
+ def uniqueKeys(
+-    validator: Validator, uKs: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, uKs: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     if uKs and validator.is_type(instance, "array") and not uniq_keys(instance, uKs):
+         yield ValidationError(f"array items are not unique for keys {uKs!r}")
+ 
+ 
+ def type(
+-    validator: Validator, tS: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, tS: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     tS = ensure_list(tS)
+     if not any(validator.is_type(instance, type) for type in tS):
+diff --git a/src/cfnlint/jsonschema/_keywords_cfn.py b/src/cfnlint/jsonschema/_keywords_cfn.py
+index 0811e030f..12b5226ae 100644
+--- a/src/cfnlint/jsonschema/_keywords_cfn.py
++++ b/src/cfnlint/jsonschema/_keywords_cfn.py
+@@ -22,6 +22,7 @@ from collections import deque
+ from typing import Any
+ 
+ import regex as re
++from typing import Union
+ 
+ import cfnlint.jsonschema._keywords as validators_standard
+ from cfnlint.helpers import (
+@@ -176,7 +177,7 @@ def cfnContext(
+     instance: Any,
+     schema: Any,
+ ) -> ValidationResult:
+-    context_parameters: dict[str, Any] = {}
++    context_parameters: dict = {}
+ 
+     functions = s.get("functions")
+     if functions is not None:
+@@ -210,7 +211,7 @@ def cfnContext(
+ 
+ 
+ def dynamicValidation(
+-    validator: Validator, dV: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, dV: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     """
+     Performs dynamic validation based on context.
+@@ -329,7 +330,7 @@ def cfn_type(validator: Validator, tS: Any, instance: Any, schema: Any):
+ 
+ 
+ def cfnGather(
+-    validator: Validator, s: dict[str, Any], instance: Any, schema: dict[str, Any]
++    validator: Validator, s: dict, instance: Any, schema: dict
+ ) -> ValidationResult:
+     """
+     Gather properties from local and remote resources, validate with schema.
+@@ -343,8 +344,8 @@ def cfnGather(
+     validation_schema = s.get("schema", {})
+ 
+     # Split entries into local and remote
+-    local_entries: dict[str, dict[str, Any]] = {}
+-    remote_entries: dict[str, dict[str, Any]] = {}
++    local_entries: dict[str, dict] = {}
++    remote_entries: dict[str, dict] = {}
+     for name, spec in gather_spec.items():
+         if "reference" in spec:
+             remote_entries[name] = spec
+@@ -411,8 +412,8 @@ def cfnGather(
+         # Gather all remote entries
+         for name, spec in remote_entries.items():
+             if name == primary_name:
+-                rn: str | None = resource_name
+-                rtype: str | None = target_type.type if target_type else None
++                rn: Optional[str] = resource_name
++                rtype: Optional[str] = target_type.type if target_type else None
+             else:
+                 rn, rtype = _resolve_remote(
+                     validator, scenario_validator, instance, spec
+@@ -437,18 +438,18 @@ def cfnGather(
+         )
+ 
+ 
+-def _to_path(path_str: str) -> deque[str | int]:
++def _to_path(path_str: str) -> deque:
+     if not path_str or path_str == ".":
+         return deque()
+     return deque(path_str.strip("/").split("/"))
+ 
+ 
+-def _prop_path(spec: str | dict[str, Any]) -> list[str]:
++def _prop_path(spec: Union[str, dict]) -> list:
+     path: str = spec if isinstance(spec, str) else spec.get("path", "")
+     return path.strip("/").split("/")
+ 
+ 
+-def _resolve_reference(ref_value: Any) -> str | None:
++def _resolve_reference(ref_value: Any) -> Optional[str]:
+     fn_k, fn_v = is_function(ref_value)
+     if fn_k == "Ref" and isinstance(fn_v, str):
+         return fn_v
+@@ -460,7 +461,7 @@ def _resolve_reference(ref_value: Any) -> str | None:
+     return None
+ 
+ 
+-def _matches_filter(resource_type: str | None, spec: dict[str, Any]) -> bool:
++def _matches_filter(resource_type: Optional[str], spec: dict) -> bool:
+     target_filter = spec.get("filter", {})
+     if target_filter and "type" in target_filter:
+         return bool(resource_type == target_filter["type"])
+@@ -471,8 +472,8 @@ def _resolve_remote(
+     validator: Validator,
+     scenario_validator: Validator,
+     instance: Any,
+-    spec: dict[str, Any],
+-) -> tuple[str | None, str | None]:
++    spec: dict,
++) -> tuple[Optional[str], Optional[str]]:
+     """Follow a remote entry's reference and return (resource_name, type)."""
+     ref_path = _to_path(spec["reference"])
+     for rv, _ in get_value_from_path(scenario_validator, instance, ref_path):
+@@ -490,13 +491,13 @@ def _resolve_remote(
+ 
+ def _gather_properties(
+     validator: Validator,
+-    resource_name: str | None,
++    resource_name: Optional[str],
+     instance: Any,
+-    specs: dict[str, Any],
+-    resource_type: str | None = None,
+-) -> dict[str, Any]:
++    specs: dict,
++    resource_type: Optional[str] = None,
++) -> dict:
+     """Gather property values using get_value_from_path for condition resolution."""
+-    gathered: dict[str, Any] = {}
++    gathered: dict = {}
+     template = validator.cfn.template
+ 
+     for key, spec in specs.items():
+@@ -517,7 +518,7 @@ def _gather_properties(
+         # Build full path through template for remote, or use instance for local
+         if resource_name is not None:
+             source = template
+-            full_path = deque[str | int](["Resources", resource_name, "Properties"])
++            full_path = deque(["Resources", resource_name, "Properties"])
+             full_path.extend(path_parts)
+         else:
+             source = instance
+@@ -547,11 +548,11 @@ def _gather_properties(
+ def _gather_locals(
+     scenario_validator: Validator,
+     instance: Any,
+-    local_entries: dict[str, dict[str, Any]],
+-) -> tuple[dict[str, Any], dict[str, dict[str, list[str]]]]:
++    local_entries: dict[str, dict],
++) -> tuple[dict, dict[str, dict[str, list]]]:
+     """Gather properties for all local entries."""
+-    gathered: dict[str, Any] = {}
+-    path_maps: dict[str, dict[str, list[str]]] = {}
++    gathered: dict = {}
++    path_maps: dict[str, dict[str, list]] = {}
+     for name, spec in local_entries.items():
+         props_spec = spec.get("properties", {})
+         gathered[name] = _gather_properties(
+@@ -563,11 +564,11 @@ def _gather_locals(
+ 
+ def _validate_gathered(
+     scenario_validator: Validator,
+-    gathered: dict[str, Any],
+-    path_maps: dict[str, dict[str, list[str]]],
++    gathered: dict,
++    path_maps: dict[str, dict[str, list]],
+     resource_names: dict[str, str],
+-    local_entries: dict[str, dict[str, Any]],
+-    validation_schema: dict[str, Any],
++    local_entries: dict[str, dict],
++    validation_schema: dict,
+ ) -> ValidationResult:
+     """Validate gathered object and remap error paths."""
+     resolved_schema = resolve_data_in_schema(validation_schema, gathered)
+@@ -584,7 +585,7 @@ def _validate_gathered(
+ 
+         if entry_name in resource_names:
+             err.path_override = (
+-                deque[str | int](
++                deque(
+                     ["Resources", resource_names[entry_name], "Properties"]
+                 )
+                 + real_path
+@@ -596,8 +597,8 @@ def _validate_gathered(
+ 
+ 
+ def _remap_path(
+-    err_path: list[str | int],
+-    path_maps: dict[str, dict[str, list[str]]],
++    err_path: list[Union[str, int]],
++    path_maps: dict[str, dict[str, list]],
+ ) -> deque[str | int]:
+     """Remap a gathered-object error path back to the original property path."""
+     entry_name = str(err_path[0])
+@@ -606,14 +607,14 @@ def _remap_path(
+         and entry_name in path_maps
+         and str(err_path[1]) in path_maps[entry_name]
+     ):
+-        real = deque[str | int](path_maps[entry_name][str(err_path[1])])
++        real = deque(path_maps[entry_name][str(err_path[1])])
+         real.extend(err_path[2:])
+         return real
+     return deque(err_path[1:])
+ 
+ 
+ def _function_unknown(
+-    validator: Validator, s: Any, instance: Any, schema: dict[str, Any]
++    validator: Validator, s: Any, instance: Any, schema: dict
+ ) -> ValidationResult:
+     """Default validator for CloudFormation intrinsic functions.
+     Returns unknown error in unresolvable mode to prevent incorrect validation.
+diff --git a/src/cfnlint/jsonschema/_resolvers_cfn.py b/src/cfnlint/jsonschema/_resolvers_cfn.py
+index ebbeb4b22..c36664fc2 100644
+--- a/src/cfnlint/jsonschema/_resolvers_cfn.py
++++ b/src/cfnlint/jsonschema/_resolvers_cfn.py
+@@ -390,8 +390,8 @@ def split(validator: Validator, instance: Any) -> ResolutionResult:
+ 
+ 
+ def _sub_parameter_expansion(
+-    validator: Validator, parameters: dict[str, Any]
+-) -> Iterator[dict[str, Any]]:
++    validator: Validator, parameters: dict
++) -> Iterator[dict]:
+     parameters = parameters.copy()
+     if len(parameters) == 0:
+         yield {}
+@@ -524,7 +524,7 @@ def to_json_string(validator: Validator, instance: Any) -> ResolutionResult:
+ # not all functions need to be resolved.  These functions
+ # allow us to pull up values from nested functions
+ # allowing us to test the possible values against the schema
+-fn_resolvers: dict[str, Any] = {
++fn_resolvers: dict = {
+     "Fn::Base64": unresolvable,
+     "Fn::Cidr": unresolvable,
+     "Fn::FindInMap": find_in_map,
+diff --git a/src/cfnlint/jsonschema/validators.py b/src/cfnlint/jsonschema/validators.py
+index 15a976f05..8303ee391 100644
+--- a/src/cfnlint/jsonschema/validators.py
++++ b/src/cfnlint/jsonschema/validators.py
+@@ -310,7 +310,7 @@ def create(
+             schema: Any,
+             path: str | int | None = None,
+             schema_path: str | int | None = None,
+-            property_path: str | None = None,
++            property_path: Optional[str] = None,
+         ) -> ValidationResult:
+             for error in self.evolve(
+                 schema=schema,
+diff --git a/src/cfnlint/maintenance.py b/src/cfnlint/maintenance.py
+index 4f40e9f00..fda3de1ef 100644
+--- a/src/cfnlint/maintenance.py
++++ b/src/cfnlint/maintenance.py
+@@ -5,6 +5,7 @@ SPDX-License-Identifier: MIT-0
+ 
+ import json
+ import logging
++import typing
+ import os
+ import subprocess
+ 
+@@ -20,7 +21,7 @@ REGISTRY_SCHEMA_ZIP = (
+ )
+ 
+ 
+-def update_resource_specs(force: bool = False, regions: list[str] | None = None) -> int:
++def update_resource_specs(force: bool = False, regions: typing.Optional[list] = None) -> int:
+     """Update provider schemas
+ 
+     Args:
+diff --git a/src/cfnlint/match.py b/src/cfnlint/match.py
+index 25058a4a8..e86e6d879 100644
+--- a/src/cfnlint/match.py
++++ b/src/cfnlint/match.py
+@@ -43,18 +43,18 @@ class Match:
+ 
+     message: str = field(init=True)
+     rule: CloudFormationLintRule = field(init=True)
+-    filename: str | None = field(init=True, default=None)
++    filename: Optional[str] = field(init=True, default=None)
+     linenumber: int = field(init=True, default=1)
+     columnnumber: int = field(init=True, default=1)
+     linenumberend: int = field(init=True, default=1)
+     columnnumberend: int = field(init=True, default=1)
+     id: str = field(init=False)
+-    parent_id: str | None = field(init=True, default=None)
++    parent_id: Optional[str] = field(init=True, default=None)
+     rulematch_obj: InitVar[RuleMatch | None] = None
+ 
+     def __post_init__(self, rulematch_obj):
+         hex_string = hashlib.md5(
+-            f"{self}".encode("UTF-8"), usedforsecurity=False
++            f"{self}".encode("UTF-8"), 
+         ).hexdigest()
+         super().__setattr__("id", str(uuid.UUID(hex=hex_string)))
+ 
+@@ -79,7 +79,7 @@ class Match:
+         linenumberend: int | None = None,
+         columnnumberend: int | None = None,
+         rulematch_obj: RuleMatch | None = None,
+-        parent_id: str | None = None,
++        parent_id: Optional[str] = None,
+     ) -> "Match":
+         """
+         Factory method to create a new Match instance.
+diff --git a/src/cfnlint/rules/_rule.py b/src/cfnlint/rules/_rule.py
+index 0316a9652..8e57c93af 100644
+--- a/src/cfnlint/rules/_rule.py
++++ b/src/cfnlint/rules/_rule.py
+@@ -21,9 +21,9 @@ LOGGER = logging.getLogger(__name__)
+ def _rule_is_enabled(
+     rule: "CloudFormationLintRule",
+     include_experimental: bool = False,
+-    ignore_rules: list[str] | None = None,
+-    include_rules: list[str] | None = None,
+-    mandatory_rules: list[str] | None = None,
++    ignore_rules: Optional[list] = None,
++    include_rules: Optional[list] = None,
++    mandatory_rules: Optional[list] = None,
+ ):
+     """Is the rule enabled based on the configuration"""
+     ignore_rules = ignore_rules or []
+@@ -134,7 +134,7 @@ def _rule_match_to_match(
+     filename: str,
+     cfn: Template,
+     match: RuleMatch,
+-    parent_id: str | None = None,
++    parent_id: Optional[str] = None,
+ ) -> Iterator[Match]:
+     error_rule = rule
+     if hasattr(match, "rule"):
+@@ -211,18 +211,18 @@ class CloudFormationLintRule:
+     shortdesc: str = ""
+     description: str = ""
+     source_url: str = ""
+-    tags: list[str] = []
++    tags: list = []
+     experimental: bool = False
+ 
+     logger = logging.getLogger(__name__)
+ 
+     def __init__(self) -> None:
+-        self.resource_property_types: list[str] = []
+-        self.config: dict[str, Any] = {}  # `-X E3012:strict=false`... Show more
+-        self.config_definition: dict[str, Any] = {}
++        self.resource_property_types: list = []
++        self.config: dict = {}  # `-X E3012:strict=false`... Show more
++        self.config_definition: dict = {}
+         self._child_rules: dict[str, "CloudFormationLintRule" | None] = {}
+         # Parent IDs to do the opposite of child rules
+-        self._parent_rules: list[str] = []
++        self._parent_rules: list = []
+         super().__init__()
+ 
+     def __repr__(self):
+@@ -246,7 +246,7 @@ class CloudFormationLintRule:
+         return self._parent_rules
+ 
+     @parent_rules.setter
+-    def parent_rules(self, rules: list[str]):
++    def parent_rules(self, rules: list):
+         self._parent_rules = rules
+ 
+     @property
+@@ -320,7 +320,7 @@ class CloudFormationLintRule:
+ 
+     def match_resource_properties(
+         self,
+-        properties: dict[str, Any],
++        properties: dict,
+         resourcetype: str,
+         path: Path,
+         cfn: Template,
+diff --git a/src/cfnlint/rules/_rules.py b/src/cfnlint/rules/_rules.py
+index 19978d05f..ecb3e97bb 100644
+--- a/src/cfnlint/rules/_rules.py
++++ b/src/cfnlint/rules/_rules.py
+@@ -124,7 +124,7 @@ class Rules(TypedRules):
+                 yield match
+ 
+     def run(
+-        self, filename: str | None, cfn: Template, config: ConfigMixIn
++        self, filename: Optional[str], cfn: Template, config: ConfigMixIn
+     ) -> Iterator[Match]:
+         """Run rules"""
+         # Build enabled rules set once to avoid repeated is_rule_enabled calls
+@@ -228,11 +228,11 @@ class RulesCollection:
+ 
+     def __init__(
+         self,
+-        ignore_rules: list[str] | None = None,
+-        include_rules: list[str] | None = None,
++        ignore_rules: Optional[list] = None,
++        include_rules: Optional[list] = None,
+         configure_rules: Any = None,
+         include_experimental: bool = False,
+-        mandatory_rules: list[str] | None = None,
++        mandatory_rules: Optional[list] = None,
+     ):
+         self.rules: dict[str, CloudFormationLintRule] = {}
+         self.all_rules: dict[str, CloudFormationLintRule] = {}
+@@ -248,11 +248,11 @@ class RulesCollection:
+ 
+     def configure(
+         self,
+-        ignore_rules: list[str] | None = None,
+-        include_rules: list[str] | None = None,
++        ignore_rules: Optional[list] = None,
++        include_rules: Optional[list] = None,
+         configure_rules: Any = None,
+         include_experimental: bool = False,
+-        mandatory_rules: list[str] | None = None,
++        mandatory_rules: Optional[list] = None,
+     ):
+         self.rules = {}
+         # Whether "experimental" rules should be added
+@@ -342,7 +342,7 @@ class RulesCollection:
+ 
+         return []
+ 
+-    def run(self, filename: str | None, cfn: Template, config=None):
++    def run(self, filename: Optional[str], cfn: Template, config=None):
+         """Run rules"""
+         matches = []
+         for rule in self.rules.values():
+diff --git a/src/cfnlint/rules/deployment_files/Configuration.py b/src/cfnlint/rules/deployment_files/Configuration.py
+index 26d084dcf..36cad86a4 100644
+--- a/src/cfnlint/rules/deployment_files/Configuration.py
++++ b/src/cfnlint/rules/deployment_files/Configuration.py
+@@ -21,7 +21,7 @@ class Configuration(BaseJsonSchema):
+     tags = ["base"]
+ 
+     def validate_deployment_file(
+-        self, data: dict[str, Any], schema: dict[str, Any]
++        self, data: dict, schema: dict
+     ) -> RuleMatches:
+         matches = []
+ 
+diff --git a/src/cfnlint/rules/deployment_files/Parameters.py b/src/cfnlint/rules/deployment_files/Parameters.py
+index dfa4fd8ef..940dfcbd7 100644
+--- a/src/cfnlint/rules/deployment_files/Parameters.py
++++ b/src/cfnlint/rules/deployment_files/Parameters.py
+@@ -35,11 +35,11 @@ class Parameters(CfnLintJsonSchema):
+     def _is_type_a_list(self, parameter_type: str) -> bool:
+         return "List" in parameter_type
+ 
+-    def _build_schema(self, instance: Any) -> dict[str, Any]:
++    def _build_schema(self, instance: Any) -> dict:
+         if not isinstance(instance, dict):
+             return {}
+ 
+-        schema: dict[str, Any] = {
++        schema: dict = {
+             "properties": {},
+             "additionalProperties": False,
+             "required": [],
+diff --git a/src/cfnlint/rules/formats/Format.py b/src/cfnlint/rules/formats/Format.py
+index 22348d07e..5171295d0 100644
+--- a/src/cfnlint/rules/formats/Format.py
++++ b/src/cfnlint/rules/formats/Format.py
+@@ -19,7 +19,7 @@ class Format(CloudFormationLintRule):
+     tags = []
+ 
+     def format(
+-        self, validator: Validator, format: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, format: Any, instance: Any, schema: dict
+     ):
+         if validator.format_checker is not None:  # type: ignore
+             if format in validator.format_checker.checkers:
+diff --git a/src/cfnlint/rules/formats/FormatKeyword.py b/src/cfnlint/rules/formats/FormatKeyword.py
+index dd836f1c6..671b706a9 100644
+--- a/src/cfnlint/rules/formats/FormatKeyword.py
++++ b/src/cfnlint/rules/formats/FormatKeyword.py
+@@ -14,7 +14,7 @@ from cfnlint.rules import CloudFormationLintRule
+ 
+ 
+ class FormatKeyword(CloudFormationLintRule):
+-    def __init__(self, format: str | None = None, pattern: str | None = None) -> None:
++    def __init__(self, format: Optional[str] = None, pattern: Optional[str] = None) -> None:
+         super().__init__()
+         self.format_keyword = format
+         self.parent_rules = ["E1103"]
+diff --git a/src/cfnlint/rules/formats/_schema_comparer.py b/src/cfnlint/rules/formats/_schema_comparer.py
+index 912659e2f..233d81fe7 100644
+--- a/src/cfnlint/rules/formats/_schema_comparer.py
++++ b/src/cfnlint/rules/formats/_schema_comparer.py
+@@ -19,17 +19,17 @@ LOGGER = logging.getLogger(__name__)
+ 
+ def _any_of(
+     source: str,
+-    any_ofs: list[dict[str, Any]],
+-) -> tuple[bool, list[str]]:
++    any_ofs: list[dict],
++) -> tuple[bool, list]:
+     """Compare the source schema with the destination schema and
+     return a ValidationError if they don't match.
+ 
+     Args:
+         source (str): The source schema to compare.
+-        destination (list[dict[str, Any]]): The anyOf schemas
++        destination (list[dict]): The anyOf schemas
+ 
+     Returns:
+-        tuple[bool, list[str]]: A bool value if format matches and a
++        tuple[bool, list]: A bool value if format matches and a
+                                 list of format values if they don't match.
+     """
+     formats = []
+@@ -59,16 +59,16 @@ def _backwards_compatibility(format: Any) -> Any:
+ 
+ def _compare_schemas(
+     source: str,
+-    destination: dict[str, Any],
+-) -> tuple[bool, list[str]]:
++    destination: dict,
++) -> tuple[bool, list]:
+     """Compare two schemas and return a ValidationError if they don't match.
+ 
+     Args:
+         source (str): The source schema to compare.
+-        destination (dict[str, Any]): The destination schema to compare against.
++        destination (dict): The destination schema to compare against.
+ 
+     Returns:
+-        tuple[bool, list[str]]: True/False if the format keyword matches
++        tuple[bool, list]: True/False if the format keyword matches
+     """
+ 
+     dest_f = _backwards_compatibility(destination.get(_keyword))
+@@ -89,14 +89,14 @@ def _compare_schemas(
+ 
+ 
+ def compare_schemas(
+-    source: dict[str, Any],
+-    destination: dict[str, Any],
++    source: dict,
++    destination: dict,
+ ) -> ValidationError | None:
+     """Compare two schemas and return a ValidationError if they don't match.
+ 
+     Args:
+-        source (dict[str, Any]): The source schema to compare.
+-        destination (dict[str, Any]): The destination schema to compare against.
++        source (dict): The source schema to compare.
++        destination (dict): The destination schema to compare against.
+ 
+     Returns:
+         ValidationError: A ValidationError if the schemas don't match, otherwise None.
+diff --git a/src/cfnlint/rules/functions/GetAz.py b/src/cfnlint/rules/functions/GetAz.py
+index 36ece11e0..68ad9dde9 100644
+--- a/src/cfnlint/rules/functions/GetAz.py
++++ b/src/cfnlint/rules/functions/GetAz.py
+@@ -25,7 +25,7 @@ class GetAz(BaseFn):
+         super().__init__("Fn::GetAZs", ("array",), ("Ref",), resolved_rule="W1036")
+         self.fn_getazs = self.validate
+ 
+-    def schema(self, validator: Validator, instance: Any) -> dict[str, Any]:
++    def schema(self, validator: Validator, instance: Any) -> dict:
+         return {
+             "type": ["string"],
+             "enum": [""] + REGIONS,
+diff --git a/src/cfnlint/rules/functions/Ref.py b/src/cfnlint/rules/functions/Ref.py
+index d608fa8fc..d22fa2a1e 100644
+--- a/src/cfnlint/rules/functions/Ref.py
++++ b/src/cfnlint/rules/functions/Ref.py
+@@ -37,7 +37,7 @@ class Ref(BaseFn):
+         validator: Validator,
+         subschema: Any,
+         instance: Any,
+-        schema: dict[str, Any],
++        schema: dict,
+     ):
+         yield from super().validate(validator, subschema, instance, schema)
+ 
+diff --git a/src/cfnlint/rules/functions/RefFormat.py b/src/cfnlint/rules/functions/RefFormat.py
+index 64a9b651b..06902897a 100644
+--- a/src/cfnlint/rules/functions/RefFormat.py
++++ b/src/cfnlint/rules/functions/RefFormat.py
+@@ -30,8 +30,8 @@ class RefFormat(CfnLintKeyword):
+         self.parent_rules = ["E1020"]
+ 
+     def _filter_schema(
+-        self, validator: Validator, type_name: str, id: str, schema: dict[str, Any]
+-    ) -> dict[str, Any]:
++        self, validator: Validator, type_name: str, id: str, schema: dict
++    ) -> dict:
+         if type_name != "AWS::EC2::SecurityGroup":
+             return schema
+ 
+diff --git a/src/cfnlint/rules/functions/Sub.py b/src/cfnlint/rules/functions/Sub.py
+index 39eaa1463..ef241e3c2 100644
+--- a/src/cfnlint/rules/functions/Sub.py
++++ b/src/cfnlint/rules/functions/Sub.py
+@@ -49,7 +49,7 @@ class Sub(BaseFn):
+         return err
+ 
+     def _validate_string(
+-        self, validator: Validator, key: str, instance: Any, sub_values: dict[str, Any]
++        self, validator: Validator, key: str, instance: Any, sub_values: dict
+     ) -> ValidationResult:
+         params = re.findall(REGEX_SUB_PARAMETERS, instance)
+         validator = validator.evolve(
+diff --git a/src/cfnlint/rules/functions/_BaseFn.py b/src/cfnlint/rules/functions/_BaseFn.py
+index 96629be59..d39c0b16b 100644
+--- a/src/cfnlint/rules/functions/_BaseFn.py
++++ b/src/cfnlint/rules/functions/_BaseFn.py
+@@ -86,7 +86,7 @@ class BaseFn(CfnLintJsonSchema):
+                 f"other.functions.{name.replace('Fn::', '').lower()}"
+             )
+ 
+-    def key_value(self, instance: dict[str, Any]) -> Tuple[str, Any]:
++    def key_value(self, instance: dict) -> Tuple[str, Any]:
+         return list(instance.keys())[0], instance.get(self.fn.name)
+ 
+     def fix_errors(self, errs: ValidationResult) -> ValidationResult:
+@@ -95,10 +95,10 @@ class BaseFn(CfnLintJsonSchema):
+                 err.validator = self.fn.py
+             yield err
+ 
+-    def schema(self, validator: Validator, instance: Any) -> dict[str, Any]:
++    def schema(self, validator: Validator, instance: Any) -> dict:
+         return self._schema
+ 
+-    def validator(self, validator: Validator, schema: dict[str, Any]) -> Validator:
++    def validator(self, validator: Validator, schema: dict) -> Validator:
+         return validator.evolve(
+             context=validator.context.evolve(
+                 strict_types=False,
+@@ -201,7 +201,7 @@ class BaseFn(CfnLintJsonSchema):
+ 
+         return resolved
+ 
+-    def resolve_type(self, validator, schema) -> list[str]:
++    def resolve_type(self, validator, schema) -> list:
+         if "type" in schema:
+             return ensure_list(schema["type"])  # type: ignore
+ 
+diff --git a/src/cfnlint/rules/jsonschema/Base.py b/src/cfnlint/rules/jsonschema/Base.py
+index 402bf0091..97d847382 100644
+--- a/src/cfnlint/rules/jsonschema/Base.py
++++ b/src/cfnlint/rules/jsonschema/Base.py
+@@ -23,7 +23,7 @@ class BaseJsonSchema(CloudFormationLintRule):
+     def __init__(self) -> None:
+         """Init"""
+         super().__init__()
+-        self.rules: dict[str, Any] = {}
++        self.rules: dict = {}
+         self.rule_set: dict[str, str] = {}
+         self.validators: dict[str, V] = {}
+ 
+@@ -90,7 +90,7 @@ class BaseJsonSchema(CloudFormationLintRule):
+         return matches
+ 
+     def json_schema_validate(
+-        self, validator: Validator, properties: dict[str, Any], path: Sequence[str]
++        self, validator: Validator, properties: dict, path: Sequence[str]
+     ):
+         matches = []
+         for err in validator.iter_errors(properties):
+diff --git a/src/cfnlint/rules/jsonschema/CfnLintJsonSchema.py b/src/cfnlint/rules/jsonschema/CfnLintJsonSchema.py
+index 6c41f36be..89ac934b6 100644
+--- a/src/cfnlint/rules/jsonschema/CfnLintJsonSchema.py
++++ b/src/cfnlint/rules/jsonschema/CfnLintJsonSchema.py
+@@ -29,7 +29,7 @@ class CfnLintJsonSchema(BaseJsonSchema):
+         self.parent_rules = ["E1101"]
+         self.all_matches = all_matches
+         self._use_schema_arg = True
+-        self._schema: dict[str, Any] = {}
++        self._schema: dict = {}
+ 
+         if schema_details:
+             self._schema = load_resource(
+@@ -60,7 +60,7 @@ class CfnLintJsonSchema(BaseJsonSchema):
+             yield self._clean_error(err)
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         # if the schema has a description will only replace the message with that
+         # description and use the best error for the location information
+diff --git a/src/cfnlint/rules/jsonschema/CfnLintJsonSchemaRegional.py b/src/cfnlint/rules/jsonschema/CfnLintJsonSchemaRegional.py
+index 5abd80e09..5210da1af 100644
+--- a/src/cfnlint/rules/jsonschema/CfnLintJsonSchemaRegional.py
++++ b/src/cfnlint/rules/jsonschema/CfnLintJsonSchemaRegional.py
+@@ -16,7 +16,7 @@ class CfnLintJsonSchemaRegional(CfnLintJsonSchema):
+         return err.message
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for region in validator.context.regions:
+             region_validator = validator.evolve(
+diff --git a/src/cfnlint/rules/jsonschema/MaxProperties.py b/src/cfnlint/rules/jsonschema/MaxProperties.py
+index 88b227992..7ff83b6ba 100644
+--- a/src/cfnlint/rules/jsonschema/MaxProperties.py
++++ b/src/cfnlint/rules/jsonschema/MaxProperties.py
+@@ -12,7 +12,7 @@ from cfnlint.rules import CloudFormationLintRule
+ class MaxProperties(CloudFormationLintRule):
+     """Check maxProperties are correct"""
+ 
+-    def __init__(self, approaching_limit_rule: str | None = None) -> None:
++    def __init__(self, approaching_limit_rule: Optional[str] = None) -> None:
+         super().__init__()
+         self.config["threshold"] = 0.9
+ 
+diff --git a/src/cfnlint/rules/jsonschema/PropertyNames.py b/src/cfnlint/rules/jsonschema/PropertyNames.py
+index e219108d7..30592c74e 100644
+--- a/src/cfnlint/rules/jsonschema/PropertyNames.py
++++ b/src/cfnlint/rules/jsonschema/PropertyNames.py
+@@ -14,7 +14,7 @@ from cfnlint.rules import CloudFormationLintRule
+ class PropertyNames(CloudFormationLintRule):
+     """Check maxLength values are correct"""
+ 
+-    def __init__(self, approaching_limit_rule: str | None = None) -> None:
++    def __init__(self, approaching_limit_rule: Optional[str] = None) -> None:
+         super().__init__()
+         self.config["threshold"] = 0.9
+         self.approaching_limit_rule = approaching_limit_rule
+@@ -24,7 +24,7 @@ class PropertyNames(CloudFormationLintRule):
+             self.child_rules[self.approaching_limit_rule] = None
+ 
+     def _max_length(
+-        self, validator: Validator, mL: int, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, mL: int, instance: Any, schema: dict
+     ):
+         if not validator.is_type(instance, "string"):
+             return
+@@ -54,7 +54,7 @@ class PropertyNames(CloudFormationLintRule):
+         validator: Validator,
+         propertyNames: Any,
+         instance: Any,
+-        schema: dict[str, Any],
++        schema: dict,
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/parameters/AllowedPattern.py b/src/cfnlint/rules/parameters/AllowedPattern.py
+index 0b7d392dc..35e4896aa 100644
+--- a/src/cfnlint/rules/parameters/AllowedPattern.py
++++ b/src/cfnlint/rules/parameters/AllowedPattern.py
+@@ -30,7 +30,7 @@ class AllowedPattern(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/BothUpdateReplacePolicyDeletionPolicyNeeded.py b/src/cfnlint/rules/resources/BothUpdateReplacePolicyDeletionPolicyNeeded.py
+index 10aede937..7cd85d86f 100644
+--- a/src/cfnlint/rules/resources/BothUpdateReplacePolicyDeletionPolicyNeeded.py
++++ b/src/cfnlint/rules/resources/BothUpdateReplacePolicyDeletionPolicyNeeded.py
+@@ -40,7 +40,7 @@ class UpdateReplacePolicyDeletionPolicy(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         resource_type = instance.get("Type")
+         if resource_type in [
+diff --git a/src/cfnlint/rules/resources/CfnInit.py b/src/cfnlint/rules/resources/CfnInit.py
+index 65bfc5809..41ea61116 100644
+--- a/src/cfnlint/rules/resources/CfnInit.py
++++ b/src/cfnlint/rules/resources/CfnInit.py
+@@ -32,7 +32,7 @@ class CfnInit(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         cfn_validator = self.extend_validator(
+             validator=validator,
+diff --git a/src/cfnlint/rules/resources/CreationPolicy.py b/src/cfnlint/rules/resources/CreationPolicy.py
+index 303a72033..81e7a5232 100644
+--- a/src/cfnlint/rules/resources/CreationPolicy.py
++++ b/src/cfnlint/rules/resources/CreationPolicy.py
+@@ -24,7 +24,7 @@ class CreationPolicy(CfnLintJsonSchema):
+             all_matches=True,
+         )
+ 
+-    def _get_schema(self, resource_type: str) -> dict[str, Any]:
++    def _get_schema(self, resource_type: str) -> dict:
+         if resource_type == "AWS::AppStream::Fleet":
+             return {
+                 "type": "object",
+diff --git a/src/cfnlint/rules/resources/RetentionPeriodOnResourceTypesWithAutoExpiringContent.py b/src/cfnlint/rules/resources/RetentionPeriodOnResourceTypesWithAutoExpiringContent.py
+index 10a6e8136..af38c3534 100644
+--- a/src/cfnlint/rules/resources/RetentionPeriodOnResourceTypesWithAutoExpiringContent.py
++++ b/src/cfnlint/rules/resources/RetentionPeriodOnResourceTypesWithAutoExpiringContent.py
+@@ -119,7 +119,7 @@ class RetentionPeriodOnResourceTypesWithAutoExpiringContent(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if len(validator.context.path.cfn_path) < 1:
+             return
+diff --git a/src/cfnlint/rules/resources/apigateway/RestApiMixingDefinitions.py b/src/cfnlint/rules/resources/apigateway/RestApiMixingDefinitions.py
+index 108c0f64a..63619df42 100644
+--- a/src/cfnlint/rules/resources/apigateway/RestApiMixingDefinitions.py
++++ b/src/cfnlint/rules/resources/apigateway/RestApiMixingDefinitions.py
+@@ -39,7 +39,7 @@ class RestApiMixingDefinitions(CfnLintKeyword):
+         ]
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if validator.cfn.graph is None:  # pragma: no cover
+             return  # pragma: no cover
+diff --git a/src/cfnlint/rules/resources/backup/BackupPlanLifecycleRule.py b/src/cfnlint/rules/resources/backup/BackupPlanLifecycleRule.py
+index 8df7966ed..8fb3f1279 100644
+--- a/src/cfnlint/rules/resources/backup/BackupPlanLifecycleRule.py
++++ b/src/cfnlint/rules/resources/backup/BackupPlanLifecycleRule.py
+@@ -36,7 +36,7 @@ class BackupPlanLifecycleRule(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, uI: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, uI: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         delete_after_days = instance.get("DeleteAfterDays")
+         move_to_cold_storage_after_days = instance.get("MoveToColdStorageAfterDays")
+diff --git a/src/cfnlint/rules/resources/certificatemanager/DomainValidationOptions.py b/src/cfnlint/rules/resources/certificatemanager/DomainValidationOptions.py
+index c02d01f2e..66f549ac2 100644
+--- a/src/cfnlint/rules/resources/certificatemanager/DomainValidationOptions.py
++++ b/src/cfnlint/rules/resources/certificatemanager/DomainValidationOptions.py
+@@ -38,7 +38,7 @@ class DomainValidationOptions(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not isinstance(instance, dict):
+             return
+diff --git a/src/cfnlint/rules/resources/cloudfront/Aliases.py b/src/cfnlint/rules/resources/cloudfront/Aliases.py
+index e32c9b555..1b16773b4 100644
+--- a/src/cfnlint/rules/resources/cloudfront/Aliases.py
++++ b/src/cfnlint/rules/resources/cloudfront/Aliases.py
+@@ -32,7 +32,7 @@ class Aliases(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if isinstance(instance, str):
+             if re.match(REGEX_DYN_REF, instance):
+diff --git a/src/cfnlint/rules/resources/cloudfront/DistributionTargetOriginId.py b/src/cfnlint/rules/resources/cloudfront/DistributionTargetOriginId.py
+index c18c1547c..9044cda96 100644
+--- a/src/cfnlint/rules/resources/cloudfront/DistributionTargetOriginId.py
++++ b/src/cfnlint/rules/resources/cloudfront/DistributionTargetOriginId.py
+@@ -32,7 +32,7 @@ class DistributionTargetOriginId(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for cache_origin_id, cache_validator in get_value_from_path(
+             validator, instance, path=deque(["DefaultCacheBehavior", "TargetOriginId"])
+diff --git a/src/cfnlint/rules/resources/codepipeline/PipelineActionConfiguration.py b/src/cfnlint/rules/resources/codepipeline/PipelineActionConfiguration.py
+index bb4a8f387..433c81b44 100644
+--- a/src/cfnlint/rules/resources/codepipeline/PipelineActionConfiguration.py
++++ b/src/cfnlint/rules/resources/codepipeline/PipelineActionConfiguration.py
+@@ -31,7 +31,7 @@ class PipelineActionConfiguration(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/codepipeline/PipelineArtifactCounts.py b/src/cfnlint/rules/resources/codepipeline/PipelineArtifactCounts.py
+index 635c99277..d7282ce4f 100644
+--- a/src/cfnlint/rules/resources/codepipeline/PipelineArtifactCounts.py
++++ b/src/cfnlint/rules/resources/codepipeline/PipelineArtifactCounts.py
+@@ -30,7 +30,7 @@ class PipelineArtifactCounts(CfnLintKeyword):
+             ],
+         )
+ 
+-        self._artifact_counts: dict[str, dict[str, dict[str, Any]]] = {
++        self._artifact_counts: dict[str, dict[str, dict]] = {
+             "AWS": {
+                 "Source": {
+                     "S3": {
+@@ -136,7 +136,7 @@ class PipelineArtifactCounts(CfnLintKeyword):
+         }
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+@@ -159,7 +159,7 @@ class PipelineArtifactCounts(CfnLintKeyword):
+                     for provider, provider_provider in get_value_from_path(
+                         categor_validator, action, deque(["Provider"])
+                     ):
+-                        count_schema: dict[str, Any] = {
++                        count_schema: dict = {
+                             "properties": category_artifact_counts.get(provider),
+                             "required": [],
+                         }
+diff --git a/src/cfnlint/rules/resources/codepipeline/PipelineArtifactNames.py b/src/cfnlint/rules/resources/codepipeline/PipelineArtifactNames.py
+index 762e0161f..b1b6ccd4c 100644
+--- a/src/cfnlint/rules/resources/codepipeline/PipelineArtifactNames.py
++++ b/src/cfnlint/rules/resources/codepipeline/PipelineArtifactNames.py
+@@ -37,7 +37,7 @@ class PipelineArtifactNames(CfnLintKeyword):
+         return super().initialize(cfn)
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/codepipeline/PipelineFirstStageHasSource.py b/src/cfnlint/rules/resources/codepipeline/PipelineFirstStageHasSource.py
+index e27ba56f3..18a868291 100644
+--- a/src/cfnlint/rules/resources/codepipeline/PipelineFirstStageHasSource.py
++++ b/src/cfnlint/rules/resources/codepipeline/PipelineFirstStageHasSource.py
+@@ -54,7 +54,7 @@ class PipelineFirstStageHasSource(CfnLintKeyword):
+         return None
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/ecs/LogConfiguration.py b/src/cfnlint/rules/resources/ecs/LogConfiguration.py
+index 97fa9f5a9..36544127b 100644
+--- a/src/cfnlint/rules/resources/ecs/LogConfiguration.py
++++ b/src/cfnlint/rules/resources/ecs/LogConfiguration.py
+@@ -35,7 +35,7 @@ class LogConfiguration(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         # if the schema has a description will only replace the message with that
+         # description and use the best error for the location information
+diff --git a/src/cfnlint/rules/resources/ecs/ServiceDynamicPorts.py b/src/cfnlint/rules/resources/ecs/ServiceDynamicPorts.py
+index 3316f69d8..909ba56f4 100644
+--- a/src/cfnlint/rules/resources/ecs/ServiceDynamicPorts.py
++++ b/src/cfnlint/rules/resources/ecs/ServiceDynamicPorts.py
+@@ -32,7 +32,7 @@ class ServiceDynamicPorts(CfnLintKeyword):
+             keywords=["Resources/AWS::ECS::Service/Properties"],
+         )
+ 
+-    def _filter_resource_name(self, instance: Any) -> str | None:
++    def _filter_resource_name(self, instance: Any) -> Optional[str]:
+         fn_k, fn_v = is_function(instance)
+         if fn_k is None:
+             return None
+@@ -181,7 +181,7 @@ class ServiceDynamicPorts(CfnLintKeyword):
+                             yield host_part_validator
+ 
+     def validate(
+-        self, validator: Validator, _: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for (
+             task_definition_resource_name,
+diff --git a/src/cfnlint/rules/resources/ecs/TaskDefinitionAwsVpc.py b/src/cfnlint/rules/resources/ecs/TaskDefinitionAwsVpc.py
+index 6134c4e5e..87f829127 100644
+--- a/src/cfnlint/rules/resources/ecs/TaskDefinitionAwsVpc.py
++++ b/src/cfnlint/rules/resources/ecs/TaskDefinitionAwsVpc.py
+@@ -53,7 +53,7 @@ class TaskDefinitionAwsVpc(CfnLintKeyword):
+                         yield host_port, container_port, host_port_validator
+ 
+     def validate(
+-        self, validator: Validator, _: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for network_mode, _ in get_value_from_path(
+             validator,
+diff --git a/src/cfnlint/rules/resources/ecs/TaskFargateProperties.py b/src/cfnlint/rules/resources/ecs/TaskFargateProperties.py
+index 37cba5b5d..bb41a5a3e 100644
+--- a/src/cfnlint/rules/resources/ecs/TaskFargateProperties.py
++++ b/src/cfnlint/rules/resources/ecs/TaskFargateProperties.py
+@@ -35,7 +35,7 @@ class TaskFargateProperties(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if err.validator == "not":
+diff --git a/src/cfnlint/rules/resources/ectwo/InstanceImageId.py b/src/cfnlint/rules/resources/ectwo/InstanceImageId.py
+index fc31d8342..9325af6af 100644
+--- a/src/cfnlint/rules/resources/ectwo/InstanceImageId.py
++++ b/src/cfnlint/rules/resources/ectwo/InstanceImageId.py
+@@ -52,7 +52,7 @@ class InstanceImageId(CfnLintKeyword):
+                 yield id, id_validator
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for (
+             instance_image_id,
+diff --git a/src/cfnlint/rules/resources/ectwo/RouteTableAssociation.py b/src/cfnlint/rules/resources/ectwo/RouteTableAssociation.py
+index d6839da87..8de1732f5 100644
+--- a/src/cfnlint/rules/resources/ectwo/RouteTableAssociation.py
++++ b/src/cfnlint/rules/resources/ectwo/RouteTableAssociation.py
+@@ -23,8 +23,8 @@ class RouteTableAssociation(CloudFormationLintRule):
+ 
+     def __init__(self) -> None:
+         super().__init__()
+-        self.resource_values: dict[str, list[str]] = {}
+-        self.associated_resources: defaultdict[Any, list[str]] = defaultdict(list)
++        self.resource_values: dict[str, list] = {}
++        self.associated_resources: defaultdict[Any, list] = defaultdict(list)
+ 
+     def initialize(self, cfn: Template) -> None:
+         self.resource_values = {}
+@@ -88,7 +88,7 @@ class RouteTableAssociation(CloudFormationLintRule):
+         for resource_name, resource_values in self.resource_values.items():
+             for value in resource_values:
+                 bare_value = (None, None, value[2])
+-                other_resources: list[str] = []
++                other_resources: list = []
+ 
+                 if len(self.associated_resources[value]) > 1:
+                     for associated_name in self.associated_resources[value]:
+diff --git a/src/cfnlint/rules/resources/ectwo/VpcSubnetCidr.py b/src/cfnlint/rules/resources/ectwo/VpcSubnetCidr.py
+index 2e699502c..ec51e017d 100644
+--- a/src/cfnlint/rules/resources/ectwo/VpcSubnetCidr.py
++++ b/src/cfnlint/rules/resources/ectwo/VpcSubnetCidr.py
+@@ -62,7 +62,7 @@ class VpcSubnetCidr(CfnLintKeyword):
+         return None
+ 
+     def _get_vpc_cidrs(
+-        self, validator: Validator, instance: dict[str, Any]
++        self, validator: Validator, instance: dict
+     ) -> Iterator[tuple[IPv4Network | IPv6Network | None, Validator]]:
+         for key in [
+             "Ipv4IpamPoolId",
+@@ -90,7 +90,7 @@ class VpcSubnetCidr(CfnLintKeyword):
+                 yield self._create_network(cidr), cidr_validator
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.cfn.graph:
+             return
+diff --git a/src/cfnlint/rules/resources/ectwo/VpcSubnetOverlap.py b/src/cfnlint/rules/resources/ectwo/VpcSubnetOverlap.py
+index 7b5d74250..9e8f582b6 100644
+--- a/src/cfnlint/rules/resources/ectwo/VpcSubnetOverlap.py
++++ b/src/cfnlint/rules/resources/ectwo/VpcSubnetOverlap.py
+@@ -68,7 +68,7 @@ class VpcSubnetOverlap(CfnLintKeyword):
+         return None
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for vpc_id, vpc_validator in get_value_from_path(
+             validator=validator, instance=instance, path=deque(["VpcId"])
+diff --git a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py
+index e837f71b5..e73aa11fd 100644
+--- a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py
++++ b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupHealthCheckProtocolRestrictions.py
+@@ -32,7 +32,7 @@ class TargetGroupHealthCheckProtocolRestrictions(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if not err.schema:
+diff --git a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py
+index d7df5920f..99692563b 100644
+--- a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py
++++ b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupProtocolRestrictions.py
+@@ -32,7 +32,7 @@ class TargetGroupProtocolRestrictions(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if not err.schema:
+diff --git a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py
+index ef6eb30cf..6f1a7c294 100644
+--- a/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py
++++ b/src/cfnlint/rules/resources/elasticloadbalancingv2/TargetGroupTargetTypeRestrictions.py
+@@ -32,7 +32,7 @@ class TargetGroupTargetTypeRestrictions(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if not err.schema:
+diff --git a/src/cfnlint/rules/resources/events/RuleScheduleExpression.py b/src/cfnlint/rules/resources/events/RuleScheduleExpression.py
+index e4ed04f43..8a71e6ce1 100644
+--- a/src/cfnlint/rules/resources/events/RuleScheduleExpression.py
++++ b/src/cfnlint/rules/resources/events/RuleScheduleExpression.py
+@@ -25,7 +25,7 @@ class RuleScheduleExpression(CfnLintKeyword):
+         self.__init__(["Resources/AWS::Events::Rule/Properties/ScheduleExpression"])
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         # Value is either "cron()" or "rate()"
+         if not validator.is_type(instance, "string"):
+diff --git a/src/cfnlint/rules/resources/guardduty/DetectorExclusiveProperties.py b/src/cfnlint/rules/resources/guardduty/DetectorExclusiveProperties.py
+index ea08fa16e..0e55e5ba5 100644
+--- a/src/cfnlint/rules/resources/guardduty/DetectorExclusiveProperties.py
++++ b/src/cfnlint/rules/resources/guardduty/DetectorExclusiveProperties.py
+@@ -30,7 +30,7 @@ class DetectorExclusiveProperties(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, _: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if "DataSources" in instance and "Features" in instance:
+             yield ValidationError(
+diff --git a/src/cfnlint/rules/resources/iam/Permissions.py b/src/cfnlint/rules/resources/iam/Permissions.py
+index 0f20534cc..1981f8c1f 100644
+--- a/src/cfnlint/rules/resources/iam/Permissions.py
++++ b/src/cfnlint/rules/resources/iam/Permissions.py
+@@ -37,7 +37,7 @@ class Permissions(CfnLintKeyword):
+         }
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         # Escape validation when using SAM transforms as a result of
+         # https://github.com/aws/serverless-application-model/issues/3633
+diff --git a/src/cfnlint/rules/resources/iam/Policy.py b/src/cfnlint/rules/resources/iam/Policy.py
+index 5fe37952e..d2d0798ec 100644
+--- a/src/cfnlint/rules/resources/iam/Policy.py
++++ b/src/cfnlint/rules/resources/iam/Policy.py
+@@ -19,9 +19,9 @@ class Policy(CfnLintJsonSchema):
+ 
+     def __init__(
+         self,
+-        keywords: list[str] | None = None,
+-        schema_name: str | None = None,
+-        schema_file: str | None = None,
++        keywords: Optional[list] = None,
++        schema_name: Optional[str] = None,
++        schema_file: Optional[str] = None,
+     ):
+         super().__init__(keywords)
+ 
+@@ -46,7 +46,7 @@ class Policy(CfnLintJsonSchema):
+         validator: Validator,
+         policy_type: Any,
+         policy: Any,
+-        schema: dict[str, Any],
++        schema: dict,
+     ) -> ValidationResult:
+         # First time child rules are configured against the rule
+         # so we can run this now
+diff --git a/src/cfnlint/rules/resources/iam/ResourcePolicy.py b/src/cfnlint/rules/resources/iam/ResourcePolicy.py
+index 32d6271de..69ffd5b64 100644
+--- a/src/cfnlint/rules/resources/iam/ResourcePolicy.py
++++ b/src/cfnlint/rules/resources/iam/ResourcePolicy.py
+@@ -39,7 +39,7 @@ class ResourcePolicy(Policy):
+         validator: Validator,
+         policy_type: Any,
+         policy: Any,
+-        schema: dict[str, Any],
++        schema: dict,
+     ) -> ValidationResult:
+         for err in super().validate(validator, policy_type, policy, schema):
+             if validator.context.path.cfn_path[1] == "AWS::S3::BucketPolicy":
+diff --git a/src/cfnlint/rules/resources/iam/ResourcePolicyResourceArn.py b/src/cfnlint/rules/resources/iam/ResourcePolicyResourceArn.py
+index 1167d06ae..ab4cfd229 100644
+--- a/src/cfnlint/rules/resources/iam/ResourcePolicyResourceArn.py
++++ b/src/cfnlint/rules/resources/iam/ResourcePolicyResourceArn.py
+@@ -31,7 +31,7 @@ class ResourcePolicyResourceArn(CfnLintKeyword):
+ 
+     # pylint: disable=unused-argument
+     def validate(
+-        self, validator: Validator, aZ: Any, arn: Any, schema: dict[str, Any]
++        self, validator: Validator, aZ: Any, arn: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(arn, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/iam/RoleArnPattern.py b/src/cfnlint/rules/resources/iam/RoleArnPattern.py
+index 8883ed83b..55f38ae28 100644
+--- a/src/cfnlint/rules/resources/iam/RoleArnPattern.py
++++ b/src/cfnlint/rules/resources/iam/RoleArnPattern.py
+@@ -38,7 +38,7 @@ class RoleArnPattern(CfnLintKeyword):
+ 
+     # pylint: disable=unused-argument
+     def validate(
+-        self, validator: Validator, aZ: Any, arn: Any, schema: dict[str, Any]
++        self, validator: Validator, aZ: Any, arn: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(arn, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/iam/StatementResources.py b/src/cfnlint/rules/resources/iam/StatementResources.py
+index 9dafbfa3c..2ef3ffac7 100644
+--- a/src/cfnlint/rules/resources/iam/StatementResources.py
++++ b/src/cfnlint/rules/resources/iam/StatementResources.py
+@@ -24,7 +24,7 @@ class _Arn:
+     def __init__(self, full_arn: str):
+         arn_parts = full_arn.split(":", 5)
+ 
+-        self._parts: list[str] = ["*", "*", "*", "*", "*", "*"]
++        self._parts: list = ["*", "*", "*", "*", "*", "*"]
+ 
+         for i, arn_part in enumerate(arn_parts):
+             self._parts[i] = arn_part
+@@ -93,7 +93,7 @@ class StatementResources(CfnLintKeyword):
+         self.service_map = load_resource(AdditionalSpecs, "Policies.json")
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeCreate.py b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeCreate.py
+index fcc6d7b37..057ec0dd9 100644
+--- a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeCreate.py
++++ b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeCreate.py
+@@ -30,7 +30,7 @@ class DeprecatedRuntimeCreate(CfnLintKeyword):
+ 
+     # pylint: disable=unused-argument
+     def validate(
+-        self, validator: Validator, v: Any, runtime: Any, schema: dict[str, Any]
++        self, validator: Validator, v: Any, runtime: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(runtime, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeEol.py b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeEol.py
+index a0e91e339..83de4a48e 100644
+--- a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeEol.py
++++ b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeEol.py
+@@ -33,7 +33,7 @@ class DeprecatedRuntimeEol(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, v: Any, runtime: Any, schema: dict[str, Any]
++        self, validator: Validator, v: Any, runtime: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(runtime, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py
+index dab8ff8b3..47d203e25 100644
+--- a/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py
++++ b/src/cfnlint/rules/resources/lmbd/DeprecatedRuntimeUpdate.py
+@@ -33,7 +33,7 @@ class DeprecatedRuntimeUpdate(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, v: Any, runtime: Any, schema: dict[str, Any]
++        self, validator: Validator, v: Any, runtime: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(runtime, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentKeys.py b/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentKeys.py
+index e50e64160..aac1068c9 100644
+--- a/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentKeys.py
++++ b/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentKeys.py
+@@ -40,7 +40,7 @@ class FunctionEnvironmentKeys(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             err.message = (
+diff --git a/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentSize.py b/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentSize.py
+index d718bc92d..df985b1e2 100644
+--- a/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentSize.py
++++ b/src/cfnlint/rules/resources/lmbd/FunctionEnvironmentSize.py
+@@ -38,7 +38,7 @@ class FunctionEnvironmentSize(CfnLintKeyword):
+         validator: Validator,
+         keywords: Any,
+         instance: Any,
+-        schema: dict[str, Any],
++        schema: dict,
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/lmbd/SnapStart.py b/src/cfnlint/rules/resources/lmbd/SnapStart.py
+index cfb2265e7..57663b86b 100644
+--- a/src/cfnlint/rules/resources/lmbd/SnapStart.py
++++ b/src/cfnlint/rules/resources/lmbd/SnapStart.py
+@@ -29,7 +29,7 @@ class SnapStart(CfnLintKeyword):
+         )
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "string"):
+             return
+diff --git a/src/cfnlint/rules/resources/lmbd/SnapStartSupported.py b/src/cfnlint/rules/resources/lmbd/SnapStartSupported.py
+index 72647136b..dcfe7d28e 100644
+--- a/src/cfnlint/rules/resources/lmbd/SnapStartSupported.py
++++ b/src/cfnlint/rules/resources/lmbd/SnapStartSupported.py
+@@ -72,7 +72,7 @@ class SnapStartSupported(CfnLintKeyword):
+         ]
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for scenario in validator.cfn.get_object_without_conditions(
+             instance,
+diff --git a/src/cfnlint/rules/resources/properties/AvailabilityZone.py b/src/cfnlint/rules/resources/properties/AvailabilityZone.py
+index c5b071935..7b6b0d0df 100644
+--- a/src/cfnlint/rules/resources/properties/AvailabilityZone.py
++++ b/src/cfnlint/rules/resources/properties/AvailabilityZone.py
+@@ -47,7 +47,7 @@ class AvailabilityZone(CfnLintKeyword):
+         self.exceptions = ["all"]
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, zones: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, zones: Any, schema: dict
+     ) -> ValidationResult:
+         if not isinstance(zones, (str, list)):
+             return
+diff --git a/src/cfnlint/rules/resources/properties/PropertiesTemplated.py b/src/cfnlint/rules/resources/properties/PropertiesTemplated.py
+index e5894322f..4a5bc6dec 100644
+--- a/src/cfnlint/rules/resources/properties/PropertiesTemplated.py
++++ b/src/cfnlint/rules/resources/properties/PropertiesTemplated.py
+@@ -33,7 +33,7 @@ class PropertiesTemplated(CfnLintKeyword):
+         super().__init__(TEMPLATED_PROPERTY_CFN_PATHS)
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not isinstance(instance, str):
+             return
+diff --git a/src/cfnlint/rules/resources/rds/DbClusterAurora.py b/src/cfnlint/rules/resources/rds/DbClusterAurora.py
+index 5cc45fe38..b7e4c2b60 100644
+--- a/src/cfnlint/rules/resources/rds/DbClusterAurora.py
++++ b/src/cfnlint/rules/resources/rds/DbClusterAurora.py
+@@ -36,7 +36,7 @@ class DbClusterAurora(CfnLintJsonSchema):
+     # AllocatedStorage is required
+     # Iops is required
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if err.schema is False:
+diff --git a/src/cfnlint/rules/resources/rds/DbClusterAuroraWarning.py b/src/cfnlint/rules/resources/rds/DbClusterAuroraWarning.py
+index a477ecbe7..b9c1a28af 100644
+--- a/src/cfnlint/rules/resources/rds/DbClusterAuroraWarning.py
++++ b/src/cfnlint/rules/resources/rds/DbClusterAuroraWarning.py
+@@ -33,7 +33,7 @@ class DbClusterAuroraWarning(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if err.schema is False:
+diff --git a/src/cfnlint/rules/resources/rds/DbClusterInstanceClassEnum.py b/src/cfnlint/rules/resources/rds/DbClusterInstanceClassEnum.py
+index 6a8a3ac57..8ddc58b9f 100644
+--- a/src/cfnlint/rules/resources/rds/DbClusterInstanceClassEnum.py
++++ b/src/cfnlint/rules/resources/rds/DbClusterInstanceClassEnum.py
+@@ -32,7 +32,7 @@ class DbClusterInstanceClassEnum(CfnLintJsonSchemaRegional):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         # RDS pricing schemas are based on values
+         validator = validator.evolve(
+diff --git a/src/cfnlint/rules/resources/rds/DbClusterMultiAz.py b/src/cfnlint/rules/resources/rds/DbClusterMultiAz.py
+index 041522563..ce9259710 100644
+--- a/src/cfnlint/rules/resources/rds/DbClusterMultiAz.py
++++ b/src/cfnlint/rules/resources/rds/DbClusterMultiAz.py
+@@ -36,7 +36,7 @@ class DbClusterMultiAz(CfnLintJsonSchema):
+     # AllocatedStorage is required
+     # Iops is required
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for err in super().validate(validator, keywords, instance, schema):
+             if err.schema is False:
+diff --git a/src/cfnlint/rules/resources/rds/DbInstanceAuroraExclusive.py b/src/cfnlint/rules/resources/rds/DbInstanceAuroraExclusive.py
+index c8b8db7b6..2a799910d 100644
+--- a/src/cfnlint/rules/resources/rds/DbInstanceAuroraExclusive.py
++++ b/src/cfnlint/rules/resources/rds/DbInstanceAuroraExclusive.py
+@@ -50,7 +50,7 @@ class DbInstanceAuroraExclusive(CfnLintJsonSchema):
+         return f"Additional properties are not allowed ({extra!r})"
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassEnum.py b/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassEnum.py
+index fd335bf52..b9549bca7 100644
+--- a/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassEnum.py
++++ b/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassEnum.py
+@@ -32,7 +32,7 @@ class DbInstanceDbInstanceClassEnum(CfnLintJsonSchemaRegional):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassWithEngine.py b/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassWithEngine.py
+index a203d8963..f5fc4e5b9 100644
+--- a/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassWithEngine.py
++++ b/src/cfnlint/rules/resources/rds/DbInstanceDbInstanceClassWithEngine.py
+@@ -33,7 +33,7 @@ class DbInstanceDbInstanceClassWithEngine(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/rds/DbInstanceEngineVersion.py b/src/cfnlint/rules/resources/rds/DbInstanceEngineVersion.py
+index 85359e712..6f1d7192e 100644
+--- a/src/cfnlint/rules/resources/rds/DbInstanceEngineVersion.py
++++ b/src/cfnlint/rules/resources/rds/DbInstanceEngineVersion.py
+@@ -30,7 +30,7 @@ class DbInstanceEngineVersion(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/route53/RecordSetName.py b/src/cfnlint/rules/resources/route53/RecordSetName.py
+index 39de8fdac..22f37ab84 100644
+--- a/src/cfnlint/rules/resources/route53/RecordSetName.py
++++ b/src/cfnlint/rules/resources/route53/RecordSetName.py
+@@ -29,7 +29,7 @@ class RecordSetName(CfnLintKeyword):
+         super().__init__(["Resources/AWS::Route53::RecordSet/Properties"])
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         property_sets = validator.cfn.get_object_without_conditions(
+             instance, ["Name", "HostedZoneName"]
+diff --git a/src/cfnlint/rules/resources/s3/AccessControlObsolete.py b/src/cfnlint/rules/resources/s3/AccessControlObsolete.py
+index 04996e899..4447cd770 100644
+--- a/src/cfnlint/rules/resources/s3/AccessControlObsolete.py
++++ b/src/cfnlint/rules/resources/s3/AccessControlObsolete.py
+@@ -29,7 +29,7 @@ class AccessControlObsolete(CfnLintKeyword):
+         super().__init__(["Resources/AWS::S3::Bucket/Properties"])
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         if not validator.is_type(instance, "object"):
+             return
+diff --git a/src/cfnlint/rules/resources/s3/BucketTieringConfiguration.py b/src/cfnlint/rules/resources/s3/BucketTieringConfiguration.py
+index f6b892785..aada8b6a8 100644
+--- a/src/cfnlint/rules/resources/s3/BucketTieringConfiguration.py
++++ b/src/cfnlint/rules/resources/s3/BucketTieringConfiguration.py
+@@ -42,7 +42,7 @@ class BucketTieringConfiguration(CfnLintKeyword):
+         }
+ 
+     def validate(
+-        self, validator: Validator, _, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, _, instance: Any, schema: dict
+     ) -> ValidationResult:
+         for archive_access, archive_access_validator in get_value_from_path(
+             validator, instance, deque(["AccessTier"])
+diff --git a/src/cfnlint/rules/resources/ssm/Document.py b/src/cfnlint/rules/resources/ssm/Document.py
+index 61951eb8d..231e6ee05 100644
+--- a/src/cfnlint/rules/resources/ssm/Document.py
++++ b/src/cfnlint/rules/resources/ssm/Document.py
+@@ -45,7 +45,7 @@ class Document(CfnLintJsonSchema):
+         validator: Validator,
+         _: Any,
+         instance: Any,
+-        schema: dict[str, Any],
++        schema: dict,
+     ) -> ValidationResult:
+         # First time child rules are configured against the rule
+         # so we can run this now
+diff --git a/src/cfnlint/rules/resources/stepfunctions/StateMachineDefinition.py b/src/cfnlint/rules/resources/stepfunctions/StateMachineDefinition.py
+index bd2a9c47f..37fc1c0ad 100644
+--- a/src/cfnlint/rules/resources/stepfunctions/StateMachineDefinition.py
++++ b/src/cfnlint/rules/resources/stepfunctions/StateMachineDefinition.py
+@@ -219,7 +219,7 @@ class StateMachineDefinition(CfnLintJsonSchema):
+         yield from self._validate_start_at(value, k, add_path_to_message)
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         definition_keys = ["Definition"]
+         if not validator.cfn.has_serverless_transform():
+diff --git a/src/cfnlint/rules/rules/Assert.py b/src/cfnlint/rules/rules/Assert.py
+index 09d9579f3..57ffa0405 100644
+--- a/src/cfnlint/rules/rules/Assert.py
++++ b/src/cfnlint/rules/rules/Assert.py
+@@ -26,7 +26,7 @@ class Assert(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         validator = validator.evolve(
+             context=validator.context.evolve(
+diff --git a/src/cfnlint/rules/rules/RuleCondition.py b/src/cfnlint/rules/rules/RuleCondition.py
+index 0689fab9c..d77c634f9 100644
+--- a/src/cfnlint/rules/rules/RuleCondition.py
++++ b/src/cfnlint/rules/rules/RuleCondition.py
+@@ -26,7 +26,7 @@ class RuleCondition(CfnLintJsonSchema):
+         )
+ 
+     def validate(
+-        self, validator: Validator, keywords: Any, instance: Any, schema: dict[str, Any]
++        self, validator: Validator, keywords: Any, instance: Any, schema: dict
+     ) -> ValidationResult:
+         validator = validator.evolve(
+             context=validator.context.evolve(
+diff --git a/src/cfnlint/runner/cli.py b/src/cfnlint/runner/cli.py
+index 4629aac3f..fad969f3c 100644
+--- a/src/cfnlint/runner/cli.py
++++ b/src/cfnlint/runner/cli.py
+@@ -77,10 +77,10 @@ class Runner:
+     Methods:
+         _get_rules() -> None:
+             Load the rules to be applied to the templates.
+-        _validate_filenames(filenames: Sequence[str | None]) -> Iterator[Match]:
++        _validate_filenames(filenames: Sequence[Optional[str]]) -> Iterator[Match]:
+             Validate the specified filenames and yield any matches found.
+-        validate_template(filename: str | None,
+-         template: dict[str, Any]) -> Iterator[Match]:
++        validate_template(filename: Optional[str],
++         template: dict) -> Iterator[Match]:
+             Validate a single CloudFormation template and yield any matches found.
+         _cli_output(matches: list[Match]) -> None:
+             Output the results of the template scan to the console or a file.
+@@ -135,7 +135,7 @@ class Runner:
+                 f"Tried to append rules but got an error: {str(e)}", 1
+             ) from e
+ 
+-    def validate_template(self, template: dict[str, Any]) -> Iterator[Match]:
++    def validate_template(self, template: dict) -> Iterator[Match]:
+         """
+         Validate a single CloudFormation template and yield any matches found.
+ 
+@@ -143,8 +143,8 @@ class Runner:
+         configured rules, and yields any matches found as an iterator.
+ 
+         Args:
+-            filename (str | None): The filename of the template being validated.
+-            template (dict[str, Any]): The CloudFormation template to be validated.
++            filename (Optional[str]): The filename of the template being validated.
++            template (dict): The CloudFormation template to be validated.
+ 
+         Yields:
+             Match: The matches found during the validation process.
+@@ -172,7 +172,7 @@ class Runner:
+ 
+         exit_level: str = self.config.non_zero_exit_code or "informational"
+ 
+-        exit_levels: dict[str, list[str]] = {
++        exit_levels: dict[str, list] = {
+             "informational": ["informational", "warning", "error"],
+             "warning": ["warning", "error"],
+             "error": ["error"],
+diff --git a/src/cfnlint/runner/deployment_file/deployment.py b/src/cfnlint/runner/deployment_file/deployment.py
+index 52b704a53..7f1cc6555 100644
+--- a/src/cfnlint/runner/deployment_file/deployment.py
++++ b/src/cfnlint/runner/deployment_file/deployment.py
+@@ -12,5 +12,5 @@ from typing import Any
+ @dataclass(frozen=True)
+ class DeploymentFileData:
+     template_file_path: str = field()
+-    parameters: dict[str, Any] = field(default_factory=dict)
++    parameters: dict = field(default_factory=dict)
+     tags: dict[str, str] = field(default_factory=dict)
+diff --git a/src/cfnlint/runner/deployment_file/deployment_types/git_sync.py b/src/cfnlint/runner/deployment_file/deployment_types/git_sync.py
+index 671efafa3..45278c586 100644
+--- a/src/cfnlint/runner/deployment_file/deployment_types/git_sync.py
++++ b/src/cfnlint/runner/deployment_file/deployment_types/git_sync.py
+@@ -15,7 +15,7 @@ from cfnlint.runner.deployment_file.deployment import DeploymentFileData
+ 
+ 
+ def create_deployment_from_git_sync(
+-    data: dict[str, Any],
++    data: dict,
+ ) -> tuple[DeploymentFileData | None, RuleMatches | None]:
+     schema = load_resource(cfnlint.data.schemas.other.deployment_files, "git_sync.json")
+     matches = Configuration().validate_deployment_file(data, schema)
+@@ -23,8 +23,8 @@ def create_deployment_from_git_sync(
+         return None, matches
+ 
+     template_file_path: str = data.get("template-file-path", "")
+-    parameters: dict[str, Any] = data.get("parameters", {})
+-    tags: dict[str, Any] = data.get("tags", {})
++    parameters: dict = data.get("parameters", {})
++    tags: dict = data.get("tags", {})
+     return (
+         DeploymentFileData(
+             template_file_path=template_file_path, parameters=parameters, tags=tags
+diff --git a/src/cfnlint/runner/parameter_file/runner.py b/src/cfnlint/runner/parameter_file/runner.py
+index c4429d48f..44cc34b95 100644
+--- a/src/cfnlint/runner/parameter_file/runner.py
++++ b/src/cfnlint/runner/parameter_file/runner.py
+@@ -19,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
+ 
+ def _parse_parameter_file(
+     filename: str,
+-) -> dict[str, Any] | list[Match]:
++) -> dict | list[Match]:
+     data, matches = decode(filename)
+ 
+     if data is None:
+@@ -27,7 +27,7 @@ def _parse_parameter_file(
+ 
+     key = "ParameterKey"
+     value = "ParameterValue"
+-    parameters: dict[str, Any] = {}
++    parameters: dict = {}
+     for parameter in data:
+         if not all(p in parameter for p in [key, value]):
+             return [
+diff --git a/src/cfnlint/runner/template/runner.py b/src/cfnlint/runner/template/runner.py
+index 73110c8a8..40ec8fc92 100644
+--- a/src/cfnlint/runner/template/runner.py
++++ b/src/cfnlint/runner/template/runner.py
+@@ -100,7 +100,7 @@ def _run_template_per_config(
+ 
+ 
+ def _run_template(
+-    filename: str | None, template: Any, config: ConfigMixIn, rules: Rules
++    filename: Optional[str], template: Any, config: ConfigMixIn, rules: Rules
+ ) -> Iterator[Match]:
+     if not isinstance(template, dict):
+         # pylint: disable=import-outside-toplevel
+@@ -121,7 +121,7 @@ def _run_template(
+ 
+ 
+ def run_template_by_file_path(
+-    filename: str | None, config: ConfigMixIn, rules: Rules, ignore_bad_template: bool
++    filename: Optional[str], config: ConfigMixIn, rules: Rules, ignore_bad_template: bool
+ ) -> Iterator[Match]:
+     """
+     Runs a set of rules against a CloudFormation template.
+@@ -146,7 +146,7 @@ def run_template_by_file_path(
+ 
+ 
+ def run_template_by_data(
+-    template: dict[str, Any], config: ConfigMixIn, rules: Rules
++    template: dict, config: ConfigMixIn, rules: Rules
+ ) -> Iterator[Match]:
+     """
+     Runs a set of rules against a CloudFormation template.
+@@ -188,7 +188,7 @@ def run_template_by_file_paths(config: ConfigMixIn, rules: Rules) -> Iterator[Ma
+     are yielded as an iterator.
+ 
+     Args:
+-        filenames (Sequence[str | None]): The sequence of filenames to be validated.
++        filenames (Sequence[Optional[str]]): The sequence of filenames to be validated.
+ 
+     Yields:
+         Match: The matches found during the validation process.
+diff --git a/src/cfnlint/schema/_getatts.py b/src/cfnlint/schema/_getatts.py
+index 2866996ec..344cbbcbe 100644
+--- a/src/cfnlint/schema/_getatts.py
++++ b/src/cfnlint/schema/_getatts.py
+@@ -213,7 +213,7 @@ _unnamed_unknown_types = (
+ )
+ 
+ 
+-class AttributeDict(UserDict[str, str]):
++class AttributeDict(UserDict):
+     def __init__(self, __dict: dict[str, str] | None = None) -> None:
+         super().__init__(__dict)
+ 
+@@ -277,7 +277,7 @@ class GetAtts:
+     def _pointer_to_attr(self, pointer: str) -> str:
+         return ".".join(pointer.split("/")[2:])
+ 
+-    def _process_schema(self, obj: dict[str, Any], schema: "Schema", path: str):
++    def _process_schema(self, obj: dict, schema: "Schema", path: str):
+         types = ensure_list(obj.get("type"))
+         if "object" in types:
+             for prop, value in obj.get("properties", {}).items():
+diff --git a/src/cfnlint/schema/_patch.py b/src/cfnlint/schema/_patch.py
+index d11830e0b..647077093 100644
+--- a/src/cfnlint/schema/_patch.py
++++ b/src/cfnlint/schema/_patch.py
+@@ -19,8 +19,8 @@ LOGGER = logging.getLogger(__name__)
+ 
+ @dataclass
+ class SchemaPatch:
+-    included_resource_types: list[str]
+-    excluded_resource_types: list[str]
++    included_resource_types: list
++    excluded_resource_types: list
+     patches: dict[str, list[Dict]]
+ 
+     @staticmethod
+diff --git a/src/cfnlint/schema/_ref.py b/src/cfnlint/schema/_ref.py
+index 8ae27f256..97a5e818a 100644
+--- a/src/cfnlint/schema/_ref.py
++++ b/src/cfnlint/schema/_ref.py
+@@ -21,5 +21,5 @@ class Ref:
+                 self._ref = schema.resolver.resolve_cfn_pointer(primary_id)
+ 
+     @property
+-    def ref(self) -> dict[str, Any]:
++    def ref(self) -> dict:
+         return self._ref
+diff --git a/src/cfnlint/schema/_schema.py b/src/cfnlint/schema/_schema.py
+index 649badb26..095bc24a0 100644
+--- a/src/cfnlint/schema/_schema.py
++++ b/src/cfnlint/schema/_schema.py
+@@ -18,8 +18,8 @@ from cfnlint.schema.resolver import RefResolver
+ 
+ 
+ class Schema:
+-    def __init__(self, schema: dict[str, Any]) -> None:
+-        self._schema: dict[str, Any] = schema
++    def __init__(self, schema: dict) -> None:
++        self._schema: dict = schema
+         self._type_name: str = schema["typeName"]
+         self.resolver: RefResolver = RefResolver.from_schema(schema)
+         self._getatts: GetAtts = GetAtts(self)
+@@ -63,5 +63,5 @@ class Schema:
+         return self._getatts.attrs
+ 
+     @property
+-    def ref(self) -> dict[str, Any]:
++    def ref(self) -> dict:
+         return self._ref.ref
+diff --git a/src/cfnlint/schema/manager.py b/src/cfnlint/schema/manager.py
+index d3b12617f..b4f5e9eda 100644
+--- a/src/cfnlint/schema/manager.py
++++ b/src/cfnlint/schema/manager.py
+@@ -41,7 +41,7 @@ LOGGER = logging.getLogger(__name__)
+ 
+ 
+ class _FileLocation:
+-    def __init__(self, path: list[str]):
++    def __init__(self, path: list):
+         self.path_relative = os.path.join(
+             os.path.dirname(__file__),
+             "..",
+@@ -69,7 +69,7 @@ class ProviderSchemaManager:
+         )
+         self._region_primary = ToPy(REGION_PRIMARY)
+         self._registry_schemas: dict[str, Schema] = {}
+-        self._provider_schema_modules: dict[str, Any] = {}
++        self._provider_schema_modules: dict = {}
+         self.reset()
+ 
+     def reset(self) -> None:
+@@ -81,7 +81,7 @@ class ProviderSchemaManager:
+         self._schemas: dict[str, dict[str, Schema]] = {}
+         for region in REGIONS:
+             self._schemas[region] = {}
+-        self._removed_types: list[str] = []
++        self._removed_types: list = []
+         self.get_resource_schema.cache_clear()
+         self.get_resource_types.cache_clear()
+         self.get_type_getatts.cache_clear()
+@@ -102,7 +102,7 @@ class ProviderSchemaManager:
+ 
+     def get_resource_schemas_by_regions(
+         self, resource_type: str, regions: Sequence[str]
+-    ) -> Iterator[tuple[list[str], Schema]]:
++    ) -> Iterator[tuple[list, Schema]]:
+         """
+         Get unique schemas with their associated regions
+ 
+@@ -110,14 +110,14 @@ class ProviderSchemaManager:
+             resource_type (str): the :: version of the resource type
+             regions (Sequence[str]): the regions in which we want schems for
+         Returns:
+-            Iterator[tuple[list[str], Schema]]: the unique schemas with
++            Iterator[tuple[list, Schema]]: the unique schemas with
+               their associated regions
+         """
+         # Normalize resource type (Custom:: -> AWS::CloudFormation::CustomResource)
+         resource_type = self._normalize_resource_type(resource_type)
+ 
+         # Group regions by schema hash to avoid duplicate validations
+-        hash_to_regions: dict[str, list[str]] = {}
++        hash_to_regions: dict[str, list] = {}
+         hash_to_schema: dict[str, Schema] = {}
+ 
+         for region in regions:
+@@ -222,13 +222,13 @@ class ProviderSchemaManager:
+             raise ResourceNotFoundError(rt.name, region) from e
+ 
+     @lru_cache(maxsize=None)
+-    def get_resource_types(self, region: str) -> list[str]:
++    def get_resource_types(self, region: str) -> list:
+         """Get the resource types for a region
+ 
+         Args:
+             region (str): the region in which to get the resource types for
+         Returns:
+-            list[str]: returns a list of resource types
++            list: returns a list of resource types
+         """
+         reg = ToPy(region)
+ 
+@@ -237,7 +237,7 @@ class ProviderSchemaManager:
+                 f"{self._root.module}.{reg.py}", fromlist=[""]
+             )
+ 
+-        resource_types: list[str] = []
++        resource_types: list = []
+         resource_types.extend(
+             rt
+             for rt in self._provider_schema_modules[reg.name].types.keys()
+@@ -247,12 +247,12 @@ class ProviderSchemaManager:
+ 
+         return resource_types
+ 
+-    def update(self, force: bool, regions: list[str] | None = None) -> int:
++    def update(self, force: bool, regions: Optional[list] = None) -> int:
+         """Update every regions provider schemas
+ 
+         Args:
+             force (bool): force the schemas to be downloaded
+-            regions (list[str] | None): list of regions to update, None for all regions
++            regions (Optional[list]): list of regions to update, None for all regions
+         Returns:
+             int: exit code (0=success, 1=partial failure, 2=complete failure)
+         """
+@@ -268,7 +268,7 @@ class ProviderSchemaManager:
+ 
+         # Download all regular regions in parallel
+         downloaded_regions: dict[str, dict[str, dict]] = {}
+-        failed_regions: list[str] = []
++        failed_regions: list = []
+ 
+         # pylint: disable=not-context-manager
+         with multiprocessing.Pool() as pool:
+@@ -519,11 +519,11 @@ class ProviderSchemaManager:
+ 
+             with open(f"{directory}__init__.py", encoding="utf-8", mode="w") as f:
+                 f.write("from __future__ import annotations\n\n")
+-                f.write("# pylint: disable=too-many-lines\ntypes: list[str] = [\n")
++                f.write("# pylint: disable=too-many-lines\ntypes: list = [\n")
+                 for rt in sorted(all_types):
+                     f.write(f'    "{rt}",\n')
+                 f.write(
+-                    "]\n\n# pylint: disable=too-many-lines\ncached: list[str] = [\n"
++                    "]\n\n# pylint: disable=too-many-lines\ncached: list = [\n"
+                 )
+                 for cache_file in sorted(cached):
+                     f.write(f'    "{cache_file}",\n')
+@@ -595,11 +595,11 @@ class ProviderSchemaManager:
+                             )
+                 with open(f"{directory}__init__.py", encoding="utf-8", mode="w") as f:
+                     f.write("from __future__ import annotations\n\n")
+-                    f.write("# pylint: disable=too-many-lines\ntypes: list[str] = [\n")
++                    f.write("# pylint: disable=too-many-lines\ntypes: list = [\n")
+                     for rt in sorted(all_types):
+                         f.write(f'    "{rt}",\n')
+                     f.write(
+-                        "]\n\n# pylint: disable=too-many-lines\ncached: list[str] = [\n"
++                        "]\n\n# pylint: disable=too-many-lines\ncached: list = [\n"
+                     )
+                     for cache_file in sorted(cached):
+                         f.write(f'    "{cache_file}",\n')
+@@ -607,10 +607,10 @@ class ProviderSchemaManager:
+             else:
+                 with open(f"{directory}__init__.py", encoding="utf-8", mode="w") as f:
+                     f.write("from __future__ import annotations\n\n")
+-                    f.write("# pylint: disable=too-many-lines\ntypes: list[str] = [\n")
++                    f.write("# pylint: disable=too-many-lines\ntypes: list = [\n")
+                     for rt in sorted(all_types):
+                         f.write(f'    "{rt}",\n')
+-                    f.write("]\ncached: list[str] = []\n")
++                    f.write("]\ncached: list = []\n")
+ 
+         except Exception as e:  # pylint: disable=broad-except
+             LOGGER.info("Issuing updating schemas for %s: %s", region, e)
+@@ -800,7 +800,7 @@ class ProviderSchemaManager:
+         return self._schemas[region][resource_type].get_atts
+ 
+     @lru_cache(maxsize=None)
+-    def get_type_ref(self, resource_type: str, region: str) -> dict[str, Any]:
++    def get_type_ref(self, resource_type: str, region: str) -> dict:
+         """Get the Ref information for a type in a region
+ 
+         Args:
+diff --git a/src/cfnlint/schema/other_schema_manager.py b/src/cfnlint/schema/other_schema_manager.py
+index b85b51448..d63d0ce10 100644
+--- a/src/cfnlint/schema/other_schema_manager.py
++++ b/src/cfnlint/schema/other_schema_manager.py
+@@ -25,7 +25,7 @@ LOGGER = logging.getLogger(__name__)
+ 
+ 
+ class _FileLocation:
+-    def __init__(self, path: list[str]):
++    def __init__(self, path: list):
+         self.path_relative = os.path.join(
+             os.path.dirname(__file__),
+             "..",
+@@ -44,8 +44,8 @@ class OtherSchemaManager:
+             ]
+         )
+ 
+-        self._schemas: dict[str, dict[str, Any]] = {}
+-        self._schema_modules: dict[str, Any] = {}
++        self._schemas: dict[str, dict] = {}
++        self._schema_modules: dict = {}
+         self.reset()
+ 
+     def reset(self) -> None:
+@@ -68,11 +68,11 @@ class OtherSchemaManager:
+         for dirpath, _, filenames in os.walk(path):
+             for filename in fnmatch.filter(filenames, "*.json"):
+                 with open(os.path.join(dirpath, filename), "r", encoding="utf-8") as fh:
+-                    schema: dict[str, dict[str, Any]] = json.load(fh)
++                    schema: dict[str, dict] = json.load(fh)
+                     self._schemas[path] = schema
+ 
+     @lru_cache(maxsize=None)
+-    def get_schema(self, path: str) -> dict[str, Any]:
++    def get_schema(self, path: str) -> dict:
+         """Get the provider resource schema and cache it to speed up future lookups
+ 
+         Args:
+diff --git a/src/cfnlint/schema/resolver/_resolver.py b/src/cfnlint/schema/resolver/_resolver.py
+index 2f59cc484..9abb21803 100644
+--- a/src/cfnlint/schema/resolver/_resolver.py
++++ b/src/cfnlint/schema/resolver/_resolver.py
+@@ -159,7 +159,7 @@ class RefResolver:
+ 
+         return url, self._cache(url)
+ 
+-    def resolve_cfn_pointer(self, pointer: str) -> dict[str, Any]:
++    def resolve_cfn_pointer(self, pointer: str) -> dict:
+         """
+         Resolve the given cfn pointer.
+ 
+@@ -203,8 +203,8 @@ class RefResolver:
+         return self._scopes_stack[-1]
+ 
+     def _walk_cfn_pointer(
+-        self, document: dict[str, Any], pointer: Sequence[str]
+-    ) -> dict[str, Any]:
++        self, document: dict, pointer: Sequence[str]
++    ) -> dict:
+         """
+         Resolve a cfn ``pointer`` within the referenced ``document``.
+ 
+diff --git a/src/cfnlint/template/getatts.py b/src/cfnlint/template/getatts.py
+index ff8a2b3e5..09bd3ac9b 100644
+--- a/src/cfnlint/template/getatts.py
++++ b/src/cfnlint/template/getatts.py
+@@ -45,7 +45,7 @@ class _ResourceDict(UserDict):
+ 
+ 
+ class GetAtts:
+-    def __init__(self, regions: list[str]) -> None:
++    def __init__(self, regions: list) -> None:
+         self._regions = regions
+         self._getatts: dict[str, _ResourceDict] = {}
+ 
+@@ -72,7 +72,7 @@ class GetAtts:
+ 
+     def json_schema(self, region: str) -> dict:
+         schema: dict[str, list[Any]] = {"oneOf": []}
+-        schema_strings: dict[str, Any] = {
++        schema_strings: dict = {
+             "type": "string",
+             "enum": [],
+         }
+@@ -130,7 +130,7 @@ class GetAtts:
+         schema["oneOf"].append(schema_strings)
+         return schema
+ 
+-    def match(self, region: str, getatt: str | list[str]) -> str:
++    def match(self, region: str, getatt: str | list) -> str:
+         if isinstance(getatt, str):
+             getatt = getatt.split(".", 1)
+ 
+diff --git a/src/cfnlint/template/template.py b/src/cfnlint/template/template.py
+index cf697541a..7ff8e6f91 100644
+--- a/src/cfnlint/template/template.py
++++ b/src/cfnlint/template/template.py
+@@ -39,35 +39,35 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+     utility methods for checking conditions, resolving references, and more.
+ 
+     Attributes:
+-        regions (list[str]): A list of AWS regions associated with the template.
+-        filename (str | None): The filename of the template file, if available.
+-        template (dict[str, Any]): The dictionary representing the CloudFormation template.
+-        sections (list[str]): A list of CloudFormation template sections.
+-        transform_pre (dict[str, Any]): A dictionary containing pre-processed transformation data.
++        regions (list): A list of AWS regions associated with the template.
++        filename (Optional[str]): The filename of the template file, if available.
++        template (dict): The dictionary representing the CloudFormation template.
++        sections (list): A list of CloudFormation template sections.
++        transform_pre (dict): A dictionary containing pre-processed transformation data.
+         conditions (Conditions): An instance of the Conditions class used for managing conditions.
+         graph (Graph): An instance of the Graph class used for representing the template structure.
+     """
+ 
+     def __init__(
+         self,
+-        filename: str | None,
+-        template: dict[str, Any],
+-        regions: list[str] | None = None,
++        filename: Optional[str],
++        template: dict,
++        regions: Optional[list] = None,
+         parameter_sets: list[ParameterSet] | None = None,
+     ):
+         """Initialize a Template instance.
+ 
+         Args:
+-            filename (str | None): The filename of the template file, if available.
+-            template (dict[str, Any]): The dictionary representing the CloudFormation template.
+-            regions (list[str] | None): A list of AWS regions associated with the template.
++            filename (Optional[str]): The filename of the template file, if available.
++            template (dict): The dictionary representing the CloudFormation template.
++            regions (Optional[list]): A list of AWS regions associated with the template.
+         """
+ 
+         self.regions = regions or [cfnlint.helpers.REGION_PRIMARY]
+ 
+         self.filename = filename
+         self.template = template
+-        self.transform_pre: dict[str, Any] = {}
++        self.transform_pre: dict = {}
+         self.transform_pre["Globals"] = {}
+         self.transform_pre["Ref"] = self.search_deep_keys("Ref")
+         self.transform_pre["Fn::Sub"] = self.search_deep_keys("Fn::Sub")
+@@ -178,15 +178,15 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+         return False
+ 
+     def get_resources(
+-        self, resource_type: list[str] | str = []
+-    ) -> dict[str, dict[str, Any]]:
++        self, resource_type: list | str = []
++    ) -> dict[str, dict]:
+         """Get the resources in the template.
+ 
+         Args:
+-            resource_type (list[str] | str): An optional list or string of resource types to filter by.
++            resource_type (list | str): An optional list or string of resource types to filter by.
+ 
+         Returns:
+-            dict[str, dict[str, Any]]: A dictionary containing the resources, where the keys are resource names
++            dict[str, dict]: A dictionary containing the resources, where the keys are resource names
+                 and the values are the resource dictionaries.
+         """
+         resources = self.template.get("Resources", {})
+@@ -206,13 +206,13 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+         return results
+ 
+     def get_resource_children(
+-        self, resource_name: str, types: list[str] | None = None
++        self, resource_name: str, types: Optional[list] = None
+     ) -> Iterator[str]:
+         """Get the resource children for a given resource name.
+ 
+         Args:
+             resource_name (str): The name of the resource.
+-            types (list[str] | None): An optional list of resource types to filter by.
++            types (Optional[list]): An optional list of resource types to filter by.
+ 
+         Yields:
+             str: The name of each resource child.
+@@ -231,11 +231,11 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+                 else:
+                     yield node_name
+ 
+-    def get_parameters_valid(self) -> dict[str, dict[str, Any]]:
++    def get_parameters_valid(self) -> dict[str, dict]:
+         """Get the valid parameters in the template.
+ 
+         Returns:
+-            dict[str, dict[str, Any]]: A dictionary containing the valid parameters, where the keys are parameter names
++            dict[str, dict]: A dictionary containing the valid parameters, where the keys are parameter names
+                 and the values are the parameter dictionaries.
+         """
+         result = {}
+@@ -248,11 +248,11 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+ 
+         return result
+ 
+-    def get_modules(self) -> dict[str, dict[str, Any]]:
++    def get_modules(self) -> dict[str, dict]:
+         """Get the modules in the template.
+ 
+         Returns:
+-            dict[str, dict[str, Any]]: A dictionary containing the modules, where the keys are module names
++            dict[str, dict]: A dictionary containing the modules, where the keys are module names
+                 and the values are the module dictionaries.
+         """
+         resources = self.template.get("Resources", {})
+@@ -323,14 +323,14 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+ 
+         return results
+ 
+-    def get_directives(self) -> dict[str, list[str]]:
++    def get_directives(self) -> dict[str, list]:
+         """Get the directives (ignore_checks) in the template.
+ 
+         Returns:
+-            dict[str, list[str]]: A dictionary containing directives, where the keys are directive names
++            dict[str, list]: A dictionary containing directives, where the keys are directive names
+                 and the values are lists of resource names associated with the directive.
+         """
+-        results: dict[str, list[str]] = {}
++        results: dict[str, list] = {}
+         resources = self.get_resources()
+         if resources:
+             for resource_name, resource_values in resources.items():
+@@ -426,13 +426,13 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+         return results
+ 
+     def get_cfn_path(
+-        self, path: list[str], context: Context
++        self, path: list, context: Context
+     ) -> Iterator[tuple[Any, Context]]:
+         """
+         Get the value at the specified path in the CloudFormation template.
+ 
+         Args:
+-            path (list[str]): The path to the value in the template.
++            path (list): The path to the value in the template.
+             context (Context): The context object containing the template and other data.
+ 
+         Returns:
+@@ -469,7 +469,7 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+             yield template, context
+ 
+         def _get_cfn_path(
+-            path: list[str], template: Any, context: Context
++            path: list, template: Any, context: Context
+         ) -> Iterator[tuple[Any, Context]]:
+             if len(path) == 0:
+                 yield from _filter_condition(template, context)
+@@ -504,7 +504,7 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+ 
+     def get_condition_values(
+         self, template, path: CfnPath | None
+-    ) -> list[dict[str, Any]]:
++    ) -> list[dict]:
+         """
+         Evaluates conditions in the provided CloudFormation template and returns the values.
+ 
+@@ -518,14 +518,14 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+                 - "Value": The value of the condition.
+         """
+         path = path or []
+-        matches: list[dict[str, Any]] = []
++        matches: list[dict] = []
+         if not isinstance(template, list):
+             return matches
+         if not len(template) == 3:
+             return matches
+ 
+         for index, item in enumerate(template[1:]):
+-            result: dict[str, Any] = {}
++            result: dict = {}
+             result["Path"] = path[:] + [index + 1]
+             if not isinstance(item, (dict, list)):
+                 # Just straight values and pass them through
+@@ -741,7 +741,7 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+     # pylint: disable=W0613,too-many-locals
+     def check_value(
+         self,
+-        obj: dict[str, Any],
++        obj: dict,
+         key: str,
+         path: CfnPath,
+         check_value: CheckValueFn | None = None,
+@@ -753,7 +753,7 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+         check_import_value: CheckValueFn | None = None,
+         check_sub: CheckValueFn | None = None,
+         pass_if_null: bool = False,
+-        **kwargs: dict[str, Any],
++        **kwargs: dict,
+     ) -> list[RuleMatch]:
+         """
+         Check the value of a key in the provided object.
+@@ -906,7 +906,7 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+         return results
+ 
+     def get_object_without_nested_conditions(
+-        self, obj: dict | list, path: CfnPath, region: str | None = None
++        self, obj: dict | list, path: CfnPath, region: Optional[str] = None
+     ):
+         """
+         Get a list of object values without conditions included.
+@@ -1133,7 +1133,7 @@ class Template:  # pylint: disable=R0904,too-many-lines,too-many-instance-attrib
+         self,
+         path: CfnPath,
+         include_if_in_function: bool = False,
+-        region: str | None = None,
++        region: Optional[str] = None,
+     ) -> list[dict[str, bool]]:
+         """
+         Get all possible scenarios for the conditions in the provided object.

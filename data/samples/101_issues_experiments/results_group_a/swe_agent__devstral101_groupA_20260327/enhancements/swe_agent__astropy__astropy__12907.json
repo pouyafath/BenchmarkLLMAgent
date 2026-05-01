@@ -1,0 +1,45 @@
+{
+  "issue_id": "astropy/astropy#12907",
+  "agent": "swe_agent",
+  "cache_key": "44fce6b404e4a460",
+  "cache_context": {
+    "samples_path": "/home/22pf2/BenchmarkLLMAgent/data/samples/101_issues_experiments/group_a_101/group_a_101_samples.json",
+    "agents": [
+      "swe_agent"
+    ],
+    "parallel": 1,
+    "openai_compat_base_url": "http://127.0.0.1:18000/v1",
+    "openai_compat_model": "Devstral-Small-2-24B-Instruct-2512",
+    "use_ollama": "",
+    "ollama_model": "",
+    "ollama_base_url": ""
+  },
+  "original_title": "Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels",
+  "original_body": "Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.modeling.separable import separability_matrix\r\n\r\ncm = m.Linear1D(10) & m.Linear1D(5)\r\n```\r\n\r\nIt's separability matrix as you might expect is a diagonal:\r\n\r\n```python\r\n>>> separability_matrix(cm)\r\narray([[ True, False],\r\n       [False,  True]])\r\n```\r\n\r\nIf I make the model more complex:\r\n```python\r\n>>> separability_matrix(m.Pix2Sky_TAN() & m.Linear1D(10) & m.Linear1D(5))\r\narray([[ True,  True, False, False],\r\n       [ True,  True, False, False],\r\n       [False, False,  True, False],\r\n       [False, False, False,  True]])\r\n```\r\n\r\nThe output matrix is again, as expected, the outputs and inputs to the linear models are separable and independent of each other.\r\n\r\nIf however, I nest these compound models:\r\n```python\r\n>>> separability_matrix(m.Pix2Sky_TAN() & cm)\r\narray([[ True,  True, False, False],\r\n       [ True,  True, False, False],\r\n       [False, False,  True,  True],\r\n       [False, False,  True,  True]])\r\n```\r\nSuddenly the inputs and outputs are no longer separable?\r\n\r\nThis feels like a bug to me, but I might be missing something?\n",
+  "enhanced_title": "\\`separability_matrix\\` incorrectly computes separability for nested CompoundModels",
+  "enhanced_body": "## Summary\nThe \\`separability_matrix\\` function in astropy's modeling module does not correctly compute separability for nested CompoundModels, leading to incorrect results where separable components appear as non-separable.\n\n## Steps to Reproduce\n1. Create a simple compound model with two Linear1D models:\n   ```python\n   from astropy.modeling import models as m\n   from astropy.modeling.separable import separability_matrix\n   cm = m.Linear1D(10) & m.Linear1D(5)\n   ```\n2. Verify the separability matrix is correct (should be diagonal):\n   ```python\n   separability_matrix(cm)  # Expected: [[True, False], [False, True]]\n   ```\n3. Create a more complex model with Pix2Sky_TAN and the compound model:\n   ```python\n   separability_matrix(m.Pix2Sky_TAN() & cm)\n   ```\n4. Observe the incorrect result where the last two components show as non-separable.\n\n## Expected Behavior\nFor nested compound models, the separability matrix should correctly reflect the independence of model components. In the case of \\`m.Pix2Sky_TAN() & cm\\` where \\`cm = m.Linear1D(10) & m.Linear1D(5)\\`, the expected output should be:\n```python\n[[ True,  True, False, False],\n [ True,  True, False, False],\n [False, False,  True, False],\n [False, False, False,  True]]\n```\n\n## Actual Behavior\nThe current implementation returns:\n```python\n[[ True,  True, False, False],\n [ True,  True, False, False],\n [False, False,  True,  True],\n [False, False,  True,  True]]\n```\nNotice how the last two components incorrectly show as non-separable (True, True) instead of being independent.\n\n## Affected Components\n- \\`astropy/modeling/separable.py\\` (contains the \\`separability_matrix\\` function)\n- CompoundModel handling in the separability computation\n\n## Environment\n- astropy version: (not specified, but issue exists in current implementation)\n- Python version: (not specified)\n- Platform: (not specified)\n\n## Additional Context\nThe issue appears when compound models are nested within other compound models. Simple compound models work correctly, but the nesting breaks the separability computation logic.\n\n## Proposed Fix\nThe fix should ensure that when computing separability for nested compound models, the function properly handles the component structure and maintains correct separability relationships between all model components.\"\n```",
+  "enhancement_metadata": {
+    "enhancer_type": "real",
+    "agent_id": "swe_agent",
+    "model": "Devstral-Small-2-24B-Instruct-2512",
+    "base_url": "http://127.0.0.1:18000/v1",
+    "sweagent_returncode": 0,
+    "sweagent_stderr_preview": "/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!\n  warnings.warn(\n/home/22pf2/BenchmarkLLMAgent/bench_env/lib/python3.12/sit",
+    "sweagent_stdout_preview": "\ud83d\udc4b INFO     This is SWE-agent version 1.1.0                                     \n            (hash='bfdcfa5f6c4c974e9fc754445b469a7564b7bb92') with SWE-ReX      \n            version 1.4.0 (rex_hash='unavailable').                             \n\ud83d\udd27 INFO     Setting problem statement id to hash of file contents (path:        \n            /tmp/tmp5y0xe303/problem_statement.md)                              \n\ud83d\udd27 INFO     Loaded environment variables from /home/22pf2/SWE-agent/.env        \n\ud83c\udfc3 INFO     Starti",
+    "trajectory_used": true,
+    "enhancement_noop": false,
+    "attempt_count": 1,
+    "noop_retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "force_rewrite": false,
+        "temperature": 0.0,
+        "returncode": 0,
+        "trajectory_used": true,
+        "enhancement_noop": false
+      }
+    ],
+    "initial_noop": false
+  }
+}

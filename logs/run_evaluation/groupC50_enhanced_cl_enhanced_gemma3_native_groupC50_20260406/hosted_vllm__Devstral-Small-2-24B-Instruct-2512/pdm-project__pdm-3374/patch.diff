@@ -1,0 +1,25 @@
+diff --git a/src/pdm/_types.py b/src/pdm/_types.py
+index dd753efb..2ed37b5d 100644
+--- a/src/pdm/_types.py
++++ b/src/pdm/_types.py
+@@ -35,6 +35,10 @@ class RepositoryConfig:
+         self.exclude_packages = [_normalize_pattern(p) for p in self.exclude_packages]
+ 
+     def populate_auth(self) -> None:
++        # Only populate auth once to avoid excessive keyring queries
++        if hasattr(self, '_auth_populated'):
++            return
++
+         if self.username is None or self.password is None:
+             from pdm.models.auth import keyring
+ 
+@@ -43,6 +47,9 @@ class RepositoryConfig:
+             if auth is not None:
+                 self.username, self.password = auth
+ 
++        # Mark as populated to avoid future queries
++        self._auth_populated = True
++
+     def passive_update(self, other: RepositoryConfig | None = None, **kwargs: Any) -> None:
+         """An update method that prefers the existing value over the new one."""
+         if other is not None:

@@ -1,0 +1,42 @@
+diff --git a/src/cfnlint/template/transforms/_language_extensions.py b/src/cfnlint/template/transforms/_language_extensions.py
+--- a/src/cfnlint/template/transforms/_language_extensions.py
++++ b/src/cfnlint/template/transforms/_language_extensions.py
+@@ -1,17 +1,25 @@
+                 if re.match(FUNCTION_FOR_EACH, k):
+                     # only translate the foreach if its valid
+                     foreach = _ForEach(k, v, self._collections)
+-                    # get the values will flatten the foreach
+-                    for collection_value in foreach.items(cfn):
+-                        flattened = self._walk(
+-                            v[2], {**params, **{v[0]: collection_value}}, cfn
+-                        )
+-                        for f_k, f_v in flattened.items():
+-                            if f_k not in obj:
+-                                obj[f_k] = f_v
+-                            else:
+-                                raise _ValueError(
+-                                    f"Duplicate {f_k} while doing transformation",
+-                                    f_k,
+-                                )
++                    # get the values will flatten the foreach.
++                    # If the collection resolves to an empty list we simply
++                    # skip processing instead of raising an error.
++                    try:
++                        foreach_items = foreach.items(cfn)
++                    except _ResolveError:
++                        foreach_items = []
++                    for collection_value in foreach_items:
++                        flattened = self._walk(
++                            v[2],
++                            {**params, **{v[0]: collection_value}},
++                            cfn,
++                        )
++                        for f_k, f_v in flattened.items():
++                            if f_k not in obj:
++                                obj[f_k] = f_v
++                            else:
++                                raise _ValueError(
++                                    f"Duplicate {f_k} while doing transformation",
++                                    f_k,
++                                )
+                     del obj[k]

@@ -1,0 +1,43 @@
+diff --git a/sklearn/linear_model/ridge.py b/sklearn/linear_model/ridge.py
+index 6528aadef..5032c5396 100644
+--- a/sklearn/linear_model/ridge.py
++++ b/sklearn/linear_model/ridge.py
+@@ -18,6 +18,7 @@ from scipy import sparse
+ from scipy.sparse import linalg as sp_linalg
+ 
+ from .base import LinearClassifierMixin, LinearModel, _rescale_data
++from ..utils.fixes import sp_version
+ from .sag import sag_solver
+ from ..base import RegressorMixin, MultiOutputMixin
+ from ..utils.extmath import safe_sparse_dot
+@@ -82,11 +83,10 @@ def _solve_sparse_cg(X, y, alpha, max_iter=None, tol=1e-3, verbose=0,
+             # w = X.T * inv(X X^t + alpha*Id) y
+             C = sp_linalg.LinearOperator(
+                 (n_samples, n_samples), matvec=mv, dtype=X.dtype)
+-            # FIXME atol
+-            try:
++            # Handle atol parameter based on scipy version
++            if sp_version >= (1, 3):
+                 coef, info = sp_linalg.cg(C, y_column, tol=tol, atol='legacy')
+-            except TypeError:
+-                # old scipy
++            else:
+                 coef, info = sp_linalg.cg(C, y_column, tol=tol)
+             coefs[i] = X1.rmatvec(coef)
+         else:
+@@ -95,12 +95,11 @@ def _solve_sparse_cg(X, y, alpha, max_iter=None, tol=1e-3, verbose=0,
+             y_column = X1.rmatvec(y_column)
+             C = sp_linalg.LinearOperator(
+                 (n_features, n_features), matvec=mv, dtype=X.dtype)
+-            # FIXME atol
+-            try:
++            # Handle atol parameter based on scipy version
++            if sp_version >= (1, 3):
+                 coefs[i], info = sp_linalg.cg(C, y_column, maxiter=max_iter,
+                                               tol=tol, atol='legacy')
+-            except TypeError:
+-                # old scipy
++            else:
+                 coefs[i], info = sp_linalg.cg(C, y_column, maxiter=max_iter,
+                                               tol=tol)
+ 

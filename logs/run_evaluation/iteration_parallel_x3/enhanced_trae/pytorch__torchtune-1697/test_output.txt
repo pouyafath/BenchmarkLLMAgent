@@ -1,0 +1,825 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 364 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   torchtune/datasets/_packed.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	torchtune/datasets/_packed.py.orig
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 3fddc56942846220b39945559f4b5e695873bb43
+Author: Salman Mohammadi <salman.mohammadi@outlook.com>
+Date:   Sat Sep 28 09:47:02 2024 +0100
+
+    MPS support (#1706)
+
+diff --git a/README.md b/README.md
+index 58187d0b..a66d3ded 100644
+--- a/README.md
++++ b/README.md
+@@ -119,7 +119,7 @@ pip install torchtune
+ 
+ ```bash
+ # Install PyTorch, torchvision, torchao nightlies
+-pip install --pre --upgrade torch torchvision torchao --index-url https://download.pytorch.org/whl/nightly/cu121
++pip install --pre --upgrade torch torchvision torchao --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
+ pip install --pre --upgrade torchtune --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+ ```
+ 
+diff --git a/recipes/knowledge_distillation_single_device.py b/recipes/knowledge_distillation_single_device.py
+index 23c1714c..833c9aec 100644
+--- a/recipes/knowledge_distillation_single_device.py
++++ b/recipes/knowledge_distillation_single_device.py
+@@ -114,13 +114,7 @@ class KDRecipeSingleDevice(FTRecipeInterface):
+             raise ValueError(
+                 "fp16 precision is not supported in this recipe. Please use fp32 or bf16."
+             )
+-        # For CUDA devices, check if the HW supports bf16 if bf16 is specified.
+-        if (
+-            self._dtype == torch.bfloat16
+-            and self._device != torch.device("cpu")
+-            and not torch.cuda.is_bf16_supported()
+-        ):
+-            raise RuntimeError("Full bf16 training is not supported on this hardware.")
++
+         # logging attributes
+         self._output_dir = cfg.output_dir
+         self._log_every_n_steps = cfg.get("log_every_n_steps", 1)
+diff --git a/recipes/lora_dpo_single_device.py b/recipes/lora_dpo_single_device.py
+index ca1664a1..edd2d104 100644
+--- a/recipes/lora_dpo_single_device.py
++++ b/recipes/lora_dpo_single_device.py
+@@ -89,13 +89,7 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
+             raise ValueError(
+                 "fp16 precision is not supported in this recipe. Please use fp32 or bf16."
+             )
+-        # For CUDA devices, check if the HW supports bf16 if bf16 is specified.
+-        if (
+-            self._dtype == torch.bfloat16
+-            and self._device != torch.device("cpu")
+-            and not torch.cuda.is_bf16_supported()
+-        ):
+-            raise RuntimeError("Full bf16 training is not supported on this hardware.")
++
+         # logging attributes
+         self._output_dir = cfg.output_dir
+         self._log_every_n_steps = cfg.get("log_every_n_steps", 1)
+diff --git a/recipes/lora_finetune_single_device.py b/recipes/lora_finetune_single_device.py
+index 74f7cfec..6cc57d7b 100644
+--- a/recipes/lora_finetune_single_device.py
++++ b/recipes/lora_finetune_single_device.py
+@@ -135,13 +135,7 @@ class LoRAFinetuneRecipeSingleDevice(FTRecipeInterface):
+             raise ValueError(
+                 "fp16 precision is not supported in this recipe. Please use fp32 or bf16."
+             )
+-        # For CUDA devices, check if the HW supports bf16 if bf16 is specified.
+-        if (
+-            self._dtype == torch.bfloat16
+-            and self._device != torch.device("cpu")
+-            and not torch.cuda.is_bf16_supported()
+-        ):
+-            raise RuntimeError("Full bf16 training is not supported on this hardware.")
++
+         # logging attributes
+         self._output_dir = cfg.output_dir
+         self._log_every_n_steps = cfg.get("log_every_n_steps", 1)
+@@ -542,13 +536,15 @@ class LoRAFinetuneRecipeSingleDevice(FTRecipeInterface):
+             batch_size=batch_size,
+             # dropping last avoids shape issues with compile + flex attention
+             drop_last=cfg_dataset.get("drop_last", True),
+-            collate_fn=partial(
+-                collate_fn,
+-                padding_idx=self._tokenizer.pad_id,
+-                ignore_idx=self._loss_fn.ignore_index,
+-            )
+-            if not packed
+-            else padded_collate_packed,
++            collate_fn=(
++                partial(
++                    collate_fn,
++                    padding_idx=self._tokenizer.pad_id,
++                    ignore_idx=self._loss_fn.ignore_index,
++                )
++                if not packed
++                else padded_collate_packed
++            ),
+         )
+ 
+         log.info("Dataset and Sampler are initialized.")
+diff --git a/tests/recipes/dev/test_generate_v2.py b/tests/recipes/dev/test_generate_v2.py
+index 4406c21e..be3f995f 100644
+--- a/tests/recipes/dev/test_generate_v2.py
++++ b/tests/recipes/dev/test_generate_v2.py
+@@ -12,13 +12,14 @@ import pytest
+ 
+ from tests.common import TUNE_PATH
+ from tests.recipes.utils import MODEL_TEST_CONFIGS, write_hf_ckpt_config
+-from tests.test_utils import CKPT_MODEL_PATHS, TOKENIZER_PATHS
++from tests.test_utils import CKPT_MODEL_PATHS, mps_ignored_test, TOKENIZER_PATHS
+ 
+ 
+ class TestGenerateV2:
+     """Recipe test suite for the generate_v2 recipe."""
+ 
+     @pytest.mark.integration_test
++    @mps_ignored_test()
+     def test_llama2_generate_results(self, caplog, monkeypatch, tmpdir):
+         ckpt = "llama2_tune"
+         ckpt_path = Path(CKPT_MODEL_PATHS[ckpt])
+diff --git a/tests/recipes/test_ppo_full_finetune_single_device.py b/tests/recipes/test_ppo_full_finetune_single_device.py
+index 07d65c89..63a1e68d 100644
+--- a/tests/recipes/test_ppo_full_finetune_single_device.py
++++ b/tests/recipes/test_ppo_full_finetune_single_device.py
+@@ -24,6 +24,7 @@ from tests.test_utils import (
+     CKPT_MODEL_PATHS,
+     gen_log_file_name,
+     get_loss_values_from_metric_logger,
++    mps_ignored_test,
+ )
+ 
+ 
+@@ -52,6 +53,7 @@ class TestPPOFullFinetuneSingleDeviceRecipe:
+         ] + dummy_text_completion_alpaca_dataset_config()
+ 
+     @pytest.mark.integration_test
++    @mps_ignored_test()
+     def test_loss(self, tmpdir, monkeypatch):
+ 
+         reward_ckpt = "llama2_reward_hf"
+diff --git a/tests/test_utils.py b/tests/test_utils.py
+index 211e783c..8ba28f1b 100644
+--- a/tests/test_utils.py
++++ b/tests/test_utils.py
+@@ -362,3 +362,11 @@ def assert_dialogue_equal(actual, expected):
+     for i in range(len(actual)):
+         assert actual[i].role == expected[i].role
+         assert actual[i].text_content == expected[i].text_content
++
++
++def mps_ignored_test() -> bool:
++    return pytest.mark.skipif(
++        torch.backends.mps.is_available() and torch.backends.mps.is_built(),
++        reason="Test skipped due to torch being compiled with MPS"
++        "see https://github.com/pytorch/torchtune/issues/1707 for more information",
++    )
+diff --git a/tests/torchtune/generation/test_generation.py b/tests/torchtune/generation/test_generation.py
+index 9318b31b..4efd1e3a 100644
+--- a/tests/torchtune/generation/test_generation.py
++++ b/tests/torchtune/generation/test_generation.py
+@@ -7,7 +7,7 @@
+ import pytest
+ 
+ import torch
+-from tests.test_utils import fixed_init_model
++from tests.test_utils import fixed_init_model, mps_ignored_test
+ 
+ from torchtune.generation._generation import (
+     generate,
+@@ -331,6 +331,7 @@ class TestGenerate:
+     @pytest.mark.parametrize(
+         "prompt", ["prompt_tokens_batched", "prompt_tokens_batched_left_padded"]
+     )
++    @mps_ignored_test()
+     def test_stop_tokens_batched(self, request, model, prompt, expected_tokens_batched):
+         """
+         Test to check if the `generate` function produces the right output when stop tokens are
+@@ -362,6 +363,7 @@ class TestGenerate:
+         "model",
+         ["generation_model_no_kv_cache", "generation_model_kv_cache"],
+     )
++    @mps_ignored_test()
+     def test_stop_tokens(self, request, model, prompt_tokens, expected_tokens):
+         """
+         Test to check if the `generate` function produces the right output when stop tokens are
+@@ -392,6 +394,7 @@ class TestGenerate:
+         "model",
+         ["generation_model_no_kv_cache", "generation_model_kv_cache_batched"],
+     )
++    @mps_ignored_test()
+     def test_stop_tokens_batched_uneven_stopping(
+         self, request, model, prompt_tokens_batched
+     ):
+@@ -430,6 +433,7 @@ class TestGenerate:
+         "model",
+         ["generation_model_no_kv_cache", "generation_model_kv_cache_batched"],
+     )
++    @mps_ignored_test()
+     def test_stop_tokens_batched_uneven_stopping_left_padded(
+         self, request, model, prompt_tokens_batched_left_padded
+     ):
+diff --git a/tests/torchtune/models/llama3_1/test_position_embeddings.py b/tests/torchtune/models/llama3_1/test_position_embeddings.py
+index faf3c021..17335607 100644
+--- a/tests/torchtune/models/llama3_1/test_position_embeddings.py
++++ b/tests/torchtune/models/llama3_1/test_position_embeddings.py
+@@ -7,7 +7,7 @@
+ import pytest
+ import torch
+ 
+-from tests.test_utils import assert_expected
++from tests.test_utils import assert_expected, mps_ignored_test
+ from torch import tensor
+ 
+ from torchtune.models.llama3_1._position_embeddings import Llama3ScaledRoPE
+@@ -68,6 +68,7 @@ class TestLlama3ScaledRoPE:
+         assert_expected(cache.sum(), self.EXPECTED_FREQS_CIS_SUM, atol=1e-4)
+         assert_expected(cache.max(), self.EXPECTED_FREQS_CIS_MAX)
+ 
++    @mps_ignored_test()
+     def test_forward(self, input, rope) -> None:
+         x_out = rope(input)
+ 
+@@ -79,6 +80,7 @@ class TestLlama3ScaledRoPE:
+         # check shapes
+         assert_expected(x_out.shape, input.shape)
+ 
++    @mps_ignored_test()
+     def test_forward_with_curr_pos(self, input, rope) -> None:
+         (
+             _,
+@@ -99,6 +101,7 @@ class TestLlama3ScaledRoPE:
+         # check shapes
+         assert_expected(x_out.shape, input.shape)
+ 
++    @mps_ignored_test()
+     def test_forward_with_2d_pos_ids(self, input, rope) -> None:
+         """
+         Use input_pos to indicate positions of each token relative to its sequence
+diff --git a/tests/torchtune/modules/test_position_embeddings.py b/tests/torchtune/modules/test_position_embeddings.py
+index 33bf9905..2f0dcb9a 100644
+--- a/tests/torchtune/modules/test_position_embeddings.py
++++ b/tests/torchtune/modules/test_position_embeddings.py
+@@ -9,7 +9,7 @@ from typing import Tuple
+ import pytest
+ import torch
+ 
+-from tests.test_utils import assert_expected
++from tests.test_utils import assert_expected, mps_ignored_test
+ from torch import tensor
+ from torchtune.models.phi3 import Phi3RotaryPositionalEmbeddings
+ 
+@@ -56,6 +56,7 @@ class TestRotaryPositionEmbedding:
+         _, _, head_dim, _, max_seq_len = input_params
+         return RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len)
+ 
++    @mps_ignored_test()
+     def test_forward(self, input: tensor, rope: RotaryPositionalEmbeddings) -> None:
+         x_out = rope(input)
+ 
+@@ -67,6 +68,7 @@ class TestRotaryPositionEmbedding:
+         # check shapes
+         assert_expected(x_out.shape, input.shape)
+ 
++    @mps_ignored_test()
+     def test_forward_with_curr_pos(
+         self, input: tensor, rope: RotaryPositionalEmbeddings
+     ) -> None:
+@@ -89,6 +91,7 @@ class TestRotaryPositionEmbedding:
+         # check shapes
+         assert_expected(x_out.shape, input.shape)
+ 
++    @mps_ignored_test()
+     def test_forward_with_packed_pos(
+         self, input: tensor, rope: RotaryPositionalEmbeddings
+     ) -> None:
+@@ -162,6 +165,7 @@ class TestPhi3RotaryPositionalEmbeddings:
+         _, _, head_dim, _, max_seq_len = input_params
+         return Phi3RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len)
+ 
++    @mps_ignored_test()
+     def test_forward(
+         self, input: tensor, rope_phi3: Phi3RotaryPositionalEmbeddings
+     ) -> None:
+diff --git a/tests/torchtune/modules/test_transformer_decoder.py b/tests/torchtune/modules/test_transformer_decoder.py
+index 99e4b7c3..796784bb 100644
+--- a/tests/torchtune/modules/test_transformer_decoder.py
++++ b/tests/torchtune/modules/test_transformer_decoder.py
+@@ -9,7 +9,7 @@ from typing import Tuple
+ import pytest
+ 
+ import torch
+-from tests.test_utils import assert_expected
++from tests.test_utils import assert_expected, mps_ignored_test
+ 
+ from torch import nn
+ 
+@@ -98,6 +98,7 @@ class TestTransformerSelfAttentionLayer:
+         transformer_layer.eval()
+         return transformer_layer
+ 
++    @mps_ignored_test()
+     def test_forward(
+         self, input: torch.Tensor, transformer_layer: TransformerSelfAttentionLayer
+     ) -> None:
+@@ -182,6 +183,7 @@ class TestTransformerCrossAttentionLayer:
+         transformer_layer.eval()
+         return transformer_layer
+ 
++    @mps_ignored_test()
+     def test_forward(
+         self,
+         input: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+@@ -317,6 +319,7 @@ class TestTransformerDecoder:
+         decoder.setup_caches(batch_size=4, dtype=torch.float32)
+         return decoder
+ 
++    @mps_ignored_test()
+     def test_forward(
+         self,
+         input: torch.Tensor,
+diff --git a/torchtune/generation/_generation.py b/torchtune/generation/_generation.py
+index abb0700b..9241b606 100644
+--- a/torchtune/generation/_generation.py
++++ b/torchtune/generation/_generation.py
+@@ -245,10 +245,6 @@ def generate(
+     """
+     prompt = prompt.view(1, -1) if prompt.ndim == 1 else prompt
+ 
+-    stop_tokens = (
+-        torch.tensor(stop_tokens, device=prompt.device) if stop_tokens else None
+-    )
+-
+     if custom_generate_next_token is None:
+         custom_generate_next_token = generate_next_token
+ 
+@@ -325,6 +321,11 @@ def generate(
+ 
+     # keeps track at a high level if we've already hit a stop token in a sequence so we can early stop
+     stop_token_reached = torch.zeros(bsz, dtype=torch.bool, device=prompt.device)
++    stop_tokens = (
++        torch.tensor(stop_tokens, device=prompt.device, dtype=tokens.dtype)
++        if stop_tokens
++        else None
++    )
+ 
+     # everything in stop_token_mask starts as 1s, and we'll set them to 0 for sequences
+     # that already hit a stop token
+diff --git a/torchtune/modules/kv_cache.py b/torchtune/modules/kv_cache.py
+index 84996518..b8bdef3a 100644
+--- a/torchtune/modules/kv_cache.py
++++ b/torchtune/modules/kv_cache.py
+@@ -102,7 +102,7 @@ class KVCache(nn.Module):
+         k_out = self.k_cache
+         v_out = self.v_cache
+ 
+-        k_out.index_copy_(2, cache_pos, k_val)
+-        v_out.index_copy_(2, cache_pos, v_val)
++        k_out[:, :, cache_pos] = k_val
++        v_out[:, :, cache_pos] = v_val
+ 
+         return k_out, v_out
+diff --git a/torchtune/training/precision.py b/torchtune/training/precision.py
+index fc08769e..7cda05ca 100644
+--- a/torchtune/training/precision.py
++++ b/torchtune/training/precision.py
+@@ -49,17 +49,20 @@ def verify_bf16_support() -> bool:
+             - CUDA version >= 11
+             - CUDA compute capability >= 8
+         - NCCL is available and version >= 2.10
++        - MPS is available and torch was built with MPS
+ 
+     Returns:
+         bool: True if bf16 is available, False otherwise.
+ 
+     """
+-    return (
++    cuda_support = (
+         torch.cuda.is_available()
+         and torch.cuda.is_bf16_supported()
+         and torch.distributed.is_nccl_available()
+         and torch.cuda.nccl.version() >= (2, 10)
+     )
++    mps_support = torch.backends.mps.is_available() and torch.backends.mps.is_built()
++    return cuda_support or mps_support
+ 
+ 
+ def get_dtype(
++ git -c core.fileMode=false diff 3fddc56942846220b39945559f4b5e695873bb43
+diff --git a/torchtune/datasets/_packed.py b/torchtune/datasets/_packed.py
+index 8cee72ee..e8f43f54 100644
+--- a/torchtune/datasets/_packed.py
++++ b/torchtune/datasets/_packed.py
+@@ -142,7 +142,15 @@ class PackedDataset(Dataset):
+             # If the current pack is over the max_seq_len, add it to self.packs and
+             # retain any truncated or bumped samples for next pack
+             if len(current_pack["tokens"]) > self.max_seq_len:
+-                current_pack = self._split_and_add_pack(current_pack)
++                # In cases where a single sample is longer than ``max_seq_len`` and
++                # ``split_across_pack`` is ``True``, the remaining portion after the
++                # first split can still exceed ``max_seq_len`` (e.g., a sample longer
++                # than ``2 * max_seq_len``).  We therefore need to keep splitting the
++                # pack until the leftover portion fits within the limit.
++                # ``_split_and_add_pack`` returns the remainder of the current pack,
++                # which may still be too large.
++                while len(current_pack["tokens"]) > self.max_seq_len:
++                    current_pack = self._split_and_add_pack(current_pack)
+ 
+             if rank == 0:
+                 pbar.update()
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.11/site-packages/pip (python 3.11)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  running dist_info
+  creating /tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info
+  writing /tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  no previously-included directories found matching 'tests'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-modern-metadata-ssraoj89/torchtune.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-ssraoj89/torchtune-0.0.0.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: datasets in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (3.0.1)
+Requirement already satisfied: huggingface-hub in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (0.25.1)
+Requirement already satisfied: safetensors in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (0.4.5)
+Requirement already satisfied: sentencepiece in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (0.2.0)
+Requirement already satisfied: tiktoken in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (0.7.0)
+Requirement already satisfied: blobfile>=2 in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (3.0.0)
+Requirement already satisfied: numpy<=1.26.4 in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (1.26.4)
+Requirement already satisfied: tqdm in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (4.66.5)
+Requirement already satisfied: omegaconf in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (2.3.0)
+Requirement already satisfied: psutil in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (6.0.0)
+Requirement already satisfied: Pillow>=9.4.0 in /usr/local/lib/python3.11/site-packages (from torchtune==0.0.0) (10.4.0)
+WARNING: torchtune 0.0.0 does not provide the extra 'test'
+Requirement already satisfied: pycryptodomex>=3.8 in /usr/local/lib/python3.11/site-packages (from blobfile>=2->torchtune==0.0.0) (3.20.0)
+Requirement already satisfied: urllib3<3,>=1.25.3 in /usr/local/lib/python3.11/site-packages (from blobfile>=2->torchtune==0.0.0) (2.2.3)
+Requirement already satisfied: lxml>=4.9 in /usr/local/lib/python3.11/site-packages (from blobfile>=2->torchtune==0.0.0) (5.3.0)
+Requirement already satisfied: filelock>=3.0 in /usr/local/lib/python3.11/site-packages (from blobfile>=2->torchtune==0.0.0) (3.16.1)
+Requirement already satisfied: pyarrow>=15.0.0 in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (17.0.0)
+Requirement already satisfied: dill<0.3.9,>=0.3.0 in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (0.3.8)
+Requirement already satisfied: pandas in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (2.2.3)
+Requirement already satisfied: requests>=2.32.2 in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (2.32.3)
+Requirement already satisfied: xxhash in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (3.5.0)
+Requirement already satisfied: multiprocess in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (0.70.16)
+Requirement already satisfied: fsspec<=2024.6.1,>=2023.1.0 in /usr/local/lib/python3.11/site-packages (from fsspec[http]<=2024.6.1,>=2023.1.0->datasets->torchtune==0.0.0) (2024.6.1)
+Requirement already satisfied: aiohttp in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (3.10.6)
+Requirement already satisfied: packaging in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (24.1)
+Requirement already satisfied: pyyaml>=5.1 in /usr/local/lib/python3.11/site-packages (from datasets->torchtune==0.0.0) (6.0.2)
+Requirement already satisfied: typing-extensions>=3.7.4.3 in /usr/local/lib/python3.11/site-packages (from huggingface-hub->torchtune==0.0.0) (4.12.2)
+Requirement already satisfied: antlr4-python3-runtime==4.9.* in /usr/local/lib/python3.11/site-packages (from omegaconf->torchtune==0.0.0) (4.9.3)
+Requirement already satisfied: regex>=2022.1.18 in /usr/local/lib/python3.11/site-packages (from tiktoken->torchtune==0.0.0) (2024.9.11)
+Requirement already satisfied: aiohappyeyeballs>=2.3.0 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->torchtune==0.0.0) (2.4.0)
+Requirement already satisfied: aiosignal>=1.1.2 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->torchtune==0.0.0) (1.3.1)
+Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->torchtune==0.0.0) (24.2.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->torchtune==0.0.0) (1.4.1)
+Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->torchtune==0.0.0) (6.1.0)
+Requirement already satisfied: yarl<2.0,>=1.12.0 in /usr/local/lib/python3.11/site-packages (from aiohttp->datasets->torchtune==0.0.0) (1.12.1)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/site-packages (from requests>=2.32.2->datasets->torchtune==0.0.0) (3.3.2)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.11/site-packages (from requests>=2.32.2->datasets->torchtune==0.0.0) (3.10)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.11/site-packages (from requests>=2.32.2->datasets->torchtune==0.0.0) (2024.8.30)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/site-packages (from pandas->datasets->torchtune==0.0.0) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/site-packages (from pandas->datasets->torchtune==0.0.0) (2024.2)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/site-packages (from pandas->datasets->torchtune==0.0.0) (2024.2)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.11/site-packages (from python-dateutil>=2.8.2->pandas->datasets->torchtune==0.0.0) (1.16.0)
+Building wheels for collected packages: torchtune
+  Building editable for torchtune (pyproject.toml): started
+  Running command Building editable for torchtune (pyproject.toml)
+  /usr/local/lib/python3.11/site-packages/setuptools/config/pyprojecttoml.py:108: _BetaConfiguration: Support for `[tool.setuptools]` in `pyproject.toml` is still *beta*.
+    warnings.warn(msg, _BetaConfiguration)
+  running editable_wheel
+  creating /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info
+  writing /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/dependency_links.txt
+  writing entry points to /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/entry_points.txt
+  writing requirements to /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  no previously-included directories found matching 'tests'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune.egg-info/SOURCES.txt'
+  creating '/tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune-0.0.0.dist-info'
+  creating /tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune-0.0.0.dist-info/WHEEL
+  running build_py
+  running egg_info
+  creating /tmp/tmp10q_mbij.build-temp/torchtune.egg-info
+  writing /tmp/tmp10q_mbij.build-temp/torchtune.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmp10q_mbij.build-temp/torchtune.egg-info/dependency_links.txt
+  writing entry points to /tmp/tmp10q_mbij.build-temp/torchtune.egg-info/entry_points.txt
+  writing requirements to /tmp/tmp10q_mbij.build-temp/torchtune.egg-info/requires.txt
+  writing top-level names to /tmp/tmp10q_mbij.build-temp/torchtune.egg-info/top_level.txt
+  writing manifest file '/tmp/tmp10q_mbij.build-temp/torchtune.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmp10q_mbij.build-temp/torchtune.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  no previously-included directories found matching 'tests'
+  adding license file 'LICENSE'
+  writing manifest file '/tmp/tmp10q_mbij.build-temp/torchtune.egg-info/SOURCES.txt'
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  adding '__editable___torchtune_0_0_0_finder.py'
+  adding '__editable__.torchtune-0.0.0.pth'
+  creating '/tmp/pip-wheel-j_ka09jw/tmp0ecy_rby/torchtune-0.0.0-0.editable-py3-none-any.whl' and adding '/tmp/tmppkd5qwt8torchtune-0.0.0-0.editable-py3-none-any.whl' to it
+  adding 'torchtune-0.0.0.dist-info/LICENSE'
+  adding 'torchtune-0.0.0.dist-info/METADATA'
+  adding 'torchtune-0.0.0.dist-info/WHEEL'
+  adding 'torchtune-0.0.0.dist-info/entry_points.txt'
+  adding 'torchtune-0.0.0.dist-info/top_level.txt'
+  adding 'torchtune-0.0.0.dist-info/RECORD'
+  /usr/local/lib/python3.11/site-packages/setuptools/command/editable_wheel.py:510: InformationOnly:
+
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+
+    warnings.warn(msg, InformationOnly)
+  Building editable for torchtune (pyproject.toml): finished with status 'done'
+  Created wheel for torchtune: filename=torchtune-0.0.0-0.editable-py3-none-any.whl size=10257 sha256=24387271ab15b26dc2cf1f90a2c5e561e9213e98796c0041af85dc561bd43ffe
+  Stored in directory: /tmp/pip-ephem-wheel-cache-8_ye4csg/wheels/49/5f/4f/01b7d31ea6ddac9643da788242d33e5fd3467d95d17b032c6b
+Successfully built torchtune
+Installing collected packages: torchtune
+  Attempting uninstall: torchtune
+    Found existing installation: torchtune 0.0.0
+    Uninstalling torchtune-0.0.0:
+      Removing file or directory /usr/local/bin/tune
+      Removing file or directory /usr/local/lib/python3.11/site-packages/__editable__.torchtune-0.0.0.pth
+      Removing file or directory /usr/local/lib/python3.11/site-packages/__editable___torchtune_0_0_0_finder.py
+      Removing file or directory /usr/local/lib/python3.11/site-packages/__pycache__/__editable___torchtune_0_0_0_finder.cpython-311.pyc
+      Removing file or directory /usr/local/lib/python3.11/site-packages/torchtune-0.0.0.dist-info/
+      Successfully uninstalled torchtune-0.0.0
+  changing mode of /usr/local/bin/tune to 755
+Successfully installed torchtune-0.0.0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ python -m pip install torchao
+Requirement already satisfied: torchao in /usr/local/lib/python3.11/site-packages (0.5.0)
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout 3fddc56942846220b39945559f4b5e695873bb43 tests/torchtune/datasets/test_packed_dataset.py
+Updated 0 paths from 5dc49fc3
++ git apply -v -
+Checking patch tests/torchtune/datasets/test_packed_dataset.py...
+Applied patch tests/torchtune/datasets/test_packed_dataset.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -rA tests/torchtune/datasets/test_packed_dataset.py
+============================= test session starts ==============================
+platform linux -- Python 3.11.12, pytest-7.4.0, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: mock-3.14.0, integration-0.2.3, cov-5.0.0
+collected 20 items
+
+tests/torchtune/datasets/test_packed_dataset.py .........FF.FF......     [100%]
+
+=================================== FAILURES ===================================
+______________ TestPackedDataset.test_chunked_case[True-5-27-13] _______________
+
+self = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855574b50>
+max_seq_len = 13, sample_size = 27, max_packs = 5, split_across_pack = True
+
+    @pytest.mark.parametrize("max_seq_len", [13])
+    @pytest.mark.parametrize("sample_size", [14, 27, 40])
+    @pytest.mark.parametrize("max_packs", [5, 200, 3100])
+    @pytest.mark.parametrize("split_across_pack", [True])
+    def test_chunked_case(self, max_seq_len, sample_size, max_packs, split_across_pack):
+        dataset = DummyDataset(sample_size)
+        packed = PackedDataset(
+            dataset,
+            max_seq_len=max_seq_len,
+            max_packs=max_packs,
+            split_across_pack=split_across_pack,
+        )
+    
+        # Check we get right number of packs
+        correct_num_packs = self._calculate_num_packs(
+            len(dataset), max_seq_len, sample_size, split_across_pack, max_packs
+        )
+>       assert len(packed) == correct_num_packs
+E       assert 2076 == 5
+E        +  where 2076 = len(<torchtune.datasets._packed.PackedDataset object at 0x7f28555b7050>)
+
+correct_num_packs = 5
+dataset    = <tests.torchtune.datasets.test_packed_dataset.DummyDataset object at 0x7f28555b6e10>
+max_packs  = 5
+max_seq_len = 13
+packed     = <torchtune.datasets._packed.PackedDataset object at 0x7f28555b7050>
+sample_size = 27
+self       = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855574b50>
+split_across_pack = True
+
+tests/torchtune/datasets/test_packed_dataset.py:167: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  13%|█▎        | 128/1000 [00:00<00:01, 614.89it/s]Packing dataset:  64%|██████▍   | 638/1000 [00:00<00:00, 2438.64it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 2685.55it/s]
+______________ TestPackedDataset.test_chunked_case[True-5-40-13] _______________
+
+self = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855577090>
+max_seq_len = 13, sample_size = 40, max_packs = 5, split_across_pack = True
+
+    @pytest.mark.parametrize("max_seq_len", [13])
+    @pytest.mark.parametrize("sample_size", [14, 27, 40])
+    @pytest.mark.parametrize("max_packs", [5, 200, 3100])
+    @pytest.mark.parametrize("split_across_pack", [True])
+    def test_chunked_case(self, max_seq_len, sample_size, max_packs, split_across_pack):
+        dataset = DummyDataset(sample_size)
+        packed = PackedDataset(
+            dataset,
+            max_seq_len=max_seq_len,
+            max_packs=max_packs,
+            split_across_pack=split_across_pack,
+        )
+    
+        # Check we get right number of packs
+        correct_num_packs = self._calculate_num_packs(
+            len(dataset), max_seq_len, sample_size, split_across_pack, max_packs
+        )
+>       assert len(packed) == correct_num_packs
+E       assert 3076 == 5
+E        +  where 3076 = len(<torchtune.datasets._packed.PackedDataset object at 0x7f28555514d0>)
+
+correct_num_packs = 5
+dataset    = <tests.torchtune.datasets.test_packed_dataset.DummyDataset object at 0x7f28555711d0>
+max_packs  = 5
+max_seq_len = 13
+packed     = <torchtune.datasets._packed.PackedDataset object at 0x7f28555514d0>
+sample_size = 40
+self       = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855577090>
+split_across_pack = True
+
+tests/torchtune/datasets/test_packed_dataset.py:167: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  37%|███▋      | 373/1000 [00:00<00:00, 3722.82it/s]Packing dataset:  77%|███████▋  | 773/1000 [00:00<00:00, 3883.46it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 3862.51it/s]
+_____________ TestPackedDataset.test_chunked_case[True-200-27-13] ______________
+
+self = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855577bd0>
+max_seq_len = 13, sample_size = 27, max_packs = 200, split_across_pack = True
+
+    @pytest.mark.parametrize("max_seq_len", [13])
+    @pytest.mark.parametrize("sample_size", [14, 27, 40])
+    @pytest.mark.parametrize("max_packs", [5, 200, 3100])
+    @pytest.mark.parametrize("split_across_pack", [True])
+    def test_chunked_case(self, max_seq_len, sample_size, max_packs, split_across_pack):
+        dataset = DummyDataset(sample_size)
+        packed = PackedDataset(
+            dataset,
+            max_seq_len=max_seq_len,
+            max_packs=max_packs,
+            split_across_pack=split_across_pack,
+        )
+    
+        # Check we get right number of packs
+        correct_num_packs = self._calculate_num_packs(
+            len(dataset), max_seq_len, sample_size, split_across_pack, max_packs
+        )
+>       assert len(packed) == correct_num_packs
+E       assert 2076 == 200
+E        +  where 2076 = len(<torchtune.datasets._packed.PackedDataset object at 0x7f2854cec0d0>)
+
+correct_num_packs = 200
+dataset    = <tests.torchtune.datasets.test_packed_dataset.DummyDataset object at 0x7f2854cec190>
+max_packs  = 200
+max_seq_len = 13
+packed     = <torchtune.datasets._packed.PackedDataset object at 0x7f2854cec0d0>
+sample_size = 27
+self       = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855577bd0>
+split_across_pack = True
+
+tests/torchtune/datasets/test_packed_dataset.py:167: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  51%|█████▏    | 513/1000 [00:00<00:00, 5125.58it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 5348.79it/s]
+_____________ TestPackedDataset.test_chunked_case[True-200-40-13] ______________
+
+self = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855577a90>
+max_seq_len = 13, sample_size = 40, max_packs = 200, split_across_pack = True
+
+    @pytest.mark.parametrize("max_seq_len", [13])
+    @pytest.mark.parametrize("sample_size", [14, 27, 40])
+    @pytest.mark.parametrize("max_packs", [5, 200, 3100])
+    @pytest.mark.parametrize("split_across_pack", [True])
+    def test_chunked_case(self, max_seq_len, sample_size, max_packs, split_across_pack):
+        dataset = DummyDataset(sample_size)
+        packed = PackedDataset(
+            dataset,
+            max_seq_len=max_seq_len,
+            max_packs=max_packs,
+            split_across_pack=split_across_pack,
+        )
+    
+        # Check we get right number of packs
+        correct_num_packs = self._calculate_num_packs(
+            len(dataset), max_seq_len, sample_size, split_across_pack, max_packs
+        )
+>       assert len(packed) == correct_num_packs
+E       assert 3076 == 200
+E        +  where 3076 = len(<torchtune.datasets._packed.PackedDataset object at 0x7f2855d1d110>)
+
+correct_num_packs = 200
+dataset    = <tests.torchtune.datasets.test_packed_dataset.DummyDataset object at 0x7f2855d1de90>
+max_packs  = 200
+max_seq_len = 13
+packed     = <torchtune.datasets._packed.PackedDataset object at 0x7f2855d1d110>
+sample_size = 40
+self       = <tests.torchtune.datasets.test_packed_dataset.TestPackedDataset object at 0x7f2855577a90>
+split_across_pack = True
+
+tests/torchtune/datasets/test_packed_dataset.py:167: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  40%|████      | 404/1000 [00:00<00:00, 4031.15it/s]Packing dataset:  81%|████████  | 808/1000 [00:00<00:00, 3820.24it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 3837.02it/s]
+==================================== PASSES ====================================
+______________ TestPackedDataset.test_packed_dataset[True-5-2-25] ______________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:   6%|▋         | 63/1000 [00:00<00:00, 2716.57it/s]
+______________ TestPackedDataset.test_packed_dataset[True-5-5-25] ______________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:   3%|▎         | 26/1000 [00:00<00:00, 31104.37it/s]
+_____________ TestPackedDataset.test_packed_dataset[True-200-2-25] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 123514.46it/s]
+_____________ TestPackedDataset.test_packed_dataset[True-200-5-25] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 47507.61it/s]
+_____________ TestPackedDataset.test_packed_dataset[False-5-2-25] ______________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:   6%|▌         | 61/1000 [00:00<00:00, 62236.08it/s]
+_____________ TestPackedDataset.test_packed_dataset[False-5-5-25] ______________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:   3%|▎         | 26/1000 [00:00<00:00, 38170.07it/s]
+____________ TestPackedDataset.test_packed_dataset[False-200-2-25] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 104697.94it/s]
+____________ TestPackedDataset.test_packed_dataset[False-200-5-25] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 55007.99it/s]
+______________ TestPackedDataset.test_chunked_case[True-5-14-13] _______________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:   0%|          | 5/1000 [00:00<00:00, 4497.43it/s]
+_____________ TestPackedDataset.test_chunked_case[True-200-14-13] ______________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  19%|█▊        | 186/1000 [00:00<00:00, 11213.10it/s]
+_____________ TestPackedDataset.test_chunked_case[True-3100-14-13] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 10443.62it/s]
+_____________ TestPackedDataset.test_chunked_case[True-3100-27-13] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  64%|██████▎   | 636/1000 [00:00<00:00, 6351.13it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 6215.26it/s]
+_____________ TestPackedDataset.test_chunked_case[True-3100-40-13] _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:  43%|████▎     | 426/1000 [00:00<00:00, 4255.65it/s]Packing dataset:  85%|████████▌ | 852/1000 [00:00<00:00, 4039.92it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 4057.80it/s]
+_______________ TestPackedDataset.test_packed_dataset_real_data ________________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/3 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 3/3 [00:00<00:00, 5946.56it/s]
+_______________________ TestPackedDataset.test_pad_pack ________________________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset: 100%|██████████| 1000/1000 [00:00<00:00, 26841.66it/s]
+____________ TestPackedDataset.test_pack_errors_if_sample_too_long _____________
+----------------------------- Captured stderr call -----------------------------
+Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]Packing dataset:   0%|          | 0/1000 [00:00<?, ?it/s]
+=========================== short test summary info ============================
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[True-5-2-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[True-5-5-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[True-200-2-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[True-200-5-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[False-5-2-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[False-5-5-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[False-200-2-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset[False-200-5-25]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-5-14-13]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-200-14-13]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-3100-14-13]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-3100-27-13]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-3100-40-13]
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_packed_dataset_real_data
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_pad_pack
+PASSED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_pack_errors_if_sample_too_long
+FAILED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-5-27-13]
+FAILED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-5-40-13]
+FAILED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-200-27-13]
+FAILED tests/torchtune/datasets/test_packed_dataset.py::TestPackedDataset::test_chunked_case[True-200-40-13]
+========================= 4 failed, 16 passed in 1.93s =========================
++ : '>>>>> End Test Output'
++ git checkout 3fddc56942846220b39945559f4b5e695873bb43 tests/torchtune/datasets/test_packed_dataset.py
+Updated 1 path from 5dc49fc3

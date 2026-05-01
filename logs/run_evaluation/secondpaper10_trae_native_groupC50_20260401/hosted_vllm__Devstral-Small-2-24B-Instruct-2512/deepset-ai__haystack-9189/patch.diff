@@ -1,0 +1,153 @@
+diff --git a/haystack/components/embedders/azure_document_embedder.py b/haystack/components/embedders/azure_document_embedder.py
+index 5f9eb647..00d0f6a7 100644
+--- a/haystack/components/embedders/azure_document_embedder.py
++++ b/haystack/components/embedders/azure_document_embedder.py
+@@ -8,15 +8,15 @@ from typing import Any, Dict, List, Optional, Tuple
+ import httpx
+ from more_itertools import batched
+ from openai import APIError
+-from openai.lib.azure import AzureADTokenProvider, AzureOpenAI
++from openai.lib.azure import AsyncAzureOpenAI, AzureADTokenProvider, AzureOpenAI
+ from tqdm import tqdm
++from tqdm.asyncio import tqdm as async_tqdm
+ 
+ from haystack import Document, component, default_from_dict, default_to_dict, logging
+ from haystack.utils import Secret, deserialize_callable, deserialize_secrets_inplace, serialize_callable
+ 
+ logger = logging.getLogger(__name__)
+ 
+-
+ @component
+ class AzureOpenAIDocumentEmbedder:
+     """
+@@ -136,26 +136,35 @@ class AzureOpenAIDocumentEmbedder:
+         self.azure_ad_token_provider = azure_ad_token_provider
+         self.http_client_kwargs = http_client_kwargs
+ 
+-        self._client = AzureOpenAI(
+-            api_version=api_version,
+-            azure_endpoint=azure_endpoint,
+-            azure_deployment=azure_deployment,
+-            azure_ad_token_provider=azure_ad_token_provider,
+-            api_key=api_key.resolve_value() if api_key is not None else None,
+-            azure_ad_token=azure_ad_token.resolve_value() if azure_ad_token is not None else None,
+-            organization=organization,
+-            timeout=self.timeout,
+-            max_retries=self.max_retries,
+-            default_headers=self.default_headers,
+-            http_client=self._init_http_client(),
+-        )
+-
+-    def _init_http_client(self):
+-        """Internal method to initialize the httpx.Client."""
++        client_args: Dict[str, Any] = {
++            "api_version": api_version,
++            "azure_endpoint": azure_endpoint,
++            "azure_deployment": azure_deployment,
++            "azure_ad_token_provider": azure_ad_token_provider,
++            "api_key": api_key.resolve_value() if api_key is not None else None,
++            "azure_ad_token": azure_ad_token.resolve_value() if azure_ad_token is not None else None,
++            "organization": organization,
++            "timeout": self.timeout,
++            "max_retries": self.max_retries,
++            "default_headers": self.default_headers,
++        }
++
++        # Initialize HTTP clients
++        sync_http_client = self._init_http_client(httpx.Client)
++        async_http_client = self._init_http_client(httpx.AsyncClient)
++
++        client_args["http_client"] = sync_http_client
++        self._client = AzureOpenAI(**client_args)
++
++        client_args["http_client"] = async_http_client
++        self._async_client = AsyncAzureOpenAI(**client_args)
++
++    def _init_http_client(self, client_class):
++        """Internal method to initialize an HTTP client."""
+         if self.http_client_kwargs:
+             if not isinstance(self.http_client_kwargs, dict):
+                 raise TypeError("The parameter 'http_client_kwargs' must be a dictionary.")
+-            return httpx.Client(**self.http_client_kwargs)
++            return client_class(**self.http_client_kwargs)
+         return None
+ 
+     def _get_telemetry_data(self) -> Dict[str, Any]:
+@@ -269,6 +278,48 @@ class AzureOpenAIDocumentEmbedder:
+ 
+         return all_embeddings, meta
+ 
++    async def _embed_batch_async(
++        self, texts_to_embed: Dict[str, str], batch_size: int
++    ) -> Tuple[List[List[float]], Dict[str, Any]]:
++        """
++        Embed a list of texts in batches asynchronously.
++        """
++
++        all_embeddings: List[List[float]] = []
++        meta: Dict[str, Any] = {"model": "", "usage": {"prompt_tokens": 0, "total_tokens": 0}}
++
++        batches = list(batched(texts_to_embed.items(), batch_size))
++        if self.progress_bar:
++            batches = async_tqdm(batches, desc="Calculating embeddings")
++
++        for batch in batches:
++            args: Dict[str, Any] = {"model": self.azure_deployment, "input": [b[1] for b in batch]}
++
++            if self.dimensions is not None:
++                args["dimensions"] = self.dimensions
++
++            try:
++                response = await self._async_client.embeddings.create(**args)
++            except APIError as e:
++                # Log the error but continue processing
++                ids = ", ".join(b[0] for b in batch)
++                logger.exception(f"Failed embedding of documents {ids} caused by {e}")
++                continue
++
++            embeddings = [el.embedding for el in response.data]
++            all_embeddings.extend(embeddings)
++
++            # Update the meta information only once if it's empty
++            if not meta["model"]:
++                meta["model"] = response.model
++                meta["usage"] = dict(response.usage)
++            else:
++                # Update the usage tokens
++                meta["usage"]["prompt_tokens"] += response.usage.prompt_tokens
++                meta["usage"]["total_tokens"] += response.usage.total_tokens
++
++        return all_embeddings, meta
++
+     @component.output_types(documents=List[Document], meta=Dict[str, Any])
+     def run(self, documents: List[Document]) -> Dict[str, Any]:
+         """
+@@ -293,3 +344,28 @@ class AzureOpenAIDocumentEmbedder:
+             doc.embedding = emb
+ 
+         return {"documents": documents, "meta": meta}
++
++    @component.output_types(documents=List[Document], meta=Dict[str, Any])
++    async def run_async(self, documents: List[Document]) -> Dict[str, Any]:
++        """
++        Embeds a list of documents asynchronously.
++
++        :param documents:
++            Documents to embed.
++
++        :returns:
++            A dictionary with the following keys:
++            - `documents`: A list of documents with embeddings.
++            - `meta`: Information about the usage of the model.
++        """
++        if not (isinstance(documents, list) and all(isinstance(doc, Document) for doc in documents)):
++            raise TypeError("Input must be a list of Document instances. For strings, use AzureOpenAITextEmbedder.")
++
++        texts_to_embed = self._prepare_texts_to_embed(documents=documents)
++        embeddings, meta = await self._embed_batch_async(texts_to_embed=texts_to_embed, batch_size=self.batch_size)
++
++        # Assign the corresponding embeddings to each document
++        for doc, emb in zip(documents, embeddings):
++            doc.embedding = emb
++
++        return {"documents": documents, "meta": meta}

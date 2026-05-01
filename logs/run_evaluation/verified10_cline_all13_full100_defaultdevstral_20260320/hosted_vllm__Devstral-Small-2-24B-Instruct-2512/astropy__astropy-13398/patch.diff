@@ -1,0 +1,274 @@
+--- a/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
++++ b/astropy/coordinates/builtin_frames/itrs_observed_transforms.py
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+"""
+Contains the transformation functions for getting to "observed" systems from ITRS.
+These transforms are designed for nearby objects (e.g., satellites) where aberration
+corrections should be avoided.
+"""
+
+import numpy as np
+import erfa
+
+from astropy import units as u
+from astropy.coordinates.baseframe import frame_transform_graph
+from astropy.coordinates.transformations import FunctionTransformWithFiniteDifference
+from astropy.coordinates.representation import (SphericalRepresentation,
+                                                UnitSphericalRepresentation,
+                                                CartesianRepresentation)
+from astropy.coordinates.matrix_utilities import rotation_matrix
+
+from .itrs import ITRS
+from .altaz import AltAz
+from .hadec import HADec
+from .utils import PIOVER2, get_polar_motion, get_jd12
+
+def itrs_to_observed_mat(observed_frame):
+    """
+    Returns the rotation matrix for transforming from ITRS to observed coordinates.
+
+    This matrix performs the transformation from ITRS (geocentric) to topocentric
+    observed coordinates (AltAz or HADec) without going through aberration corrections.
+
+    The transformation accounts for:
+    - Observer location (longitude, latitude)
+    - Earth rotation (using Earth Rotation Angle)
+    - Polar motion
+
+    Parameters
+    ----------
+    observed_frame : AltAz or HADec frame
+        The target observed frame
+
+    Returns
+    -------
+    matrix : numpy.ndarray
+        3x3 rotation matrix for ITRS -> observed coordinates
+    """
+    # Get observer location in geodetic coordinates
+    lon, lat, height = observed_frame.location.to_geodetic('WGS84')
+    elong = lon.to_value(u.radian)
+    phi = lat.to_value(u.radian)
+
+    # Get polar motion at the observed frame's time
+    xp, yp = get_polar_motion(observed_frame.obstime)
+
+    # Earth rotation angle at the observed frame's time
+    era = erfa.era00(*get_jd12(observed_frame.obstime, 'ut1'))
+
+    # TIO locator s' at the observed frame's time
+    sp = erfa.sp00(*get_jd12(observed_frame.obstime, 'tt'))
+
+    # Build rotation matrix: ITRS -> observed
+    # This follows the standard transformation from geocentric to topocentric coordinates:
+    # 1. Rotate by observer longitude (z-axis rotation)
+    # 2. Correct for polar motion (x and y axis rotations)
+    # 3. Rotate by Earth rotation angle + TIO locator (z-axis rotation)
+    r = (rotation_matrix(elong, 'z', unit=u.radian)
+         @ rotation_matrix(-yp, 'x', unit=u.radian)
+         @ rotation_matrix(-xp, 'y', unit=u.radian)
+         @ rotation_matrix(era + sp, 'z', unit=u.radian))
+
+    return r
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
+def itrs_to_altaz(itrs_coo, altaz_frame):
+    """
+    Transform ITRS coordinates directly to AltAz without aberration corrections.
+
+    This transformation is designed for nearby objects (e.g., satellites) where
+    geocentric aberration corrections are not appropriate.
+
+    Key features:
+    - Uses the observed frame's obstime rather than the ITRS coordinate's obstime
+    - Performs a direct geocentric to topocentric transformation
+    - Avoids celestial coordinate system transformations (no CIRS intermediate step)
+    - Skips aberration corrections that cause issues for nearby objects
+
+    Parameters
+    ----------
+    itrs_coo : ITRS coordinate
+        The ITRS coordinate to transform
+    altaz_frame : AltAz frame
+        The target AltAz frame (must have location and obstime)
+
+    Returns
+    -------
+    altaz_coo : AltAz coordinate
+        The transformed coordinate in AltAz system
+    """
+    # Use the observed frame's time for the transformation
+    if altaz_frame.obstime is None:
+        raise ValueError("AltAz frame requires an obstime for ITRS transformation")
+
+    # Get the rotation matrix using the observed frame's time
+    rmat = itrs_to_observed_mat(altaz_frame)
+
+    # Transform ITRS cartesian to observed cartesian
+    observed_cart = itrs_coo.cartesian.transform(rmat)
+
+    # Convert to spherical representation for AltAz
+    obs_srepr = observed_cart.represent_as(SphericalRepresentation)
+
+    # For AltAz, we need azimuth and altitude
+    # The spherical representation gives us the direction in the topocentric frame
+    usrepr = obs_srepr.represent_as(UnitSphericalRepresentation)
+    az = usrepr.lon  # Azimuth
+    zen = usrepr.lat  # Zenith distance
+
+    # Convert zenith distance to altitude
+    alt = PIOVER2 - zen
+
+    if isinstance(itrs_coo.data, UnitSphericalRepresentation) or itrs_coo.cartesian.x.unit == u.one:
+        rep = UnitSphericalRepresentation(lon=az, lat=alt, copy=False)
+    else:
+        rep = SphericalRepresentation(lon=az, lat=alt, distance=obs_srepr.distance, copy=False)
+
+    return altaz_frame.realize_frame(rep)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
+def itrs_to_hadec(itrs_coo, hadec_frame):
+    """
+    Transform ITRS coordinates directly to HADec without aberration corrections.
+
+    This transformation is designed for nearby objects (e.g., satellites) where
+    geocentric aberration corrections are not appropriate.
+
+    Key features:
+    - Uses the observed frame's obstime rather than the ITRS coordinate's obstime
+    - Performs a direct geocentric to topocentric transformation
+    - Avoids celestial coordinate system transformations (no CIRS intermediate step)
+    - Skips aberration corrections that cause issues for nearby objects
+
+    Parameters
+    ----------
+    itrs_coo : ITRS coordinate
+        The ITRS coordinate to transform
+    hadec_frame : HADec frame
+        The target HADec frame (must have location and obstime)
+
+    Returns
+    -------
+    hadec_coo : HADec coordinate
+        The transformed coordinate in HADec system
+    """
+    # Use the observed frame's time for the transformation
+    if hadec_frame.obstime is None:
+        raise ValueError("HADec frame requires an obstime for ITRS transformation")
+
+    # Get the rotation matrix using the observed frame's time
+    rmat = itrs_to_observed_mat(hadec_frame)
+
+    # Transform ITRS cartesian to observed cartesian
+    observed_cart = itrs_coo.cartesian.transform(rmat)
+
+    # Convert to spherical representation for HADec
+    obs_srepr = observed_cart.represent_as(SphericalRepresentation)
+
+    # For HADec, we need hour angle and declination
+    usrepr = obs_srepr.represent_as(UnitSphericalRepresentation)
+    ha = usrepr.lon  # Hour angle
+    dec = usrepr.lat  # Declination
+
+    if isinstance(itrs_coo.data, UnitSphericalRepresentation) or itrs_coo.cartesian.x.unit == u.one:
+        rep = UnitSphericalRepresentation(lon=ha, lat=dec, copy=False)
+    else:
+        rep = SphericalRepresentation(lon=ha, lat=dec, distance=obs_srepr.distance, copy=False)
+
+    return hadec_frame.realize_frame(rep)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
+def altaz_to_itrs(altaz_coo, itrs_frame):
+    """
+    Transform AltAz coordinates back to ITRS.
+
+    This is the inverse of the ITRS to AltAz transformation.
+
+    Parameters
+    ----------
+    altaz_coo : AltAz coordinate
+        The AltAz coordinate to transform
+    itrs_frame : ITRS frame
+        The target ITRS frame
+
+    Returns
+    -------
+    itrs_coo : ITRS coordinate
+        The transformed coordinate in ITRS system
+    """
+    # Get observer location
+    lon, lat, height = altaz_coo.location.to_geodetic('WGS84')
+    elong = lon.to_value(u.radian)
+    phi = lat.to_value(u.radian)
+
+    # Get polar motion at the AltAz frame's time
+    xp, yp = get_polar_motion(altaz_coo.obstime)
+
+    # Earth rotation angle at the AltAz frame's time
+    era = erfa.era00(*get_jd12(altaz_coo.obstime, 'ut1'))
+
+    # TIO locator s' at the AltAz frame's time
+    sp = erfa.sp00(*get_jd12(altaz_coo.obstime, 'tt'))
+
+    # Convert AltAz to cartesian in observed frame
+    obs_cart = altaz_coo.cartesian
+
+    # Build inverse rotation matrix: observed -> ITRS
+    # This is the inverse of the ITRS -> observed transformation
+    r_inv = (rotation_matrix(-(era + sp), 'z', unit=u.radian)
+             @ rotation_matrix(xp, 'y', unit=u.radian)
+             @ rotation_matrix(yp, 'x', unit=u.radian)
+             @ rotation_matrix(-elong, 'z', unit=u.radian))
+
+    # Transform back to ITRS
+    itrs_cart = obs_cart.transform(r_inv)
+
+    return itrs_frame.realize_frame(itrs_cart)
+
+@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
+def hadec_to_itrs(hadec_coo, itrs_frame):
+    """
+    Transform HADec coordinates back to ITRS.
+
+    This is the inverse of the ITRS to HADec transformation.
+
+    Parameters
+    ----------
+    hadec_coo : HADec coordinate
+        The HADec coordinate to transform
+    itrs_frame : ITRS frame
+        The target ITRS frame
+
+    Returns
+    -------
+    itrs_coo : ITRS coordinate
+        The transformed coordinate in ITRS system
+    """
+    # Get observer location
+    lon, lat, height = hadec_coo.location.to_geodetic('WGS84')
+    elong = lon.to_value(u.radian)
+    phi = lat.to_value(u.radian)
+
+    # Get polar motion at the HADec frame's time
+    xp, yp = get_polar_motion(hadec_coo.obstime)
+
+    # Earth rotation angle at the HADec frame's time
+    era = erfa.era00(*get_jd12(hadec_coo.obstime, 'ut1'))
+
+    # TIO locator s' at the HADec frame's time
+    sp = erfa.sp00(*get_jd12(hadec_coo.obstime, 'tt'))
+
+    # Convert HADec to cartesian in observed frame
+    obs_cart = hadec_coo.cartesian
+
+    # Build inverse rotation matrix: observed -> ITRS
+    # This is the inverse of the ITRS -> observed transformation
+    r_inv = (rotation_matrix(-(era + sp), 'z', unit=u.radian)
+             @ rotation_matrix(xp, 'y', unit=u.radian)
+             @ rotation_matrix(yp, 'x', unit=u.radian)
+             @ rotation_matrix(-elong, 'z', unit=u.radian))
+
+    # Transform back to ITRS
+    itrs_cart = obs_cart.transform(r_inv)
+
+    return itrs_frame.realize_frame(itrs_cart)

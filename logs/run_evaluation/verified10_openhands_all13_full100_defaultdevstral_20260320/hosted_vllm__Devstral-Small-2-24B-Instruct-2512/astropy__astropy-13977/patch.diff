@@ -1,0 +1,33 @@
+diff --git a/astropy/units/function/core.py b/astropy/units/function/core.py
+index f37684cd0..fa3d3927d 100644
+--- a/astropy/units/function/core.py
++++ b/astropy/units/function/core.py
+@@ -621,9 +621,7 @@ class FunctionQuantity(Quantity):
+         # And really it should just return NotImplemented, since possibly
+         # another argument might know what to do.
+         if function not in self._supported_ufuncs:
+-            raise UnitTypeError(
+-                f"Cannot use ufunc '{function.__name__}' with function quantities"
+-            )
++            return NotImplemented
+ 
+         return super().__array_ufunc__(function, method, *inputs, **kwargs)
+ 
+diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py
+index b98abfafb..f2d5761be 100644
+--- a/astropy/units/quantity.py
++++ b/astropy/units/quantity.py
+@@ -640,7 +640,12 @@ class Quantity(np.ndarray):
+         # input to that expected (e.g., radian for np.sin), or to get
+         # consistent units between two inputs (e.g., in np.add) --
+         # and the unit of the result (or tuple of units for nout > 1).
+-        converters, unit = converters_and_unit(function, method, *inputs)
++        try:
++            converters, unit = converters_and_unit(function, method, *inputs)
++        except (UnitsError, UnitConversionError, TypeError):
++            # Return NotImplemented for incompatible units or unsupported ufuncs
++            # to allow proper fallback to reflected operators (__radd__, etc.)
++            return NotImplemented
+ 
+         out = kwargs.get("out", None)
+         # Avoid loop back by turning any Quantity output into array views.

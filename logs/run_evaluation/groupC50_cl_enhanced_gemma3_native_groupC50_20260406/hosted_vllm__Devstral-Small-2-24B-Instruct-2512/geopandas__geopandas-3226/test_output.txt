@@ -1,0 +1,461 @@
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 4: conda: command not found
++ cd /testbed
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Your branch is behind 'origin/main' by 162 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   geopandas/geoseries.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit 514f975298b940fca1a39917ff35aa12b149a1e7
+Author: Paddy Mullen <paddy@paddymullen.com>
+Date:   Thu Apr 4 03:31:48 2024 -0400
+
+    DOC: Add buckaroo data table to the community docs (#3242)
+
+diff --git a/doc/source/community/ecosystem.md b/doc/source/community/ecosystem.md
+index 1ff83cdb..0065aa2f 100644
+--- a/doc/source/community/ecosystem.md
++++ b/doc/source/community/ecosystem.md
+@@ -229,6 +229,14 @@ distribution of observations by color in a given map. These distributional
+ visualizations for map classification schemes assist in analytical cartography and
+ spatial data visualization.
+ 
++#### [buckaroo](https://github.com/paddymul/buckaroo)
++`buckaroo` is a modern data table for Jupyter that expedites the most
++common exploratory data analysis tasks. It provides scrollable tables,
++histograms, and summary stats. Buckaroo supports many DataFrame
++libraries including `geopandas`. It can display `GeoDataFrame`s as
++tables, it also supports rendering the Geometry as an SVG in the
++table.
++
+ ### Geometry manipulation
+ 
+ #### [TopoJSON](https://github.com/mattijn/topojson)
++ git -c core.fileMode=false diff 514f975298b940fca1a39917ff35aa12b149a1e7
+diff --git a/geopandas/geoseries.py b/geopandas/geoseries.py
+index a9523d9d..9e1d4617 100644
+--- a/geopandas/geoseries.py
++++ b/geopandas/geoseries.py
+@@ -1190,17 +1190,47 @@ class GeoSeries(GeoPandasBase, Series):
+         """
+         return self.values.estimate_utm_crs(datum_name)
+ 
+-    def to_json(self, **kwargs) -> str:
++    def to_json(
++        self, na="null", show_bbox=False, drop_id=False, to_wgs84=False, **kwargs
++    ) -> str:
+         """
+         Returns a GeoJSON string representation of the GeoSeries.
+ 
+         Parameters
+         ----------
+-        *kwargs* that will be passed to json.dumps().
++        na : {'null', 'drop', 'keep'}, default 'null'
++            Indicates how to output missing (NaN) values in the GeoSeries.
++            See below.
++        show_bbox : bool, optional, default: False
++            Include bbox (bounds) in the geojson
++        drop_id : bool, default: False
++            Whether to retain the index of the GeoSeries as the id property
++            in the generated GeoJSON. Default is False, but may want True
++            if the index is just arbitrary row numbers.
++        to_wgs84: bool, optional, default: False
++            If the CRS is set on the GeoSeries it is exported as
++            WGS84 (EPSG:4326) to meet the `2016 GeoJSON specification
++            <https://tools.ietf.org/html/rfc7946>`_.
++            Set to True to force re-projection to WGS84 and set to False to ignore CRS. False by
++            default.
++        **kwargs
++            Additional keyword arguments passed to json.dumps().
+ 
+-        Returns
+-        -------
+-        JSON string
++        Notes
++        -----
++        The remaining *kwargs* are passed to json.dumps().
++
++        Missing (NaN) values in the GeoSeries can be represented as follows:
++
++        - ``null``: output the missing entries as JSON null.
++        - ``drop``: remove the property from the feature. This applies to each
++          feature individually so that features may have different properties.
++        - ``keep``: output the missing entries as NaN.
++
++        If the GeoSeries has a defined CRS, its definition will be included
++        in the output unless it is equal to WGS84 (default GeoJSON CRS) or not
++        possible to represent in the URN OGC format, or unless ``to_wgs84=True``
++        is specified.
+ 
+         Examples
+         --------
+@@ -1213,18 +1243,49 @@ class GeoSeries(GeoPandasBase, Series):
+         dtype: geometry
+ 
+         >>> s.to_json()
+-        '{"type": "FeatureCollection", "features": [{"id": "0", "type": "Feature", "pr\
+-operties": {}, "geometry": {"type": "Point", "coordinates": [1.0, 1.0]}, "bbox": [1.0,\
+- 1.0, 1.0, 1.0]}, {"id": "1", "type": "Feature", "properties": {}, "geometry": {"type"\
+-: "Point", "coordinates": [2.0, 2.0]}, "bbox": [2.0, 2.0, 2.0, 2.0]}, {"id": "2", "typ\
+-e": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [3.0, 3.\
+-0]}, "bbox": [3.0, 3.0, 3.0, 3.0]}], "bbox": [1.0, 1.0, 3.0, 3.0]}'
++        '{"type": "FeatureCollection", "features": [{"id": "0", "type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [1.0, 1.0]}, "bbox": [1.0, 1.0, 1.0, 1.0]}, {"id": "1", "type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [2.0, 2.0]}, "bbox": [2.0, 2.0, 2.0, 2.0]}, {"id": "2", "type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [3.0, 3.0]}, "bbox": [3.0, 3.0, 3.0, 3.0]}], "bbox": [1.0, 1.0, 3.0, 3.0]}'
+ 
+         See Also
+         --------
+         GeoSeries.to_file : write GeoSeries to file
+         """
+-        return json.dumps(self.__geo_interface__, **kwargs)
++        import warnings
++        import json
++
++        if to_wgs84:
++            if self.crs:
++                s = self.to_crs(epsg=4326)
++            else:
++                raise ValueError(
++                    "CRS is not set. Cannot re-project to WGS84 (EPSG:4326)."
++                )
++        else:
++            s = self
++
++        # Create a GeoDataFrame with just the geometry column
++        from geopandas import GeoDataFrame
++        df = GeoDataFrame({"geometry": s})
++
++        # Use the GeoDataFrame's to_geo_dict method with the specified parameters
++        geo = df.to_geo_dict(na=na, show_bbox=show_bbox, drop_id=drop_id)
++
++        # if the geometry is not in WGS84, include CRS in the JSON
++        if df.crs is not None and not df.crs.equals("epsg:4326"):
++            auth_crsdef = self.crs.to_authority()
++            allowed_authorities = ["EDCS", "EPSG", "OGC", "SI", "UCUM"]
++
++            if auth_crsdef is None or auth_crsdef[0] not in allowed_authorities:
++                warnings.warn(
++                    "GeoSeries's CRS is not representable in URN OGC "
++                    "format. Resulting JSON will contain no CRS information.",
++                    stacklevel=2,
++                )
++            else:
++                authority, code = auth_crsdef
++                ogc_crs = f"urn:ogc:def:crs:{authority}::{code}"
++                geo["crs"] = {"type": "name", "properties": {"name": ogc_crs}}
++
++        return json.dumps(geo, **kwargs)
+ 
+     def to_wkb(self, hex: bool = False, **kwargs) -> Series:
+         """
++ source /opt/miniconda3/bin/activate
+/eval.sh: line 11: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/eval.sh: line 12: conda: command not found
++ python -m pip install -e '.[test]' --no-build-isolation --verbose
+Using pip 25.0.1 from /usr/local/lib/python3.9/site-packages/pip (python 3.9)
+Obtaining file:///testbed
+  Checking if build backend supports build_editable: started
+  Running command Checking if build backend supports build_editable
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Running command Preparing editable metadata (pyproject.toml)
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running dist_info
+  creating /tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info
+  writing /tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/pip-modern-metadata-96ulrkg7/geopandas.egg-info/SOURCES.txt'
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  creating '/tmp/pip-modern-metadata-96ulrkg7/geopandas-0.14.0+104.g514f9752.dirty.dist-info'
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: pyogrio>=0.7.2 in /usr/local/lib/python3.9/site-packages (from geopandas==0.14.0+104.g514f9752.dirty) (0.7.2)
+Requirement already satisfied: packaging in /usr/local/lib/python3.9/site-packages (from geopandas==0.14.0+104.g514f9752.dirty) (24.0)
+Requirement already satisfied: pandas>=1.4.0 in /usr/local/lib/python3.9/site-packages (from geopandas==0.14.0+104.g514f9752.dirty) (2.2.1)
+Requirement already satisfied: pyproj>=3.3.0 in /usr/local/lib/python3.9/site-packages (from geopandas==0.14.0+104.g514f9752.dirty) (3.6.1)
+Requirement already satisfied: shapely>=2.0.0 in /usr/local/lib/python3.9/site-packages (from geopandas==0.14.0+104.g514f9752.dirty) (2.0.3)
+WARNING: geopandas 0.14.0+104.g514f9752.dirty does not provide the extra 'test'
+Requirement already satisfied: numpy<2,>=1.22.4 in /usr/local/lib/python3.9/site-packages (from pandas>=1.4.0->geopandas==0.14.0+104.g514f9752.dirty) (1.26.4)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.9/site-packages (from pandas>=1.4.0->geopandas==0.14.0+104.g514f9752.dirty) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.9/site-packages (from pandas>=1.4.0->geopandas==0.14.0+104.g514f9752.dirty) (2024.1)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.9/site-packages (from pandas>=1.4.0->geopandas==0.14.0+104.g514f9752.dirty) (2024.1)
+Requirement already satisfied: certifi in /usr/local/lib/python3.9/site-packages (from pyogrio>=0.7.2->geopandas==0.14.0+104.g514f9752.dirty) (2024.2.2)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.9/site-packages (from python-dateutil>=2.8.2->pandas>=1.4.0->geopandas==0.14.0+104.g514f9752.dirty) (1.16.0)
+Building wheels for collected packages: geopandas
+  Building editable for geopandas (pyproject.toml): started
+  Running command Building editable for geopandas (pyproject.toml)
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running editable_wheel
+  creating /tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info
+  writing /tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas.egg-info/SOURCES.txt'
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  creating '/tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas-0.14.0+104.g514f9752.dirty.dist-info'
+  creating /tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas-0.14.0+104.g514f9752.dirty.dist-info/WHEEL
+  running build_py
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  running egg_info
+  creating /tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info
+  writing /tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/PKG-INFO
+  writing dependency_links to /tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/dependency_links.txt
+  writing requirements to /tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/requires.txt
+  writing top-level names to /tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/top_level.txt
+  writing manifest file '/tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/SOURCES.txt'
+  reading manifest template 'MANIFEST.in'
+  adding license file 'LICENSE.txt'
+  writing manifest file '/tmp/tmpi6pbwg2y.build-temp/geopandas.egg-info/SOURCES.txt'
+  Editable install will be performed using a meta path finder.
+
+  Options like `package-data`, `include/exclude-package-data` or
+  `packages.find.exclude/include` may have no effect.
+
+  Failed to load config from /testbed/pyproject.toml: 'versioneer'
+  Try to load it from setup.cfg
+  adding '__editable___geopandas_0_14_0_104_g514f9752_dirty_finder.py'
+  adding '__editable__.geopandas-0.14.0+104.g514f9752.dirty.pth'
+  creating '/tmp/pip-wheel-dwukpzlr/.tmp-qg639o5h/geopandas-0.14.0+104.g514f9752.dirty-0.editable-py3-none-any.whl' and adding '/tmp/tmp6xn3km9lgeopandas-0.14.0+104.g514f9752.dirty-0.editable-py3-none-any.whl' to it
+  adding 'geopandas-0.14.0+104.g514f9752.dirty.dist-info/LICENSE.txt'
+  adding 'geopandas-0.14.0+104.g514f9752.dirty.dist-info/METADATA'
+  adding 'geopandas-0.14.0+104.g514f9752.dirty.dist-info/WHEEL'
+  adding 'geopandas-0.14.0+104.g514f9752.dirty.dist-info/top_level.txt'
+  adding 'geopandas-0.14.0+104.g514f9752.dirty.dist-info/RECORD'
+  /usr/local/lib/python3.9/site-packages/setuptools/command/editable_wheel.py:361: InformationOnly: Editable installation.
+  !!
+
+          ********************************************************************************
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+          ********************************************************************************
+
+  !!
+    wheel_obj.write_files(unpacked)
+  Building editable for geopandas (pyproject.toml): finished with status 'done'
+  Created wheel for geopandas: filename=geopandas-0.14.0+104.g514f9752.dirty-0.editable-py3-none-any.whl size=4880 sha256=79a01fe09bef6eddb46f0c661c1271bad5436361313c14d3033d0b120ee168a0
+  Stored in directory: /tmp/pip-ephem-wheel-cache-d1uj_usb/wheels/7d/66/67/70d1ee2124ccf21d601c352e25cdca10f611f7c8b3f9ffb9e4
+Successfully built geopandas
+Installing collected packages: geopandas
+  Attempting uninstall: geopandas
+    Found existing installation: geopandas 0.14.0+104.g514f9752
+    Uninstalling geopandas-0.14.0+104.g514f9752:
+      Removing file or directory /usr/local/lib/python3.9/site-packages/__editable__.geopandas-0.14.0+104.g514f9752.pth
+      Removing file or directory /usr/local/lib/python3.9/site-packages/__editable___geopandas_0_14_0_104_g514f9752_finder.py
+      Removing file or directory /usr/local/lib/python3.9/site-packages/__pycache__/__editable___geopandas_0_14_0_104_g514f9752_finder.cpython-39.pyc
+      Removing file or directory /usr/local/lib/python3.9/site-packages/geopandas-0.14.0+104.g514f9752.dist-info/
+      Successfully uninstalled geopandas-0.14.0+104.g514f9752
+Successfully installed geopandas-0.14.0+104.g514f9752.dirty
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
++ git checkout 514f975298b940fca1a39917ff35aa12b149a1e7 geopandas/tests/test_geoseries.py
+Updated 0 paths from 2da17785
++ git apply -v -
+Checking patch geopandas/tests/test_geoseries.py...
+Applied patch geopandas/tests/test_geoseries.py cleanly.
++ : '>>>>> Start Test Output'
++ pytest -v -rA geopandas/tests geopandas/tests/test_geoseries.py
+============================= test session starts ==============================
+platform linux -- Python 3.9.22, pytest-8.1.1, pluggy-1.4.0 -- /usr/local/bin/python3.9
+cachedir: .pytest_cache
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: cov-4.1.0, xdist-3.5.0
+collecting ... collected 71 items
+
+geopandas/tests/test_geoseries.py::TestSeries::test_copy PASSED          [  1%]
+geopandas/tests/test_geoseries.py::TestSeries::test_in PASSED            [  2%]
+geopandas/tests/test_geoseries.py::TestSeries::test_align PASSED         [  4%]
+geopandas/tests/test_geoseries.py::TestSeries::test_align_crs PASSED     [  5%]
+geopandas/tests/test_geoseries.py::TestSeries::test_align_mixed PASSED   [  7%]
+geopandas/tests/test_geoseries.py::TestSeries::test_warning_if_not_aligned PASSED [  8%]
+geopandas/tests/test_geoseries.py::TestSeries::test_no_warning_if_aligned PASSED [  9%]
+geopandas/tests/test_geoseries.py::TestSeries::test_geom_equals PASSED   [ 11%]
+geopandas/tests/test_geoseries.py::TestSeries::test_geom_equals_align PASSED [ 12%]
+geopandas/tests/test_geoseries.py::TestSeries::test_geom_almost_equals PASSED [ 14%]
+geopandas/tests/test_geoseries.py::TestSeries::test_geom_equals_exact PASSED [ 15%]
+geopandas/tests/test_geoseries.py::TestSeries::test_equal_comp_op PASSED [ 16%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_file PASSED       [ 18%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_json FAILED       [ 19%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_json_drop_id PASSED [ 21%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_json_no_bbox PASSED [ 22%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_json_no_bbox_drop_id PASSED [ 23%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_json_wgs84 PASSED [ 25%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_json_wgs84_false PASSED [ 26%]
+geopandas/tests/test_geoseries.py::TestSeries::test_representative_point PASSED [ 28%]
+geopandas/tests/test_geoseries.py::TestSeries::test_transform PASSED     [ 29%]
+geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__geographic PASSED [ 30%]
+geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__projected PASSED [ 32%]
+geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__out_of_bounds PASSED [ 33%]
+geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__missing_crs PASSED [ 35%]
+geopandas/tests/test_geoseries.py::TestSeries::test_fillna PASSED        [ 36%]
+geopandas/tests/test_geoseries.py::TestSeries::test_coord_slice PASSED   [ 38%]
+geopandas/tests/test_geoseries.py::TestSeries::test_coord_slice_with_zero PASSED [ 39%]
+geopandas/tests/test_geoseries.py::TestSeries::test_geoseries_geointerface PASSED [ 40%]
+geopandas/tests/test_geoseries.py::TestSeries::test_proj4strings PASSED  [ 42%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb PASSED      [ 43%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb_on_invalid PASSED [ 45%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb_series PASSED [ 46%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb_series_with_index PASSED [ 47%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt PASSED      [ 49%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt_on_invalid PASSED [ 50%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt_series PASSED [ 52%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt_series_with_index PASSED [ 53%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_wkb PASSED        [ 54%]
+geopandas/tests/test_geoseries.py::TestSeries::test_to_wkt PASSED        [ 56%]
+geopandas/tests/test_geoseries.py::TestSeries::test_clip PASSED          [ 57%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points PASSED [ 59%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points_w_z PASSED [ 60%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points_unequal_index PASSED [ 61%]
+geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points_indexless PASSED [ 63%]
+geopandas/tests/test_geoseries.py::TestSeries::test_set_crs_pyproj_error SKIPPED [ 64%]
+geopandas/tests/test_geoseries.py::test_missing_values PASSED            [ 66%]
+geopandas/tests/test_geoseries.py::test_isna_empty_geoseries PASSED      [ 67%]
+geopandas/tests/test_geoseries.py::test_geoseries_crs PASSED             [ 69%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_constructor PASSED [ 70%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_single_geom_constructor PASSED [ 71%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_non_geometry_raises PASSED [ 73%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_empty PASSED    [ 74%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_data_is_none PASSED [ 76%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_empty_array PASSED [ 77%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_from_series PASSED [ 78%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_copy PASSED     [ 80%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[None-None] PASSED [ 81%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[None-geometry] PASSED [ 83%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[None-Points] PASSED [ 84%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[epsg:4326-None] PASSED [ 85%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[epsg:4326-geometry] PASSED [ 87%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[epsg:4326-Points] PASSED [ 88%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[None-None] PASSED [ 90%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[None-geometry] PASSED [ 91%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[None-Points] PASSED [ 92%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[epsg:4326-None] PASSED [ 94%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[epsg:4326-geometry] PASSED [ 95%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[epsg:4326-Points] PASSED [ 97%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_explode_without_multiindex PASSED [ 98%]
+geopandas/tests/test_geoseries.py::TestConstructor::test_explode_ignore_index PASSED [100%]
+
+=================================== FAILURES ===================================
+___________________________ TestSeries.test_to_json ____________________________
+
+self = <geopandas.tests.test_geoseries.TestSeries object at 0x7facebdb0cd0>
+
+    def test_to_json(self):
+        """
+        Test whether GeoSeries.to_json works and returns an actual json file.
+        """
+        json_str = self.g3.to_json()
+        data = json.loads(json_str)
+        assert "id" in data["features"][0].keys()
+>       assert "bbox" in data["features"][0].keys()
+E       AssertionError: assert 'bbox' in dict_keys(['id', 'type', 'properties', 'geometry'])
+E        +  where dict_keys(['id', 'type', 'properties', 'geometry']) = <built-in method keys of dict object at 0x7facebc50ac0>()
+E        +    where <built-in method keys of dict object at 0x7facebc50ac0> = {'geometry': {'coordinates': [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]], 'type': 'Polygon'}, 'id': '0', 'properties': {}, 'type': 'Feature'}.keys
+
+geopandas/tests/test_geoseries.py:209: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_copy
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_in
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_align
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_align_crs
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_align_mixed
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_warning_if_not_aligned
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_no_warning_if_aligned
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_geom_equals
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_geom_equals_align
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_geom_almost_equals
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_geom_equals_exact
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_equal_comp_op
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_file
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_json_drop_id
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_json_no_bbox
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_json_no_bbox_drop_id
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_json_wgs84
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_json_wgs84_false
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_representative_point
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_transform
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__geographic
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__projected
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__out_of_bounds
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_estimate_utm_crs__missing_crs
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_fillna
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_coord_slice
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_coord_slice_with_zero
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_geoseries_geointerface
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_proj4strings
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb_on_invalid
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb_series
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkb_series_with_index
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt_on_invalid
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt_series
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_wkt_series_with_index
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_wkb
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_to_wkt
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_clip
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points_w_z
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points_unequal_index
+PASSED geopandas/tests/test_geoseries.py::TestSeries::test_from_xy_points_indexless
+PASSED geopandas/tests/test_geoseries.py::test_missing_values
+PASSED geopandas/tests/test_geoseries.py::test_isna_empty_geoseries
+PASSED geopandas/tests/test_geoseries.py::test_geoseries_crs
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_constructor
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_single_geom_constructor
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_non_geometry_raises
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_empty
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_data_is_none
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_empty_array
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_from_series
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_copy
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[None-None]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[None-geometry]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[None-Points]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[epsg:4326-None]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[epsg:4326-geometry]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_reset_index[epsg:4326-Points]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[None-None]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[None-geometry]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[None-Points]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[epsg:4326-None]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[epsg:4326-geometry]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_to_frame[epsg:4326-Points]
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_explode_without_multiindex
+PASSED geopandas/tests/test_geoseries.py::TestConstructor::test_explode_ignore_index
+SKIPPED [1] geopandas/tests/test_geoseries.py:484: pyproj installed
+FAILED geopandas/tests/test_geoseries.py::TestSeries::test_to_json - Assertio...
+=================== 1 failed, 69 passed, 1 skipped in 2.09s ====================
++ : '>>>>> End Test Output'
++ git checkout 514f975298b940fca1a39917ff35aa12b149a1e7 geopandas/tests/test_geoseries.py
+Updated 1 path from 2da17785

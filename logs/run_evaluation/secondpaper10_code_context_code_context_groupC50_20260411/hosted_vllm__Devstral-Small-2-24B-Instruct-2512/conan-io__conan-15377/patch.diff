@@ -1,0 +1,59 @@
+diff --git a/conan/tools/files/__init__.py b/conan/tools/files/__init__.py
+index 3aaa9eb2d..2dd24a0d8 100644
+--- a/conan/tools/files/__init__.py
++++ b/conan/tools/files/__init__.py
+@@ -6,4 +6,4 @@ from conan.tools.files.patches import patch, apply_conandata_patches, export_con
+ from conan.tools.files.packager import AutoPackager
+ from conan.tools.files.symlinks import symlinks
+ from conan.tools.files.copy_pattern import copy
+-from conan.tools.files.conandata import update_conandata, trim_conandata
++from conan.tools.files.conandata import update_conandata, trim_conandata, scm_to_conandata
+diff --git a/conan/tools/files/conandata.py b/conan/tools/files/conandata.py
+index c69254508..dffffa37e 100644
+--- a/conan/tools/files/conandata.py
++++ b/conan/tools/files/conandata.py
+@@ -67,3 +67,44 @@ def trim_conandata(conanfile):
+ 
+     new_conandata_yml = yaml.safe_dump(result, default_flow_style=False)
+     save(path, new_conandata_yml)
++
++def scm_to_conandata(conanfile, key="sources", folder=None, remote="origin", repository=False):
++    """
++    Helper to capture the current SCM (Git) information and store it in conandata.yml.
++    This is useful to capture the current commit and URL to be used later in the source() method.
++
++    It can be used in the ``export()`` method:
++
++    .. code-block:: python
++
++        from conan.tools.scm import Git
++        from conan.tools.files import scm_to_conandata
++
++        class MyConan(ConanFile):
++            ...
++            def export(self):
++                scm_to_conandata(self, "sources")
++
++    This will capture the current Git URL and commit and store it in conandata.yml as:
++
++    .. code-block:: yaml
++
++        sources:
++            commit: <commit>
++            url: <url>
++
++    :param conanfile: The current recipe object. Always use ``self``.
++    :param key: (Optional) The key in conandata.yml where to store the SCM information.
++                Default is "sources".
++    :param folder: (Optional) The folder to use for Git operations. If not specified,
++                   uses the recipe folder.
++    :param remote: (Optional) The remote name to use. Default is "origin".
++    :param repository: (Optional) Whether to get the commit for the whole repository or just the folder.
++                       Default is False (folder only).
++    """
++    from conan.tools.scm.git import Git
++
++    folder = folder or conanfile.recipe_folder
++    git = Git(conanfile, folder)
++    scm_url, scm_commit = git.get_url_and_commit(remote=remote, repository=repository)
++    update_conandata(conanfile, {key: {"commit": scm_commit, "url": scm_url}})

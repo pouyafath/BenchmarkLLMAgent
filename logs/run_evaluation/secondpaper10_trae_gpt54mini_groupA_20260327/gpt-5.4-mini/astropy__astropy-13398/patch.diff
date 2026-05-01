@@ -1,0 +1,80 @@
+diff --git a/astropy/coordinates/builtin_frames/icrs_observed_transforms.py b/astropy/coordinates/builtin_frames/icrs_observed_transforms.py
+index 128491121..817db8bbb 100644
+--- a/astropy/coordinates/builtin_frames/icrs_observed_transforms.py
++++ b/astropy/coordinates/builtin_frames/icrs_observed_transforms.py
+@@ -98,6 +98,75 @@ def observed_to_icrs(observed_coo, icrs_frame):
+     return icrs_frame.realize_frame(icrs_srepr)
+ 
+ 
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, AltAz)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, ITRS, HADec)
++def itrs_to_observed(itrs_coo, observed_frame):
++    # Treat ITRS positions as time-invariant here; the frame itself is tied to
++    # the Earth, and observed-frame transforms should not route through the SSB.
++    topocentric_itrs = itrs_coo.cartesian - observed_frame.location.get_itrs(obstime=itrs_coo.obstime).cartesian
++    rep = topocentric_itrs.represent_as(CartesianRepresentation)
++
++    lon, lat, _ = observed_frame.location.to_geodetic('WGS84')
++    lon = lon.to_value(u.radian)
++    lat = lat.to_value(u.radian)
++    slon, clon = np.sin(lon), np.cos(lon)
++    slat, clat = np.sin(lat), np.cos(lat)
++
++    x = rep.x.to_value(u.one)
++    y = rep.y.to_value(u.one)
++    z = rep.z.to_value(u.one)
++
++    if isinstance(observed_frame, AltAz):
++        east = -slon * x + clon * y
++        north = -slat * clon * x - slat * slon * y + clat * z
++        up = clat * clon * x + clat * slon * y + slat * z
++        obs_cart = CartesianRepresentation(east, north, up, unit=rep.x.unit, copy=False)
++        obs_srepr = obs_cart.represent_as(SphericalRepresentation)
++        if isinstance(itrs_coo.data, UnitSphericalRepresentation):
++            obs_srepr = UnitSphericalRepresentation(obs_srepr.lon, obs_srepr.lat, copy=False)
++        return observed_frame.realize_frame(obs_srepr)
++    else:
++        west = slon * x - clon * y
++        dec_axis = slat * clon * x + slat * slon * y - clat * z
++        up = clat * clon * x + clat * slon * y + slat * z
++        obs_cart = CartesianRepresentation(west, dec_axis, up, unit=rep.x.unit, copy=False)
++        obs_srepr = obs_cart.represent_as(SphericalRepresentation)
++        if isinstance(itrs_coo.data, UnitSphericalRepresentation):
++            obs_srepr = UnitSphericalRepresentation(obs_srepr.lon, obs_srepr.lat, copy=False)
++        return observed_frame.realize_frame(obs_srepr)
++
++
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, AltAz, ITRS)
++@frame_transform_graph.transform(FunctionTransformWithFiniteDifference, HADec, ITRS)
++def observed_to_itrs(observed_coo, itrs_frame):
++    lon, lat, _ = observed_coo.location.to_geodetic('WGS84')
++    lon = lon.to_value(u.radian)
++    lat = lat.to_value(u.radian)
++    slon, clon = np.sin(lon), np.cos(lon)
++    slat, clat = np.sin(lat), np.cos(lat)
++
++    usrepr = observed_coo.represent_as(UnitSphericalRepresentation)
++    lon0 = usrepr.lon.to_value(u.radian)
++    lat0 = usrepr.lat.to_value(u.radian)
++
++    x = np.cos(lat0) * np.cos(lon0)
++    y = np.cos(lat0) * np.sin(lon0)
++    z = np.sin(lat0)
++
++    if isinstance(observed_coo, AltAz):
++        x_topo = -slon * x - slat * clon * y + clat * clon * z
++        y_topo = clon * x - slat * slon * y + clat * slon * z
++        z_topo = clat * y + slat * z
++    else:
++        x_topo = slon * x + slat * clon * y + clat * clon * z
++        y_topo = -clon * x + slat * slon * y + clat * slon * z
++        z_topo = -clat * y + slat * z
++
++    rep = CartesianRepresentation(x_topo, y_topo, z_topo, unit=u.one, copy=False)
++    rep = rep + observed_coo.location.get_itrs(obstime=itrs_frame.obstime).cartesian
++    return itrs_frame.realize_frame(rep)
++
+ # Create loopback transformations
+ frame_transform_graph._add_merged_transform(AltAz, ICRS, AltAz)
+ frame_transform_graph._add_merged_transform(HADec, ICRS, HADec)

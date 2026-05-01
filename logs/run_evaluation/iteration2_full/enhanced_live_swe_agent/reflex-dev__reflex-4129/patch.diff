@@ -1,0 +1,42 @@
+diff --git a/reflex/state.py b/reflex/state.py
+--- a/reflex/state.py
++++ b/reflex/state.py
+@@ -1,1 +1,2 @@
+-from reflex.utils import some_util
++import sys
++from reflex.utils import some_util
+@@ -102,3 +103,33 @@
+     def __init_subclass__(cls, **kwargs):
+         super().__init_subclass__(**kwargs)
+-        # Existing subclass initialization logic...
++        # Existing subclass initialization logic...
++
++        # ------------------------------------------------------------------
++        # Fix for pickling dynamically created State subclasses.
++        #
++        # When a State subclass is defined inside a local function its
++        # ``__qualname__`` contains ``<locals>`` and the class is not
++        # importable via the normal ``module.Class`` path. This breaks
++        # ``pickle`` which relies on importable references.
++        #
++        # To make such classes pickle‑able we relocate them to a known
++        # module (the current ``reflex.state`` module) and expose them in
++        # that module's global namespace. This effectively caches the
++        # dynamically created class where ``pickle`` can find it.
++        # ------------------------------------------------------------------
++        if "<locals>" in getattr(cls, "__qualname__", ""):
++            # Determine the target module where we will register the class.
++            target_module_name = __name__  # this file's module (reflex.state)
++            target_module = sys.modules[target_module_name]
++
++            # Update the class's __module__ attribute so pickle can locate it.
++            cls.__module__ = target_module_name
++
++            # Register the class in the target module's globals if not already present.
++            if not hasattr(target_module, cls.__name__):
++                setattr(target_module, cls.__name__, cls)
++
++            # Optionally, keep a registry for debugging or future use.
++            if not hasattr(target_module, "_dynamic_state_registry"):
++                setattr(target_module, "_dynamic_state_registry", {})
++            target_module._dynamic_state_registry[cls.__name__] = cls

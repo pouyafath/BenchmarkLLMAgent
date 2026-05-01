@@ -1,0 +1,61 @@
+diff --git a/django/db/models/base.py b/django/db/models/base.py
+index 8ea6c05ef9..39a9eb5e08 100644
+--- a/django/db/models/base.py
++++ b/django/db/models/base.py
+@@ -204,8 +204,11 @@ class ModelBase(type):
+             for field in base._meta.local_fields:
+                 if isinstance(field, OneToOneField):
+                     related = resolve_relation(new_class, field.remote_field.model)
+-                    parent_links[make_model_tuple(related)] = field
+-
++                    related_key = make_model_tuple(related)
++                    # Prefer fields with parent_link=True when there are multiple
++                    # OneToOneField references to the same parent model
++                    if related_key not in parent_links or field.remote_field.parent_link:
++                        parent_links[related_key] = field
+         # Track fields inherited from base models.
+         inherited_attributes = set()
+         # Do the appropriate setup for any model parents.
+diff --git a/django/db/models/options.py b/django/db/models/options.py
+index a375f6ba1d..ef0ac12a15 100644
+--- a/django/db/models/options.py
++++ b/django/db/models/options.py
+@@ -242,18 +242,30 @@ class Options:
+             if self.parents:
+                 # Promote the first parent link in lieu of adding yet another
+                 # field.
+-                field = next(iter(self.parents.values()))
+-                # Look for a local field with the same name as the
+-                # first parent link. If a local field has already been
+-                # created, use it instead of promoting the parent
+-                already_created = [fld for fld in self.local_fields if fld.name == field.name]
+-                if already_created:
+-                    field = already_created[0]
++                # Find the parent link that has parent_link=True. If there are
++                # multiple parent links, only one should have parent_link=True.
++                parent_link_field = None
++                for parent, field in self.parents.items():
++                    # Look for a local field with the same name as this parent link.
++                    # If a local field has already been created, use it instead.
++                    already_created = [fld for fld in self.local_fields if fld.name == field.name]
++                    if already_created:
++                        field = already_created[0]
++                    if field.remote_field.parent_link:
++                        parent_link_field = field
++                        break
++
++                if parent_link_field is None:
++                    # No parent link found with parent_link=True
++                    field = next(iter(self.parents.values()))
++                    already_created = [fld for fld in self.local_fields if fld.name == field.name]
++                    if already_created:
++                        field = already_created[0]
+                 field.primary_key = True
+                 self.setup_pk(field)
+                 if not field.remote_field.parent_link:
+                     raise ImproperlyConfigured(
+-                        'Add parent_link=True to %s.' % field,
++                        "Add parent_link=True to %s." % field,
+                     )
+             else:
+                 auto = AutoField(verbose_name='ID', primary_key=True, auto_created=True)

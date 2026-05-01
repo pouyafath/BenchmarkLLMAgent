@@ -1,0 +1,97 @@
+diff --git a/django/db/backends/postgresql/client.py b/django/db/backends/postgresql/client.py
+index cf4df76882..29c4071758 100644
+--- a/django/db/backends/postgresql/client.py
++++ b/django/db/backends/postgresql/client.py
+@@ -4,7 +4,6 @@ import subprocess
+ 
+ from django.db.backends.base.client import BaseDatabaseClient
+ 
+-
+ class DatabaseClient(BaseDatabaseClient):
+     executable_name = 'psql'
+ 
+@@ -26,6 +25,21 @@ class DatabaseClient(BaseDatabaseClient):
+             args += ['-p', str(port)]
+         args += [dbname]
+ 
++        # Add SSL-related options if present
++        sslcert = conn_params.get('sslcert', '')
++        sslkey = conn_params.get('sslkey', '')
++        sslrootcert = conn_params.get('sslrootcert', '')
++        sslmode = conn_params.get('sslmode', '')
++
++        if sslcert:
++            args += ['--sslcert', sslcert]
++        if sslkey:
++            args += ['--sslkey', sslkey]
++        if sslrootcert:
++            args += ['--sslrootcert', sslrootcert]
++        if sslmode:
++            args += ['--sslmode', sslmode]
++
+         sigint_handler = signal.getsignal(signal.SIGINT)
+         subprocess_env = os.environ.copy()
+         if passwd:
+diff --git a/tests/dbshell/test_postgresql.py b/tests/dbshell/test_postgresql.py
+index a33e7f6482..d0ac59b3df 100644
+--- a/tests/dbshell/test_postgresql.py
++++ b/tests/dbshell/test_postgresql.py
+@@ -94,3 +94,58 @@ class PostgreSqlDbshellCommandTestCase(SimpleTestCase):
+             DatabaseClient.runshell_db({})
+         # dbshell restores the original handler.
+         self.assertEqual(sigint_handler, signal.getsignal(signal.SIGINT))
++
++    def test_ssl_options(self):
++        """Test that SSL options are passed to psql"""
++        self.assertEqual(
++            self._run_it({
++                'database': 'dbname',
++                'user': 'someuser',
++                'password': 'somepassword',
++                'host': 'somehost',
++                'port': '444',
++                'sslcert': '/path/to/client.crt',
++                'sslkey': '/path/to/client.key',
++                'sslrootcert': '/path/to/root.crt',
++                'sslmode': 'verify-ca',
++            }), (
++                [
++                    'psql', '-U', 'someuser', '-h', 'somehost', '-p', '444',
++                    'dbname', '--sslcert', '/path/to/client.crt',
++                    '--sslkey', '/path/to/client.key',
++                    '--sslrootcert', '/path/to/root.crt',
++                    '--sslmode', 'verify-ca'
++                ],
++                'somepassword',
++            )
++        )
++
++    def test_ssl_options_partial(self):
++        """Test that only specified SSL options are passed to psql"""
++        self.assertEqual(
++            self._run_it({
++                'database': 'dbname',
++                'user': 'someuser',
++                'sslcert': '/path/to/client.crt',
++                'sslmode': 'verify-full',
++            }), (
++                [
++                    'psql', '-U', 'someuser', 'dbname',
++                    '--sslcert', '/path/to/client.crt',
++                    '--sslmode', 'verify-full'
++                ],
++                None,
++            )
++        )
++
++    def test_no_ssl_options(self):
++        """Test that no SSL options are passed when not specified"""
++        self.assertEqual(
++            self._run_it({
++                'database': 'dbname',
++                'user': 'someuser',
++            }), (
++                ['psql', '-U', 'someuser', 'dbname'],
++                None,
++            )
++        )

@@ -1,0 +1,21 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 0114582..f759a99 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -621,6 +621,16 @@ def _make_cached_property_getattr(cached_properties, original_getattr, cls):
+             [
+                 "         if hasattr(super(), '__getattr__'):",
+                 "              return super().__getattr__(item)",
++                "         # Check if the attribute is a property or method of the class",
++                "         try:",
++                "             attr_value = object.__getattribute__(self.__class__, item)",
++                "         except AttributeError:",
++                "             pass",
++                "         else:",
++                "             if isinstance(attr_value, property):",
++                "                 return attr_value.fget(self)",
++                "             if isinstance(attr_value, (classmethod, staticmethod)):",
++                "                 return attr_value.__get__(self, self.__class__)",
+                 "         original_error = f\"'{self.__class__.__name__}' object has no attribute '{item}'\"",
+                 "         raise AttributeError(original_error)",
+             ]

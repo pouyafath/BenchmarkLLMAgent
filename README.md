@@ -2,24 +2,38 @@
 
 **Benchmarking LLM-Based Agents for GitHub Issue Enhancement**
 
-## Status Update (2026-03-18)
+## Status Update (2026-05-05) — Pouya-20 Experiment
 
-The canonical 10-issue experiment has been switched from the older SWE-bench-Live setup to the **SWE-bench Verified 10-instance sample** aligned with `/home/22pf2/SWE-Bench_Replication`.
+The project has scaled to a **20-instance gold-validated SWE-bench-style dataset** (Pouya-20), with a full baseline vs. 6 enhancer comparison running on **gpt-5.4-mini**.
 
-- Baseline is fixed from the replication run (`mini-SWE-agent + Devstral small 2512`), stored in `/home/22pf2/SWE-Bench_Replication`.
-- This repository now focuses on **after-enhancement** runs on the same 10 Verified instances and direct baseline-vs-enhanced comparison.
-- Use `scripts/workflows/run_verified10_enhancement_vs_baseline.py` as the main entry point.
+- **Dataset**: 20 gold-validated instances from Pouya's 2026 GitHub issues collection — all `resolved: true` via F2P+P2P gold evaluation.
+- **Main script**: `scripts/workflows/run_pouya20_gpt54mini.py`
+- **Baseline**: `mini-SWE-agent v2.2.5 + gpt-5.4-mini` (deterministic, temp=0.0) → **3/20 resolved**
+- **Enhancers tested**: `llm_append_analysis` (direct LLM), `aider`, `trae`, `openhands`, `mini_swe_agent`, `swe_agent` — all using gpt-5.4-mini
+- **Monitoring**: `bench_env/bin/python scripts/watch_enhancers.py --once`
 
-### Latest Verified-10 Bugfix Runs (2026-03-19)
+### Enhancer Comparison Results (in progress, 2026-05-05)
 
-- Output dirs:
-  - `results/verified10_baseline_vs_enhanced/simple_enhancer__bugfix_full10_simple_20260318/`
-  - `results/verified10_baseline_vs_enhanced/swe_agent__bugfix_full10_swe_agent_20260318/`
-- Baseline vs enhanced:
-  - Baseline: RESOLVED `3/10`, FAIL_TO_PASS `3/10`, PASS_TO_PASS `5/10`
-  - `simple_enhancer`: RESOLVED `3/10`, FAIL_TO_PASS `3/10`, PASS_TO_PASS `6/10`
-  - `swe_agent`: RESOLVED `3/10`, FAIL_TO_PASS `3/10`, PASS_TO_PASS `7/10`
-- Both bugfix runs completed `10/10` with `0` evaluation failures.
+| Enhancer | Resolved / 20 | vs Baseline |
+|---|---|---|
+| **Baseline** | **3** | — |
+| `llm_append_analysis` | 3 | = 0 |
+| `aider` | 1* | − 2 |
+| `trae` | 2* | − 1 (new: Flexget-4986) |
+| `openhands` | 3* | = 0 |
+| `mini_swe_agent` | 2* | − 1 |
+| `swe_agent` | running | — |
+
+*Partial results — eval still completing.
+
+See [`docs/POUYA20_EXPERIMENT.md`](docs/POUYA20_EXPERIMENT.md) for full details.
+
+---
+
+### Previous: Verified-10 Runs (2026-03-19, historical)
+
+- Baseline: RESOLVED `3/10` | `simple_enhancer`: `3/10` | `swe_agent`: `3/10`
+- Both completed `10/10` with `0` evaluation failures.
 
 Paper 3 in a research trilogy on LLM-assisted software engineering:
 
@@ -144,94 +158,75 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-# Verified 10 (canonical as of 2026-03-18): baseline vs enhanced
+### Pouya-20 (canonical as of 2026-05-05)
 
 ```bash
 cd /home/22pf2/BenchmarkLLMAgent
 
-# Step 0: Prepare the exact 10 Verified instances used by the replication baseline
-/home/22pf2/SWE-Bench_Replication/.venv312/bin/python \
-  scripts/data/prepare_verified_10_samples_from_replication.py
+# Run a new enhancer on the existing 20 gold-validated instances
+# (skips RepoLaunch + Gold Eval + Baseline — reuses canonical results)
+export OPENAI_API_KEY="your_key_here"
+bench_env/bin/python scripts/workflows/run_pouya20_gpt54mini.py \
+  --run-dir runs/my_new_run \
+  --limit 20 \
+  --skip-repolaunch \
+  --skip-gold-eval \
+  --skip-baseline \
+  --enhancer llm_append_analysis   # or: aider, trae, openhands, mini_swe_agent, swe_agent
 
-# Step 1: Run enhancement + mini-SWE-agent (Devstral 2512) + SWE-bench evaluation
-# Baseline comes from /home/22pf2/SWE-Bench_Replication (already measured)
+# Monitor all active enhancer runs
+bench_env/bin/python scripts/watch_enhancers.py --once
+
+# Live dashboard (30s refresh)
+watch -n 30 'cd /home/22pf2/BenchmarkLLMAgent && bench_env/bin/python scripts/watch_enhancers.py --once'
+```
+
+See [`docs/WORKFLOW_SCRIPT_REFERENCE.md`](docs/WORKFLOW_SCRIPT_REFERENCE.md) for all CLI flags, pipeline stages, and the full pre-seeding recipe.
+
+### Legacy: Verified-10 (2026-03-18, historical reference)
+
+```bash
+cd /home/22pf2/BenchmarkLLMAgent
 ./bench_env/bin/python scripts/workflows/run_verified10_enhancement_vs_baseline.py \
   --enhancer-agent simple_enhancer \
   --output-tag run1
 ```
 
-Outputs:
-- Prepared sample: `data/samples/swe_bench_verified_10_samples.json`
-- Enhanced run artifacts: `results/verified10_baseline_vs_enhanced/<agent>__<tag>/`
-- Baseline-vs-enhanced report: `comparison_summary.json` and `comparison_summary.md`
-
-# Legacy: SWE-bench-Live 10-issue workflow (historical reference)
-
-```bash
-# Step 0: Prepare SWE-bench-Live 10-issue sample (run once)
-HF_TOKEN="your_hf_token" ./bench_env/bin/python scripts/data/prepare_swe_bench_live_samples.py
-# Outputs: data/samples/swe_bench_live_10_samples.json
-#          data/ground_truth_swe_bench_live/
-
-# Step 1: Run enhancement benchmark (both categories)
-./bench_env/bin/python scripts/enhancers/run_enhancement_benchmark.py \
-  --agents trae,simple_enhancer \
-  --max-issues 10
-#   Uses data/samples/swe_bench_live_10_samples.json by default
-
-# Step 2: Run baseline solver (before enhancement)
-./bench_env/bin/python scripts/solvers/run_simple_solver.py --max-issues 10
-#   Uses data/samples/swe_bench_live_10_samples.json + data/ground_truth_swe_bench_live/ by default
-
-# Step 3: Run solver after enhancement (vLLM + Gemma 3)
-# First start vLLM: CUDA_VISIBLE_DEVICES=1,3,4,5 ./issue_enhancer_py312/bin/python -m vllm.entrypoints.openai.api_server \
-#   --model google/gemma-3-12b-it --served-model-name gemma-3-12b-it --port 8001 --tensor-parallel-size 4
-USE_VLLM=1 ./bench_env/bin/python scripts/enhancers/run_solving_after_enhancement.py \
-  --solver openai_agents_sdk --max-issues 10
-#   Uses data/ground_truth_swe_bench_live/ by default
-
-# Step 4: Generate report
-./bench_env/bin/python scripts/reports/generate_enhancement_report_multi_agent.py
-```
-
-**To use legacy pilot dataset instead:**
-```bash
-./bench_env/bin/python scripts/solvers/run_simple_solver.py \
-  --samples data/samples/pilot_10_samples.json \
-  --gt-dir data/ground_truth
-```
-
 ## Current Status
 
-- **Canonical dataset**: ✅ `data/samples/swe_bench_verified_10_samples.json` (10 Verified instances aligned with replication baseline)
-- **Canonical solver setup**: ✅ mini-SWE-agent + Devstral small (2512), via `/home/22pf2/SWE-Bench_Replication`
-- **Baseline reference**: ✅ `/home/22pf2/SWE-Bench_Replication/replication_report.md`
-- **Current goal**: run enhancer-driven after-enhancement experiments on these same 10 issues and compare against fixed baseline
+### Pouya-20 Experiment (active)
+
+- **Gold-validated dataset**: ✅ `runs/pouya_final20b_20260505_050130/validated_instances.jsonl` (20 instances, all `resolved: true`)
+- **Baseline solver**: ✅ `runs/pouya_solver20_20260505_063614/` — mini-SWE-agent + gpt-5.4-mini → **3/20 resolved**
+- **Enhancer runs**: ⏳ 5 native-agent runs active in `runs/pouya_enhanced_*_20260505_084500/`
+- **Next goal**: compile final comparison table once `swe_agent` enhancer completes
+
+### Key run directories
+
+| Purpose | Path |
+|---------|------|
+| Gold-validated dataset | `runs/pouya_final20b_20260505_050130/` |
+| Canonical baseline | `runs/pouya_solver20_20260505_063614/` |
+| Enhanced: aider | `runs/pouya_enhanced_aider_20260505_084500/` |
+| Enhanced: trae | `runs/pouya_enhanced_trae_20260505_084500/` |
+| Enhanced: openhands | `runs/pouya_enhanced_openhands_20260505_084500/` |
+| Enhanced: mini_swe_agent | `runs/pouya_enhanced_mini_swe_agent_20260505_084500/` |
+| Enhanced: swe_agent | `runs/pouya_enhanced_swe_agent_20260505_084500/` |
 
 ### Legacy status (historical)
-- **Dataset**: ✅ `data/samples/swe_bench_live_10_samples.json` (SWE-bench-Live, 10 issues, seed=42)
-- **LLM**: `gpt-oss:120b` via Ollama (localhost:11434) — all enhancement and solving
-- **Enhancement benchmark**: ✅ Complete — TRAE (Cat A) + simple_enhancer (Cat B)
-- **Baseline solver**: ✅ Done — `openai_agents_sdk` with `gpt-oss:120b` on Ollama
-- **Iteration 1**: ✅ Complete — 10 issues, results: simple_enhancer +0.0361, TRAE +0.0330
-- **Next step**: Scale to 200 issues (Iteration 2)
 
-**Iteration 1 = exactly 10 issues.** The dataset is sourced from [SWE-bench-Live/SWE-bench-Live](https://huggingface.co/datasets/SWE-bench-Live/SWE-bench-Live) (microsoft/SWE-bench-Live), requiring a HuggingFace token.
-
-### TRAE Agent Note
-The `trae` agent (Category A) requires the `bytedance/trae-agent` repository to be cloned and installed via `uv sync` at `/home/22pf2/trae-agent`. The enhancer script automatically discovers it there and points it to the local vLLM server (port 8001) using the OpenAI-compatible API.
+- Verified-10 (2026-03-18): mini-SWE-agent + Devstral small 2512, 3/10 resolved across all enhancers
+- SWE-bench-Live 10 (2026-03-01): gpt-oss:120b, simple_enhancer +0.0361, TRAE +0.0330
 
 ## Key Documents
 
 | Document | Description |
 |----------|-------------|
-| **`ROADMAP.md`** | **Start here** — Step-by-step handoff for next agent/contributor |
-| **`docs/analysis/VERIFIED10_BASELINE_ENHANCED_RESULTS_2026-03-18.md`** | Latest canonical baseline-vs-enhanced metrics |
-| **`docs/analysis/VERIFIED10_WORKFLOW_BUG_AUDIT_2026-03-18.md`** | Current workflow bug list and debugging priorities |
-| **`docs/analysis/VERIFIED10_MULTI_ENHANCER_BUGFIX_RESULTS_2026-03-19.md`** | Two-enhancer bugfix run results vs baseline |
-| `docs/guides/VERIFIED10_BASELINE_ENHANCED_WORKFLOW.md` | Canonical execution guide for Verified-10 workflow |
+| **[`docs/POUYA20_EXPERIMENT.md`](docs/POUYA20_EXPERIMENT.md)** | **Start here** — Full Pouya-20 experiment: dataset, pipeline, results, run directories |
+| **[`docs/WORKFLOW_SCRIPT_REFERENCE.md`](docs/WORKFLOW_SCRIPT_REFERENCE.md)** | CLI reference for `run_pouya20_gpt54mini.py`: all flags, pipeline stages, env vars, progress.json format |
+| [`scripts/watch_enhancers.py`](scripts/watch_enhancers.py) | Live monitoring dashboard for all 5 enhancer runs |
+| `ROADMAP.md` | Step-by-step handoff for next agent/contributor |
 | `docs/README.md` | Documentation overview and folder guide |
 | `docs/MAIN.md` | Master documentation index |
-| `PINNED_MESSAGE.md` | Brief for contributors (pin in group chat) |
 | `CONTRIBUTING.md` | How to add agents, run scripts, naming conventions |
-| `docs/archive/` | Historical plans and superseded workflow docs |
+| `docs/archive/` | Historical plans and superseded workflow docs (Verified-10, SWE-bench-Live) |

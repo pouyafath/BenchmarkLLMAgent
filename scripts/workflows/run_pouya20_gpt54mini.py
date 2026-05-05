@@ -1050,14 +1050,23 @@ def _solver_ready_instance(inst: dict) -> dict:
 
 def run_solver(run_dir: Path, instances: list[dict], output_subdir: str,
                api_key: str, progress: dict, enhanced: bool = False,
-               enhancer_id: str = "llm_append_analysis") -> Path:
+               enhancer_id: str = "llm_append_analysis",
+               solver_id: str = "mini_swe_agent",
+               prebuilt_dataset: Path | None = None) -> Path:
+    """Run solver (mini_swe_agent or openhands) for baseline or enhanced condition.
+
+    Args:
+        prebuilt_dataset: If set, load this JSONL as the solver input instead of
+            running the enhancer.  Useful when reusing enhanced datasets from a
+            previous run (saves re-running expensive enhancement).
+    """
     label = "enhanced" if enhanced else "baseline"
     progress["stage"] = f"solver_{label}"
 
     solver_dir = run_dir / output_subdir
     solver_dir.mkdir(exist_ok=True)
 
-    write_progress(run_dir, progress, f"=== STAGE: mini-SWE-agent {label} ===")
+    write_progress(run_dir, progress, f"=== STAGE: {solver_id} {label} ===")
 
     if not instances:
         write_progress(run_dir, progress,
@@ -1065,21 +1074,52 @@ def run_solver(run_dir: Path, instances: list[dict], output_subdir: str,
         (solver_dir / "preds.json").write_text("{}")
         return solver_dir
 
-    if enhanced:
+    # ----- Build the dataset to pass to the solver -----
+    if prebuilt_dataset is not None:
+        # Reuse an existing enhanced_dataset.jsonl (no enhancer invocation needed)
+        write_progress(run_dir, progress,
+                       f"Loading prebuilt dataset from {prebuilt_dataset.name}…")
+        solver_instances = [json.loads(l) for l in prebuilt_dataset.open() if l.strip()]
+        solver_dataset = run_dir / f"solver_{label}_dataset.jsonl"
+        with solver_dataset.open("w") as f:
+            for r in solver_instances:
+                f.write(json.dumps(_solver_ready_instance(r)) + "\n")
+    elif enhanced:
         enhanced_instances = _build_enhanced_dataset(run_dir, instances, api_key, progress,
                                                      enhancer_id=enhancer_id)
+        solver_instances = enhanced_instances
         solver_dataset = run_dir / "solver_enhanced_dataset.jsonl"
         with solver_dataset.open("w") as f:
             for r in enhanced_instances:
                 f.write(json.dumps(_solver_ready_instance(r)) + "\n")
     else:
-        # Write a solver-specific JSONL rather than pointing at validated_instances.jsonl
-        # directly, so we can override image_name with our RepoLaunch docker_image.
+        solver_instances = instances
         solver_dataset = run_dir / "solver_baseline_dataset.jsonl"
         with solver_dataset.open("w") as f:
             for r in instances:
                 f.write(json.dumps(_solver_ready_instance(r)) + "\n")
 
+    # ----- Dispatch to chosen solver -----
+    if solver_id == "openhands":
+        _run_openhands_solver(
+            run_dir, solver_instances, solver_dir, api_key, progress, label
+        )
+    elif solver_id == "swe_agent":
+        _run_sweagent_solver(
+            run_dir, solver_instances, solver_dir, api_key, progress, label
+        )
+    else:
+        _run_miniswe_solver(
+            run_dir, solver_dataset, solver_dir, api_key, progress, label
+        )
+
+    write_progress(run_dir, progress,
+                   f"{label} solver done (preds → {solver_dir}/preds.json)")
+    return solver_dir
+
+
+def _run_miniswe_solver(run_dir: Path, solver_dataset: Path, solver_dir: Path,
+                        api_key: str, progress: dict, label: str) -> None:
     env = _make_env(api_key)
     cmd = [
         str(BENCH_ENV_PYTHON), str(SOLVER_SCRIPT),
@@ -1089,20 +1129,55 @@ def run_solver(run_dir: Path, instances: list[dict], output_subdir: str,
         "--output", str(solver_dir),
         "--workers", "2",
     ]
-
     write_progress(run_dir, progress,
-                   f"Running mini-SWE-agent {label} on {len(instances)} instances…")
+                   f"Running mini-SWE-agent {label}…")
     try:
-        rc = run_subprocess(cmd, env=env,
-                            log_path=solver_dir / "minisweagent.log",
-                            timeout=7200)
+        run_subprocess(cmd, env=env,
+                       log_path=solver_dir / "minisweagent.log",
+                       timeout=7200)
     except subprocess.TimeoutExpired:
         write_progress(run_dir, progress,
                        f"{label} solver TIMEOUT (partial results may exist)")
 
+
+def _run_openhands_solver(run_dir: Path, instances: list[dict], solver_dir: Path,
+                          api_key: str, progress: dict, label: str) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    from solvers.openhands_solver import run_batch as oh_run_batch
+
     write_progress(run_dir, progress,
-                   f"{label} solver done (preds → {solver_dir}/preds.json)")
-    return solver_dir
+                   f"Running OpenHands solver {label} on {len(instances)} instances…")
+    oh_run_batch(
+        instances=instances,
+        api_key=api_key,
+        work_dir=solver_dir / "oh_workdirs",
+        preds_out=solver_dir / "preds.json",
+        model=os.environ.get("OH_SOLVER_MODEL", "gpt-5.4-mini"),
+        base_url=os.environ.get("OH_SOLVER_BASE_URL", "https://api.openai.com/v1"),
+        max_iter=int(os.environ.get("OH_SOLVER_MAX_ITER", "30")),
+        timeout=int(os.environ.get("OH_SOLVER_TIMEOUT", "1800")),
+        workers=2,
+    )
+
+
+def _run_sweagent_solver(run_dir: Path, instances: list[dict], solver_dir: Path,
+                         api_key: str, progress: dict, label: str) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    from solvers.swe_agent_solver import run_batch as swea_run_batch
+
+    write_progress(run_dir, progress,
+                   f"Running SWE-agent solver {label} on {len(instances)} instances…")
+    swea_run_batch(
+        instances=instances,
+        api_key=api_key,
+        work_dir=solver_dir / "sweagent_workdirs",
+        preds_out=solver_dir / "preds.json",
+        model=os.environ.get("SWEA_SOLVER_MODEL", "gpt-5.4-mini"),
+        base_url=os.environ.get("SWEA_SOLVER_BASE_URL", "https://api.openai.com/v1"),
+        max_steps=int(os.environ.get("SWEA_SOLVER_MAX_STEPS", "30")),
+        workers=2,
+        timeout=int(os.environ.get("SWEA_SOLVER_TIMEOUT", "7200")),
+    )
 
 
 _ENHANCER_ENV: dict[str, dict[str, str]] = {
@@ -1360,6 +1435,12 @@ def main():
                         choices=["llm_append_analysis", "aider", "trae", "openhands",
                                  "mini_swe_agent", "swe_agent"],
                         help="Which enhancer to use for the enhanced solver condition")
+    parser.add_argument("--solver", default="mini_swe_agent",
+                        choices=["mini_swe_agent", "openhands", "swe_agent"],
+                        help="Solver agent to use for baseline and enhanced conditions")
+    parser.add_argument("--load-enhanced-from", type=Path, default=None,
+                        help="Load a pre-built solver_enhanced_dataset.jsonl instead of "
+                             "running the enhancer (skips enhancement phase, jumps to solver)")
     args = parser.parse_args()
 
     api_key = _load_openai_api_key()
@@ -1453,7 +1534,8 @@ def main():
     solver_baseline_dir = run_dir / "solver_baseline"
     if not args.skip_baseline:
         solver_baseline_dir = run_solver(run_dir, validated, "solver_baseline",
-                                         api_key, progress, enhanced=False)
+                                         api_key, progress, enhanced=False,
+                                         solver_id=args.solver)
     else:
         write_progress(run_dir, progress, "Skipping baseline solver (--skip-baseline)")
 
@@ -1464,9 +1546,13 @@ def main():
     # Stage 4: Solver enhanced
     solver_enhanced_dir = run_dir / "solver_enhanced"
     if not args.skip_enhanced:
-        solver_enhanced_dir = run_solver(run_dir, validated, "solver_enhanced",
-                                          api_key, progress, enhanced=True,
-                                          enhancer_id=args.enhancer)
+        solver_enhanced_dir = run_solver(
+            run_dir, validated, "solver_enhanced",
+            api_key, progress, enhanced=True,
+            enhancer_id=args.enhancer,
+            solver_id=args.solver,
+            prebuilt_dataset=args.load_enhanced_from,
+        )
     else:
         write_progress(run_dir, progress, "Skipping enhanced solver (--skip-enhanced)")
 

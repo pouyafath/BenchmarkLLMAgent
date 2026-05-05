@@ -40,6 +40,13 @@ def _traj_count(solver_dir: Path) -> int:
 def _get_status(run_dir: Path, enhancer: str):
     last = _last_info(run_dir / "run.log")
 
+    # Read all INFO lines to detect broader context
+    log_text = (run_dir / "run.log").read_text() if (run_dir / "run.log").exists() else ""
+    info_lines = [l for l in log_text.splitlines() if "[INFO]" in l]
+
+    def _any_recent(keyword: str) -> bool:
+        return any(keyword in l for l in info_lines[-10:])
+
     # Stage detection
     if "DONE." in last:
         m = re.search(r"Enhanced=(\d+)/(\d+)", last)
@@ -49,16 +56,23 @@ def _get_status(run_dir: Path, enhancer: str):
         m = re.search(r"solver_enhanced_eval: (\d+)/(\d+)", last)
         done = int(m.group(1)) if m else _count_reports(run_dir / "solver_enhanced_eval")
         return "eval_done", f"enhanced resolved: {done}/{TOTAL}", done
-    elif "enhanced solver done" in last or ("Evaluating" in last and "enhanced" in (run_dir / "run.log").read_text().split("Evaluating")[-1] if (run_dir / "run.log").exists() else False):
-        done = _count_reports(run_dir / "solver_enhanced_eval")
-        return "enhanced_eval", f"eval {done}/{TOTAL} instances checked", done
-    elif "mini-SWE-agent enhanced" in last:
+
+    # Detect active enhanced eval: CMD line just launched evaluation subprocess
+    enhanced_eval_dir = run_dir / "solver_enhanced_eval"
+    enhanced_reports = _count_reports(enhanced_eval_dir)
+    if enhanced_reports > 0 or (_any_recent("solver_enhanced_eval") and "CMD" in last):
+        resolved = sum(
+            1 for p in enhanced_eval_dir.glob("*/report.json")
+            if '"resolved": true' in p.read_text()
+        ) if enhanced_eval_dir.exists() else 0
+        return "enhanced_eval", f"eval {enhanced_reports}/{TOTAL} done | resolved={resolved}", enhanced_reports
+
+    elif "mini-SWE-agent enhanced" in last or _any_recent("mini-SWE-agent enhanced"):
         done = _traj_count(run_dir / "solver_enhanced")
         return "solver_enhanced", f"{done}/{TOTAL} solver trajectories written", done
     elif "Enhancement done" in last:
         return "solver_start", f"0/{TOTAL} (solver launching)", 0
     elif "Running" in last and "enhancer" in last:
-        # Enhancement in progress — count enhanced dataset lines written so far
         ds = run_dir / "solver_enhanced_dataset.jsonl"
         done = sum(1 for _ in open(ds) if _.strip()) if ds.exists() else 0
         return "enhancing", f"{done}/{TOTAL} issues enhanced", done

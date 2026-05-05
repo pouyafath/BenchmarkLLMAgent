@@ -118,15 +118,46 @@ agent:
 
 
 def _to_sweagent_instance(inst: dict) -> dict:
-    """Convert a solver-ready instance dict to SWE-agent SimpleBatchInstance format."""
-    # Use our RepoLaunch image (docker_image), falling back to image_name
+    """Convert a solver-ready instance dict to SWE-agent expert_file BatchInstance format.
+
+    Uses expert_file (reset=False) instead of simple file format because our
+    RepoLaunch images already have the repo at the correct commit — running
+    `git fetch` (the first step in SWE-agent's default reset sequence) fails
+    when Docker containers have no network access to the GitHub remote.
+    """
     image = inst.get("docker_image") or inst.get("image_name", "")
+    base_commit = inst.get("base_commit", "HEAD")
     return {
-        "instance_id": inst["instance_id"],
-        "image_name": image,
-        "problem_statement": inst.get("problem_statement", ""),
-        "repo_name": "testbed",
-        "base_commit": inst.get("base_commit", "HEAD"),
+        "env": {
+            "deployment": {
+                "image": image,
+                "port": None,
+                "docker_args": [],
+                "startup_timeout": 180.0,
+                "pull": "missing",
+                "remove_images": False,
+                "python_standalone_dir": "/root",
+                "platform": None,
+                "remove_container": True,
+                "container_runtime": "docker",
+                "type": "docker",
+            },
+            "repo": {
+                "repo_name": "testbed",
+                "base_commit": base_commit,
+                "type": "preexisting",
+                "reset": False,
+            },
+            "post_startup_commands": [],
+            "post_startup_command_timeout": 500,
+            "name": inst["instance_id"],
+        },
+        "problem_statement": {
+            "text": inst.get("problem_statement", ""),
+            "extra_fields": {},
+            "type": "text",
+            "id": inst["instance_id"],
+        },
     }
 
 
@@ -193,7 +224,7 @@ def run_batch(
         preds_out.write_text(json.dumps(existing, indent=2))
         return existing
 
-    # Write sweagent-format JSONL
+    # Write sweagent expert_file JSONL (reset=False — our images are pre-seeded)
     instances_jsonl = work_dir / "instances.jsonl"
     with instances_jsonl.open("w") as f:
         for inst in remaining:
@@ -211,7 +242,7 @@ def run_batch(
     cmd = [
         _SWEAGENT_CLI, "run-batch",
         "--config", str(cfg_file),
-        "--instances.type", "file",
+        "--instances.type", "expert_file",
         "--instances.path", str(instances_jsonl),
         "--output_dir", str(output_dir),
         "--num_workers", str(workers),

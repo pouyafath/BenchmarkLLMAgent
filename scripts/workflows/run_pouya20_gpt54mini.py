@@ -1366,7 +1366,7 @@ def write_summary(run_dir: Path, instances_20: list[dict],
     rl_results = progress.get("repolaunch_results", {})
     summary = {
         "run_dir": str(run_dir),
-        "started_at": progress["started_at"],
+        "started_at": progress.get("started_at", _now()),
         "finished_at": _now(),
         "total_selected": len(instances_20),
         "repolaunch_passed": len(rl_passed),

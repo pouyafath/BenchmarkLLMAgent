@@ -136,8 +136,8 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     Returns:
         {enhanced_title, enhanced_body, enhancement_metadata}
     """
-    title = issue.get("title", "")
-    body = issue.get("body") or ""
+    title = issue.get("title") or issue.get("instance_id") or ""
+    body = issue.get("body") or issue.get("problem_statement") or ""
     issue_id = (
         issue.get("instance_id")
         or issue.get("issue_id")

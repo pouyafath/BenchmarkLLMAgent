@@ -56,6 +56,66 @@ bench_env/bin/python -m py_compile scripts/workflows/run_pouya20_gpt54mini.py
 
 This passed.
 
+## Native Enhancer Validity Fixes
+
+Follow-up validation found that old enhancer runs had two separate validity
+problems:
+
+1. Some native enhancer runs produced no parseable `enhanced_body`. The workflow
+   then passed the original baseline `problem_statement` to the solver and
+   reported the run as "enhanced". This made OpenHands, Mini-SWE-Agent, and
+   SWE-Agent enhancer comparisons invalid; their solver scores reflected solver
+   nondeterminism, not enhancer effect.
+2. Several native enhancer modules read only `issue["body"]`, while the
+   Pouya/SWE-bench-style rows store the issue text in `problem_statement`.
+   Therefore old native Aider/Trae/OpenHands/Mini-SWE-Agent/SWE-Agent enhancer
+   runs must be rerun before being used as final paper results, even when their
+   CLIs were native.
+
+The workflow now fails closed for enhanced runs:
+
+- Missing, error, empty, or unchanged enhanced text is excluded from solver
+  input.
+- Per-instance failures are written to
+  `<enhancer_id>_enhancement_failures.json`.
+- `solver_instances.jsonl` records the exact subset passed to the solver.
+- Solver evaluation uses that exact subset, so `enhanced_total` is the number of
+  actually enhanced instances rather than the original dataset size.
+- If an enhancer has zero valid rows, the solver stage is skipped and `preds.json`
+  is `{}`.
+
+Proxy fallback is disabled in `src/enhancers/dispatcher.py`. Agents without an
+explicit native implementation or named LLM enhancer now return `None` instead
+of silently using an LLM proxy simulation. The registry marks OpenHands,
+Mini-SWE-Agent, and SWE-Agent as native overrides to avoid misreading stale
+`llm_proxy` metadata.
+
+Native output parsing was centralized in
+`src/enhancers/ready_to_use/native_output_parser.py`. It supports strict
+`ENHANCED_TITLE` / `ENHANCED_BODY` markers, looser marker spelling, markdown
+fences, and JSON outputs.
+
+Verification commands that passed:
+
+```bash
+bench_env/bin/python -m py_compile scripts/workflows/run_pouya20_gpt54mini.py \
+  src/enhancers/dispatcher.py \
+  src/enhancers/ready_to_use/native_output_parser.py \
+  src/enhancers/ready_to_use/openhands_enhancer.py \
+  src/enhancers/ready_to_use/mini_swe_agent_enhancer.py \
+  src/enhancers/ready_to_use/sweagent_enhancer.py \
+  src/enhancers/ready_to_use/aider_enhancer.py \
+  src/enhancers/ready_to_use/trae_enhancer.py \
+  src/enhancers/ready_to_use/registry.py
+```
+
+Guard checks:
+
+- Old invalid OpenHands enhanced dataset: `0/20 valid, 20 failed`; solver was
+  skipped and wrote `{}` predictions.
+- Old Trae enhanced dataset: `18/20 valid, 2 failed`; only the 18 changed rows
+  would now be passed to the solver.
+
 ## 3-Sample Solver Experiment
 
 Source 3-sample run:
@@ -294,4 +354,3 @@ Deliverables:
 - List of any code changes made.
 - Verification commands and key outputs.
 ```
-

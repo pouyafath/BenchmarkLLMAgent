@@ -6,10 +6,7 @@ Used by run_enhancement_benchmark to run multiple agents.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Any
-
-from src.enhancers.ready_to_use.registry import CATEGORY_A_AGENTS, get_agent_by_id
-from src.enhancers.ready_to_use.llm_proxy_enhancer import enhance_issue as llm_proxy_enhance
+from src.enhancers.ready_to_use.registry import CATEGORY_A_AGENTS
 from src.enhancers.ready_to_use.aider_enhancer import enhance_issue as aider_enhance
 from src.enhancers.ready_to_use.trae_enhancer import enhance_issue as trae_enhance
 from src.enhancers.ready_to_use.openhands_enhancer import enhance_issue as openhands_enhance
@@ -24,8 +21,6 @@ from src.enhancers.framework_built.simple_enhancer import enhance_issue as simpl
 
 def get_enhancer(agent_id: str):
     """Return enhance_issue(issue, changed_files) for the given agent, or None."""
-    agent = get_agent_by_id(agent_id)
-
     if agent_id == "simple_enhancer":
         return simple_enhance
     if agent_id == "aider":
@@ -50,10 +45,8 @@ def get_enhancer(agent_id: str):
         return lambda issue, cf="": llm_append_enhance(issue, cf, strategy="extract_highlight")
     if agent_id == "llm_hybrid":
         return lambda issue, cf="": llm_append_enhance(issue, cf, strategy="hybrid")
-    if agent and agent.get("enhancer_type") == "llm_proxy":
-        def _proxy(issue: dict, changed_files: str = "") -> Dict[str, Any]:
-            return llm_proxy_enhance(issue, changed_files, agent_id=agent_id)
-        return _proxy
+    # Proxy fallback is intentionally disabled for benchmark runs.  Agents must
+    # have an explicit native integration or a named LLM enhancer implementation.
     return None
 
 

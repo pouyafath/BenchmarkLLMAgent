@@ -1048,6 +1048,87 @@ def _solver_ready_instance(inst: dict) -> dict:
     return row
 
 
+def _issue_text(row: dict) -> str:
+    return (row.get("problem_statement") or row.get("body") or "").strip()
+
+
+def _metadata_error(metadata: dict) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    if metadata.get("enhancer_type") == "error":
+        return str(metadata.get("error") or "enhancer returned error metadata")
+    if metadata.get("error"):
+        return str(metadata["error"])
+    return ""
+
+
+def _write_solver_instances(solver_dir: Path, instances: list[dict]) -> None:
+    with (solver_dir / "solver_instances.jsonl").open("w") as f:
+        for row in instances:
+            f.write(json.dumps(row) + "\n")
+
+
+def _filter_valid_enhancements(
+    run_dir: Path,
+    candidate_rows: list[dict],
+    original_instances: list[dict],
+    progress: dict,
+    enhancer_id: str,
+    source: str,
+) -> list[dict]:
+    """Drop rows that did not receive a real changed enhancement."""
+    original_by_id = {r["instance_id"]: r for r in original_instances}
+    valid: list[dict] = []
+    failures: list[dict] = []
+
+    for row in candidate_rows:
+        iid = row.get("instance_id", "<missing-instance-id>")
+        original = original_by_id.get(iid, {})
+        original_text = _issue_text(original)
+        enhanced_text = _issue_text(row)
+        metadata = row.get("enhancement_metadata") or {}
+        error = _metadata_error(metadata)
+
+        reason = ""
+        if not enhanced_text:
+            reason = error or "empty enhanced problem_statement"
+        elif enhanced_text == original_text:
+            reason = error or "enhanced problem_statement is unchanged from baseline"
+        elif error:
+            reason = error
+
+        if reason:
+            failures.append(
+                {
+                    "instance_id": iid,
+                    "reason": reason,
+                    "source": source,
+                    "metadata": metadata,
+                }
+            )
+        else:
+            valid.append(row)
+
+    failure_path = run_dir / f"{enhancer_id}_enhancement_failures.json"
+    failure_path.write_text(json.dumps(failures, indent=2))
+    progress.setdefault("enhancement_failures", {})[enhancer_id] = [
+        f["instance_id"] for f in failures
+    ]
+    write_progress(
+        run_dir,
+        progress,
+        f"Enhancement validation for {enhancer_id}: "
+        f"{len(valid)}/{len(candidate_rows)} valid, {len(failures)} failed",
+    )
+    if failures:
+        write_progress(
+            run_dir,
+            progress,
+            f"  Enhancement failures written to {failure_path}",
+        )
+    return valid
+
+
 def run_solver(run_dir: Path, instances: list[dict], output_subdir: str,
                api_key: str, progress: dict, enhanced: bool = False,
                enhancer_id: str = "llm_append_analysis",
@@ -1080,6 +1161,15 @@ def run_solver(run_dir: Path, instances: list[dict], output_subdir: str,
         write_progress(run_dir, progress,
                        f"Loading prebuilt dataset from {prebuilt_dataset.name}…")
         solver_instances = [json.loads(l) for l in prebuilt_dataset.open() if l.strip()]
+        if enhanced:
+            solver_instances = _filter_valid_enhancements(
+                run_dir,
+                solver_instances,
+                instances,
+                progress,
+                enhancer_id,
+                source=str(prebuilt_dataset),
+            )
         solver_dataset = run_dir / f"solver_{label}_dataset.jsonl"
         with solver_dataset.open("w") as f:
             for r in solver_instances:
@@ -1098,6 +1188,16 @@ def run_solver(run_dir: Path, instances: list[dict], output_subdir: str,
         with solver_dataset.open("w") as f:
             for r in instances:
                 f.write(json.dumps(_solver_ready_instance(r)) + "\n")
+
+    _write_solver_instances(solver_dir, solver_instances)
+    if not solver_instances:
+        write_progress(
+            run_dir,
+            progress,
+            f"SKIP {output_subdir}: no valid {label} instances after enhancement validation",
+        )
+        (solver_dir / "preds.json").write_text("{}")
+        return solver_dir
 
     # ----- Dispatch to chosen solver -----
     if solver_id == "openhands":
@@ -1237,19 +1337,26 @@ def _build_enhanced_dataset(run_dir: Path, instances: list[dict],
             raise RuntimeError(f"{enhancer_id} enhancer is not registered")
     except Exception as exc:
         write_progress(run_dir, progress,
-                       f"  WARN: enhancer import failed ({exc}), using baseline instances")
-        # Mark every instance so the enhanced run is distinguishable from baseline
-        fallback = []
+                       f"  WARN: enhancer import failed ({exc}); no enhanced rows will be run")
+        failed_rows = []
         for inst in instances:
             row = dict(inst)
             row["enhancement_metadata"] = {
                 "enhancer_type": "error",
+                "agent_id": enhancer_id,
                 "error": f"enhancer import failed: {exc}",
             }
-            fallback.append(row)
-        return fallback
+            failed_rows.append(row)
+        return _filter_valid_enhancements(
+            run_dir,
+            failed_rows,
+            instances,
+            progress,
+            enhancer_id,
+            source="enhancer_import",
+        )
 
-    enhanced: list[dict] = []
+    candidates: list[dict] = []
     for inst in instances:
         try:
             result = enhancer(inst)
@@ -1261,19 +1368,34 @@ def _build_enhanced_dataset(run_dir: Path, instances: list[dict],
                 enhanced_inst["enhancement_metadata"] = result.get("enhancement_metadata", {})
             else:
                 enhanced_inst.setdefault("enhancement_metadata", {})
+                enhanced_inst["enhancement_metadata"]["enhancer_type"] = "error"
+                enhanced_inst["enhancement_metadata"]["agent_id"] = enhancer_id
                 enhanced_inst["enhancement_metadata"]["error"] = "enhancer returned no enhanced_body"
-            enhanced.append(enhanced_inst)
+            candidates.append(enhanced_inst)
         except Exception as exc:
             write_progress(run_dir, progress,
                            f"  WARN: enhance failed {inst['instance_id']}: {exc}")
             row = dict(inst)
             row["enhancement_metadata"] = {
                 "enhancer_type": "error",
+                "agent_id": enhancer_id,
                 "error": f"per-instance enhancement exception: {exc}",
             }
-            enhanced.append(row)
+            candidates.append(row)
 
-    write_progress(run_dir, progress, f"Enhancement done: {len(enhanced)} instances")
+    enhanced = _filter_valid_enhancements(
+        run_dir,
+        candidates,
+        instances,
+        progress,
+        enhancer_id,
+        source="enhancer_run",
+    )
+    write_progress(
+        run_dir,
+        progress,
+        f"Enhancement done: {len(enhanced)}/{len(instances)} valid instances",
+    )
     return enhanced
 
 
@@ -1288,6 +1410,10 @@ def run_solver_eval(run_dir: Path, instances: list[dict], solver_dir: Path,
     eval_dir.mkdir(exist_ok=True)
 
     preds_file = solver_dir / "preds.json"
+    solver_instances_file = solver_dir / "solver_instances.jsonl"
+    if solver_instances_file.exists():
+        instances = [json.loads(l) for l in solver_instances_file.open() if l.strip()]
+
     if not preds_file.exists() or not instances:
         write_progress(run_dir, progress,
                        f"SKIP eval_{eval_subdir}: no preds or instances")

@@ -71,8 +71,8 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     """
     Enhance a single GitHub issue. Returns dict with enhanced_title, enhanced_body, metadata.
     """
-    title = issue.get("title", "")
-    body = issue.get("body") or ""
+    title = issue.get("title") or issue.get("instance_id") or ""
+    body = issue.get("body") or issue.get("problem_statement") or ""
     repo = issue.get("repo_name", "")
     num = issue.get("issue_number", "")
     if not changed_files and "pr_files" in issue:

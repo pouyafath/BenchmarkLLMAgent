@@ -4,7 +4,11 @@ Category A: Ready-to-use enhancement agents.
 Registry of the 10 agents from the research plan. Each has:
 - id: short identifier for results and scripts
 - name: display name
-- enhancer_type: "real" (actual integration) or "llm_proxy" (LLM with agent-specific prompt)
+- enhancer_type: "real" (actual integration) or legacy "llm_proxy" metadata.
+
+Proxy fallback is disabled in src.enhancers.dispatcher for benchmark runs.  Any
+agent without an explicit native/LLM implementation returns no enhancer instead
+of silently using a simulated proxy.
 - enhancement_strategy: prompt hints for proxy mode
 """
 
@@ -14,9 +18,10 @@ CATEGORY_A_AGENTS = [
     {
         "id": "openhands",
         "name": "OpenHands",
-        "enhancer_type": "llm_proxy",
+        "enhancer_type": "real",
+        "native_override": True,
         "enhancement_strategy": (
-            "You simulate OpenHands: a full-repo-access coding agent. "
+            "Native OpenHands CLI integration. "
             "Enrich the issue with inferred code context, affected files, and structured sections "
             "as if you had explored the repository."
         ),
@@ -24,9 +29,10 @@ CATEGORY_A_AGENTS = [
     {
         "id": "swe_agent",
         "name": "SWE-Agent",
-        "enhancer_type": "llm_proxy",
+        "enhancer_type": "real",
+        "native_override": True,
         "enhancement_strategy": (
-            "You simulate SWE-Agent (Agent-Computer Interface). "
+            "Native SWE-Agent CLI integration. "
             "Use its issue-analysis style: identify relevant code, map issue to files/functions, "
             "add context-enriched sections from a codebase exploration perspective."
         ),
@@ -114,9 +120,10 @@ CATEGORY_A_AGENTS = [
     {
         "id": "mini_swe_agent",
         "name": "Mini-SWE-Agent",
-        "enhancer_type": "llm_proxy",
+        "enhancer_type": "real",
+        "native_override": True,
         "enhancement_strategy": (
-            "You simulate Mini-SWE-Agent: a lightweight, fast SWE-agent variant. "
+            "Native Mini-SWE-Agent CLI integration. "
             "Focus on conciseness and correctness — identify the minimal set of files and "
             "changes needed, map the issue to the core code location, and produce a "
             "tight, actionable enhancement without unnecessary verbosity."

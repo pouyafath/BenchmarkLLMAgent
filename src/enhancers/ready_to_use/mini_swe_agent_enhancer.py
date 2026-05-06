@@ -4,7 +4,7 @@ Mini-SWE-Agent enhancer — Category A.
 Uses the real `mini` CLI (pip install mini-swe-agent) pointed at gpt-oss:120b
 via Ollama's OpenAI-compatible endpoint.
 
-Falls back to llm_proxy_enhance if the binary is not available or times out.
+Returns an error dict if the binary is not found, times out, or exits non-zero.
 
 Environment variables (all optional):
   MINI_MODEL       - model to use  (default: gpt-oss:120b)
@@ -25,7 +25,9 @@ import sys
 _root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_root))
 
-from src.enhancers.ready_to_use.llm_proxy_enhancer import enhance_issue as llm_proxy_enhance
+from src.enhancers.ready_to_use.native_output_parser import parse_enhanced_output
+
+
 
 _MODEL    = os.environ.get("MINI_MODEL",    "gpt-oss:120b")
 _BASE_URL = os.environ.get("MINI_BASE_URL", "http://localhost:11434/v1")
@@ -59,24 +61,25 @@ def _find_mini() -> str | None:
 
 
 def _parse_output(text: str, fallback_title: str, fallback_body: str) -> tuple[str, str]:
-    title = fallback_title
-    body  = fallback_body
-    m = re.search(r"ENHANCED_TITLE:\s*(.+?)(?:\n|$)", text, re.DOTALL)
-    if m:
-        title = m.group(1).strip()
-    m = re.search(r"ENHANCED_BODY:\s*\n([\s\S]*?)(?=---|$)", text, re.DOTALL)
-    if m:
-        body = m.group(1).strip()
+    title, body, _ = parse_enhanced_output(text, fallback_title, fallback_body)
     return title, body
 
 
 def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
+    title = issue.get("title") or issue.get("instance_id") or ""
+    body  = issue.get("body") or issue.get("problem_statement") or ""
+
     mini_bin = _find_mini()
     if not mini_bin:
-        return llm_proxy_enhance(issue, changed_files, agent_id="mini_swe_agent")
-
-    title = issue.get("title", "")
-    body  = issue.get("body") or ""
+        return {
+            "enhanced_title": title,
+            "enhanced_body": body,
+            "enhancement_metadata": {
+                "enhancer_type": "error",
+                "agent_id": "mini_swe_agent",
+                "error": "mini CLI not found",
+            },
+        }
     repo  = issue.get("repo_name", "")
     num   = issue.get("issue_number", "")
 
@@ -124,19 +127,29 @@ Issue #{num}
                 env=env,
             )
         except subprocess.TimeoutExpired:
-            return llm_proxy_enhance(issue, changed_files, agent_id="mini_swe_agent")
+            return {
+                "enhanced_title": title,
+                "enhanced_body":  body,
+                "enhancement_metadata": {
+                    "enhancer_type": "error",
+                    "agent_id": "mini_swe_agent",
+                    "model": _MODEL,
+                    "base_url": _BASE_URL,
+                    "error": f"mini timeout after {_TIMEOUT}s",
+                },
+            }
         except Exception as e:
             return {
                 "enhanced_title": title,
                 "enhanced_body":  body,
                 "enhancement_metadata": {
-                    "enhancer_type": "real",
+                    "enhancer_type": "error",
                     "agent_id": "mini_swe_agent",
                     "error": str(e),
                 },
             }
 
-        output = (result.stdout or "").strip()
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
         if result.returncode != 0:
             return {
                 "enhanced_title": title,
@@ -146,11 +159,26 @@ Issue #{num}
                     "agent_id": "mini_swe_agent",
                     "model": _MODEL,
                     "base_url": _BASE_URL,
+                    "error": f"mini CLI failed with returncode {result.returncode}",
                     "returncode": result.returncode,
                     "stderr_preview": (result.stderr or "")[:300],
                 },
             }
-        enh_title, enh_body = _parse_output(output, title, body)
+        enh_title, enh_body, parse_source = parse_enhanced_output(output, title, body)
+        if enh_title == title and enh_body == body:
+            return {
+                "enhanced_title": title,
+                "enhanced_body":  body,
+                "enhancement_metadata": {
+                    "enhancer_type": "error",
+                    "agent_id": "mini_swe_agent",
+                    "model": _MODEL,
+                    "base_url": _BASE_URL,
+	                    "error": "no ENHANCED_TITLE/ENHANCED_BODY markers in output",
+	                    "stderr_preview": (result.stderr or "")[:300],
+	                    "stdout_preview": (result.stdout or "")[:500],
+	                },
+	            }
 
         return {
             "enhanced_title": enh_title,
@@ -160,7 +188,9 @@ Issue #{num}
                 "agent_id": "mini_swe_agent",
                 "model": _MODEL,
                 "base_url": _BASE_URL,
-                "returncode": result.returncode,
-                "stderr_preview": (result.stderr or "")[:300],
-            },
-        }
+	                "returncode": result.returncode,
+	                "stderr_preview": (result.stderr or "")[:300],
+	                "stdout_preview": (result.stdout or "")[:500],
+	                "parse_source": parse_source,
+	            },
+	        }

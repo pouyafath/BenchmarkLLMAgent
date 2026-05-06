@@ -73,8 +73,8 @@ def enhance_issue(issue: dict, changed_files: str = "", agent_id: str = "chatbr"
     system = f"{BASE_SYSTEM}\n\nAgent persona: {strategy}"
 
 
-    title = issue.get("title", "")
-    body = issue.get("body") or ""
+    title = issue.get("title") or issue.get("instance_id") or ""
+    body = issue.get("body") or issue.get("problem_statement") or ""
     repo = issue.get("repo_name", "")
     num = issue.get("issue_number", "")
     if not changed_files and "pr_files" in issue:

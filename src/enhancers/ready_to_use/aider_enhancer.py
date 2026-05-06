@@ -224,8 +224,8 @@ def _run_aider_once(
 
 def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     """Enhance using aider CLI (native only, no proxy fallback)."""
-    title = issue.get("title", "")
-    body = issue.get("body") or ""
+    title = issue.get("title") or issue.get("instance_id") or ""
+    body = issue.get("body") or issue.get("problem_statement") or ""
     if not _aider_available():
         return {
             "enhanced_title": title,

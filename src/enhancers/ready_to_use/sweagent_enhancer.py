@@ -36,6 +36,8 @@ _here = Path(__file__).resolve()
 _root = _here.parent.parent.parent.parent
 sys.path.insert(0, str(_root))
 
+from src.enhancers.ready_to_use.native_output_parser import parse_enhanced_output
+
 # ── installed sweagent path ──────────────────────────────────────────────────
 _SWEAGENT_CLI = "/home/22pf2/BenchmarkLLMAgent/bench_env/bin/sweagent"
 
@@ -175,27 +177,8 @@ def _pick_best_candidate(
 
 def _parse_output(text: str, fallback_title: str, fallback_body: str) -> tuple[str, str]:
     """Extract ENHANCED_TITLE and ENHANCED_BODY from output text."""
-    candidates: list[tuple[str, str]] = []
-    if not text:
-        return fallback_title, fallback_body
-
-    strict_pattern = re.compile(
-        r"---\s*ENHANCED_TITLE:\s*(.*?)\s*ENHANCED_BODY:\s*\r?\n([\s\S]*?)\s*---",
-        re.IGNORECASE,
-    )
-    loose_pattern = re.compile(
-        r"ENHANCED_TITLE:\s*(.*?)\s*ENHANCED_BODY:\s*\r?\n([\s\S]*?)(?=(?:\r?\n){0,2}---\s*(?:\r?\n|$)|ENHANCED_TITLE:|$)",
-        re.IGNORECASE,
-    )
-
-    for m in strict_pattern.finditer(text):
-        candidates.append((m.group(1), m.group(2)))
-    for m in loose_pattern.finditer(text):
-        candidates.append((m.group(1), m.group(2)))
-
-    if not candidates:
-        return fallback_title, fallback_body
-    return _pick_best_candidate(candidates, fallback_title, fallback_body)
+    title, body, _ = parse_enhanced_output(text, fallback_title, fallback_body)
+    return title, body
 
 
 def _extract_from_trajectory(traj_path: Path, fallback_title: str, fallback_body: str) -> tuple[str, str]:
@@ -407,8 +390,8 @@ def _run_sweagent_once(
 
 def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     """Enhance using sweagent CLI (native only, no proxy fallback)."""
-    title = issue.get("title", "")
-    body = issue.get("body") or ""
+    title = issue.get("title") or issue.get("instance_id") or ""
+    body = issue.get("body") or issue.get("problem_statement") or ""
     if not _sweagent_available():
         return {
             "enhanced_title": title,

@@ -177,7 +177,7 @@ def _truncate_context(sections: list[str], max_chars: int) -> str:
 
 def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     """Enhance issue by adding real code context from Docker and dataset metadata."""
-    title = issue.get("title", "")
+    title = issue.get("title") or issue.get("instance_id") or ""
     body = issue.get("body") or issue.get("problem_statement") or ""
     instance_id = issue.get("instance_id", "")
 

@@ -189,7 +189,7 @@ def enhance_issue(
     Returns:
         dict with enhanced_title, enhanced_body, enhancement_metadata
     """
-    title = issue.get("title", "")
+    title = issue.get("title") or issue.get("instance_id") or ""
     body = issue.get("body") or issue.get("problem_statement") or ""
     instance_id = issue.get("instance_id", "")
 

@@ -2,6 +2,31 @@
 
 ## Canonical Experiment Track
 
+### Current Stage 2 Full Track (2026-05-24)
+
+- Workflow: 7-Stage Enhancer+Solver Agentic Workflow
+- Dataset: 2,900 viable issues (filtered from 3,285 original issues)
+- Stage 0 & 0.5: Collection & Classification (`data/stage2_2026_viable.jsonl`)
+- Stage 1: RepoLaunch Setup (In Progress via `paul-RepoLaunch`)
+- Stages 2-6: Organize, Validate, Enhance, Solve, Compare (Pending)
+- Status: Running locally with 4 workers and 900s Ollama timeout to manage GPU load.
+
+### Pouya-20 Track (current as of 2026-05-09)
+
+- Main workflow: `scripts/workflows/run_pouya20_gpt54mini.py`
+- Dataset: `runs/pouya_final20b_20260505_050130/validated_instances.jsonl`
+- Baseline: `runs/pouya_solver20_20260505_063614/`
+- Native CLI validation: `runs/native_cli_pouya5_20260509/SUMMARY.json`
+- Validation report: `analysis/NATIVE_CLI_POUYA5_VALIDATION_2026-05-09.md`
+- Pouya-5 solver comparison: `runs/pouya5_native_solver_comparison_20260509/summary.json`
+- Solver comparison report: `analysis/POUYA5_NATIVE_SOLVER_COMPARISON_2026-05-09.md`
+
+The corrected Pouya-5 native CLI validation confirms 25/25 real native enhancements across `aider`, `trae`, `openhands`, `mini_swe_agent`, and `swe_agent`. SWE-agent now parses benchmark enhancements from trajectory only, rejects weak timeout-contaminated bodies, scans multiple trajectory schemas, and preserves valid trajectory output when the CLI times out after writing the enhancement.
+
+The 2026-05-09 Pouya-5 solver comparison found 0 resolved issues for baseline and all native-enhanced conditions. All five enhancers now run end to end with 5/5 solver predictions; `swe_agent` has one empty solver patch.
+
+### Historical GroupC Track
+
 - Workflow script: `scripts/workflows/run_secondpaper10_enhancement_vs_baseline.py`
 - Baseline source: `/home/22pf2/SWE-Bench_Replication`
 - Latest dataset: 50 SWE-bench-Live issues (`data/samples/groupC_swebenchlive_50/`)
@@ -33,11 +58,11 @@
 
 ## Primary Reading Order
 
-1. `groupC_50_issue_experiment_report.md` — Main 50-issue experiment report (all 9 experiments)
-2. `groupA_vs_groupB_vs_groupC_experiment_report.md` — 3x3 cross-group comparison
-3. `COMPREHENSIVE_PROBLEM_ANALYSIS.md` — System-wide audit and root causes
-4. `analysis/VERIFIED10_MULTI_ENHANCER_BUGFIX_RESULTS_2026-03-19.md` — Verified-10 baselines
-5. `guides/WORKFLOW_IMPROVEMENT_PLAN.md`
+1. `archive/groupC_50_issue_experiment_report.md` — Main 50-issue experiment report (all 9 experiments)
+2. `archive/groupA_vs_groupB_vs_groupC_experiment_report.md` — 3x3 cross-group comparison
+3. `archive/COMPREHENSIVE_PROBLEM_ANALYSIS.md` — System-wide audit and root causes
+4. `archive/analysis/VERIFIED10_MULTI_ENHANCER_BUGFIX_RESULTS_2026-03-19.md` — Verified-10 baselines
+5. `archive/guides/WORKFLOW_IMPROVEMENT_PLAN.md`
 
 ## Current Metrics Snapshot (2026-04-14)
 
@@ -68,5 +93,5 @@
 
 ## Historical Material
 
-- `investigation/`, `iterations/`, and `archive/` remain available for prior workflow tracks.
+- `archive/investigation/`, `archive/iterations/`, and `archive/` remain available for prior workflow tracks.
 - Treat them as reference only; do not use them as canonical run instructions.

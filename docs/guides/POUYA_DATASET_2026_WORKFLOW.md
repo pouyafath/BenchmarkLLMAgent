@@ -14,6 +14,15 @@ It wraps the local `SWE-bench-Live-Collection/` assets for crawling, RepoLaunch 
 - `data/samples/pouya_dataset_2026/frozen_50.jsonl`
 - `data/samples/pouya_dataset_2026/rejected_candidates.jsonl`
 
+## The 7-Stage Enhancer+Solver Workflow
+This process covers the following Agentic Pipeline stages:
+- **Stage 0:** Collection & Filtering (3,229 issues via `crawl-repos` and `collect-tasks`)
+- **Stage 0.5:** Classification & Viability (2,900 viable issues via `build-raw-candidates`)
+- **Stage 1:** RepoLaunch Setup (Docker building)
+- **Stage 2:** RepoLaunch Organize (Test extraction)
+- **Stage 3:** Gold Patch Validation (via `run-validation`)
+- **Stage 4-6:** Enhancement and Solver comparison (executed after validation)
+
 ## End-to-End Commands
 
 Prepare the workspace:

@@ -149,7 +149,7 @@ Output (Valid Unified Diff)
 
 ```bash
 # Environment variables
-export OPENAI_API_KEY="sk-proj-..."
+export OPENAI_API_KEY="[REDACTED_OPENAI_API_KEY]"
 export OPENHANDS_SOLVER_MODEL="gpt-4o-mini"
 export OPENHANDS_SOLVER_BASE_URL="https://api.openai.com/v1"
 export OPENHANDS_SOLVER_API_KEY="$OPENAI_API_KEY"

@@ -2,31 +2,45 @@
 
 **Benchmarking LLM-Based Agents for GitHub Issue Enhancement**
 
-## Status Update (2026-05-05) — Pouya-20 Experiment
+## Status Update (2026-05-24) — Stage 2 Full Track (2,900 Issues)
 
-The project has scaled to a **20-instance gold-validated SWE-bench-style dataset** (Pouya-20), with a full baseline vs. 6 enhancer comparison running on **gpt-5.4-mini**.
+The project has scaled to a **7-Stage Enhancer+Solver Agentic Workflow** running on a 2,900-issue dataset.
 
-- **Dataset**: 20 gold-validated instances from Pouya's 2026 GitHub issues collection — all `resolved: true` via F2P+P2P gold evaluation.
+- **Dataset**: 2,900 viable issues (filtered from 3,285 initial SWE-bench-Live candidates)
+- **Workflow**: 7 Stages (Collection -> Classification -> Setup -> Organize -> Validate -> Enhance -> Solve)
+- **Environment Automation**: Local `paul-RepoLaunch` wrapper using `gpt-oss:120b` (Ollama, 4 parallel workers)
+- **Current Phase**: Stage 1 (RepoLaunch Setup) is currently executing.
+
+### The 7-Stage Pipeline
+1. **Stage 0:** Dataset Collection & Filtering (Completed, 3,229 issues)
+2. **Stage 0.5:** Classification & Viability (Completed, 2,900 viable)
+3. **Stage 1:** RepoLaunch Setup (In Progress)
+4. **Stage 2:** RepoLaunch Organize (Waiting)
+5. **Stage 3:** Gold Patch Validation (Not Started)
+6. **Stage 4:** Enhancement Agents (Not Started)
+7. **Stage 5 & 6:** Solver Evaluation & Final Comparison (Not Started)
+
+---
+
+## Historical: Pouya-20 Track (2026-05-11)
+
+### Full 20-Issue Native Enhancer Results (2026-05-11)
+
+| Solver | Baseline | aider | trae | openhands | mini_swe_agent | swe_agent |
+| --- | --- | --- | --- | --- | --- | --- |
+| mini-SWE-agent | 3/20 | 3/20 | 2/20 | 2/20 | 2/20 | 1/20 |
+| SWE-agent | 3/20 | 3/20 | 3/20 | 2/20 | 1/20 | 1/20 |
+| Aider | 2/20 | 3/20 | 2/20 | 1/20 | 2/20 | 1/20 |
+
+Raw LLM follow-up: mini-SWE-agent 3/20, SWE-agent 3/20, Aider 1/20. It is included in the comprehensive report as the `raw_llm` column.
+
+Key finding: native enhancement does **not** improve solver success rate in general. The only positive resolved-count delta is `aider` enhancement with the Aider solver, which solves `aws-powertools__powertools-lambda-python-7026`.
+
+- **Comprehensive report**: `runs/pouya20_comprehensive_solver_enhancer_report_20260511/REPORT.md`
+- **Raw LLM follow-up**: `docs/analysis/POUYA20_RAW_LLM_ENHANCER_2026-05-11.md`
+- **Enhancement data**: `runs/native_cli_gpt54mini_20issues_merged/`
 - **Main script**: `scripts/workflows/run_pouya20_gpt54mini.py`
-- **Baseline**: `mini-SWE-agent v2.2.5 + gpt-5.4-mini` (deterministic, temp=0.0) → **3/20 resolved**
-- **Enhancers tested**: `llm_append_analysis` (direct LLM), `aider`, `trae`, `openhands`, `mini_swe_agent`, `swe_agent` — all using gpt-5.4-mini
-- **Monitoring**: `bench_env/bin/python scripts/watch_enhancers.py --once`
-
-### Enhancer Comparison Results (in progress, 2026-05-05)
-
-| Enhancer | Resolved / 20 | vs Baseline |
-|---|---|---|
-| **Baseline** | **3** | — |
-| `llm_append_analysis` | 3 | = 0 |
-| `aider` | 1* | − 2 |
-| `trae` | 2* | − 1 (new: Flexget-4986) |
-| `openhands` | 3* | = 0 |
-| `mini_swe_agent` | 2* | − 1 |
-| `swe_agent` | running | — |
-
-*Partial results — eval still completing.
-
-See [`docs/POUYA20_EXPERIMENT.md`](docs/POUYA20_EXPERIMENT.md) for full details.
+- **Solver comparison**: `scripts/enhancers/run_pouya5_solver_comparison.py --limit 20`
 
 ---
 
@@ -158,14 +172,25 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-### Pouya-20 (canonical as of 2026-05-05)
+### Stage 2 Full Track (2026-05-24, active)
+
+```bash
+cd /home/22pf2/paul-RepoLaunch
+conda activate paul-repolaunch
+python -m paul.run configs/stage2_2026_full.json
+```
+*(Currently running with 4 workers. Do not exceed 4 workers due to Ollama 120B model constraints).*
+
+See [`paul-RepoLaunch/README.md`](../paul-RepoLaunch/README.md) and [`docs/guides/POUYA_DATASET_2026_WORKFLOW.md`](docs/guides/POUYA_DATASET_2026_WORKFLOW.md) for full execution details.
+
+### Legacy: Pouya-20 (canonical as of 2026-05-05)
 
 ```bash
 cd /home/22pf2/BenchmarkLLMAgent
 
-# Run a new enhancer on the existing 20 gold-validated instances
-# (skips RepoLaunch + Gold Eval + Baseline — reuses canonical results)
-export OPENAI_API_KEY="your_key_here"
+# Run a new enhancer on the existing 20 gold-validated instances.
+# Keep the real key in an ignored local file; see docs/archive/API_KEY_HANDLING.md.
+export OPENAI_API_KEY_FILE="$PWD/.claude/settings.local.json"
 bench_env/bin/python scripts/workflows/run_pouya20_gpt54mini.py \
   --run-dir runs/my_new_run \
   --limit 20 \
@@ -181,7 +206,7 @@ bench_env/bin/python scripts/watch_enhancers.py --once
 watch -n 30 'cd /home/22pf2/BenchmarkLLMAgent && bench_env/bin/python scripts/watch_enhancers.py --once'
 ```
 
-See [`docs/WORKFLOW_SCRIPT_REFERENCE.md`](docs/WORKFLOW_SCRIPT_REFERENCE.md) for all CLI flags, pipeline stages, and the full pre-seeding recipe.
+See [`docs/archive/WORKFLOW_SCRIPT_REFERENCE.md`](docs/archive/WORKFLOW_SCRIPT_REFERENCE.md) for all CLI flags, pipeline stages, and the full pre-seeding recipe.
 
 ### Legacy: Verified-10 (2026-03-18, historical reference)
 
@@ -194,36 +219,28 @@ cd /home/22pf2/BenchmarkLLMAgent
 
 ## Current Status
 
-### Pouya-20 Experiment (active)
+### Stage 2 Full Pipeline (active)
 
-- **Gold-validated dataset**: ✅ `runs/pouya_final20b_20260505_050130/validated_instances.jsonl` (20 instances, all `resolved: true`)
-- **Baseline solver**: ✅ `runs/pouya_solver20_20260505_063614/` — mini-SWE-agent + gpt-5.4-mini → **3/20 resolved**
-- **Enhancer runs**: ⏳ 5 native-agent runs active in `runs/pouya_enhanced_*_20260505_084500/`
-- **Next goal**: compile final comparison table once `swe_agent` enhancer completes
-
-### Key run directories
-
-| Purpose | Path |
-|---------|------|
-| Gold-validated dataset | `runs/pouya_final20b_20260505_050130/` |
-| Canonical baseline | `runs/pouya_solver20_20260505_063614/` |
-| Enhanced: aider | `runs/pouya_enhanced_aider_20260505_084500/` |
-| Enhanced: trae | `runs/pouya_enhanced_trae_20260505_084500/` |
-| Enhanced: openhands | `runs/pouya_enhanced_openhands_20260505_084500/` |
-| Enhanced: mini_swe_agent | `runs/pouya_enhanced_mini_swe_agent_20260505_084500/` |
-| Enhanced: swe_agent | `runs/pouya_enhanced_swe_agent_20260505_084500/` |
+- **Dataset**: `paul-RepoLaunch/data/stage2_2026_viable.jsonl` (2,900 issues)
+- **Status**: Stage 1 (Setup) is currently executing via `paul-RepoLaunch`.
+- **Dashboard**: Run `watch -c -n 30 python3 /home/22pf2/paul-RepoLaunch/dashboard.py`
 
 ### Legacy status (historical)
 
-- Verified-10 (2026-03-18): mini-SWE-agent + Devstral small 2512, 3/10 resolved across all enhancers
+- Pouya-20 (2026-05-11): 5 native-agent runs completed. No enhancement improvement observed on Aider/SWE-agent.
+- Verified-10 (2026-03-18): mini-SWE-agent + Devstral small 2512, 3/10 resolved across all enhancers.
 - SWE-bench-Live 10 (2026-03-01): gpt-oss:120b, simple_enhancer +0.0361, TRAE +0.0330
 
 ## Key Documents
 
 | Document | Description |
 |----------|-------------|
-| **[`docs/POUYA20_EXPERIMENT.md`](docs/POUYA20_EXPERIMENT.md)** | **Start here** — Full Pouya-20 experiment: dataset, pipeline, results, run directories |
-| **[`docs/WORKFLOW_SCRIPT_REFERENCE.md`](docs/WORKFLOW_SCRIPT_REFERENCE.md)** | CLI reference for `run_pouya20_gpt54mini.py`: all flags, pipeline stages, env vars, progress.json format |
+| **[`docs/guides/POUYA_DATASET_2026_WORKFLOW.md`](docs/guides/POUYA_DATASET_2026_WORKFLOW.md)** | **Start here** — Overview of the current 7-stage dataset and execution workflow. |
+| **[`../paul-RepoLaunch/README.md`](../paul-RepoLaunch/README.md)** | Guide to running Stages 1 and 2 locally via Ollama. |
+| [`docs/README.md`](docs/README.md) | Documentation overview and folder guide |
+| [`docs/MAIN.md`](docs/MAIN.md) | Master documentation index |
+| [`docs/archive/POUYA20_EXPERIMENT.md`](docs/archive/POUYA20_EXPERIMENT.md) | Historical full Pouya-20 experiment: dataset, pipeline, results, run directories |
+| [`docs/archive/WORKFLOW_SCRIPT_REFERENCE.md`](docs/archive/WORKFLOW_SCRIPT_REFERENCE.md) | CLI reference for legacy scripts |
 | [`scripts/watch_enhancers.py`](scripts/watch_enhancers.py) | Live monitoring dashboard for all 5 enhancer runs |
 | `ROADMAP.md` | Step-by-step handoff for next agent/contributor |
 | `docs/README.md` | Documentation overview and folder guide |

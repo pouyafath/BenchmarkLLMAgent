@@ -117,6 +117,146 @@ Each enhancer reads its model/endpoint from env vars at **import time** (module-
 
 > Since these are module-level globals, env vars **must be set before the first import** of the enhancer module. This works correctly when each enhancer run is a separate OS process.
 
+## API Key Handling
+
+Prefer `OPENAI_API_KEY_FILE=$PWD/.claude/settings.local.json` for repeated local runs. The file is ignored by git and can contain either a plain key or JSON with a nested `OPENAI_API_KEY` value. See `docs/API_KEY_HANDLING.md`.
+
+Do not pass real keys as CLI arguments in new scripts. Use subprocess environment variables instead, because command-line arguments can be visible in process lists during long benchmark runs.
+
+---
+
+## Native CLI Pouya-5 Validation
+
+Use this before a full native-agent run when changing native enhancer parsing, prompts, env vars, or CLI integration:
+
+```bash
+cd /home/22pf2/BenchmarkLLMAgent
+bench_env/bin/python scripts/enhancers/run_native_cli_pouya5_validation.py \
+  --limit 5 \
+  --output-dir runs/native_cli_pouya5_YYYYMMDD
+```
+
+Useful focused rerun:
+
+```bash
+bench_env/bin/python scripts/enhancers/run_native_cli_pouya5_validation.py \
+  --limit 5 \
+  --agents swe_agent \
+  --instance-ids PennyLaneAI__pennylane-7474 \
+  --output-dir runs/native_cli_pouya5_sweagent_retry
+```
+
+The 2026-05-09 validation artifact is `runs/native_cli_pouya5_20260509/SUMMARY.json`; the written report is `docs/analysis/NATIVE_CLI_POUYA5_VALIDATION_2026-05-09.md`.
+
+Expected health criteria:
+- `enhancer_type: real`
+- return code `0`
+- changed title and body
+- body length at least 300 characters
+- reproduction/steps content present
+- expected and actual behavior content present
+- `timeout_contaminated: false`
+- native parse source appropriate for the agent (`trajectory` for `trae` and `swe_agent`; file/strict markers for `openhands` and `mini_swe_agent`)
+- `swe_agent` may have `returncode: null` only when `timed_out: true`, `trajectory_used: true`, and the trajectory output passes all quality checks
+
+Note: after reviewer correction, the 2026-05-09 Pouya-5 validation is clean for all five native enhancers. SWE-agent required one timeout-recovered trajectory result on `PennyLaneAI__pennylane-7668`; keep that metadata in future artifacts.
+
+---
+
+## Native CLI Pouya-5 Solver Comparison
+
+Use this after native enhancer validation to verify that enhanced issues can pass through the canonical mini-SWE-agent solver and SWE-bench-Live evaluator:
+
+```bash
+cd /home/22pf2/BenchmarkLLMAgent
+bench_env/bin/python scripts/enhancers/run_pouya5_solver_comparison.py \
+  --output-dir runs/pouya5_native_solver_comparison_YYYYMMDD \
+  --solver-workers 2 \
+  --eval-workers 2
+```
+
+The 2026-05-09 comparison artifact is `runs/pouya5_native_solver_comparison_20260509/summary.json`; the written report is `docs/analysis/POUYA5_NATIVE_SOLVER_COMPARISON_2026-05-09.md`.
+
+Interpretation rules:
+- Count invalid enhancements as unresolved in the effective denominator.
+- Count solver-missing predictions separately from evaluator failures.
+- Count evaluator `empty_patch_ids` as unresolved even when there is no per-instance `report.json`.
+- Do not approve a full 20-issue run from resolved score alone; check `enhancement_failures`, `solver_missing_ids`, `empty_patch_ids`, and `missing_report_ids`.
+
+Current 2026-05-09 Pouya-5 solver result: baseline and all native-enhanced conditions are 0 resolved. All five enhancers have 5/5 solver predictions; `swe_agent` has one empty patch.
+
+---
+
+## Pouya-20 Multi-Solver Comparisons
+
+### Local API Key Storage
+
+Use a local, ignored file for future runs:
+
+```bash
+export OPENAI_API_KEY_FILE=$PWD/.claude/settings.local.json
+```
+
+The workflow scripts default to this path when it exists. Do not pass API keys on command lines; CLI tools can echo command arguments into logs. `.claude/settings.local.json`, `.env`, `.env.local`, and `.secrets/` are ignored by Git.
+
+The full 20-instance track now has three solver views over the same baseline and five native-enhanced datasets:
+
+| Solver | Runner | Artifact |
+|---|---|---|
+| mini-SWE-agent | `scripts/enhancers/run_pouya5_solver_comparison.py` pattern / v2 workflow outputs | `runs/pouya20_solver_comparison_v2/` |
+| SWE-agent | `scripts/enhancers/run_pouya20_sweagent_solver_comparison.py` | `runs/pouya20_sweagent_solver_comparison_20260511/` |
+| Aider | `scripts/enhancers/run_pouya20_aider_solver_comparison.py` | `runs/pouya20_aider_solver_comparison_20260511/` |
+
+Raw LLM enhancement is tracked as a separate non-agent follow-up. Generate it from scratch before using it in solver comparisons:
+
+```bash
+cd /home/22pf2/BenchmarkLLMAgent
+export OPENAI_API_KEY_FILE=$PWD/.claude/settings.local.json
+
+bench_env/bin/python scripts/enhancers/run_raw_llm_pouya20_enhancement.py \
+  --validated runs/pouya_final20b_20260505_050130/validated_instances.jsonl \
+  --output-dir runs/raw_llm_pouya20_YYYYMMDD_fresh \
+  --model gpt-5.4-mini \
+  --base-url https://api.openai.com/v1 \
+  --strategy append_analysis \
+  --workers 2 \
+  --redo
+```
+
+Current raw LLM follow-up artifact:
+
+- `docs/analysis/POUYA20_RAW_LLM_ENHANCER_2026-05-11.md`
+- `runs/pouya20_raw_llm_solver_comparison_20260511/SUMMARY.json`
+
+As of 2026-05-11, raw LLM enhancement completed for 20/20 issues and the solver cells have been rerun after API quota was restored. Results: mini-SWE-agent 3/20, SWE-agent 3/20, Aider 1/20. Include raw LLM in score matrices as the `raw_llm` condition, with caveats for the manually terminated chronos evaluator and the missing mini-SWE-agent prediction on `PennyLaneAI__pennylane-7474`.
+
+Aider solver rerun command:
+
+```bash
+cd /home/22pf2/BenchmarkLLMAgent
+python scripts/enhancers/run_pouya20_aider_solver_comparison.py \
+  --solver-workers 1 \
+  --solver-timeout 900 \
+  --eval-workers 2 \
+  --eval-timeout 300
+```
+
+The Aider solver copies each RepoLaunch image's `/testbed` checkout to a temporary local Git worktree, runs native `bench_env/bin/aider`, writes `preds.json`, and evaluates with the same SWE-bench-Live evaluator. Repos are removed after patch capture unless `AIDER_SOLVER_KEEP_REPOS=1`.
+
+Interpretation rule for cross-solver claims: report deltas per solver, not only aggregate winners. As of 2026-05-11, only the Aider-enhancer/Aider-solver pairing improves resolved count (+1); all other enhancer/solver pairings match or underperform their solver baseline.
+
+Comprehensive report rebuild:
+
+```bash
+cd /home/22pf2/BenchmarkLLMAgent
+python scripts/enhancers/build_pouya20_comprehensive_report.py
+```
+
+Output:
+
+- `runs/pouya20_comprehensive_solver_enhancer_report_20260511/REPORT.md`
+- `runs/pouya20_comprehensive_solver_enhancer_report_20260511/summary.json`
+
 ---
 
 ## Progress File Structure (`progress.json`)

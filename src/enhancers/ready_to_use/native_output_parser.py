@@ -30,13 +30,17 @@ def clean_body(text: str) -> str:
 
 def is_placeholder_title(title: str) -> bool:
     value = (title or "").strip().lower()
-    return not value or any(
+    if not value or value in ("...", "…"):
+        return True
+    return any(
         token in value
         for token in (
             "<improved single-line title>",
             "improved single-line title",
             "<improved single line title>",
             "improved single line title",
+            "<improved title>",
+            "improved title>",
             "<title>",
             "enhanced_title:",
         )

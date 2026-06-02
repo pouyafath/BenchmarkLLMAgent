@@ -1,13 +1,13 @@
 """
 OpenHands-based Issue-Solving Agent.
 
-Uses the OpenHands LLM module to call gpt-oss:120b via Ollama and produce
+Uses the OpenHands LLM module to call gpt-5.4-mini via OpenAI API and produce
 unified diff patches for GitHub issues.
 
 Environment variables (all optional):
-  OPENHANDS_SOLVER_MODEL     - LLM model (default: gpt-oss:120b)
-  OPENHANDS_SOLVER_BASE_URL  - OpenAI-compat base URL (default: http://localhost:11434/v1)
-  OPENHANDS_SOLVER_API_KEY   - API key (default: ollama)
+  OPENHANDS_SOLVER_MODEL     - LLM model (default: gpt-5.4-mini)
+  OPENHANDS_SOLVER_BASE_URL  - OpenAI-compat base URL (default: https://api.openai.com/v1)
+  OPENHANDS_SOLVER_API_KEY   - API key (default: OPENAI_API_KEY env var)
   OPENHANDS_SOLVER_TIMEOUT   - seconds before giving up (default: 600)
 """
 
@@ -28,9 +28,9 @@ from src.utils.patch_sanitizer import PatchSanitizer
 
 logger = logging.getLogger(__name__)
 
-_MODEL = os.environ.get("OPENHANDS_SOLVER_MODEL", "gpt-oss:120b")
-_BASE_URL = os.environ.get("OPENHANDS_SOLVER_BASE_URL", "http://localhost:11434/v1")
-_API_KEY = os.environ.get("OPENHANDS_SOLVER_API_KEY", "ollama")
+_MODEL = os.environ.get("OPENHANDS_SOLVER_MODEL", "gpt-5.4-mini")
+_BASE_URL = os.environ.get("OPENHANDS_SOLVER_BASE_URL", "https://api.openai.com/v1")
+_API_KEY = os.environ.get("OPENHANDS_SOLVER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 _TIMEOUT = int(os.environ.get("OPENHANDS_SOLVER_TIMEOUT", "600"))
 
 SYSTEM_PROMPT = """\
@@ -139,7 +139,7 @@ def run_openhands_solver(
 ) -> dict[str, Any]:
     """Run OpenHands LLM to solve an issue and return a patch.
 
-    Uses the OpenHands LLM module for direct inference with gpt-oss:120b.
+    Uses the OpenHands LLM module for direct inference.
     Returns dict with keys: response, patch, elapsed_s, model, error
     """
     from openhands.core.config import LLMConfig

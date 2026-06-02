@@ -1,21 +1,21 @@
 """
 SWE-agent-based enhancement for Category A.
 
-Uses sweagent CLI (local deployment) pointed at a configured OpenAI-compatible
-endpoint (e.g. vLLM with Devstral).
+Uses sweagent CLI (Docker deployment) pointed at a configured OpenAI-compatible
+endpoint (e.g. OpenAI API with gpt-5.4-mini).
 
 Key design decisions:
-  - Uses ``sweagent run`` with ``--env.deployment.type=local``
-  - Creates a lightweight temp git repo so the agent has a working directory
+  - Uses ``sweagent run`` with ``--env.deployment.type=docker``
+  - Runs the agent inside a python:3.12-slim container (no repo needed)
   - Uses TextProblemStatement with the enhancement prompt
   - Parses the trajectory JSON for ENHANCED_TITLE/ENHANCED_BODY
   - Returns explicit error metadata if sweagent is unavailable/fails
   - No fallback to llm_proxy
 
 Environment variables (all optional):
-  SWEAGENT_BASE_URL   - Base URL for OpenAI-compat endpoint (default: http://127.0.0.1:18000/v1)
-  SWEAGENT_MODEL      - Model name as served by vLLM (default: Devstral-Small-2-24B-Instruct-2512)
-  SWEAGENT_API_KEY    - API key (default: local-devstral)
+  SWEAGENT_BASE_URL   - Base URL for OpenAI-compat endpoint (default: https://api.openai.com/v1)
+  SWEAGENT_MODEL      - Model name (default: gpt-5.4-mini)
+  SWEAGENT_API_KEY    - API key (default: OPENAI_API_KEY env var)
   SWEAGENT_TIMEOUT    - Seconds before giving up (default: 300)
   SWEAGENT_MAX_STEPS  - Max agent steps (default: 10)
   SWEAGENT_TEMPERATURE - Temperature (default: 0)
@@ -42,11 +42,12 @@ from src.enhancers.ready_to_use.native_output_parser import parse_enhanced_outpu
 _SWEAGENT_CLI = "/home/22pf2/BenchmarkLLMAgent/bench_env/bin/sweagent"
 
 # ── defaults (all overridable via env) ────────────────────────────────────
-_BASE_URL   = os.environ.get("SWEAGENT_BASE_URL", "http://127.0.0.1:18000/v1")
-_MODEL      = os.environ.get("SWEAGENT_MODEL",    "Devstral-Small-2-24B-Instruct-2512")
-_API_KEY    = os.environ.get("SWEAGENT_API_KEY",   "local-devstral")
+_BASE_URL   = os.environ.get("SWEAGENT_BASE_URL", "https://api.openai.com/v1")
+_MODEL      = os.environ.get("SWEAGENT_MODEL",    "gpt-5.4-mini")
+_API_KEY    = os.environ.get("SWEAGENT_API_KEY",  os.environ.get("OPENAI_API_KEY", ""))
 _TIMEOUT    = int(os.environ.get("SWEAGENT_TIMEOUT", "300"))
 _MAX_STEPS  = int(os.environ.get("SWEAGENT_MAX_STEPS", "10"))
+_EXECUTION_TIMEOUT = int(os.environ.get("SWEAGENT_EXECUTION_TIMEOUT", "120"))
 _TEMPERATURE = float(os.environ.get("SWEAGENT_TEMPERATURE", "0"))
 _NOOP_MAX_RETRIES = int(os.environ.get("SWEAGENT_NOOP_MAX_RETRIES", "2"))
 _RETRY_TEMPERATURE = float(os.environ.get("SWEAGENT_RETRY_TEMPERATURE", "0.2"))
@@ -92,7 +93,7 @@ def _clean_title(text: str) -> str:
     title = (text or "").strip()
     title = re.sub(r"^[\|\u2502]+\s*", "", title)
     title = re.sub(r"\s*[\|\u2502]+$", "", title)
-    title = title.strip("` ").strip()
+    title = title.strip()
     title = re.sub(r"\s+", " ", title)
     return title
 
@@ -106,13 +107,15 @@ def _clean_body(text: str) -> str:
 
 def _is_placeholder_title(title: str) -> bool:
     t = (title or "").strip().lower()
-    if not t:
+    if not t or t in ("...", "…"):
         return True
     placeholder_tokens = (
         "<improved single-line title>",
         "improved single-line title",
         "<improved single line title>",
         "improved single line title",
+        "<improved title>",
+        "improved title>",
         "<title>",
         "enhanced_title:",
     )
@@ -152,6 +155,30 @@ def _score_candidate(
     return score
 
 
+def _is_quality_body(body: str, fallback_body: str) -> bool:
+    text = (body or "").strip()
+    if (
+        not text
+        or text == (fallback_body or "").strip()
+        or _is_placeholder_body(text)
+        or len(text) < 300
+    ):
+        return False
+
+    lower = text.lower()
+    if "was cancelled because it took more than" in lower:
+        return False
+    if "please try a different command" in lower:
+        return False
+    if "source of this error is if the command is interactive" in lower:
+        return False
+
+    has_summary = "summary" in lower
+    has_steps = "steps" in lower or "reproduce" in lower or "reproduction" in lower
+    has_expected_actual = "expected" in lower and "actual" in lower
+    return has_summary and has_steps and has_expected_actual
+
+
 def _pick_best_candidate(
     candidates: list[tuple[str, str]], fallback_title: str, fallback_body: str
 ) -> tuple[str, str]:
@@ -184,12 +211,28 @@ def _parse_output(text: str, fallback_title: str, fallback_body: str) -> tuple[s
 def _extract_from_trajectory(traj_path: Path, fallback_title: str, fallback_body: str) -> tuple[str, str]:
     """Parse sweagent trajectory JSON for enhanced content."""
     candidates: list[tuple[str, str]] = []
+
+    def add_candidate(content: Any) -> None:
+        if not isinstance(content, str) or not content.strip():
+            return
+        lowered = content.lower()
+        has_markers = "enhanced_title:" in lowered or "enhanced_body:" in lowered
+        has_issue_sections = (
+            ("## summary" in lowered or "### summary" in lowered)
+            and ("reproduce" in lowered or "steps" in lowered)
+            and "expected" in lowered
+            and "actual" in lowered
+        )
+        if has_markers or has_issue_sections:
+            candidates.append(_parse_output(content, fallback_title, fallback_body))
+
     try:
         traj = json.loads(traj_path.read_text(encoding="utf-8"))
         # SWE-agent trajectory has 'history' with messages or 'trajectory' with steps
         # Try multiple known formats
         history = traj.get("history", [])
         trajectory = traj.get("trajectory", [])
+        messages = traj.get("messages", [])
 
         # Check history messages
         for msg in reversed(history):
@@ -198,23 +241,29 @@ def _extract_from_trajectory(traj_path: Path, fallback_title: str, fallback_body
                 content = msg.get("content", "") or msg.get("response", "") or ""
             elif isinstance(msg, str):
                 content = msg
-            if "ENHANCED_TITLE:" in content or "ENHANCED_BODY:" in content:
-                candidates.append(_parse_output(content, fallback_title, fallback_body))
+            add_candidate(content)
+
+        # Check message-format trajectories used by newer SWE-agent versions
+        for msg in reversed(messages):
+            content = ""
+            if isinstance(msg, dict):
+                content = msg.get("content", "") or msg.get("response", "") or ""
+            elif isinstance(msg, str):
+                content = msg
+            add_candidate(content)
 
         # Check trajectory steps
         for step in reversed(trajectory):
             if isinstance(step, dict):
                 for key in ("response", "content", "thought", "action", "observation"):
                     content = step.get(key, "") or ""
-                    if "ENHANCED_TITLE:" in content or "ENHANCED_BODY:" in content:
-                        candidates.append(_parse_output(content, fallback_title, fallback_body))
+                    add_candidate(content)
 
         # Also check top-level info field
         info = traj.get("info", {})
         if isinstance(info, dict):
             submission = info.get("submission", "") or ""
-            if "ENHANCED_TITLE:" in submission or "ENHANCED_BODY:" in submission:
-                candidates.append(_parse_output(submission, fallback_title, fallback_body))
+            add_candidate(submission)
 
     except Exception:
         return fallback_title, fallback_body
@@ -253,7 +302,22 @@ Issue #{num}
 
 
 def _create_sweagent_config(tmpdir: str, temperature: float) -> Path:
-    """Create a minimal sweagent config YAML for issue enhancement."""
+    """Create a minimal sweagent config YAML for issue enhancement.
+
+    Previous failure cause: temperature=0 with gpt-5.x models raises
+    LiteLLM UnsupportedParamsError.  gpt-5 only supports temperature=1.
+    top_p must be null (not 1.0) for the same reason.
+    """
+    # gpt-5.x models only support temperature=1 and reject top_p
+    # Strip provider prefix (e.g. "openai/gpt-5.4-mini" → "gpt-5.4-mini") before check
+    model_base = _MODEL.split("/")[-1].lower()
+    if model_base.startswith("gpt-5"):
+        effective_temperature = 1
+        top_p_line = "    top_p: null"
+    else:
+        effective_temperature = temperature
+        top_p_line = ""
+
     cfg_path = Path(tmpdir) / "sweagent_enhance_config.yaml"
     config_text = f"""\
 agent:
@@ -273,19 +337,20 @@ agent:
     next_step_no_output_template: |-
       Your command ran successfully and did not produce any output.
   tools:
-    execution_timeout: 60
+    execution_timeout: {_EXECUTION_TIMEOUT}
     bundles:
       - path: tools/submit
     parse_function:
       type: single_bash_code_block
   model:
-    name: openai/{_MODEL}
+    name: {_MODEL if "/" in _MODEL else f"openai/{_MODEL}"}
     api_base: {_BASE_URL}
     api_key: {_API_KEY}
     per_instance_cost_limit: 0
     per_instance_call_limit: {_MAX_STEPS}
     total_cost_limit: 0
-    temperature: {temperature}
+    temperature: {effective_temperature}
+{top_p_line}
     delay: 0.0
     retry:
       retries: 3
@@ -328,6 +393,9 @@ def _run_sweagent_once(
             **os.environ,
             "OPENAI_API_KEY": _API_KEY,
         }
+        timed_out = False
+        timeout_stdout = ""
+        timeout_stderr = ""
         try:
             result = subprocess.run(
                 cmd,
@@ -337,16 +405,19 @@ def _run_sweagent_once(
                 cwd=tmpdir,
                 env=env,
             )
+            returncode = result.returncode
+            stdout_preview = (result.stdout or "")[:500]
+            stderr_preview = (result.stderr or "")[:300]
         except subprocess.TimeoutExpired as e:
-            raise TimeoutError(str(e)) from e
-
-        # Parse stdout for ENHANCED_TITLE/ENHANCED_BODY
-        output = (result.stdout or "").strip()
-        output_title, output_body = _parse_output(output, title, body)
-
-        # Also check stderr (sweagent sometimes puts agent output in logs)
-        stderr = (result.stderr or "").strip()
-        stderr_title, stderr_body = _parse_output(stderr, title, body)
+            # SWE-agent may produce the requested enhancement in its trajectory
+            # but fail to call the submit tool before our wall-clock timeout.
+            # Preserve a valid trajectory result instead of discarding it.
+            timed_out = True
+            returncode = None
+            timeout_stdout = e.stdout.decode("utf-8", errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+            timeout_stderr = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            stdout_preview = timeout_stdout[:500]
+            stderr_preview = timeout_stderr[:300]
 
         # Find trajectory files
         traj_title, traj_body = title, body
@@ -363,28 +434,51 @@ def _run_sweagent_once(
                 traj_title, traj_body = _extract_from_trajectory(traj_path, title, body)
                 break
 
-        # Track whether any raw candidate had placeholder text (before fallback replacement)
-        raw_candidates = [(output_title, output_body), (stderr_title, stderr_body), (traj_title, traj_body)]
+        # SWE-agent stdout/stderr are rich execution logs and can contain echoed
+        # prompt fragments or shell-planning text that resembles markers.  Only
+        # trajectory content is accepted as a benchmark enhancement source.
+        labeled = [
+            ("trajectory", traj_title,   traj_body),
+        ]
+
+        # Track whether any raw candidate had placeholder text
         placeholder_detected = any(
             _is_placeholder_title(ct) or _is_placeholder_body(cb)
-            for ct, cb in raw_candidates
-            if ct != title or cb != body  # only check candidates that differ from fallback
+            for _, ct, cb in labeled
+            if ct != title or cb != body
         )
 
-        enh_title, enh_body = _pick_best_candidate(
-            raw_candidates,
-            title,
-            body,
-        )
+        # Pick best candidate and track its source
+        enh_title, enh_body = title, body
+        best_score = _score_candidate(title, body, title, body)
+        parse_source = "none"
+        for src, raw_t, raw_b in labeled:
+            ct = _clean_title(raw_t)
+            cb = _clean_body(raw_b)
+            if _is_placeholder_title(ct):
+                ct = title
+            if _is_placeholder_body(cb):
+                cb = body
+            if cb != body and not _is_quality_body(cb, body):
+                ct = title
+                cb = body
+            score = _score_candidate(ct, cb, title, body)
+            if score > best_score:
+                enh_title, enh_body = ct, cb
+                best_score = score
+                parse_source = src
 
         return {
             "enhanced_title": enh_title,
             "enhanced_body": enh_body,
-            "returncode": result.returncode,
-            "stderr_preview": (result.stderr or "")[:300],
-            "stdout_preview": (result.stdout or "")[:500],
-            "trajectory_used": traj_found,
+            "returncode": returncode,
+            "stderr_preview": stderr_preview,
+            "stdout_preview": stdout_preview,
+            "trajectory_file_exists": traj_found,
+            "trajectory_used": parse_source == "trajectory",
             "placeholder_detected": placeholder_detected,
+            "parse_source": parse_source,
+            "timed_out": timed_out,
         }
 
 
@@ -431,19 +525,6 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 body=body,
                 temperature=temperature,
             )
-        except TimeoutError:
-            return {
-                "enhanced_title": title,
-                "enhanced_body": body,
-                "enhancement_metadata": {
-                    "enhancer_type": "error",
-                    "agent_id": "swe_agent",
-                    "model": _MODEL,
-                    "base_url": _BASE_URL,
-                    "error": f"sweagent timeout after {_TIMEOUT}s",
-                    "attempts": attempts,
-                },
-            }
         except Exception as e:
             run_errors.append(str(e))
             continue
@@ -461,6 +542,7 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 "trajectory_used": run_result.get("trajectory_used"),
                 "enhancement_noop": is_noop,
                 "placeholder_detected": run_result.get("placeholder_detected", False),
+                "timed_out": run_result.get("timed_out", False),
             }
         )
 
@@ -489,9 +571,19 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
 
     enh_title = final_result["enhanced_title"]
     enh_body = final_result["enhanced_body"]
-    returncode = int(final_result.get("returncode", 1))
+    raw_returncode = final_result.get("returncode")
+    returncode = int(raw_returncode) if raw_returncode is not None else None
+    accepted_timeout_trajectory = (
+        returncode is None
+        and final_result.get("timed_out")
+        and final_result.get("trajectory_used")
+        and enh_title != title
+        and enh_body != body
+    )
 
-    if returncode != 0 and enh_title == title and enh_body == body:
+    # Require returncode == 0: a non-zero exit means the CLI itself failed,
+    # even if markers happen to appear in partial output.
+    if returncode != 0 and not accepted_timeout_trajectory:
         return {
             "enhanced_title": title,
             "enhanced_body": body,
@@ -500,6 +592,28 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 "agent_id": "swe_agent",
                 "model": _MODEL,
                 "base_url": _BASE_URL,
+                "error": (
+                    f"sweagent timeout after {_TIMEOUT}s"
+                    if final_result.get("timed_out")
+                    else f"sweagent exited with returncode {returncode}"
+                ),
+                "sweagent_returncode": returncode,
+                "sweagent_stderr_preview": final_result.get("stderr_preview", ""),
+                "trajectory_used": bool(final_result.get("trajectory_used")),
+                "attempts": attempts,
+            },
+        }
+
+    if enh_title == title and enh_body == body:
+        return {
+            "enhanced_title": title,
+            "enhanced_body": body,
+            "enhancement_metadata": {
+                "enhancer_type": "error",
+                "agent_id": "swe_agent",
+                "model": _MODEL,
+                "base_url": _BASE_URL,
+                "error": "sweagent exited 0 but no ENHANCED_TITLE/ENHANCED_BODY markers found",
                 "sweagent_returncode": returncode,
                 "sweagent_stderr_preview": final_result.get("stderr_preview", ""),
                 "trajectory_used": bool(final_result.get("trajectory_used")),
@@ -519,6 +633,13 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
             "sweagent_stderr_preview": final_result.get("stderr_preview", ""),
             "sweagent_stdout_preview": final_result.get("stdout_preview", ""),
             "trajectory_used": bool(final_result.get("trajectory_used")),
+            "parse_source": final_result.get("parse_source", "unknown"),
+            "timed_out": bool(final_result.get("timed_out")),
+            "warning": (
+                f"sweagent timed out after {_TIMEOUT}s after producing parseable trajectory output"
+                if accepted_timeout_trajectory
+                else ""
+            ),
             "enhancement_noop": enh_title == title and enh_body == body,
             "attempt_count": len(attempts),
             "noop_retry_used": len(attempts) > 1,

@@ -6,9 +6,9 @@ enhancement message, parses result. Returns error metadata if aider not found
 (no fallback to LLM proxy).
 
 Environment variables (all optional):
-  AIDER_MODEL      - Model name for aider (default: openai/Devstral-Small-2-24B-Instruct-2512)
-  AIDER_API_BASE   - Base URL for OpenAI-compat endpoint (default: http://127.0.0.1:18000/v1)
-  AIDER_API_KEY    - API key (default: local-devstral)
+  AIDER_MODEL      - Model name for aider (default: openai/gpt-5.4-mini)
+  AIDER_API_BASE   - Base URL for OpenAI-compat endpoint (default: https://api.openai.com/v1)
+  AIDER_API_KEY    - API key (default: OPENAI_API_KEY env var)
   AIDER_TIMEOUT    - Seconds before giving up (default: 300)
 """
 
@@ -27,9 +27,9 @@ _root = _here.parent.parent.parent
 sys.path.insert(0, str(_root))
 
 _AIDER_CLI = "/home/22pf2/BenchmarkLLMAgent/bench_env/bin/aider"
-_MODEL     = os.environ.get("AIDER_MODEL",    "openai/Devstral-Small-2-24B-Instruct-2512")
-_API_BASE  = os.environ.get("AIDER_API_BASE", "http://127.0.0.1:18000/v1")
-_API_KEY   = os.environ.get("AIDER_API_KEY",  "local-devstral")
+_MODEL     = os.environ.get("AIDER_MODEL",    "openai/gpt-5.4-mini")
+_API_BASE  = os.environ.get("AIDER_API_BASE", "https://api.openai.com/v1")
+_API_KEY   = os.environ.get("AIDER_API_KEY",  os.environ.get("OPENAI_API_KEY", ""))
 _TIMEOUT   = int(os.environ.get("AIDER_TIMEOUT", "300"))
 _NOOP_MAX_RETRIES = int(os.environ.get("AIDER_NOOP_MAX_RETRIES", "2"))
 _RETRY_TEMPERATURE = float(os.environ.get("AIDER_RETRY_TEMPERATURE", "0.2"))
@@ -76,6 +76,8 @@ def _is_placeholder_title(title: str) -> bool:
     t = (title or "").strip().lower()
     if not t:
         return True
+    if t in ("...", "…"):
+        return True
     placeholder_tokens = (
         "<improved title>",
         "improved title",
@@ -103,22 +105,158 @@ def _is_placeholder_body(body: str) -> bool:
     return any(tok in b for tok in placeholder_tokens)
 
 
-def _parse_aider_output(content: str, fallback_title: str, fallback_body: str) -> tuple[str, str]:
-    """Extract ENHANCED_TITLE and ENHANCED_BODY from aider's edited file content."""
-    # Aider edits the file in place; content may be the full file
-    title = fallback_title
-    body = fallback_body
+def _body_quality_score(body: str, fallback_body: str) -> int:
+    """Score whether a parsed body looks like a complete enhanced issue."""
+    text = (body or "").strip()
+    if _is_placeholder_body(text) or text == (fallback_body or "").strip():
+        return -10
+
+    lower = text.lower()
+    score = 0
+    if len(text) >= 180:
+        score += 1
+    if len(text) >= 350:
+        score += 2
+    if len(text) >= 700:
+        score += 1
+
+    section_signals = (
+        "## summary",
+        "steps to reproduce",
+        "reproduction steps",
+        "expected behavior",
+        "## expected",
+        "actual behavior",
+        "## actual",
+        "affected",
+        "scope",
+        "relevant files",
+    )
+    score += sum(1 for signal in section_signals if signal in lower)
+
+    if re.search(r"(^|\n)\s*(?:[-*]\s+|\d+\.\s+)", text):
+        score += 1
+    if "```" in text:
+        score += 1
+    return score
+
+
+def _is_quality_body(body: str, fallback_body: str) -> bool:
+    return _body_quality_score(body, fallback_body) >= 4
+
+
+_BOX_CHARS = str.maketrans("", "", "┏┓┗┛┃━╔╗╚╝║═╭╮╰╯│─")
+
+def _strip_terminal_noise(text: str) -> str:
+    """Remove leading terminal box-drawing/formatting lines from aider's rich UI output.
+
+    Aider renders rich panels (e.g. '┏━━━┓\\n┃ GitHub Issue ┃\\n┗━━━┛') when it
+    reads/displays the task file.  These characters leak into the enhanced body
+    when the stdout parse path is taken.  Strip any leading lines that consist
+    almost entirely of box-drawing characters.
+    """
+    lines = text.splitlines()
+    start = 0
+    for i, line in enumerate(lines):
+        cleaned = line.translate(_BOX_CHARS).strip()
+        # A "box" line is one where ≥50% of non-space chars are box-drawing chars
+        original_nonspace = len(line.replace(" ", ""))
+        if original_nonspace > 0 and len(cleaned.replace(" ", "")) / original_nonspace < 0.5:
+            start = i + 1
+        else:
+            break
+    return "\n".join(lines[start:]).strip()
+
+
+def _parse_aider_output(content: str, fallback_title: str, fallback_body: str) -> tuple[str, str, str]:
+    """Extract ENHANCED_TITLE and ENHANCED_BODY from aider's edited file content.
+
+    Returns (title, body, parse_source). Tries three formats in order:
+    1. Explicit markers: ENHANCED_TITLE: ... / ENHANCED_BODY: ...
+    2. Known section pairs: ## Enhanced Title + ## Enhanced Body,
+       ## Title + ## Description, ## Improved Title + ## Improved Body
+    """
+    candidates: list[tuple[str, str, str]] = []
+
+    # Format 1: ENHANCED_TITLE: / ENHANCED_BODY: markers
     m = re.search(r"ENHANCED_TITLE:\s*(.+?)(?:\n|$)", content, re.DOTALL)
-    if m:
+    body_m = re.search(r"ENHANCED_BODY:\s*\n([\s\S]*?)(?=---|\Z)", content, re.DOTALL)
+    if m and body_m:
         candidate_title = m.group(1).strip()
-        if not _is_placeholder_title(candidate_title):
-            title = candidate_title
-    m = re.search(r"ENHANCED_BODY:\s*\n([\s\S]*?)(?=---|\Z)", content, re.DOTALL)
-    if m:
-        candidate_body = m.group(1).strip()
-        if not _is_placeholder_body(candidate_body):
-            body = candidate_body
-    return title, body
+        candidate_body = _strip_terminal_noise(body_m.group(1).strip())
+        if (
+            candidate_title
+            and not _is_placeholder_title(candidate_title)
+            and candidate_body
+            and not _is_placeholder_body(candidate_body)
+        ):
+            candidates.append((candidate_title, candidate_body, "explicit_markers"))
+
+    # Format 2: Only accept explicit known title+body section-name pairs.
+    # Do NOT accept arbitrary short/long sections — that is too permissive and
+    # would misparse normal issue markdown (## Steps to Reproduce, etc.).
+    _KNOWN_PAIRS = [
+        # (title_section_name, body_section_name)
+        ("enhanced title",  "enhanced body"),
+        ("improved title",  "improved body"),
+        ("title",           "description"),
+        ("issue title",     "issue body"),
+        ("new title",       "new body"),
+    ]
+    section_re = re.compile(r"^##\s+(.+?)\s*\n([\s\S]*?)(?=^##\s|\Z)", re.MULTILINE)
+    sections: dict[str, str] = {}
+    section_body_starts: dict[str, int] = {}
+    for sec_m in section_re.finditer(content):
+        section_name = sec_m.group(1).strip().lower()
+        sections[section_name] = sec_m.group(2).strip()
+        section_body_starts[section_name] = sec_m.start(2)
+
+    for title_key, body_key in _KNOWN_PAIRS:
+        raw_title = sections.get(title_key, "")
+        body_start = section_body_starts.get(body_key)
+        raw_body = content[body_start:].strip() if body_start is not None else ""
+        candidate_title = raw_title.split("\n")[0].strip()
+        candidate_body  = _strip_terminal_noise(raw_body)
+        if (
+            candidate_title
+            and not _is_placeholder_title(candidate_title)
+            and candidate_title != fallback_title
+            and candidate_body
+            and not _is_placeholder_body(candidate_body)
+            and candidate_body != fallback_body
+        ):
+            candidates.append((candidate_title, candidate_body, f"section_pair:{title_key}+{body_key}"))
+
+    # Format 3: Complete file rewrite — aider replaced the entire task file.
+    # Detected by: H1 header (`# `) that is NOT the original template header
+    # ("# GitHub Issue"), followed by body content.
+    _TEMPLATE_H1 = {"github issue", "github issue\n"}
+    h1_match = re.match(r"^#\s+(.+?)[\r\n]+([\s\S]+)", content.strip())
+    if h1_match:
+        h1_title = h1_match.group(1).strip()
+        h1_body  = _strip_terminal_noise(h1_match.group(2).strip())
+        if (
+            h1_title.lower() not in _TEMPLATE_H1
+            and not _is_placeholder_title(h1_title)
+            and h1_title != fallback_title
+            and h1_body
+            and not _is_placeholder_body(h1_body)
+            and h1_body != fallback_body
+        ):
+            candidates.append((h1_title, h1_body, "h1_rewrite"))
+
+    best = (fallback_title, fallback_body, "none")
+    best_score = -10
+    for cand_title, cand_body, source in candidates:
+        score = _body_quality_score(cand_body, fallback_body)
+        if score > best_score:
+            best = (cand_title, cand_body, source)
+            best_score = score
+
+    if _is_quality_body(best[1], fallback_body):
+        return best
+
+    return fallback_title, fallback_body, "none"
 
 
 def _build_task_text(
@@ -200,25 +338,30 @@ def _run_aider_once(
 
         # Try to parse from the edited file first
         content = issue_path.read_text(encoding="utf-8")
-        file_title, file_body = _parse_aider_output(content, title, body)
+        file_title, file_body, file_parse_source = _parse_aider_output(content, title, body)
 
         # Also try stdout
-        stdout_title, stdout_body = _parse_aider_output(result.stdout or "", title, body)
+        stdout_title, stdout_body, stdout_parse_source = _parse_aider_output(result.stdout or "", title, body)
 
-        # Pick best
-        candidates = [(file_title, file_body), (stdout_title, stdout_body)]
-        best = (title, body)
-        for ct, cb in candidates:
+        # Pick best (file takes priority over stdout)
+        labeled = [
+            ("file",   file_title,   file_body,   file_parse_source),
+            ("stdout", stdout_title, stdout_body, stdout_parse_source),
+        ]
+        best_title, best_body, best_source, best_parse_source = title, body, "none", "none"
+        for src, ct, cb, ps in labeled:
             if ct != title or cb != body:
-                best = (ct, cb)
+                best_title, best_body, best_source, best_parse_source = ct, cb, src, ps
                 break
 
         return {
-            "enhanced_title": best[0],
-            "enhanced_body": best[1],
+            "enhanced_title": best_title,
+            "enhanced_body": best_body,
             "returncode": result.returncode,
             "stderr_preview": (result.stderr or "")[:300],
             "stdout_preview": (result.stdout or "")[:500],
+            "parse_source": best_parse_source,
+            "source": best_source,
         }
 
 
@@ -316,7 +459,9 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     enh_body = final_result["enhanced_body"]
     returncode = int(final_result.get("returncode", 1))
 
-    if returncode != 0 and enh_title == title and enh_body == body:
+    # Require returncode == 0: a non-zero exit means the CLI itself failed,
+    # even if markers happen to appear in partial output.
+    if returncode != 0:
         return {
             "enhanced_title": title,
             "enhanced_body": body,
@@ -325,6 +470,23 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 "agent_id": "aider",
                 "model": _MODEL,
                 "base_url": _API_BASE,
+                "error": f"aider exited with returncode {returncode}",
+                "aider_returncode": returncode,
+                "aider_stderr_preview": final_result.get("stderr_preview", ""),
+                "attempts": attempts,
+            },
+        }
+
+    if enh_title == title and enh_body == body:
+        return {
+            "enhanced_title": title,
+            "enhanced_body": body,
+            "enhancement_metadata": {
+                "enhancer_type": "error",
+                "agent_id": "aider",
+                "model": _MODEL,
+                "base_url": _API_BASE,
+                "error": "aider exited 0 but no ENHANCED_TITLE/ENHANCED_BODY markers found",
                 "aider_returncode": returncode,
                 "aider_stderr_preview": final_result.get("stderr_preview", ""),
                 "attempts": attempts,
@@ -342,6 +504,8 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
             "aider_returncode": returncode,
             "aider_stderr_preview": final_result.get("stderr_preview", ""),
             "aider_stdout_preview": final_result.get("stdout_preview", ""),
+            "parse_source": final_result.get("parse_source", "unknown"),
+            "source": final_result.get("source", "unknown"),
             "enhancement_noop": enh_title == title and enh_body == body,
             "attempt_count": len(attempts),
             "noop_retry_used": len(attempts) > 1,

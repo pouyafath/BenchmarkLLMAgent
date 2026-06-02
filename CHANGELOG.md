@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2026-05-10: Pouya-20 Native CLI Agent Comparison (gpt-5.4-mini)
+
+- **5 native CLI enhancers** validated on 20 issues with gpt-5.4-mini via OpenAI API
+  - Agents: aider, trae, openhands, mini_swe_agent, swe_agent
+  - All confirmed as native CLI (subprocess), no LLM proxy or fallback
+- **Full solver comparison**: enhancer+solver vs baseline solver (mini-SWE-agent)
+- **Results**: Enhancement does not improve solver success rate
+  - Baseline: 3/20 (15%), aider: 3/20, trae: 2/20, openhands: 2/20, mini_swe_agent: 2/20, swe_agent: 1/20
+- **Run dirs**: `runs/native_cli_gpt54mini_20issues_merged/`, `runs/pouya20_native_solver_comparison_fixed/`
+
+### Fixed - 2026-05-10: Native CLI Enhancer Bug Fixes
+
+- **llm_client.py**: Skip `response_format: json_object` for gpt-5.x models (caused HTTP 400)
+- **mini_swe_agent_enhancer.py**: Explicit heredoc prompt for file writing; template placeholder rejection
+- **sweagent_enhancer.py, openhands_enhancer.py**: Fixed double provider prefix (`openai/openai/...`)
+- **.env**: Increased SWEAGENT_TIMEOUT from 300 to 600s
+- **run_pouya5_solver_comparison.py**: Removed over-strict title_changed and keyword hard gates; dynamic total in report
+- **run_native_cli_pouya5_validation.py, run_solving_after_enhancement.py**: Updated stale Ollama/gpt-oss defaults to OpenAI/gpt-5.4-mini
+
 ### Added - 2026-04-12: Code-Context Enhancer + GPT-4o-mini Experiment
 
 - **New `code_context` enhancer** (`src/enhancers/ready_to_use/code_context_enhancer.py`)

@@ -11,9 +11,9 @@ Key design decisions:
 
 Environment variables (all optional):
   TRAE_PROVIDER   - LLM provider for trae-cli (default: openai)
-  TRAE_BASE_URL   - Base URL for OpenAI-compatible endpoint (default: http://localhost:8001/v1)
-  TRAE_MODEL      - Model name as served by vLLM (default: gemma-3-12b-it)
-  TRAE_API_KEY    - API key (default: dummy — vLLM does not require one locally)
+  TRAE_BASE_URL   - Base URL for OpenAI-compatible endpoint (default: https://api.openai.com/v1)
+  TRAE_MODEL      - Model name (default: gpt-5.4-mini)
+  TRAE_API_KEY    - API key (default: OPENAI_API_KEY env var)
   TRAE_TIMEOUT    - Seconds before giving up (default: 180)
 """
 
@@ -36,9 +36,9 @@ _TRAE_CLI = "/home/22pf2/trae-agent/.venv/bin/trae-cli"
 
 # ── defaults (all overridable via env) ──────────────────────────────────────
 _PROVIDER  = os.environ.get("TRAE_PROVIDER",  "openai")
-_BASE_URL  = os.environ.get("TRAE_BASE_URL",  "http://localhost:11434/v1")  # Ollama OpenAI-compat
-_MODEL     = os.environ.get("TRAE_MODEL",     "gpt-oss:120b")
-_API_KEY   = os.environ.get("TRAE_API_KEY",   "ollama")  # Ollama ignores this
+_BASE_URL  = os.environ.get("TRAE_BASE_URL",  "https://api.openai.com/v1")
+_MODEL     = os.environ.get("TRAE_MODEL",     "gpt-5.4-mini")
+_API_KEY   = os.environ.get("TRAE_API_KEY",   os.environ.get("OPENAI_API_KEY", ""))
 _TIMEOUT   = int(os.environ.get("TRAE_TIMEOUT", "300"))   # 5 min — 120B is slower
 _MAX_STEPS = int(os.environ.get("TRAE_MAX_STEPS", "10"))
 _TEMPERATURE = float(os.environ.get("TRAE_TEMPERATURE", "0"))
@@ -90,7 +90,7 @@ def _clean_title(text: str) -> str:
     # Some CLI renderers can surround text with table separators.
     title = re.sub(r"^[\|\u2502]+\s*", "", title)
     title = re.sub(r"\s*[\|\u2502]+$", "", title)
-    title = title.strip("` ").strip()
+    title = title.strip()
     title = re.sub(r"\s+", " ", title)
     return title
 
@@ -104,7 +104,7 @@ def _clean_body(text: str) -> str:
 
 def _is_placeholder_title(title: str) -> bool:
     t = (title or "").strip().lower()
-    if not t:
+    if not t or t in ("...", "…"):
         return True
     placeholder_tokens = (
         "<improved single-line title>",
@@ -358,19 +358,35 @@ models:
         if traj_file.exists():
             traj_title, traj_body = _extract_from_trajectory(traj_file, title, body)
 
-        # Track whether any raw candidate had placeholder text (before fallback replacement)
-        raw_candidates = [(output_title, output_body), (traj_title, traj_body)]
+        # Labeled candidates for source tracking
+        labeled = [
+            ("stdout",     output_title, output_body),
+            ("trajectory", traj_title,   traj_body),
+        ]
+
+        # Track whether any raw candidate had placeholder text
         placeholder_detected = any(
             _is_placeholder_title(ct) or _is_placeholder_body(cb)
-            for ct, cb in raw_candidates
-            if ct != title or cb != body  # only check candidates that differ from fallback
+            for _, ct, cb in labeled
+            if ct != title or cb != body
         )
 
-        enh_title, enh_body = _pick_best_candidate(
-            raw_candidates,
-            title,
-            body,
-        )
+        # Pick best candidate and track its source
+        enh_title, enh_body = title, body
+        best_score = _score_candidate(title, body, title, body)
+        parse_source = "none"
+        for src, raw_t, raw_b in labeled:
+            ct = _clean_title(raw_t)
+            cb = _clean_body(raw_b)
+            if _is_placeholder_title(ct):
+                ct = title
+            if _is_placeholder_body(cb):
+                cb = body
+            score = _score_candidate(ct, cb, title, body)
+            if score > best_score:
+                enh_title, enh_body = ct, cb
+                best_score = score
+                parse_source = src
 
         return {
             "enhanced_title": enh_title,
@@ -378,8 +394,10 @@ models:
             "returncode": result.returncode,
             "stderr_preview": (result.stderr or "")[:300],
             "stdout_preview": (result.stdout or "")[:500],
-            "trajectory_used": traj_file.exists(),
+            "trajectory_file_exists": traj_file.exists(),
+            "trajectory_used": parse_source == "trajectory",
             "placeholder_detected": placeholder_detected,
+            "parse_source": parse_source,
         }
 
 
@@ -489,7 +507,9 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     enh_body = final_result["enhanced_body"]
     returncode = int(final_result.get("returncode", 1))
 
-    if returncode != 0 and enh_title == title and enh_body == body:
+    # Require returncode == 0: a non-zero exit means the CLI itself failed,
+    # even if markers happen to appear in partial output.
+    if returncode != 0:
         return {
             "enhanced_title": title,
             "enhanced_body": body,
@@ -499,6 +519,25 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 "provider": _PROVIDER,
                 "model": _MODEL,
                 "base_url": _BASE_URL,
+                "error": f"trae exited with returncode {returncode}",
+                "trae_returncode": returncode,
+                "trae_stderr_preview": final_result.get("stderr_preview", ""),
+                "trajectory_used": bool(final_result.get("trajectory_used")),
+                "attempts": attempts,
+            },
+        }
+
+    if enh_title == title and enh_body == body:
+        return {
+            "enhanced_title": title,
+            "enhanced_body": body,
+            "enhancement_metadata": {
+                "enhancer_type": "error",
+                "agent_id": "trae",
+                "provider": _PROVIDER,
+                "model": _MODEL,
+                "base_url": _BASE_URL,
+                "error": "trae exited 0 but no ENHANCED_TITLE/ENHANCED_BODY markers found",
                 "trae_returncode": returncode,
                 "trae_stderr_preview": final_result.get("stderr_preview", ""),
                 "trajectory_used": bool(final_result.get("trajectory_used")),
@@ -519,6 +558,7 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
             "trae_stderr_preview": final_result.get("stderr_preview", ""),
             "trae_stdout_preview": final_result.get("stdout_preview", ""),
             "trajectory_used": bool(final_result.get("trajectory_used")),
+            "parse_source": final_result.get("parse_source", "unknown"),
             "enhancement_noop": enh_title == title and enh_body == body,
             "attempt_count": len(attempts),
             "noop_retry_used": len(attempts) > 1,

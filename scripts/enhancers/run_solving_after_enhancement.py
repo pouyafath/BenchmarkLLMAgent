@@ -123,9 +123,9 @@ def run_openai_agents_sdk(issue_context: str) -> dict:
         model = os.environ.get("OPENAI_MODEL", "gemma-3-12b-it")
         api_key = "vllm"
     else:
-        base_url = os.environ.get("OPENAI_BASE_URL", "http://localhost:11434/v1")
-        model = os.environ.get("OPENAI_MODEL", "gpt-oss:120b")
-        api_key = "ollama"
+        base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        model = os.environ.get("OPENAI_MODEL", "gpt-5.4-mini")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
 
     os.environ.setdefault("OPENAI_API_KEY", api_key)
     os.environ.setdefault("OPENAI_BASE_URL", base_url)
@@ -345,7 +345,7 @@ def solve_one_task(task: dict, solver: str, gt_dir: Path, use_openai_sdk: bool, 
             if not patch:
                 patch = extract_patch_from_response(fw_result.get("response", ""))
             elapsed = fw_result["elapsed_s"]
-            model_name = fw_result.get("model", "gpt-oss:120b")
+            model_name = fw_result.get("model", "gpt-5.4-mini")
             error = fw_result.get("error")
         elif use_openai_sdk:
             # --- OpenAI Agents SDK solver ---
@@ -490,7 +490,7 @@ def main() -> None:
         if use_vllm:
             print("  (OpenAI Agents SDK, Gemma 3 12B via vLLM localhost:8001)")
         else:
-            print("  (OpenAI Agents SDK, gpt-oss via Ollama localhost:11434)")
+            print("  (OpenAI Agents SDK, gpt-5.4-mini via OpenAI API)")
     print(f"  Tasks: {len(tasks)}")
     print(f"  Output: {output_dir}")
     print()

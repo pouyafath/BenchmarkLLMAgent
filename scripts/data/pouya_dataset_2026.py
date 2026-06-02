@@ -778,7 +778,7 @@ def cmd_collect_tasks(args: argparse.Namespace) -> None:
         repos = repos[: args.limit_repos]
     cutoff_date = compact_date(args.start_date)
 
-    worker_count = max(1, min(args.max_workers, len(tokens), len(repos)))
+    worker_count = max(1, min(args.max_workers, len(repos)))
     work_queue: Queue[str] = Queue()
     for repo in repos:
         work_queue.put(repo)
@@ -826,7 +826,51 @@ def cmd_collect_tasks(args: argparse.Namespace) -> None:
             progress["updated_at"] = int(time.time())
             write_json(Path(args.progress_file), progress)
 
-    def worker(token: str) -> None:
+    # ── Token pool: rotate on rate-limit, sleep when all exhausted ──────────
+    class TokenPool:
+        def __init__(self, token_list: list[str]) -> None:
+            self._tokens = list(token_list)
+            self._exhausted_until: dict[str, float] = {}
+            self._lock = threading.Lock()
+
+        def get_available(self) -> str | None:
+            now = time.time()
+            with self._lock:
+                for t in self._tokens:
+                    if self._exhausted_until.get(t, 0) <= now:
+                        return t
+            return None
+
+        def mark_exhausted(self, token: str) -> None:
+            reset_at = time.time() + 3600
+            with self._lock:
+                self._exhausted_until[token] = reset_at
+            print(
+                f"[TokenPool] Token ...{token[-6:]} exhausted. "
+                f"Marked unavailable until {time.strftime('%H:%M:%S', time.localtime(reset_at))}"
+            )
+
+        def wait_for_any(self) -> str:
+            while True:
+                token = self.get_available()
+                if token is not None:
+                    return token
+                with self._lock:
+                    next_reset = min(self._exhausted_until.values(), default=time.time() + 60)
+                wait = max(5, next_reset - time.time()) + 5
+                print(
+                    f"[TokenPool] All {len(self._tokens)} tokens rate-limited. "
+                    f"Sleeping {wait:.0f}s until next reset..."
+                )
+                time.sleep(wait)
+
+    token_pool = TokenPool(tokens)
+
+    def _is_rate_limit_error(exc: Exception) -> bool:
+        msg = str(exc)
+        return "RATE_LIMIT" in msg or "'type': 'RATE_LIMIT'" in msg
+
+    def worker() -> None:
         while True:
             try:
                 repo = work_queue.get_nowait()
@@ -843,7 +887,19 @@ def cmd_collect_tasks(args: argparse.Namespace) -> None:
                     )
                     continue
 
-                fetch_pulls_safe(repo, token, cutoff_date)
+                # Retry loop: rotate token on rate-limit, give up on other errors
+                while True:
+                    token = token_pool.wait_for_any()
+                    try:
+                        fetch_pulls_safe(repo, token, cutoff_date)
+                        break  # success — exit retry loop
+                    except Exception as exc:
+                        if _is_rate_limit_error(exc):
+                            token_pool.mark_exhausted(token)
+                            print(f"[{repo}] Rate-limited on ...{token[-6:]}, retrying with next token")
+                            continue
+                        raise  # non-rate-limit error — propagate to outer handler
+
                 if not paths["pull2issue"].exists() or paths["pull2issue"].stat().st_size == 0:
                     print(f"[{repo}] no linked issue->PR pairs found, skipping")
                     update_progress(
@@ -852,6 +908,7 @@ def cmd_collect_tasks(args: argparse.Namespace) -> None:
                     )
                     continue
 
+                token = token_pool.wait_for_any()
                 log_selected_pulls(repo, str(paths["prs"]), str(paths["pull2issue"]), token)
                 build_dataset_main(str(paths["prs"]), str(paths["task"]), token)
 
@@ -873,7 +930,7 @@ def cmd_collect_tasks(args: argparse.Namespace) -> None:
                 work_queue.task_done()
 
     threads = [
-        threading.Thread(target=worker, name=f"collect-tasks-{i+1}", args=(tokens[i],), daemon=True)
+        threading.Thread(target=worker, name=f"collect-tasks-{i+1}", daemon=True)
         for i in range(worker_count)
     ]
     for thread in threads:

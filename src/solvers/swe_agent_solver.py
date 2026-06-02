@@ -36,6 +36,15 @@ _TIMEOUT = int(os.environ.get("SWEA_SOLVER_TIMEOUT", "7200"))
 
 def _build_config_yaml(model: str, base_url: str, api_key: str, max_steps: int) -> str:
     """Build a sweagent YAML config mirroring mini-SWE-agent's SWE-bench framing."""
+    # gpt-5.x only supports temperature=1 and rejects top_p
+    model_base = model.split("/")[-1].lower()
+    config_model = model if "/" in model else f"openai/{model}"
+    if model_base.startswith("gpt-5"):
+        temperature_val = 1
+        top_p_line = "\n    top_p: null"
+    else:
+        temperature_val = 0.0
+        top_p_line = ""
     return f"""\
 agent:
   type: default
@@ -103,13 +112,14 @@ agent:
           {{{{diff}}}}
           </diff>
   model:
-    name: openai/{model}
+    name: {config_model}
     api_base: {base_url}
     api_key: {api_key}
-    temperature: 0.0
+    temperature: {temperature_val}{top_p_line}
     per_instance_cost_limit: 3.0
     per_instance_call_limit: {max_steps}
     total_cost_limit: 0
+    max_input_tokens: 0
     delay: 0.0
     retry:
       retries: 3

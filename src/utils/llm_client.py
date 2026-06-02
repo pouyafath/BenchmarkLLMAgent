@@ -1,9 +1,9 @@
 """
 Unified LLM client for benchmark experiments.
 
-Supports:
-- Ollama (gpt-oss:120b) — default, uses localhost:11434
-- OpenAI-compatible endpoint (e.g., local vLLM) via OPENAI_COMPAT_BASE_URL
+Supports (in priority order):
+- OpenAI-compatible endpoint via OPENAI_COMPAT_BASE_URL (default: gpt-5.4-mini)
+- Ollama (fallback if OPENAI_COMPAT_BASE_URL not set)
 - HuggingFace (google/gemma-2-9b-it) — fallback when Ollama is unavailable
 
 Set USE_OLLAMA=0 to force HuggingFace.
@@ -13,14 +13,14 @@ import os
 import time
 from typing import Optional, Tuple, Dict
 
-# Default: Ollama with gpt-oss:120b; override with USE_OLLAMA=0 to force HuggingFace
+# Default: OpenAI-compat if OPENAI_COMPAT_BASE_URL is set; else Ollama; else HuggingFace
 USE_OLLAMA = os.environ.get("USE_OLLAMA", "1").lower() not in ("0", "false", "no")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 HF_MODEL_ID = "google/gemma-2-9b-it"  # fallback only
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:120b")
 OPENAI_COMPAT_BASE_URL = os.environ.get("OPENAI_COMPAT_BASE_URL", "").rstrip("/")
 OPENAI_COMPAT_API_KEY = os.environ.get("OPENAI_COMPAT_API_KEY", "")
-OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "Devstral-Small-2-24B-Instruct-2512")
+OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-5.4-mini")
 
 
 def _check_ollama_available() -> bool:
@@ -89,16 +89,26 @@ class LLMClient:
         headers = {"Content-Type": "application/json"}
         if OPENAI_COMPAT_API_KEY:
             headers["Authorization"] = f"Bearer {OPENAI_COMPAT_API_KEY}"
+        # Strip provider prefix for model-specific checks (e.g. "openai/gpt-5.4-mini" → "gpt-5.4-mini")
+        _model_base = self.model_id.split("/")[-1].lower()
+        _is_gpt5 = _model_base.startswith("gpt-5")
         payload = {
             "model": self.model_id,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
-            "temperature": self.temperature,
-            "max_tokens": self.max_new_tokens,
-            "response_format": {"type": "json_object"},
         }
+        # gpt-5.x: requires "json" in prompt to use json_object mode; skip it since
+        # enhancement prompts output plain text, not JSON
+        if not _is_gpt5:
+            payload["response_format"] = {"type": "json_object"}
+        # gpt-5.x only supports temperature=1 and rejects the temperature param entirely
+        # when sent at non-default values; omit it to use the model default
+        if not _is_gpt5:
+            payload["temperature"] = self.temperature
+        token_limit_key = "max_completion_tokens" if _is_gpt5 else "max_tokens"
+        payload[token_limit_key] = self.max_new_tokens
         start = time.time()
         r = requests.post(url, json=payload, headers=headers, timeout=600)
         elapsed = time.time() - start

@@ -247,3 +247,6 @@ cd /home/22pf2/BenchmarkLLMAgent
 | `docs/MAIN.md` | Master documentation index |
 | `CONTRIBUTING.md` | How to add agents, run scripts, naming conventions |
 | `docs/archive/` | Historical plans and superseded workflow docs (Verified-10, SWE-bench-Live) |
+
+### Multi-Node Parallelization
+The `paul-RepoLaunch` Stage 1 & 2 processes are distributed across `docjk-gpu-01` and `docjk-gpu-02`. Because Docker instances are not shared across the NFS mount, both nodes utilize a bidirectional "meet-in-the-middle" execution queue to avoid conflicting builds while still saving outputs to a unified network folder. Future stages (e.g. Stage 3 Validation) will also run bidirectionally to maintain Docker context locality.

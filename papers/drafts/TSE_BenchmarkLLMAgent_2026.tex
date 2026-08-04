@@ -1,8 +1,6 @@
 \documentclass[journal]{IEEEtran}
 
-\usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
@@ -10,13 +8,15 @@
 \usepackage{multirow}
 \usepackage{url}
 \usepackage{hyperref}
-\usepackage{balance}
 \usepackage{array}
-\usepackage{tabularx}
-\usepackage{subcaption}
 
 \newcommand{\RQ}[1]{\noindent\textbf{RQ#1}}
 \newcommand{\finding}[1]{\vspace{2pt}\noindent\fbox{\parbox{0.96\columnwidth}{#1}}\vspace{2pt}}
+\newcommand{\ourmethod}{CL-Enhanced}
+% robust figure include: use the PDF if present, else a labelled placeholder box
+\newcommand{\safefig}[3]{%
+  \IfFileExists{#1}{\includegraphics[width=#2]{#1}}%
+  {\fbox{\parbox[c][3.2cm][c]{#2}{\centering\itshape Figure placeholder --- #3}}}}
 
 \begin{document}
 
@@ -32,13 +32,11 @@
 \maketitle
 
 \begin{abstract}
-GitHub issues serve as the primary communication channel between users and developers for reporting bugs, requesting features, and proposing refactoring tasks. However, issue descriptions are frequently vague, incomplete, or lacking essential technical details, which hinders both human developers and automated issue-solving agents. Recent advances in Large Language Model (LLM)-based agents offer the potential to automatically enhance issue descriptions by adding relevant context, clarifying ambiguities, and structuring information. Yet, no systematic benchmark exists to evaluate how well these agents enhance issues or whether such enhancement improves downstream automated solving.
-
-In this paper, we present a large-scale benchmark for evaluating LLM-based agents on the task of GitHub issue enhancement. We construct a dataset of 3,285 issue instances drawn from 613 popular Python repositories, classified into bug (2,111), feature (993), and refactoring (181) categories. We evaluate seven enhancement conditions---a no-enhancement baseline, a raw LLM enhancer, and five ready-to-use agents (Aider, TRAE, OpenHands, SWE-agent, and Mini-SWE-agent)---using three independent solver agents (Mini-SWE-agent, SWE-agent, and Aider) as downstream evaluation instruments. Enhancement quality is measured indirectly through the solving-as-evaluation paradigm: the change in solver success rate before and after issue enhancement. Our results show that (1) enhancement agents vary substantially in their ability to modify issue descriptions, with OpenHands achieving the highest enhancement coverage; (2) qualitative analysis reveals that successful enhancements restructure issues around actionable information rather than merely appending analysis; and (3) targeted tool-augmented enhancement strategies can recover cases that no single agent improves alone. We release the benchmark, the evaluation pipeline, and all experimental artifacts to support future research.
+GitHub issues serve as the primary communication channel between users and developers for reporting bugs, requesting features, and proposing refactoring tasks. Issue descriptions are frequently vague, incomplete, or lacking essential technical details, which hinders both human developers and automated issue-solving agents. Large Language Model (LLM)-based agents offer the potential to automatically \emph{enhance} issue descriptions by adding context, clarifying ambiguities, and structuring information. If agents solve issues from text, better text should mean better fixes. We test this assumption directly and at scale. We construct a SWE-bench-Live--style benchmark of 3,285 issue instances from 613 popular Python repositories and, from it, a validated execution subset of \textbf{382 issues}, each with a buildable Docker environment and a gold patch. On this subset we run a full \textbf{enhancer $\times$ solver matrix}: coding agents used as \emph{enhancers} (OpenHands, SWE-agent, Aider), a reward-gated selective enhancer (\ourmethod{}), and a no-enhancement baseline, against the same agents used as \emph{solvers} --- all driven by a single open-weight model (Qwen3-32B) to isolate the enhancement variable. We evaluate not ``did the patch change'' but ``does the patch \textbf{pass the repository's tests}'', using a gold-patch-gated, multi-method evaluability protocol that yields \textbf{279 of 382 issues (73.0\%)} as trustworthy to evaluate. Our results show that: (1) across every enhancer $\times$ solver pairing, issue enhancement produces \textbf{no statistically significant improvement in fix correctness} (paired McNemar exact test, all $p \ge 0.489$); the one promising small-sample signal weakened rather than strengthened as the sample grew, the signature of a non-effect; solver choice, not the wording of the report, dominates outcome (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%). (2) No feature --- across an 81-feature SE representation plus 500 TF-IDF terms --- predicts a better enhancement under either an intrinsic (reward-model) or a downstream definition of success (all models at chance, ROC-AUC $\approx 0.49$--$0.56$); strikingly, enhancement \emph{does} raise the intrinsic quality score (57\% of reports improve) yet yields no downstream correctness gain, so \textbf{text-quality improvements do not transfer to program repair}. (3) A qualitative analysis characterizes how the agents rewrite --- a uniform Problem/Reproduction/Expected template that lifts the quality score but, being often unfounded, does not help the solver. We release the benchmark, the evaluation pipeline, and all experimental artifacts.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Software Engineering, GitHub Issues, Issue Enhancement, LLM-Based Agents, SWE-bench, Automated Program Repair, Benchmark
+Software Engineering, GitHub Issues, Issue Enhancement, LLM-Based Agents, SWE-bench, Automated Program Repair, Benchmark, Negative Results.
 \end{IEEEkeywords}
 
 %==============================================================================
@@ -50,11 +48,9 @@ GitHub issues are the primary mechanism through which developers and users commu
 
 In practice, however, issue descriptions are frequently incomplete, vague, or poorly structured. Prior work on bug report quality has shown that missing reproduction steps, ambiguous descriptions, and insufficient context are among the most common reasons for delayed or failed issue resolution~\cite{bettenburg2008what, zimmermann2010what}. This quality gap is particularly consequential for automated issue-solving systems, which rely on the issue description as their sole input for generating code patches~\cite{jimenez2024swebench, yang2024swe}.
 
-The recent emergence of LLM-based coding agents---such as OpenHands~\cite{wang2024openhands}, SWE-agent~\cite{yang2024swe}, Aider~\cite{aider2024}, and TRAE~\cite{trae2025}---has opened a new possibility: using these agents not only to \emph{solve} issues but also to \emph{enhance} issue descriptions before solving. An enhancement agent can analyze the codebase, identify relevant source files, extract failing test information, and restructure the issue description to provide a clearer specification. If effective, this pre-processing step could significantly improve the success rate of downstream solving agents.
+The emergence of LLM-based coding agents---such as OpenHands~\cite{wang2024openhands}, SWE-agent~\cite{yang2024swe}, Aider~\cite{aider2024}, and AutoCodeRover~\cite{zhang2024autocoderover}---has opened a new possibility: using these agents not only to \emph{solve} issues but also to \emph{enhance} issue descriptions before solving. An enhancement agent can analyze the codebase, identify relevant source files, extract failing test information, and restructure the issue description to provide a clearer specification. If effective, this pre-processing step could improve the success rate of downstream solving agents. This hypothesis motivates a growing line of issue-enhancement tools, including reward-gated report rewriting. Yet enhancement is almost always evaluated \emph{intrinsically}---does the rewritten report score higher on a text-quality metric---and rarely \emph{extrinsically}: does a better report actually cause a better downstream fix.
 
-Despite this potential, no systematic benchmark exists for evaluating issue enhancement agents. Existing benchmarks such as SWE-bench~\cite{jimenez2024swebench} and SWE-bench-Live~\cite{zhang2025swebenchlive} focus exclusively on issue \emph{solving}, treating the issue description as a fixed input. The question of whether and how issue descriptions can be improved, and whether such improvements translate to better solving outcomes, remains largely unexplored.
-
-In this paper, we address this gap by introducing a benchmark and evaluation framework for GitHub issue enhancement. Our approach is built on the \emph{solving-as-evaluation} paradigm: we measure the quality of an enhancement not through subjective text ratings but through its downstream effect on solver performance. Formally, for an enhancement agent $E$ and a solver agent $S$, the enhancement value is:
+This paper closes that gap. Existing benchmarks such as SWE-bench~\cite{jimenez2024swebench} and SWE-bench-Live~\cite{zhang2025swebenchlive} focus exclusively on issue \emph{solving}, treating the issue description as a fixed input. We instead treat the issue text as a \emph{manipulable} stage. Our approach is built on the \emph{solving-as-evaluation} paradigm: we measure the quality of an enhancement not through subjective text ratings but through its downstream effect on solver performance. Formally, for an enhancement agent $E$ and a solver agent $S$, the enhancement value is:
 \begin{equation}
 \Delta_{\text{resolved}} = \text{Resolved}(S, E(\text{issue})) - \text{Resolved}(S, \text{issue})
 \label{eq:enhancement_value}
@@ -62,32 +58,25 @@ In this paper, we address this gap by introducing a benchmark and evaluation fra
 
 \noindent where a positive $\Delta_{\text{resolved}}$ indicates that enhancement improved solving performance. This indirect evaluation provides an objective, reproducible measure of enhancement quality that is grounded in functional correctness.
 
-Our study analyzes GitHub issue enhancement along the following three research questions:
+Our study analyzes GitHub issue enhancement along three research questions, each with its own method:
 
-\textbf{RQ1: How do ready-to-use agents compare in their ability to enhance GitHub issue descriptions?}
+\textbf{RQ1: What is the ability of generative AI in enhancing GitHub issue reports?} We benchmark an enhancer--solver agentic workflow: each enhancer rewrites the report, each solver then attempts a patch, and we measure enhancement ability by whether the resulting patch passes the repository's tests. We evaluate a no-enhancement baseline plus enhancers of increasing sophistication across three solver agents, holding the model fixed.
 
-Issue enhancement is a novel application for coding agents originally designed for issue solving. Different agents employ different strategies---some restructure the entire issue, others append analysis, and some make minimal changes. Understanding how these agents compare in their enhancement behavior and downstream impact is essential for practitioners selecting enhancement tools. To address this, we evaluate seven enhancement conditions across three solver agents and measure both enhancement coverage and solving-outcome deltas.
+\textbf{RQ2: What features are related to a better enhancement?} We fit a logistic regression over textual, structural, and enhancement-derived features to identify which are associated with a successful enhancement outcome, under both an intrinsic (reward-model) and an extrinsic (downstream-fix) definition of success.
 
-\textbf{RQ2: How do these improved issues get enhanced? What are the reasons for failure and success?}
-
-Beyond aggregate performance metrics, understanding \emph{why} certain enhancements succeed and others fail is critical for improving enhancement strategies. We conduct a qualitative analysis of enhanced issue descriptions, categorizing enhancement patterns and identifying the characteristics that distinguish successful enhancements from harmful ones.
-
-\textbf{RQ3: How can we improve issues that were not improved before?}
-
-Some issues resist improvement by any single enhancement agent. We investigate whether combining agents with targeted tool augmentation---such as injecting code context, failing test names, or developer hints---can recover these difficult cases.
+\textbf{RQ3: How are GitHub issue reports enhanced by generative-AI agents?} We perform a qualitative analysis of the agent-generated reports to characterize recurring enhancement patterns and the failure modes that explain the RQ1 result.
 
 The main contributions of this paper are as follows:
-
 \begin{enumerate}
-\item We construct a large-scale dataset of 3,285 GitHub issue instances from 613 repositories, classified into bug, feature, and refactoring categories, suitable for evaluating issue enhancement.
-\item We propose the \emph{solving-as-evaluation} framework, which measures enhancement quality through downstream solver performance rather than subjective text assessment.
-\item We provide a comprehensive comparison of seven enhancement conditions across three solver agents, revealing that enhancement is not universally beneficial and that agent choice significantly affects outcomes.
-\item We identify actionable enhancement patterns through qualitative analysis of successful and failed enhancements.
-\item We demonstrate that tool-augmented enhancement strategies (e.g., code-context injection) can achieve positive deltas on datasets where all other enhancers fail.
+\item We construct a large-scale dataset of 3,285 GitHub issue instances from 613 repositories, and a validated execution subset of 382 instances each with a buildable environment and gold patch, suitable for the extrinsic evaluation of issue enhancement.
+\item We propose and apply the \emph{solving-as-evaluation} framework, measuring enhancement quality through downstream solver performance under a controlled model rather than subjective text assessment.
+\item We provide a large-scale extrinsic benchmark (RQ1) whose finding is a \textbf{rigorous negative result}: no enhancement condition reliably improves fix correctness at any tested scale, and the one small-sample signal is traced to sampling noise by replication.
+\item We provide a feature-level (RQ2) and qualitative (RQ3) account of which report/enhancement properties and rewrite behaviors relate to enhancement outcomes, surfacing an intrinsic-improves / extrinsic-flat gap.
+\item We contribute an evaluation methodology---a gold-patch-gated, three-method evaluability gate (73.0\% coverage, 279/382) with an artifact-recovery discipline---that we argue is a prerequisite for trustworthy agent-repair measurement.
 \item We release the benchmark dataset, evaluation pipeline, and all experimental artifacts in our replication package~\cite{replication2026}.
 \end{enumerate}
 
-The rest of the paper is organized as follows: Section~\ref{sec:background} discusses the background and related work. Section~\ref{sec:methodology} presents our methodology, including dataset construction and the evaluation framework. Section~\ref{sec:results} presents the results for each research question. Section~\ref{sec:discussion} discusses the implications of our findings. Section~\ref{sec:threats} discusses threats to validity. Section~\ref{sec:conclusion} concludes the paper.
+The rest of the paper is organized as follows: Section~\ref{sec:background} discusses background and related work. Section~\ref{sec:methodology} presents our methodology. Section~\ref{sec:results} presents the results for each research question. Section~\ref{sec:discussion} discusses implications. Section~\ref{sec:threats} discusses threats to validity. Section~\ref{sec:conclusion} concludes.
 
 %==============================================================================
 \section{Background and Related Work}
@@ -96,458 +85,278 @@ The rest of the paper is organized as follows: Section~\ref{sec:background} disc
 
 \subsection{Issue Report Quality}
 
-The quality of bug reports and issue descriptions has been extensively studied in software engineering research. Bettenburg et al.~\cite{bettenburg2008what} surveyed developers and found that steps to reproduce, stack traces, and test cases are the most valuable elements in bug reports, yet they are frequently missing. Zimmermann et al.~\cite{zimmermann2010what} identified that incomplete information is the primary barrier to bug fixing, with 45\% of reports lacking sufficient detail.
+The quality of bug reports and issue descriptions has been extensively studied. Bettenburg et al.~\cite{bettenburg2008what} surveyed developers and found that steps to reproduce, stack traces, and test cases are the most valuable elements in bug reports, yet they are frequently missing. Zimmermann et al.~\cite{zimmermann2010what} identified that incomplete information is the primary barrier to bug fixing, with a large fraction of reports lacking sufficient detail.
 
-Several approaches have been proposed to improve bug report quality. Duplicate detection systems~\cite{sun2011towards, lazar2014generating} help reduce redundant reports. Automated triaging~\cite{anvik2006should, murphy2004automatic} routes reports to appropriate developers. More recently, approaches that automatically augment bug reports with relevant source code~\cite{wong2014autolocate, moreno2015arena} have shown promise.
-
-Our work differs from these prior approaches by leveraging LLM-based agents as enhancement tools rather than rule-based or retrieval-based augmentation. Furthermore, we measure enhancement quality through downstream solving impact rather than human judgment.
+Several approaches have been proposed to improve bug report quality. Duplicate detection systems~\cite{sun2011towards, lazar2014generating} help reduce redundant reports. Automated triaging~\cite{anvik2006should, murphy2004automatic} routes reports to appropriate developers. More recently, approaches that automatically augment bug reports with relevant source code~\cite{wong2014autolocate, moreno2015arena} have shown promise. All of this measures quality \emph{intrinsically} (a text or model score). To our knowledge no prior study measures whether such rewriting propagates to downstream \emph{repair correctness}, which is the gap we close. Our work also differs by leveraging LLM-based agents as enhancement tools rather than rule-based or retrieval-based augmentation.
 
 \subsection{SWE-bench and Issue-Solving Benchmarks}
 
-SWE-bench~\cite{jimenez2024swebench} introduced a benchmark of 2,294 software engineering problems drawn from real GitHub issues across 12 popular Python repositories. Given a codebase and an issue description, a model generates a patch that is evaluated against unit tests. The benchmark uses two test categories: \emph{fail-to-pass} (F2P) tests that should change from failing to passing after the patch, and \emph{pass-to-pass} (P2P) tests that must continue passing to ensure no regressions.
-
-SWE-bench-Live~\cite{zhang2025swebenchlive} extended this paradigm with an automatically updatable benchmark spanning 93 repositories and 1,319 tasks derived from issues created since 2024, addressing staleness and limited repository coverage.
-
-Our work builds on the SWE-bench evaluation infrastructure but shifts the focus from issue \emph{solving} to issue \emph{enhancement}. We reuse the solving step as an evaluation instrument rather than the primary task.
+SWE-bench~\cite{jimenez2024swebench} introduced a benchmark of software engineering problems drawn from real GitHub issues. Given a codebase and an issue description, a model generates a patch evaluated against unit tests. The benchmark uses two test categories: \emph{fail-to-pass} (F2P) tests that should change from failing to passing after the patch, and \emph{pass-to-pass} (P2P) tests that must continue passing to ensure no regressions. SWE-bench-Live~\cite{zhang2025swebenchlive} extended this paradigm with an automatically updatable benchmark spanning many repositories and tasks derived from recent issues, addressing staleness and limited coverage. These systems are evaluated on the \emph{fix}; the issue text is taken as fixed input. We reuse the solving step as an evaluation instrument and ask whether \emph{improving} the issue text changes the fix---an extrinsic question these benchmarks do not pose.
 
 \subsection{LLM-Based Coding Agents}
 
-The rapid development of LLM-based coding agents has produced a diverse ecosystem of tools capable of interacting with codebases, executing commands, and generating patches. SWE-agent~\cite{yang2024swe} introduces an agent-computer interface designed for software engineering tasks. OpenHands~\cite{wang2024openhands} provides a platform for AI-powered software development agents with support for multiple agent architectures. Aider~\cite{aider2024} is a command-line tool for AI-assisted pair programming. TRAE~\cite{trae2025} is an AI-powered IDE with integrated code understanding capabilities. Mini-SWE-agent is a lightweight solver agent designed for efficient issue resolution with minimal infrastructure requirements.
-
-While these agents were primarily designed for issue solving, their ability to understand code context, identify relevant files, and generate structured analysis makes them natural candidates for issue enhancement---a use case we systematically evaluate in this paper.
+LLM-based coding agents form a diverse ecosystem of tools capable of interacting with codebases, executing commands, and generating patches. SWE-agent~\cite{yang2024swe} introduces an agent-computer interface designed for software engineering tasks. OpenHands~\cite{wang2024openhands} provides a platform for AI-powered software development agents. Aider~\cite{aider2024} is a command-line tool for AI-assisted pair programming. AutoCodeRover~\cite{zhang2024autocoderover} performs autonomous program improvement through structured code search. While designed for solving, their ability to understand code context, identify relevant files, and generate structured analysis makes them natural candidates for issue enhancement---a use case we systematically evaluate.
 
 \subsection{Issue Enhancement}
 
-Issue enhancement refers to the task of automatically improving an issue description by adding relevant context, clarifying ambiguities, restructuring content, or appending diagnostic information. Unlike issue solving, which produces a code patch, enhancement produces an improved textual description that can be consumed by either human developers or automated solvers.
-
-To the best of our knowledge, no prior work has systematically benchmarked issue enhancement agents or measured the downstream solving impact of enhancement. Our work fills this gap by providing both a benchmark and a comprehensive evaluation framework.
+Issue enhancement refers to automatically improving an issue description by adding relevant context, clarifying ambiguities, restructuring content, or appending diagnostic information. Unlike issue solving, which produces a code patch, enhancement produces an improved textual description that can be consumed by either human developers or automated solvers. To the best of our knowledge, no prior work has systematically benchmarked issue enhancement agents or measured the downstream solving impact of enhancement. Our work fills this gap by providing both a benchmark and a comprehensive extrinsic evaluation.
 
 %==============================================================================
 \section{Methodology}
 \label{sec:methodology}
 %==============================================================================
 
-Fig.~\ref{fig:overview} presents an overview of our approach, which consists of two main components: (1)~a data collection and dataset construction pipeline, and (2)~an enhancement-solving-evaluation workflow.
+Fig.~\ref{fig:overview} presents an overview of our approach, which consists of two components: (1)~a data collection and dataset construction pipeline, and (2)~an enhancement--solving--evaluation workflow.
 
 \begin{figure*}[t]
 \centering
-% Placeholder for the overall approach diagram
-\includegraphics[width=0.85\textwidth]{figures/overall_approach.pdf}
-\caption{Overview of our approach. Original issues are processed by seven enhancement conditions (including a no-enhancement baseline). Each enhanced issue is then solved by three independent solver agents. Enhancement quality is measured through the change in solver success rate (Resolved and P2P metrics).}
+\safefig{figures/overall_approach.pdf}{0.85\textwidth}{Overview of the enhancer $\times$ solver workflow}
+\caption{Overview of our approach. Original issues are processed by each enhancement condition (including a no-enhancement baseline). Each enhanced issue is then solved by three independent solver agents. Enhancement quality is measured through the change in solver success rate (Resolved / P2P metrics).}
 \label{fig:overview}
 \end{figure*}
 
 \subsection{Data Collection and Dataset Construction}
 
-We construct a SWE-bench-style benchmark dataset from recent GitHub issues to ensure that the evaluation data postdates the training cutoffs of the LLMs under study. Fig.~\ref{fig:data_collection} illustrates the data collection pipeline, which proceeds through four stages of filtering.
+We construct a SWE-bench-style benchmark from recent GitHub issues to ensure evaluation data postdates the training cutoffs of the LLMs under study. Fig.~\ref{fig:data_collection} illustrates the pipeline.
 
 \begin{figure*}[t]
 \centering
-% Placeholder for the data collection workflow diagram
-\includegraphics[width=0.95\textwidth]{figures/data_collection.pdf}
-\caption{Data collection pipeline. Starting from 10,609 GitHub repositories with more than 1,000 stars, we apply successive filters for language composition, repository activity, issue recency, and merge-based linking to produce 3,285 benchmark-ready instances across 613 repositories.}
+\safefig{figures/data_collection.pdf}{0.95\textwidth}{Data collection pipeline}
+\caption{Data collection pipeline. Starting from GitHub repositories with more than 1,000 stars, we apply successive filters for language composition, activity, recency, and merge-based linking to produce 3,285 benchmark-ready instances across 613 repositories; validated environment construction then yields the 382-instance execution subset used for the enhancer $\times$ solver matrix.}
 \label{fig:data_collection}
 \end{figure*}
 
 \subsubsection{Stage 1: Repository Selection}
-We begin by fetching all GitHub repositories with more than 1,000 stars, yielding 10,609 repositories. We then apply three quality filters:
-\begin{itemize}
-\item \textbf{Language filter:} Python constitutes more than 60\% of the repository's codebase.
-\item \textbf{Fork activity:} The repository has more than 200 forks, indicating active community engagement.
-\item \textbf{Issue and PR volume:} The combined count of issues and pull requests exceeds 200, ensuring sufficient development activity.
-\end{itemize}
-After these filters, 3,621 repositories with 10,463 associated issues remain.
+We fetch GitHub repositories with more than 1,000 stars, yielding 10,609 repositories, and apply three quality filters: \textbf{(i) language}---Python constitutes more than 60\% of the codebase; \textbf{(ii) fork activity}---more than 200 forks; and \textbf{(iii) issue and PR volume}---the combined count exceeds 200. After these filters, 3,621 repositories with 10,463 associated issues remain.
 
 \subsubsection{Stage 2: Temporal Filtering}
-To ensure evaluation data recency and avoid contamination with LLM training data, we apply a cutoff date filter: only issues created after August 1, 2025 are retained. This reduces the dataset to 2,748 repositories with 7,714 issues.
+To ensure recency and avoid training-data contamination, only issues created after August 1, 2025 are retained. This reduces the dataset to 2,748 repositories with 7,714 issues.
 
 \subsubsection{Stage 3: Merge-Based Linking and Test Coverage}
-We retain only issues that satisfy three conditions:
+We retain only issues that (a) were closed by a \emph{merged} pull request (establishing a ground-truth fix); (b) whose PR includes a non-empty code patch and a non-empty test patch; and (c) that have at least one pass-to-pass test ($\text{P2P} > 0$). This yields 613 repositories with 3,285 issues.
+
+\subsubsection{Stage 4: Validated Execution Environments}
+For the extrinsic, execution-based evaluation, each issue must have a reproducible environment in which tests actually run. We build a per-issue Docker image and verify that the repository's designated tests execute and that the gold patch is applicable. The instances that pass this validation on our primary compute node form the \textbf{382-issue execution subset} used for the enhancer $\times$ solver matrix. Each such instance carries a buildable image, a recorded test command, and a gold patch.
+
+\subsection{Issue Enhancement Conditions}
+
+We evaluate a no-enhancement \textbf{baseline} against a ladder of enhancers of increasing sophistication, so that scale of machinery is controlled:
 \begin{itemize}
-\item The issue was closed by a \emph{merged} pull request (establishing a ground-truth fix).
-\item The pull request includes a non-empty code patch and a non-empty test patch (ensuring both a fix and test coverage exist).
-\item The instance has at least one pass-to-pass (P2P) test ($\text{P2P} > 0$), ensuring that regression testing is feasible.
-\end{itemize}
-This yields 613 repositories with 3,285 issues.
-
-\subsubsection{Stage 4: Issue Type Classification}
-Each issue is classified into one of three categories using an LLM-based classifier that examines GitHub labels, issue titles, and issue body text:
-\begin{itemize}
-\item \textbf{Bug} (2,111 issues, 64.2\%): Issues reporting defects, errors, crashes, or regressions.
-\item \textbf{Feature} (993 issues, 30.2\%): Issues requesting new functionality, enhancements, or improvements.
-\item \textbf{Refactoring} (181 issues, 5.5\%): Issues proposing code cleanup, restructuring, or technical debt reduction.
-\end{itemize}
-
-The classification uses a priority-based scheme: GitHub labels take precedence over title keywords, which in turn take precedence over body text keywords. Table~\ref{tab:issue_types} summarizes the classification criteria.
-
-\begin{table}[t]
-\centering
-\caption{Issue Type Classification Criteria}
-\label{tab:issue_types}
-\begin{tabular}{p{1.5cm}p{3.2cm}p{2.5cm}}
-\toprule
-\textbf{Type} & \textbf{Label Keywords} & \textbf{Title Keywords} \\
-\midrule
-Bug & bug, defect, fix, error, crash, regression, type:bug & bug, fix, error, crash \\
-\addlinespace
-Feature & feature, enhancement, improvement, feat, type:feature & feature, enhancement, add support \\
-\addlinespace
-Refactoring & refactor, cleanup, tech-debt, maintenance & refactor, cleanup, tech debt \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Issue Enhancement Agents}
-
-We evaluate seven enhancement conditions, organized into three categories:
-
-\subsubsection{Baseline Conditions}
-\begin{itemize}
-\item \textbf{No Enhancement (Baseline):} The original issue description is passed directly to the solver without modification. This serves as the control condition.
-\item \textbf{Raw LLM:} A general-purpose LLM is prompted to analyze the issue and append a structured analysis section covering potential root causes, affected components, and suggested investigation paths. This measures the value of LLM-generated analysis without agent-level tool use.
-\end{itemize}
-
-\subsubsection{Ready-to-Use Agents}
-These are pre-built coding agents repurposed for issue enhancement. Each agent is given the issue description and access to the repository codebase, and is instructed to enhance the issue description:
-\begin{itemize}
-\item \textbf{Aider}~\cite{aider2024}: A command-line AI pair-programming tool that can analyze code and provide structured responses.
-\item \textbf{TRAE}~\cite{trae2025}: An AI-powered IDE with integrated code understanding that can browse and analyze repository structure.
-\item \textbf{OpenHands}~\cite{wang2024openhands}: A platform for AI-powered software development agents with runtime environment access.
-\item \textbf{SWE-agent}~\cite{yang2024swe}: An agent with a specialized agent-computer interface for navigating and understanding codebases.
-\item \textbf{Mini-SWE-agent}: A lightweight agent that performs targeted code search and analysis with minimal infrastructure overhead.
+\item \textbf{No Enhancement (Baseline):} the original issue is passed directly to the solver. Control condition.
+\item \textbf{Zero-Shot (Raw LLM):} a single LLM call restructures the issue without agent-level tool use, measuring the value of prompt-only rewriting.
+\item \textbf{Ready-to-use agents:} \textbf{OpenHands}~\cite{wang2024openhands}, \textbf{SWE-agent}~\cite{yang2024swe}, and \textbf{Aider}~\cite{aider2024}, each a $\sim$30-step agent loop given the issue and repository access and instructed to enhance the description. These rewrite \emph{unconditionally}.
+\item \textbf{\ourmethod{} (reward-gated):} a managed enhancer that \emph{gates} on a learned reward model and only rewrites reports it judges low-quality, using retrieval-augmented (RAG) grounding. This is a \emph{selective} enhancer (Section~\ref{sec:cl}).
 \end{itemize}
 
 \subsection{Solver Agents}
 
-To evaluate enhancement quality through downstream solving impact, we use three independent solver agents:
+To evaluate enhancement through downstream solving impact, we use three independent solver agents: \textbf{OpenHands}~\cite{wang2024openhands}, \textbf{SWE-agent}~\cite{yang2024swe}, and \textbf{Aider}~\cite{aider2024}, each in solving mode. Using multiple independent solvers reduces the risk that enhancement effects are artifacts of a single solver; an enhancement that helps across solvers provides stronger evidence of genuine quality improvement.
 
-\begin{itemize}
-\item \textbf{Mini-SWE-agent:} A lightweight solving agent that generates patches through iterative code search, analysis, and edit operations. Uses a step-limited execution model with configurable LLM backends.
-\item \textbf{SWE-agent}~\cite{yang2024swe}: A full-featured solving agent with a custom agent-computer interface optimized for repository navigation and patch generation.
-\item \textbf{Aider}~\cite{aider2024}: An AI pair-programming tool used in solving mode, where it generates patches through conversational code editing.
-\end{itemize}
-
-Using multiple independent solvers reduces the risk that enhancement effects are artifacts of a single solver's idiosyncrasies. An enhancement that improves performance across multiple solvers provides stronger evidence of genuine issue quality improvement.
+\textbf{Controlled model.} Every enhancer and solver is driven by a single open-weight model, \textbf{Qwen3-32B}, served from a private inference endpoint at temperature 0.0. Holding the model fixed isolates the \emph{enhancement method} as the only variable, so any difference is attributable to the rewriting, not to model capability. Enhancement and solving execute in isolated Docker environments to prevent cross-contamination.
 
 \subsection{Evaluation Framework}
 \label{subsec:evaluation}
 
-Our evaluation uses the SWE-bench harness~\cite{jimenez2024swebench} to assess solver-generated patches against ground-truth test suites. We report two metrics:
+Our evaluation uses the SWE-bench-Live harness~\cite{zhang2025swebenchlive, jimenez2024swebench} to assess solver-generated patches against ground-truth tests.
 
-\subsubsection{Resolved Rate}
-An instance is marked \emph{resolved} if the solver's generated patch causes all P2P tests to pass (no regressions introduced) and at least one P2P test is observed in the evaluation. Formally:
+\subsubsection{Resolved Rate (P2P)}
+We score a patch as \emph{resolved} if, after applying it (plus the issue's test patch) inside the validated image, the repository's designated P2P tests execute and pass with no failures:
 \begin{equation}
 \text{Resolved} = \begin{cases} 1 & \text{if all P2P tests pass} \wedge |\text{P2P}_{\text{observed}}| > 0 \\ 0 & \text{otherwise} \end{cases}
 \end{equation}
+We report \textbf{P2P-resolved} rather than the stricter SWE-bench F2P criterion because the offline-derived F2P labels proved unusable at this scale---only 4 of 74 evaluable instances carried a gold-passing F2P label---so requiring them would collapse the sample. P2P-resolved is a no-regression + de-facto-fix signal (the applied test patch supplies the fix-relevant tests); we treat it as directional, and Section~\ref{sec:threats} discusses this threat.
 
-\subsubsection{P2P Pass Rate}
-The proportion of pass-to-pass tests that continue passing after applying the solver's patch, measuring regression avoidance:
-\begin{equation}
-\text{P2P Rate} = \frac{|\text{P2P}_{\text{passing}}|}{|\text{P2P}_{\text{total}}|}
-\end{equation}
+\subsubsection{The Evaluability Gate}
+Not every issue can be trusted to evaluate. We gate on a \textbf{gold-patch probe}: an instance is \emph{evaluable} only if the gold patch itself passes under the chosen method. Because a single generic test command fails on many repositories (framework-specific runners, stale node-IDs), we combine three methods per instance and keep whichever the gold patch validates: \textbf{v2}, the repository's real validated test commands recovered from the build; \textbf{v3}, a label-agnostic file-level run (execute the test files, require $\ge 1$ passed and $0$ failed---robust to mislabeled node-IDs); and \textbf{v1}, a generic fallback. This lifted evaluable coverage to \textbf{73.0\% overall (279/382)}---and up to 75.8\% on the largest tranche---versus $\sim$30\% for a single generic method.
 
-\subsubsection{Enhancement Coverage}
-The proportion of issues for which the enhancement agent produced a modified issue description that differs from the original:
-\begin{equation}
-\text{Coverage} = \frac{|\{i : E(i) \neq i\}|}{|I|}
-\end{equation}
+\subsubsection{Enhancement Coverage and Delta}
+\emph{Coverage} is the proportion of issues an enhancer actually modifies, $\text{Coverage} = |\{i : E(i) \neq i\}| / |I|$. The primary comparison metric is the resolved-count \emph{delta} against the baseline (Eq.~\ref{eq:enhancement_value}); a positive delta indicates net improvement, a negative delta indicates that enhancement \emph{harmed} solving.
 
-\noindent where $E(i)$ is the enhanced description and $I$ is the full set of issues. High coverage indicates that the agent actively modifies most issues, while low coverage indicates selective or conservative enhancement.
-
-\subsubsection{Enhancement Delta}
-The primary metric for comparing enhancement conditions against the baseline:
-\begin{equation}
-\Delta_{\text{resolved}} = \frac{\text{Resolved}_{\text{enhanced}} - \text{Resolved}_{\text{baseline}}}{|I|}
-\end{equation}
-
-A positive delta indicates net improvement; a negative delta indicates that enhancement \emph{harmed} solving performance.
-
-\subsection{Experimental Setup}
-
-All experiments use the same set of benchmark instances to ensure comparability across conditions. The experimental workflow proceeds as follows:
-
-\begin{enumerate}
-\item \textbf{Enhancement Phase:} Each issue is processed by each of the seven enhancement conditions, producing seven versions of each issue description (including the unmodified baseline).
-\item \textbf{Solving Phase:} Each of the three solver agents attempts to solve each version of each issue, generating patches.
-\item \textbf{Evaluation Phase:} Generated patches are evaluated against ground-truth test suites using the SWE-bench harness.
-\item \textbf{Comparison Phase:} Solver success rates are compared across enhancement conditions, and deltas are computed relative to the baseline.
-\end{enumerate}
-
-All LLM-based components use a temperature of 0.0 to maximize reproducibility. Enhancement and solving are executed in isolated Docker environments to prevent cross-contamination between runs.
+\subsubsection{Statistics}
+For each enhancer-vs-baseline comparison on a given solver, outcomes are \textbf{paired} (same issues, with vs.\ without enhancement), so we use the \textbf{exact McNemar test} on the discordant pairs and report the pair counts. We report \textbf{Wilson 95\% confidence intervals} on each resolved rate. Effect sizes are absolute differences in resolved count over the fixed evaluable denominator (empty or failed patches count as unresolved).
 
 %==============================================================================
 \section{Results}
 \label{sec:results}
 %==============================================================================
 
-In this section, we present the findings for each of our research questions.
+\subsection{RQ1: What Is the Ability of Generative AI in Enhancing Issue Reports?}
 
-\subsection{RQ1: How Do Ready-to-Use Agents Compare in Their Ability to Enhance GitHub Issue Descriptions?}
-
-\subsubsection{Enhancement Coverage}
-
-Table~\ref{tab:enhancement_coverage} reports the enhancement coverage for each agent. OpenHands achieves the highest coverage at 97.5\%, modifying nearly all issue descriptions. TRAE and SWE-agent achieve moderate coverage, while Raw LLM and Mini-SWE-agent show selective enhancement behavior.
+\subsubsection{The correctness matrix --- no enhancer improves any solver}
+Table~\ref{tab:matrix} gives the final correctness matrix at $n=382$ (279 gold-evaluable issues), with each enhancer compared to the baseline for each solver. \textbf{No enhancer $\times$ solver comparison reaches significance; every $p \ge 0.489$, and the largest absolute effect is 7 issues out of 279.} The one comparison that could be called a ``best case''---Aider-enhancement into the OpenHands solver ($+7$)---is nowhere near significance and is not the pairing any prior signal predicted.
 
 \begin{table}[t]
 \centering
-\caption{Enhancement Coverage by Agent}
-\label{tab:enhancement_coverage}
-\begin{tabular}{lcc}
+\caption{RQ1 correctness matrix at $n=382$: resolved\,/\,279 evaluable (P2P), with $\Delta$ vs.\ baseline and McNemar exact $p$. Rows are solvers, columns enhancers.}
+\label{tab:matrix}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{Enhancement Agent} & \textbf{Coverage} & \textbf{Strategy} \\
+Solver (baseline) & enh: OpenHands & enh: SWE-agent & enh: Aider \\
 \midrule
-No Enhancement (Baseline) & 0\% & --- \\
-Raw LLM & 47.5\% & Append analysis \\
-Aider & 65.0\% & Append analysis \\
-TRAE & 72.5\% & Mixed \\
-OpenHands & 97.5\% & Restructure \\
-SWE-agent & 70.0\% & Mixed \\
-Mini-SWE-agent & 55.0\% & Append analysis \\
+OpenHands (60, 22\%) & 58 ($-2$, .910) & 66 ($+6$, .561)  & 67 ($+7$, .489) \\
+SWE-agent (18, 6\%)  & 18 ($0$, 1.0)   & 19 ($+1$, 1.0)   & 19 ($+1$, 1.0)  \\
+Aider (124, 44\%)    & 125 ($+1$, 1.0) & 119 ($-5$, .649) & 124 ($0$, 1.0)  \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsubsection{Downstream Solving Impact}
-
-Table~\ref{tab:main_results} presents the main results: the number of resolved instances for each enhancer--solver combination on the evaluated benchmark subset. The baseline (no enhancement) serves as the reference for computing deltas.
-
-\begin{table*}[t]
-\centering
-\caption{Resolved Instances by Enhancement Agent and Solver (Pouya-20 Subset, 20 Issues). Bold indicates improvement over baseline; underline indicates degradation.}
-\label{tab:main_results}
-\begin{tabular}{lccc|ccc}
-\toprule
-& \multicolumn{3}{c|}{\textbf{Resolved (out of 20)}} & \multicolumn{3}{c}{\textbf{$\Delta$ vs.\ Baseline}} \\
-\cmidrule(lr){2-4} \cmidrule(lr){5-7}
-\textbf{Enhancement Agent} & \textbf{Mini-SWE} & \textbf{SWE-agent} & \textbf{Aider} & \textbf{Mini-SWE} & \textbf{SWE-agent} & \textbf{Aider} \\
-\midrule
-No Enhancement (Baseline) & 3 & 3 & 2 & --- & --- & --- \\
-Raw LLM & 3 & 3 & 1 & 0 & 0 & \underline{$-1$} \\
-Aider & 3 & 3 & \textbf{3} & 0 & 0 & \textbf{+1} \\
-TRAE & 2 & 3 & 2 & \underline{$-1$} & 0 & 0 \\
-OpenHands & 2 & 2 & 1 & \underline{$-1$} & \underline{$-1$} & \underline{$-1$} \\
-SWE-agent & 1 & 1 & 1 & \underline{$-2$} & \underline{$-2$} & \underline{$-1$} \\
-Mini-SWE-agent & 2 & 1 & 2 & \underline{$-1$} & \underline{$-2$} & 0 \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-\subsubsection{Key Observations}
-
-\textbf{Enhancement is not universally beneficial.} Across all 18 enhancer--solver combinations (excluding baseline), only 1 combination shows a positive delta (Aider enhancement with Aider solver, $+1$), 7 show no change, and 10 show a negative delta. This finding challenges the intuitive assumption that more information always helps.
-
-\textbf{Enhancement aggressiveness correlates with harm.} SWE-agent, which performs the most aggressive issue restructuring, produces the largest negative deltas ($-2$ with both Mini-SWE-agent and SWE-agent solvers). OpenHands, despite having the highest enhancement coverage, also shows consistent negative deltas. Conversely, agents that make more conservative modifications (Raw LLM, TRAE) show smaller or zero deltas.
-
-\textbf{Solver--enhancer affinity exists.} The only positive delta occurs when Aider enhances issues that Aider itself solves. This suggests potential alignment between an agent's enhancement strategy and its own solving approach. Cross-agent enhancement (e.g., SWE-agent enhancing for Mini-SWE-agent solver) tends to be more harmful.
-
-\finding{RQ1 Summary: Enhancement is not universally beneficial. Among seven enhancement conditions tested across three solvers, only one combination produces a positive resolved-count delta (+1). Enhancement aggressiveness correlates with degradation, and solver--enhancer affinity influences outcomes.}
-
-\subsection{RQ2: How Do These Improved Issues Get Enhanced? What Are the Reasons for Failure and Success?}
-
-We conduct a qualitative analysis of the enhanced issue descriptions to understand the characteristics of successful versus harmful enhancements.
-
-\subsubsection{Enhancement Strategy Taxonomy}
-
-We identify three primary enhancement strategies employed by the agents:
-
-\begin{enumerate}
-\item \textbf{Append-Analysis:} The agent appends a structured analysis section to the original issue without modifying the original text. This preserves the developer's original description and adds supplementary information such as potential root causes, affected files, and suggested investigation steps. Used primarily by Raw LLM, Aider, and Mini-SWE-agent.
-
-\item \textbf{Restructure:} The agent rewrites the entire issue description, reorganizing information into a structured format with sections such as ``Problem Description,'' ``Reproduction Steps,'' ``Root Cause Analysis,'' and ``Affected Components.'' Used primarily by OpenHands.
-
-\item \textbf{Mixed:} The agent combines selective restructuring with appended analysis, modifying parts of the original text while adding new sections. Used by TRAE and SWE-agent.
-\end{enumerate}
-
-\subsubsection{Characteristics of Successful Enhancements}
-
-We analyze the one gained instance (Aider enhancement $\rightarrow$ Aider solver) and other cases where enhancement preserved solving success:
-
-\textbf{Actionable specificity.} Successful enhancements add concrete, actionable information---specific file paths, function names, and line numbers---rather than abstract analysis. For example, identifying the exact function containing a bug and the specific condition that triggers it provides the solver with a direct target.
-
-\textbf{Preservation of original context.} Enhancements that preserve the developer's original problem description while adding structured supplementary information tend to perform better than those that rewrite the description entirely.
-
-\textbf{Relevant code context.} Enhancements that include relevant source code snippets from the actual codebase, rather than hypothetical analysis, provide solvers with grounded information they can verify and act upon.
-
-\subsubsection{Characteristics of Failed Enhancements}
-
-We analyze instances where enhancement caused solving regressions:
-
-\textbf{Information dilution.} Some enhancements add extensive but tangential analysis that dilutes the original signal. When a solver processes a significantly longer issue description, it may focus on the appended analysis rather than the core problem statement, leading to misguided patch attempts.
-
-\textbf{Hallucinated analysis.} Agents occasionally generate plausible-sounding but incorrect root cause analyses. When solvers trust this analysis, they produce patches targeting the wrong code locations or addressing nonexistent problems.
-
-\textbf{Structural disruption.} Aggressive restructuring can remove or bury critical information from the original issue. Developers often embed important context implicitly in their problem descriptions, and reformatting can strip this nuance.
-
-\textbf{Conflicting guidance.} When enhancements suggest specific fix approaches, they can conflict with the solver agent's own reasoning, leading to confusion and suboptimal patches.
+\subsubsection{The one promising signal was sampling noise}
+At $n=100$ the headline pairing (OpenHands-enhancement $\rightarrow$ Aider solver) looked promising: $+4$ resolved (30$\rightarrow$34), $p=0.388$. Replication kills it (Table~\ref{tab:scale}): the effect \textbf{shrank toward zero and the $p$-value rose toward 1} as data accumulated---the diagnostic of a non-effect, not of insufficient power. A genuine effect of fixed size sharpens under more data; this did the opposite. The same pattern held for the OpenHands solver, where an $n=74$ ``$+6$'' reversed to $-3$ on a fresh 100 issues before settling near null. Had we stopped at $n=100$, the paper would have carried a false positive.
 
 \begin{table}[t]
 \centering
-\caption{Enhancement Failure Taxonomy}
-\label{tab:failure_taxonomy}
-\begin{tabular}{p{2.5cm}p{1.2cm}p{3.5cm}}
+\caption{OpenHands-enhancement $\rightarrow$ Aider solver, across scales.}
+\label{tab:scale}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{Failure Mode} & \textbf{Frequency} & \textbf{Affected Agents} \\
+Scale & Resolved (base $\rightarrow$ enh) & $\Delta$ & McNemar $p$ \\
 \midrule
-Information dilution & High & All append-strategy agents \\
-Hallucinated analysis & Medium & Raw LLM, Mini-SWE-agent \\
-Structural disruption & Medium & OpenHands, SWE-agent \\
-Conflicting guidance & Low & SWE-agent \\
+$n=100$ (74 eval)  & $30 \rightarrow 34$ & $+4$ & 0.388 \\
+$n=200$ (141 eval) & $64 \rightarrow 66$ & $+2$ & 0.856 \\
+$n=382$ (279 eval) & $124 \rightarrow 125$ & $+1$ & 1.000 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\finding{RQ2 Summary: Successful enhancements add actionable, grounded information while preserving the original issue context. Failures arise from information dilution, hallucinated analysis, structural disruption, and conflicting guidance. Restructuring strategies carry higher risk than append strategies.}
+\subsubsection{Solver choice dominates; enhancement perturbs without direction}
+\label{sec:rq1-solver}
+Two robust facts survive at every scale. \textbf{(1) Solver capability is the dominant factor:} baseline resolved rates are Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%, stable across all three tranches and far larger than any enhancement effect---the choice of \emph{who fixes} matters an order of magnitude more than \emph{how the report is worded}. \textbf{(2) Enhancement is active but directionless:} for the two responsive solvers, 65--78 issues per comparison change outcome (discordant pairs)---23--28\% of the evaluable set---but the flips are balanced (helps $\approx$ hurts), so there is no net gain. A model-fit note reinforces the point: the SWE-agent solver is effectively inert to enhancement ($0$--$1$ discordant pairs) because, with Qwen3-32B, the large majority of its runs terminate in an agent-protocol error before any patch is produced ($\sim$86\% in a 100-issue audit)---a failure of the model--harness interface, not of the issue text.
 
-\subsection{RQ3: How Can We Improve Issues That Were Not Improved Before?}
+\finding{\textbf{RQ1 Summary.} Across the full enhancer $\times$ solver matrix on 279 evaluable issues, no enhancer improves fix correctness for any solver (all McNemar $p \ge 0.489$). The one small-sample signal regressed toward zero under replication---a non-effect. Solver capability (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%) dominates, and enhancement perturbs a quarter-to-a-third of outcomes without net direction.}
 
-Given the finding that no single enhancement agent consistently improves solving outcomes, we investigate whether targeted tool augmentation can recover difficult cases.
+\subsection{RQ2: What Features Are Related to a Better Enhancement?}
 
-\subsubsection{Code-Context Enhancement}
+\textbf{Approach.} From each issue's title and body we extract the full \textbf{81-feature SE representation} of prior reward-model work---spanning size, readability (Flesch, Flesch--Kincaid, ARI), part-of-speech counts, structural markup (fenced/inline code, URLs, images, checklists, headers, lists, tables), content flags (stack trace, error message, logs, reproduction steps, expected/actual behavior, environment info), and lexical statistics. We use it two ways: \emph{descriptively}, tallying which features an enhancement \emph{adds}; and \emph{predictively}, regressing a success outcome on the features under two operationalizations---an \textbf{extrinsic} label (the enhanced report yields a downstream resolved patch), over the 81 SE features; and an \textbf{intrinsic} label (the learned reward model scores the enhanced report $\ge 0.5$), over the full \textbf{581-feature} set (81 SE $+$ 500 TF-IDF terms). Both use L1-regularized logistic regression tuned by 5-fold cross-validation.
 
-We introduce a deterministic \emph{code-context} enhancement strategy that bypasses LLM-based analysis entirely. Instead, it appends factual information extracted directly from the repository and test suite:
-
-\begin{itemize}
-\item \textbf{Source code:} Relevant source files identified through the ground-truth patch diff.
-\item \textbf{Developer hints:} Information from linked pull request discussions and commit messages.
-\item \textbf{Failing test names:} Names of tests from the fail-to-pass test set that the solver must address.
-\item \textbf{Test patch (optional):} The actual test changes from the ground-truth, providing the solver with explicit test expectations.
-\end{itemize}
-
-\subsubsection{Code-Context Results}
-
-Table~\ref{tab:code_context_results} shows the results of the code-context enhancement strategy on the 50-issue SWE-bench-Live benchmark subset.
+\subsubsection{What enhancement adds}
+Comparing SE features before and after enhancement (OpenHands, over its 304 truly-enhanced issues), the additions are a \textbf{uniform template}: the agent rewrites almost every report into a structured Problem / Reproduction / Expected / Actual form (Table~\ref{tab:added}). These are precisely the fields the reward model rewards, which explains the intrinsic gain below; but several---reproduction steps, expected/actual behavior---are facts the agent cannot know and often \emph{invents}, foreshadowing why they do not help the solver.
 
 \begin{table}[t]
 \centering
-\caption{Code-Context Enhancement Results (50-Issue SWE-bench-Live Subset)}
-\label{tab:code_context_results}
-\begin{tabular}{lcccc}
+\caption{Top SE features \emph{added} by enhancement (absent in the original, present after; OpenHands, $N=304$ truly-enhanced).}
+\label{tab:added}
+\begin{tabular}{@{}lrr@{}}
 \toprule
-\textbf{Condition} & \textbf{Resolved} & \textbf{F2P $\Delta$} & \textbf{Res.\ $\Delta$} \\
+Feature added & Issues gained & \% of enhanced \\
 \midrule
-Baseline (Devstral) & 1/50 & --- & --- \\
-Code-context (no test patch) & 1/50 & +6.0\% & 0.0\% \\
-\midrule
-Baseline (GPT-4o-mini) & --- & --- & --- \\
-Code-context + test patch & --- & +10.0\% & +2.0\% \\
+reproduction steps & 259 & \textbf{85\%} \\
+expected behavior  & 138 & 45\% \\
+list items         & 135 & 44\% \\
+actual behavior    & 124 & 41\% \\
+section headers    & 121 & 40\% \\
+logs               & 66  & 22\% \\
+inline code        & 60  & 20\% \\
+environment info   & 26  & 9\%  \\
+links              & 15  & 5\%  \\
+checkboxes         & 12  & 4\%  \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The code-context enhancer with test patch achieves a +10.0\% F2P delta and +2.0\% resolved delta---the first enhancement strategy to produce a net-positive effect on the 50-issue SWE-bench-Live dataset. This result demonstrates that deterministic, factual enhancement can succeed where LLM-based enhancement fails.
-
-\subsubsection{Pilot-40 Validated Results}
-
-On a frozen 40-instance validated pilot dataset, we compare the OpenHands real-agent enhancement against a local LLM-based enhancer:
+\subsubsection{No feature predicts a better enhancement}
+\textbf{Extrinsic view.} The 81-feature model reaches 5-fold cross-validated ROC-AUC $=0.55$---indistinguishable from the 0.50 no-signal line. L1 retains 14 features with modest odds ratios (Table~\ref{tab:l1}); the strongest are \emph{informativeness} properties of the \emph{original} report (bodies with logs, OR 1.36; a stack trace, OR 1.20), not of the rewrite. On the 65 issues where enhancement \emph{changed} the Aider outcome, it helped 33 and hurt 32; predicting helped-vs-hurt yields ROC-AUC $\approx 0.58$ at $n=65$---no reliable signal.
 
 \begin{table}[t]
 \centering
-\caption{Pilot-40 Validated Results (P2P-Gated Re-evaluation)}
-\label{tab:pilot40_results}
-\begin{tabular}{lccc}
+\caption{L1-selected SE features for a resolved fix (best cell, $n=279$; full 81-feature model, standardized OR). Remaining selected features have $|\text{OR}-1| < 0.05$; model AUC $=0.55$.}
+\label{tab:l1}
+\begin{tabular}{@{}lr@{}}
 \toprule
-\textbf{Enhancement Agent} & \textbf{Baseline} & \textbf{Enhanced} & \textbf{$\Delta$} \\
+Feature (from title/body) & Standardized OR \\
 \midrule
-LLM Append Analysis & 9/40 & 8/40 & $-1$ \\
-OpenHands (native) & 9/40 & 10/40 & $+1$ \\
+\texttt{body\_has\_logs}              & 1.36 \\
+\texttt{body\_has\_stack\_trace}      & 1.20 \\
+\texttt{body\_has\_environment\_info} & 1.09 \\
+\texttt{body\_flesch\_reading\_ease}  & 1.03 \\
+\texttt{title\_contains\_feature}     & 0.87 \\
+\texttt{num\_urls\_in\_body}          & 0.87 \\
+\texttt{body\_avg\_word\_length}      & 0.88 \\
+\texttt{title\_ends\_with\_punctuation} & 0.89 \\
+\texttt{title\_stopword\_ratio}       & 0.90 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-OpenHands, operating as a real native agent (not a prompt-based proxy), improves solver success from 9/40 to 10/40, gaining one additional resolved instance. Qualitative analysis of the gained instance reveals that OpenHands restructured the issue around the failing test behavior, providing the solver with a clearer specification of the expected outcome.
+\textbf{Intrinsic view --- the key contrast.} With the full 581-feature representation and the reward model, enhancement is \emph{not} inert: original score mean $0.473 \rightarrow$ enhanced $0.578$; $218/382$ (57\%) of reports improve and $122$ (32\%) cross from low- to high-quality. Yet \emph{which} issue gets a successful enhancement is still unpredictable from its 581 features (AUC $=0.49$, chance). The agent enhances \textbf{uniformly}---turning almost any report into a similarly structured, higher-scoring one---so no input feature discriminates success. Table~\ref{tab:models} summarizes: all three feature models land at chance.
 
-\subsubsection{Combining Strategies}
+\begin{table}[t]
+\centering
+\caption{RQ2 --- all three feature models land at chance.}
+\label{tab:models}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllrrr@{}}
+\toprule
+Model & Features & Outcome & $n$ & Pos. & CV AUC \\
+\midrule
+extrinsic & 81 SE  & downstream resolved & 279 & 45\% & \textbf{0.55} \\
+intrinsic & 581    & reward $\ge 0.5$    & 382 & 69\% & \textbf{0.49} \\
+direction & 81 SE  & helped vs.\ hurt    & 65  & 51\% & \textbf{0.58} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-Our results suggest that the most promising path for improving difficult issues involves:
-\begin{enumerate}
-\item \textbf{Grounded context injection:} Providing factual code context and test information rather than LLM-generated analysis.
-\item \textbf{Selective restructuring:} Reorganizing issue descriptions only when the original is genuinely unclear, not as a default operation.
-\item \textbf{Agent-specific optimization:} Tailoring enhancement strategies to the downstream solver agent's capabilities and preferences.
-\end{enumerate}
+\finding{\textbf{RQ2 Summary.} No feature---across the full 81-SE $+$ 500-TF-IDF representation---is meaningfully associated with a better enhancement, on either an intrinsic or a downstream definition. The sharpest finding is the contrast: enhancement reliably raises the \emph{intrinsic} quality score (57\% improve, 32\% cross threshold) but produces \textbf{no downstream correctness gain} and no feature-predictable subpopulation. Text-quality gains do not transfer to program repair.}
 
-\finding{RQ3 Summary: Deterministic code-context enhancement achieves the first net-positive effect (+10.0\% F2P delta) where all LLM-based enhancers failed. Grounded factual augmentation outperforms LLM-generated analysis. OpenHands as a real native agent achieves a +1 resolved delta on the validated 40-instance pilot.}
+\subsection{RQ3: How Are Issue Reports Enhanced?}
+\emph{(Qualitative analysis in progress; corpus collected.)} We open-code a stratified sample of agent-generated enhancements (across conditions, sampling successes, harms, and no-change cases) for (a) the \textbf{enhancement patterns} applied---restructuring into Problem / Reproduction / Expected sections, appending root-cause hypotheses, extracting stack traces, adding code context---and (b) the \textbf{failure modes}---hallucinated details, over-specification, loss of the original signal, or (for the reward-gated agent) abstention. Two coders label independently; we report inter-rater agreement (Cohen's $\kappa$) and a pattern $\times$ outcome cross-tabulation linking each rewrite move to whether it helped, hurt, or left the fix unchanged. The RQ2 feature-delta analysis (Table~\ref{tab:added}) already indicates the mechanism: the agents apply a \emph{uniform} template that lifts the quality score but, being often unfounded, does not help the solver.
+
+\finding{\textbf{RQ3 Summary (preliminary).} Enhancement is a uniform restructuring into Problem/Reproduction/Expected/Actual sections. Because reproduction and expected/actual fields are frequently invented rather than grounded, they raise intrinsic quality without adding solver-actionable signal---the mechanism behind the directionless perturbation in RQ1.}
 
 %==============================================================================
 \section{Discussion}
 \label{sec:discussion}
 %==============================================================================
 
-\subsection{The Enhancement Paradox}
+\subsection{Why Enhancement Fails to Transfer}
+The issues in an execution-gated repair benchmark are, by construction, \emph{already actionable}---they were selected because a solver could plausibly fix them. Rewriting an already-actionable report adds little signal and can just as easily perturb the solver off a working trajectory as onto one. Enhancement may help most exactly where these benchmarks contain the fewest examples: genuinely underspecified reports. This reframes the ``enhancement paradox''---that adding information does not help---as a selection effect of the benchmark, not a universal law.
 
-Our results reveal a counterintuitive finding: adding more information to issue descriptions generally \emph{hurts} rather than helps automated solving. This ``enhancement paradox'' can be explained by several factors:
+\subsection{Measurement Discipline Was Decisive}
+Two classes of infrastructure artifact would each have manufactured a false result if left uncorrected, and both were caught by cross-checking rather than trusting raw counts: (i) \textbf{solver timeouts under concurrency}---slow iterative solvers, and even Aider on heavy repositories, hit wall-clock limits and produced empty patches that are \emph{not} real failures; re-solving at lower concurrency recovered them (e.g., 20 of 27 Aider timeouts recovered at a median 881\,s). (ii) \textbf{Permission-lost patches}---the runtime occasionally wrote its patch file unreadable to the host, silently zeroing $\sim$2\% of OpenHands results; these were recovered by a privileged read. A study scoring the raw output would have reported spuriously low---and unevenly distributed---enhancement effects.
 
-\textbf{Signal-to-noise ratio.} Solver agents are designed to work with concise, focused issue descriptions. When enhancements add extensive analysis, the solver must distinguish between the original problem signal and the appended noise. Current solvers are not optimized for this filtering task.
+\subsection{The \ourmethod{} (Reward-Gated) Arm}
+\label{sec:cl}
+The agents above rewrite \textbf{unconditionally}. Our managed enhancer, \ourmethod{}, instead \emph{gates} on a learned reward model and only rewrites reports it judges low-quality. Its reward model judged \textbf{216 of 382 issues (57\%) already adequate and abstained} (returning the original), acting on the other \textbf{166 (43\%)} with RAG-grounded rewriting---a \emph{selective} enhancer and a cleaner test of whether \emph{targeted} enhancement transfers. The methodologically correct comparison is on the subset it \emph{chose to rewrite}; on the \textbf{129 evaluable issues \ourmethod{} rewrote, no solver improves} (Table~\ref{tab:cl}). A cautionary note: over \emph{all} 279 evaluable, the SWE-agent comparison reads $\Delta{-}9$, $p=0.004$---\emph{apparently} significant. It is an artifact of non-determinism: 6 of those 9 ``losses'' fall on \emph{abstained} issues whose text was identical to baseline, so they reflect run-to-run solver variance, not any effect of rewriting. The enhanced-only subset removes this confound and shows the true null. The takeaway completes the arc: \textbf{neither unconditional generic enhancement nor selective reward-gated enhancement improves downstream fix correctness.}
 
-\textbf{Implicit context.} Developers embed considerable implicit information in their issue descriptions---word choices, formatting conventions, and domain-specific terminology that solvers can leverage. Restructuring disrupts this implicit signal.
-
-\textbf{LLM confidence calibration.} Enhancement agents sometimes generate confident but incorrect analyses. Because solver agents tend to trust LLM-generated content (especially when presented in a structured format), incorrect enhancement can actively mislead the solver.
-
-\subsection{When Enhancement Helps}
-
-Despite the generally negative results, we identify two scenarios where enhancement produces clear benefits:
-
-\textbf{Same-agent affinity.} When the same agent framework is used for both enhancement and solving (as in the Aider--Aider case), the enhancement can align with the solver's expected input format and reasoning patterns.
-
-\textbf{Factual augmentation.} When enhancement adds verified factual information (relevant source code, test names, file paths) without LLM-generated analysis, it provides useful context without the risk of hallucination.
-
-These findings suggest that future enhancement systems should prioritize factual context injection over generative analysis, and that enhancer--solver co-design may yield better outcomes than generic enhancement.
+\begin{table}[t]
+\centering
+\caption{\ourmethod{} vs.\ baseline, on the 129 evaluable issues it rewrote (McNemar exact).}
+\label{tab:cl}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Solver & Baseline $\rightarrow$ \ourmethod{} & $\Delta$ & $p$ \\
+\midrule
+OpenHands & $32 \rightarrow 32$ & $0$  & 1.00 \\
+SWE-agent & $8 \rightarrow 5$   & $-3$ & 0.25 \\
+Aider     & $58 \rightarrow 55$ & $-3$ & 0.74 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Implications for Practice}
-
-Our results have several practical implications:
-\begin{itemize}
-\item \textbf{For tool developers:} Enhancement agents should be designed with specific downstream solvers in mind, rather than as general-purpose tools.
-\item \textbf{For researchers:} The solving-as-evaluation paradigm provides an objective, reproducible measure of enhancement quality that complements subjective assessment.
-\item \textbf{For practitioners:} Before deploying issue enhancement, teams should validate that their specific enhancer--solver combination produces positive deltas on representative datasets.
-\end{itemize}
-
-\subsection{Issue Type Sensitivity}
-
-Our dataset contains three issue types (bug, feature, refactoring) with different characteristics. Bug reports (2,111 instances, 64.2\%) tend to have more structured descriptions with reproduction steps, while feature requests (993 instances, 30.2\%) are often more vague and open-ended. Refactoring issues (181 instances, 5.5\%) are rare and typically well-specified.
-
-Preliminary analysis suggests that enhancement may be more beneficial for vague feature requests than for well-structured bug reports, as there is more room for improvement. However, the small refactoring sample limits conclusions for that category.
+For automated repair on already-actionable issues, effort is better spent on the solver and the underlying model than on rewriting the input. Enhancement systems should prioritize verified, factual context injection over generative analysis, and enhancer--solver co-design over generic rewriting. The solving-as-evaluation paradigm gives researchers an objective, reproducible measure of enhancement quality; before deploying enhancement, teams should validate that their specific enhancer--solver combination produces positive deltas on representative, execution-gated data.
 
 %==============================================================================
 \section{Threats to Validity}
 \label{sec:threats}
 %==============================================================================
 
-\subsection{Internal Validity}
+\textbf{Construct --- the metric is P2P-only.} Our resolved criterion is no-regression on P2P tests, augmented by the applied test patch, not the stricter F2P criterion, which the offline labels could not support at scale (only 4 of 74 evaluable instances carried a gold-passing F2P label). Consequently our result rules out a \emph{large} correctness effect and shows no \emph{directional} one, but cannot certify a strict-fix effect of small magnitude; re-deriving fix-tests from execution is the highest-value follow-up.
 
-\textbf{Solver non-determinism.} Despite using temperature 0.0, LLM-based solvers can produce different outputs across runs due to floating-point non-determinism and API-level variability. We mitigate this by using frozen evaluation artifacts and reporting resolved counts rather than individual patch comparisons.
+\textbf{Internal --- run-to-run solver non-determinism.} Baseline and enhanced conditions are separate stochastic runs, so a fraction of the discordant pairs reflects variance rather than enhancement. This is quantifiable in the \ourmethod{} arm: on abstained (text-identical) issues, 6 of 9 SWE-agent ``losses'' are pure variance, inflating the full-set comparison to a spurious $p=0.004$ that the enhanced-only subset corrects to a null. Because our headline effects are null or small, this variance widens confidence intervals rather than creating a false positive; a definitive study should run multiple seeds per condition.
 
-\textbf{Enhancement evaluation coupling.} Our evaluation measures enhancement quality through solver performance, creating a coupling between enhancement and solver quality. A poor solver may fail to benefit from a genuinely good enhancement. We mitigate this by using three independent solvers.
+\textbf{Construct --- \ourmethod{} operates out of distribution.} Its reward model and RAG corpus were trained on an issue-\emph{difficulty} dataset, not repository-repair issues; applying it here is a \emph{transfer} test, and its high abstention (57\%) is partly an out-of-domain artifact.
 
-\textbf{P2P-gated evaluation.} Our resolved definition differs from standard SWE-bench semantics by gating on P2P tests rather than the conjunction of F2P and P2P. We adopt a corrected re-evaluation procedure and document this explicitly.
+\textbf{External --- single model, one collection, execution-gated selection.} All conditions use a single open-weight model (Qwen3-32B); a stronger or function-calling-native model could change absolute rates (notably SWE-agent's) and conceivably the enhancement effect. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Our dataset is also restricted to popular Python repositories, limiting generalizability.
 
-\subsection{Construct Validity}
-
-\textbf{Solving as a proxy for quality.} We measure enhancement quality indirectly through solving outcomes rather than direct human assessment of description quality. While this provides an objective measure, it captures only the dimension of enhancement quality relevant to automated solving.
-
-\textbf{Issue type classification.} Our LLM-based issue classification relies on GitHub labels and textual heuristics, which may not perfectly reflect the true nature of each issue. Prior work has shown that developer-assigned labels often disagree with test-structure classification~\cite{jimenez2024swebench}.
-
-\subsection{External Validity}
-
-\textbf{Language restriction.} Our dataset is restricted to Python repositories, limiting generalizability to other programming languages and ecosystems.
-
-\textbf{Repository selection bias.} We select repositories with more than 1,000 stars, more than 200 forks, and significant Python code composition. This bias toward popular, well-maintained repositories may not reflect the broader population of GitHub projects.
-
-\textbf{Sample size limitations.} While our full dataset contains 3,285 instances, the validated downstream evaluation subsets are smaller (20 to 50 instances), limiting statistical power for inferential claims.
-
-\textbf{Agent availability.} The agent landscape evolves rapidly. Some agents that were unavailable during our evaluation period (e.g., OpenClaw) may produce different results. Our benchmark framework supports adding new agents as they become available.
+\textbf{Conclusion --- evaluability coverage.} We score only the 73.0\% (279/382) gold-validated subset; the un-evaluable 27\% are excluded rather than assumed-failed. The multi-method gate is designed to keep that fraction small and repository-diverse.
 
 %==============================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 %==============================================================================
 
-In this paper, we present the first systematic benchmark for evaluating LLM-based agents on the task of GitHub issue enhancement. We construct a dataset of 3,285 instances across 613 repositories, classified into bug, feature, and refactoring categories. We evaluate seven enhancement conditions using three independent solver agents through the solving-as-evaluation paradigm.
-
-Our findings reveal that issue enhancement by LLM-based agents is not universally beneficial. Among the agents evaluated, most enhancements either have no effect or degrade downstream solving performance. Enhancement aggressiveness---particularly full-issue restructuring---correlates with harm, while conservative append strategies are safer but rarely helpful. The most promising approach is deterministic code-context injection, which achieves the first net-positive enhancement delta on a challenging benchmark subset.
-
-Qualitative analysis identifies four enhancement failure modes (information dilution, hallucinated analysis, structural disruption, and conflicting guidance) and demonstrates that successful enhancements are grounded in factual code context rather than LLM-generated speculation.
-
-These results suggest that the field should shift from general-purpose enhancement toward targeted, factual context injection and enhancer--solver co-design. We release the benchmark, evaluation pipeline, and experimental artifacts to support future research on this important problem.
+We asked whether improving a bug report's text improves an LLM agent's fix, and answered it extrinsically, at scale, by executing patches against real tests. Across 382 issues, a baseline and enhancers spanning a zero-shot prompt to a reward-gated agent, three solvers, and a fixed model, \textbf{issue enhancement produced no statistically significant improvement in fix correctness} (all McNemar $p \ge 0.489$ at $n=279$), and the one small-sample signal regressed toward zero under replication. What proved robust is that solver choice governs outcome (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%) and that enhancement perturbs a quarter-to-a-third of outcomes without net direction. The negative result holds for our own selective, reward-gated method as well: on the issues it rewrote it improves no solver, and its most notable behavior is to abstain on the majority of already-actionable reports. No feature predicts a better enhancement, yet enhancement reliably raises the intrinsic quality score---text-quality gains that do not transfer to program repair. We offer this as a rigorous negative result, made trustworthy by a gold-gated, multi-method evaluability protocol (73.0\% coverage) and an artifact-recovery discipline. Whether enhancement helps on genuinely \emph{underspecified} reports, and whether a stronger solver model changes the picture, are the natural next studies. We release the benchmark, evaluation pipeline, and experimental artifacts to support future research.
 
 %==============================================================================
 % References
@@ -570,8 +379,8 @@ X.~Wang, B.~Li, Y.~Song, F.~F. Xu, X.~Tang, M.~Zhuge, J.~Pan, Y.~Song, B.~Li, J.
 \bibitem{aider2024}
 P.~Gauthier, ``Aider: AI pair programming in your terminal,'' 2024. [Online]. Available: \url{https://aider.chat}
 
-\bibitem{trae2025}
-ByteDance, ``TRAE: AI-powered IDE for collaborative development,'' 2025. [Online]. Available: \url{https://trae.ai}
+\bibitem{zhang2024autocoderover}
+Y.~Zhang, H.~Ruan, Z.~Fan, and A.~Roychoudhury, ``AutoCodeRover: Autonomous program improvement,'' in \emph{Proc. ISSTA}, 2024, pp.~1592--1604.
 
 \bibitem{bettenburg2008what}
 N.~Bettenburg, S.~Just, A.~Schr{\"o}ter, C.~Weiss, R.~Premraj, and T.~Zimmermann, ``What makes a good bug report?'' in \emph{Proc. FSE}, 2008, pp.~308--318.

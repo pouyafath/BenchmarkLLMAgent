@@ -177,7 +177,7 @@ def run_openhands_solver(
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": task_text},
             ],
-            temperature=0,
+            temperature=0.3,
         )
 
         elapsed = time.time() - start

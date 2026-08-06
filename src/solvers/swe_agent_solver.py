@@ -43,7 +43,7 @@ def _build_config_yaml(model: str, base_url: str, api_key: str, max_steps: int) 
         temperature_val = 1
         top_p_line = "\n    top_p: null"
     else:
-        temperature_val = 0.0
+        temperature_val = 0.3
         top_p_line = ""
     return f"""\
 agent:
@@ -144,7 +144,7 @@ def _to_sweagent_instance(inst: dict) -> dict:
                 "port": None,
                 "docker_args": [],
                 "startup_timeout": 180.0,
-                "pull": "missing",
+                "pull": "never",
                 "remove_images": False,
                 "python_standalone_dir": "/root",
                 "platform": None,

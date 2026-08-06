@@ -16,6 +16,7 @@ from src.enhancers.ready_to_use.sweagent_enhancer import enhance_issue as sweage
 from src.enhancers.ready_to_use.cl_enhanced_gemma3 import enhance_issue as cl_enhanced_enhance
 from src.enhancers.ready_to_use.code_context_enhancer import enhance_issue as code_context_enhance
 from src.enhancers.ready_to_use.llm_append_enhancer import enhance_issue as llm_append_enhance
+from src.enhancers.ready_to_use.openclaw_enhancer import enhance_issue as openclaw_enhance
 from src.enhancers.framework_built.simple_enhancer import enhance_issue as simple_enhance
 
 
@@ -45,6 +46,8 @@ def get_enhancer(agent_id: str):
         return lambda issue, cf="": llm_append_enhance(issue, cf, strategy="extract_highlight")
     if agent_id == "llm_hybrid":
         return lambda issue, cf="": llm_append_enhance(issue, cf, strategy="hybrid")
+    if agent_id == "openclaw":
+        return openclaw_enhance
     # Proxy fallback is intentionally disabled for benchmark runs.  Agents must
     # have an explicit native integration or a named LLM enhancer implementation.
     return None

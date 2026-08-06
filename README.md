@@ -2,23 +2,63 @@
 
 **Benchmarking LLM-Based Agents for GitHub Issue Enhancement**
 
-## Status Update (2026-05-24) — Stage 2 Full Track (2,900 Issues)
+> 📖 **Start here (current docs, 2026-06-17):**
+> - **[WORKFLOW.md](WORKFLOW.md)** — the two-part pipeline (Stages 1-3 / 4-6), every script,
+>   and **which node** each runs on; private-Ollama setup; image persistence; run order.
+> - **[PIPELINE_STATE.md](PIPELINE_STATE.md)** — live per-node, per-process status, results,
+>   and open decisions (with timestamps).
+>
+> The dated "Status Update" sections below are historical.
 
-The project has scaled to a **7-Stage Enhancer+Solver Agentic Workflow** running on a 2,900-issue dataset.
+## Status Update (2026-06-01) — OpenHands Enhancer Pilot-40 Complete
 
-- **Dataset**: 2,900 viable issues (filtered from 3,285 initial SWE-bench-Live candidates)
-- **Workflow**: 7 Stages (Collection -> Classification -> Setup -> Organize -> Validate -> Enhance -> Solve)
-- **Environment Automation**: Local `paul-RepoLaunch` wrapper using `gpt-oss:120b` (Ollama, 4 parallel workers)
-- **Current Phase**: Stage 1 (RepoLaunch Setup) is currently executing.
+The project is running a **7-stage Enhancer+Solver workflow** on a 2,900-issue dataset, while a 48-instance pilot subset has been pushed through all stages including downstream enhancement and solving experiments.
 
-### The 7-Stage Pipeline
-1. **Stage 0:** Dataset Collection & Filtering (Completed, 3,229 issues)
-2. **Stage 0.5:** Classification & Viability (Completed, 2,900 viable)
-3. **Stage 1:** RepoLaunch Setup (In Progress)
-4. **Stage 2:** RepoLaunch Organize (Waiting)
-5. **Stage 3:** Gold Patch Validation (Not Started)
-6. **Stage 4:** Enhancement Agents (Not Started)
-7. **Stage 5 & 6:** Solver Evaluation & Final Comparison (Not Started)
+- **Dataset**: 2,900 viable issues
+- **Workflow**: Collection -> Classification -> Setup -> Organize -> Validate -> Enhance -> Solve
+- **Environment automation**: local `paul-RepoLaunch` wrapper using `gpt-oss:120b` via Ollama
+- **Full-run live phase**: Stage 1 setup is still active
+- **Pilot continuation phase**: Stage 4-6 experiments completed on 40-row pilot
+
+### Current Full-Run / Pilot Split
+1. **Stage 0:** Collection & Filtering complete
+2. **Stage 0.5:** Classification & Viability complete
+3. **Stage 1:** Full 2,900-instance RepoLaunch setup run active
+4. **Stage 2:** Pilot subset completed on 41 / 48 rows
+5. **Stage 3:** Pilot subset completed on 40 / 41 rows
+6. **Stage 4-6:** Three pilot-40 runs completed (see below)
+
+### Pilot-40 Stage 4-6 Runs
+
+| Run | Enhancer | Solver Model | Baseline | Enhanced | Delta | Report |
+|---|---|---|---:|---:|---:|---|
+| 2026-06-01 | openhands | gpt-5.4-mini | 9/40 | 10/40 | **+1** | `runs/paul_pilot40_openhands_20260601/stage6_report/REPORT.md` |
+| 2026-05-26 | llm_append_analysis | gpt-5.4-mini | 9/40 | 8/40 | -1 | `runs/paul_pilot40_stage4_stage6_20260526/stage6_report/REPORT.md` |
+| 2026-05-27 | llm_append_analysis | gpt-oss:120b | 0/40 | 0/40 | 0 | `runs/paul_pilot40_gptoss_solver_20260527/stage6_report/REPORT.md` |
+
+All runs use P2P-gated resolution criteria with normalized test names (see `COMPARABILITY_AUDIT.md` in the openhands run directory for the methodology reconciliation).
+
+**Key finding (2026-06-01):** OpenHands as an enhancer (gpt-5.4-mini, 39/40 truly enhanced) gains `Diaoul__subliminal-1328` (+2.5 pp). This is the first positive enhancement delta on the pilot-40 dataset.
+
+**Evaluation note:** The accepted pilot40 comparison uses the shared P2P-gated re-eval workflow, not raw SWE-bench resolved semantics. The earlier `1/40 -> 1/40` raw reading was reconciled to `9/40 -> 10/40` by the comparability audit. The single Stage 4 failure `Azure__azure-cli-32339` is treated as a likely OpenHands/runtime outlier, but its exact root cause is not fully proven.
+
+**OpenClaw status:** No local OpenClaw runtime, binary, or Python module was found on `docjk-gpu-01`. Integration was not attempted because the only option would have been a proxy/fake enhancer, which does not meet the benchmark's real-integration standard.
+
+### Current authoritative pilot artifacts
+
+- RepoLaunch handoff:
+  - `/home/22pf2/paul-RepoLaunch/docs/PROJECT_STATUS_HANDOFF_2026-05-26.md`
+- Immutable pilot stage exports:
+  - `/home/22pf2/paul-RepoLaunch/runs/stage2_2026_full_pilot48_stage_exports_20260526_1552_utc/`
+- Authoritative next-stage dataset:
+  - `/home/22pf2/paul-RepoLaunch/runs/stage2_2026_full_pilot48_stage_exports_20260526_1552_utc/stage3_validation_completed40.jsonl`
+- Pre-seeded continuation run:
+  - `/home/22pf2/BenchmarkLLMAgent/runs/paul_stage4_stage6_from_stage3pilot40_20260526/`
+
+Important branch rule:
+
+- For the current P2P-oriented pipeline, `PASS_TO_PASS > 0` is the gate.
+- `FAIL_TO_PASS` is preserved for analysis but is not the downstream handoff filter.
 
 ---
 

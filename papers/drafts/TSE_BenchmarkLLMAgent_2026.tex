@@ -333,6 +333,24 @@ Aider     & $58 \rightarrow 55$ & $-3$ & 0.74 \\
 \end{tabular}
 \end{table}
 
+\subsection{Cross-model robustness: a frontier solver}
+\label{sec:crossmodel}
+Our controlled design holds the model fixed at an open-weight Qwen3-32B, which raises the question of whether the null is an artifact of a weak solver. To test this, we re-ran the strongest cell---enhancer Aider into the OpenHands solver---on the 279 evaluable issues with a stronger, function-calling-native commercial model (GPT-5-mini) for \emph{both} the baseline and the enhanced condition (a valid paired comparison, since both share the model). Two things change and one does not (Table~\ref{tab:crossmodel}). The absolute resolve rate rises sharply---OpenHands' baseline goes from \textbf{22\%} (Qwen3-32B) to \textbf{56\%} (GPT-5-mini), a $2.6\times$ increase---confirming that solver/model capability, not report wording, is the dominant lever. But \textbf{enhancement still does not help}: $155 \rightarrow 159$ resolved ($\Delta{+}4$ of 279, McNemar exact $p=0.712$), and the effect remains directionless (66 discordant pairs: 31 hurt, 35 helped). A $2.6\times$ more capable, tool-calling-native solver does not make enhancement transfer to correctness---the negative result is robust across a weak open model and a strong frontier model.
+
+\begin{table}[t]
+\centering
+\caption{Cross-model robustness: enh:Aider $\rightarrow$ sol:OpenHands on the 279 evaluable, baseline vs.\ enhanced under each model (McNemar exact, paired within model).}
+\label{tab:crossmodel}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Model & Baseline & enh:Aider & $\Delta$ & $p$ \\
+\midrule
+Qwen3-32B (open)      & 60/279 (22\%)  & 67/279 (24\%)  & $+7$ & 0.489 \\
+GPT-5-mini (frontier) & 155/279 (56\%) & 159/279 (57\%) & $+4$ & 0.712 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Implications for Practice}
 For automated repair on already-actionable issues, effort is better spent on the solver and the underlying model than on rewriting the input. Enhancement systems should prioritize verified, factual context injection over generative analysis, and enhancer--solver co-design over generic rewriting. The solving-as-evaluation paradigm gives researchers an objective, reproducible measure of enhancement quality; before deploying enhancement, teams should validate that their specific enhancer--solver combination produces positive deltas on representative, execution-gated data.
 
@@ -347,7 +365,7 @@ For automated repair on already-actionable issues, effort is better spent on the
 
 \textbf{Construct --- \ourmethod{} operates out of distribution.} Its reward model and RAG corpus were trained on an issue-\emph{difficulty} dataset, not repository-repair issues; applying it here is a \emph{transfer} test, and its high abstention (57\%) is partly an out-of-domain artifact.
 
-\textbf{External --- single model, one collection, execution-gated selection.} All conditions use a single open-weight model (Qwen3-32B); a stronger or function-calling-native model could change absolute rates (notably SWE-agent's) and conceivably the enhancement effect. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Our dataset is also restricted to popular Python repositories, limiting generalizability.
+\textbf{External --- single model, one collection, execution-gated selection.} The controlled matrix uses a single open-weight model (Qwen3-32B). A stronger, function-calling-native model changes absolute rates sharply---our cross-model check (Section~\ref{sec:crossmodel}) shows GPT-5-mini raising the OpenHands baseline from 22\% to 56\%---but \emph{not} the enhancement effect, which remains a directionless null ($\Delta{+}4$, $p=0.712$); we nonetheless cannot rule out a different effect for other model families or agent scaffolds. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Our dataset is also restricted to popular Python repositories, limiting generalizability.
 
 \textbf{Conclusion --- evaluability coverage.} We score only the 73.0\% (279/382) gold-validated subset; the un-evaluable 27\% are excluded rather than assumed-failed. The multi-method gate is designed to keep that fraction small and repository-diverse.
 

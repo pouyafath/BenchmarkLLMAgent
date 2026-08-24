@@ -6,6 +6,41 @@ Diagnostic analysis of the RQ1 null. All numbers are from the paper's controlled
 
 ---
 
+## Finding 0 — The information asymmetry that explains everything else
+
+**The solver sees the whole repository. The enhancer sees only the issue text.**
+
+Verified directly. The solver runs in a per-instance container (`pouya/stage2_2026:<iid>_linux`)
+with the repository checked out at the base commit under `/testbed`, and is equipped with
+`execute_bash`, `str_replace_editor`, `execute_ipython_cell` and search tools — it can read, grep
+and execute the code. The enhancer (Finding 2) gets an empty temp git directory containing a
+single `issue.md`.
+
+So:
+
+```
+enhancer output = f(issue text)
+solver input    = issue text + entire repository at base commit
+```
+
+Anything the enhancer can derive, the solver can derive from a **strict superset** — by reading the
+code. Enhancement therefore **cannot add information to the solver's input**. It can only re-word
+what the solver already had, and re-wording perturbs the agent's trajectory.
+
+This is not a prompt-tuning problem or a weak-enhancer problem. It is an information-theoretic
+ceiling, and every other finding in this document follows from it:
+
+- Δ ≈ 0, because nothing was added (Finding 1);
+- the flips match a pure-resample null to within 4.9%, because trajectory perturbation is the
+  *only* remaining effect (Finding 1);
+- supplying "grounding" **hurt** (2.4% vs 12.7%), because the enhancer guesses file names it cannot
+  verify while the solver could simply have searched for them — an unverified guess actively
+  misleads an agent that had ground truth available (Finding 3);
+- intrinsic quality gains do not transfer, because the reward model scores a template that carries
+  no information the solver lacked (Finding 4).
+
+The enhancer is being asked to describe code it cannot see, to an agent standing inside that code.
+
 ## Finding 1 — Enhancement behaves as an information-free *resample*
 
 Conditioning the flips on the baseline outcome:

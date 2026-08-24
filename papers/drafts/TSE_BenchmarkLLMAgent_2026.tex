@@ -32,7 +32,7 @@
 \maketitle
 
 \begin{abstract}
-GitHub issues serve as the primary communication channel between users and developers for reporting bugs, requesting features, and proposing refactoring tasks. Issue descriptions are frequently vague, incomplete, or lacking essential technical details, which hinders both human developers and automated issue-solving agents. Large Language Model (LLM)-based agents offer the potential to automatically \emph{enhance} issue descriptions by adding context, clarifying ambiguities, and structuring information. If agents solve issues from text, better text should mean better fixes. We test this assumption directly and at scale. We construct a SWE-bench-Live--style benchmark of 3,285 issue instances from 613 popular Python repositories and, from it, a validated execution subset of \textbf{382 issues}, each with a buildable Docker environment and a gold patch. On this subset we run a full \textbf{enhancer $\times$ solver matrix}: coding agents used as \emph{enhancers} (OpenHands, SWE-agent, Aider), a reward-gated selective enhancer (\ourmethod{}), and a no-enhancement baseline, against the same agents used as \emph{solvers} --- all driven by a single open-weight model (Qwen3-32B) to isolate the enhancement variable. We evaluate not ``did the patch change'' but ``does the patch \textbf{pass the repository's tests}'', using a gold-patch-gated, multi-method evaluability protocol that yields \textbf{279 of 382 issues (73.0\%)} as trustworthy to evaluate. Our results show that: (1) across every enhancer $\times$ solver pairing, issue enhancement produces \textbf{no statistically significant improvement in fix correctness} (paired McNemar exact test, all $p \ge 0.489$); the one promising small-sample signal weakened rather than strengthened as the sample grew, the signature of a non-effect; solver choice, not the wording of the report, dominates outcome (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%). (2) No feature --- across an 81-feature SE representation plus 500 TF-IDF terms --- predicts a better enhancement under either an intrinsic (reward-model) or a downstream definition of success (all models at chance, ROC-AUC $\approx 0.49$--$0.56$); strikingly, enhancement \emph{does} raise the intrinsic quality score (57\% of reports improve) yet yields no downstream correctness gain, so \textbf{text-quality improvements do not transfer to program repair}. (3) A qualitative analysis characterizes how the agents rewrite --- a uniform Problem/Reproduction/Expected template that lifts the quality score but, being often unfounded, does not help the solver. We release the benchmark, the evaluation pipeline, and all experimental artifacts.
+GitHub issues serve as the primary communication channel between users and developers for reporting bugs, requesting features, and proposing refactoring tasks. Issue descriptions are frequently vague, incomplete, or lacking essential technical details, which hinders both human developers and automated issue-solving agents. Large Language Model (LLM)-based agents offer the potential to automatically \emph{enhance} issue descriptions by adding context, clarifying ambiguities, and structuring information. If agents solve issues from text, better text should mean better fixes. We test this assumption directly and at scale. We construct a SWE-bench-Live--style benchmark of 3,285 issue instances from 613 popular Python repositories and, from it, a validated execution subset of \textbf{382 issues}, each with a buildable Docker environment and a gold patch. On this subset we run a full \textbf{enhancer $\times$ solver matrix}: coding agents used as \emph{enhancers} (OpenHands, SWE-agent, Aider), a reward-gated selective enhancer (\ourmethod{}), and a no-enhancement baseline, against the same agents used as \emph{solvers} --- all driven by a single open-weight model (Qwen3-32B) to isolate the enhancement variable. We evaluate not ``did the patch change'' but ``does the patch \textbf{pass the repository's tests}'', using a gold-patch-gated, multi-method evaluability protocol that yields \textbf{279 of 382 issues (73.0\%)} as trustworthy to evaluate. Our results show that: (1) across the controlled agentic enhancer $\times$ solver matrix, issue enhancement produces \textbf{no statistically significant improvement in fix correctness} (paired McNemar exact test, all $p \ge 0.489$), and a zero-shot prompt enhancer likewise never helps and tends to hurt; the one promising small-sample signal weakened rather than strengthened as the sample grew, the signature of a non-effect; solver choice, not the wording of the report, dominates outcome (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%). (2) No feature --- across an 81-feature SE representation plus 500 TF-IDF terms --- predicts a better enhancement under either an intrinsic (reward-model) or a downstream definition of success (all models at chance, ROC-AUC $\approx 0.49$--$0.56$); strikingly, enhancement \emph{does} raise the intrinsic quality score (57\% of reports improve) yet yields no downstream correctness gain, so \textbf{text-quality improvements do not transfer to program repair}. (3) A qualitative analysis characterizes how the agents rewrite --- a uniform Problem/Reproduction/Expected template that lifts the quality score but, being often unfounded, does not help the solver. We release the benchmark, the evaluation pipeline, and all experimental artifacts.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -183,23 +183,26 @@ For each enhancer-vs-baseline comparison on a given solver, outcomes are \textbf
 \subsection{RQ1: What Is the Ability of Generative AI in Enhancing Issue Reports?}
 
 \subsubsection{The correctness matrix --- no enhancer improves any solver}
-Table~\ref{tab:matrix} gives the final correctness matrix at $n=382$ (279 gold-evaluable issues), with each enhancer compared to the baseline for each solver. \textbf{No enhancer $\times$ solver comparison reaches significance; every $p \ge 0.489$, and the largest absolute effect is 7 issues out of 279.} The one comparison that could be called a ``best case''---Aider-enhancement into the OpenHands solver ($+7$)---is nowhere near significance and is not the pairing any prior signal predicted.
+Table~\ref{tab:matrix} gives the final correctness matrix at $n=382$ (279 gold-evaluable issues), with each enhancer compared to the baseline for each solver. \textbf{Among the three agentic enhancers---the controlled comparison, all built on the same $\sim$30-step agent loop---no enhancer $\times$ solver comparison reaches significance; every $p \ge 0.489$, and the largest absolute effect is 7 issues out of 279.} The one comparison that could be called a ``best case''---Aider-enhancement into the OpenHands solver ($+7$)---is nowhere near significance and is not the pairing any prior signal predicted. The crudest enhancer, a single zero-shot prompt (Raw LLM), does not help either and if anything \emph{hurts}: it leaves OpenHands unchanged ($+1$, $p=1.0$) but lowers Aider by 12 ($-12$, $p=0.213$) and SWE-agent by 6, the latter's nominal $p=0.031$ being a non-determinism artifact on the error-prone SWE-agent solver rather than a real effect (Table~\ref{tab:matrix}, footnote). That the least sophisticated enhancer trends negative, not positive, is consistent with the study's arc: added text perturbs the solver without adding solver-actionable signal.
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering
-\caption{RQ1 correctness matrix at $n=382$: resolved\,/\,279 evaluable (P2P), with $\Delta$ vs.\ baseline and McNemar exact $p$. Rows are solvers, columns enhancers.}
+\caption{RQ1 correctness matrix at $n=382$: resolved\,/\,279 evaluable (P2P), with $\Delta$ vs.\ baseline and McNemar exact $p$. Rows are solvers, columns enhancers. The three agentic enhancers form the controlled comparison (identical $\sim$30-step loop, model held fixed); the zero-shot (Raw LLM) column is a single-prompt reference.}
 \label{tab:matrix}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lccc@{}}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-Solver (baseline) & enh: OpenHands & enh: SWE-agent & enh: Aider \\
+Solver (baseline) & enh: OpenHands & enh: SWE-agent & enh: Aider & enh: Raw LLM (0-shot) \\
 \midrule
-OpenHands (60, 22\%) & 58 ($-2$, .910) & 66 ($+6$, .561)  & 67 ($+7$, .489) \\
-SWE-agent (18, 6\%)  & 18 ($0$, 1.0)   & 19 ($+1$, 1.0)   & 19 ($+1$, 1.0)  \\
-Aider (124, 44\%)    & 125 ($+1$, 1.0) & 119 ($-5$, .649) & 124 ($0$, 1.0)  \\
+OpenHands (60, 22\%) & 58 ($-2$, .910) & 66 ($+6$, .561)  & 67 ($+7$, .489) & 61 ($+1$, 1.0) \\
+SWE-agent (18, 6\%)  & 18 ($0$, 1.0)   & 19 ($+1$, 1.0)   & 19 ($+1$, 1.0)  & 12 ($-6$, .031$^{\dagger}$) \\
+Aider (124, 44\%)    & 125 ($+1$, 1.0) & 119 ($-5$, .649) & 124 ($0$, 1.0)  & 112 ($-12$, .213) \\
 \bottomrule
 \end{tabular}
-\end{table}
+
+\vspace{2pt}
+{\footnotesize $^{\dagger}$The only $p<.05$ cell in the matrix; a non-determinism artifact on the error-prone SWE-agent solver (6 discordant pairs, all one-directional, on a solver that fails $\sim$86\% of runs on the agent--computer interface), not an enhancement effect---exactly parallel to the \ourmethod{} SWE-agent case in Section~\ref{sec:cl}.}
+\end{table*}
 
 \subsubsection{The one promising signal was sampling noise}
 At $n=100$ the headline pairing (OpenHands-enhancement $\rightarrow$ Aider solver) looked promising: $+4$ resolved (30$\rightarrow$34), $p=0.388$. Replication kills it (Table~\ref{tab:scale}): the effect \textbf{shrank toward zero and the $p$-value rose toward 1} as data accumulated---the diagnostic of a non-effect, not of insufficient power. A genuine effect of fixed size sharpens under more data; this did the opposite. The same pattern held for the OpenHands solver, where an $n=74$ ``$+6$'' reversed to $-3$ on a fresh 100 issues before settling near null. Had we stopped at $n=100$, the paper would have carried a false positive.
@@ -223,7 +226,7 @@ $n=382$ (279 eval) & $124 \rightarrow 125$ & $+1$ & 1.000 \\
 \label{sec:rq1-solver}
 Two robust facts survive at every scale. \textbf{(1) Solver capability is the dominant factor:} baseline resolved rates are Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%, stable across all three tranches and far larger than any enhancement effect---the choice of \emph{who fixes} matters an order of magnitude more than \emph{how the report is worded}. \textbf{(2) Enhancement is active but directionless:} for the two responsive solvers, 65--78 issues per comparison change outcome (discordant pairs)---23--28\% of the evaluable set---but the flips are balanced (helps $\approx$ hurts), so there is no net gain. A model-fit note reinforces the point: the SWE-agent solver is effectively inert to enhancement ($0$--$1$ discordant pairs) because, with Qwen3-32B, the large majority of its runs terminate in an agent-protocol error before any patch is produced ($\sim$86\% in a 100-issue audit)---a failure of the model--harness interface, not of the issue text.
 
-\finding{\textbf{RQ1 Summary.} Across the full enhancer $\times$ solver matrix on 279 evaluable issues, no enhancer improves fix correctness for any solver (all McNemar $p \ge 0.489$). The one small-sample signal regressed toward zero under replication---a non-effect. Solver capability (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%) dominates, and enhancement perturbs a quarter-to-a-third of outcomes without net direction.}
+\finding{\textbf{RQ1 Summary.} Across the controlled agentic enhancer $\times$ solver matrix on 279 evaluable issues, no enhancer improves fix correctness for any solver (all McNemar $p \ge 0.489$); the crudest zero-shot prompt enhancer only ever matches or hurts. The one small-sample signal regressed toward zero under replication---a non-effect. Solver capability (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%) dominates, and enhancement perturbs a quarter-to-a-third of outcomes without net direction.}
 
 \subsection{RQ2: What Features Are Related to a Better Enhancement?}
 
@@ -333,6 +336,64 @@ Aider     & $58 \rightarrow 55$ & $-3$ & 0.74 \\
 \end{tabular}
 \end{table}
 
+\subsection{Cross-model robustness: a frontier solver}
+\label{sec:crossmodel}
+Our controlled design holds the model fixed at an open-weight Qwen3-32B, which raises the question of whether the null is an artifact of a weak solver. To test this, we re-ran the strongest cell---enhancer Aider into the OpenHands solver---on the 279 evaluable issues with a stronger, function-calling-native commercial model (GPT-5-mini) for \emph{both} the baseline and the enhanced condition (a valid paired comparison, since both share the model). Two things change and one does not (Table~\ref{tab:crossmodel}). The absolute resolve rate rises sharply---OpenHands' baseline goes from \textbf{22\%} (Qwen3-32B) to \textbf{56\%} (GPT-5-mini), a $2.6\times$ increase---confirming that solver/model capability, not report wording, is the dominant lever. But \textbf{enhancement still does not help}: $155 \rightarrow 159$ resolved ($\Delta{+}4$ of 279, McNemar exact $p=0.712$), and the effect remains directionless (66 discordant pairs: 31 hurt, 35 helped). A $2.6\times$ more capable, tool-calling-native solver does not make enhancement transfer to correctness---the negative result is robust across a weak open model and a strong frontier model.
+
+\begin{table}[t]
+\centering
+\caption{Cross-model robustness: enh:Aider $\rightarrow$ sol:OpenHands on the 279 evaluable, baseline vs.\ enhanced under each model (McNemar exact, paired within model).}
+\label{tab:crossmodel}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Model & Baseline & enh:Aider & $\Delta$ & $p$ \\
+\midrule
+Qwen3-32B (open)      & 60/279 (22\%)  & 67/279 (24\%)  & $+7$ & 0.489 \\
+GPT-5-mini (frontier) & 155/279 (56\%) & 159/279 (57\%) & $+4$ & 0.712 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Capability spread across many models}
+\label{sec:spread}
+We broaden the two-model check to the \emph{entire local model inventory} of our server as an illustrative probe---every model available on the shared Ollama endpoint. On a 20-issue sample drawn from the issues GPT-5-mini resolves at baseline---i.e., issues that are \emph{provably solvable}---we run the same enh:Aider $\rightarrow$ sol:OpenHands cell (cap 30) with each model, plus two commercial references (Table~\ref{tab:spread}). Two patterns are stark. First, capability is a \textbf{cliff, not a slope}: GPT-5-mini resolves all 20 (by construction), the strongest open model (Qwen3-32B) resolves only 6, and every other model---open or commercial---resolves 0--4. On issues \emph{known} to be solvable, only the frontier model reliably closes them in the agent loop. Second, consistent with RQ1, \textbf{enhancement helps none of them}: the baseline-to-enhanced change ranges $-4$ to $+2$ across all nineteen models that load (two further server models would not load at all on the available Ollama/driver), uniformly negligible or negative (indeed it \emph{removes} all four of Llama-3.3-70B's solves). Notably, code-specialized models (Qwen2.5-Coder, DeepSeek-Coder, Granite-Code) fare no better than general ones---\emph{agentic} competence, not coding knowledge, is the bottleneck. This is a small, deliberately selection-biased spot-check (20 issues, chosen as GPT-5-mini-solvable, single seed) and \emph{not} a powered comparison; we report it only to show that the RQ1 null and the solver-dominance finding persist across the full capability range of models available to us.
+
+\begin{table}[t]
+\centering
+\caption{Full server inventory: enh:Aider $\rightarrow$ sol:OpenHands on 20 GPT-5-mini-solvable issues (cap 30, P2P-resolved), for every model on the local Ollama server plus two commercial references ($^{*}$). A 20-issue, single-seed spot-check---\emph{not} a powered comparison; the sample is upward-biased for GPT-5-mini by construction. Two server models would not load on the available Ollama/driver.}
+\label{tab:spread}
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Model & Baseline & enh:Aider & $\Delta$ \\
+\midrule
+GPT-5-mini$^{*}$ (frontier)    & 20/20 & 18/20 & $-2$ \\
+Qwen3-32B                      & 6/20  & 5/20  & $-1$ \\
+Llama-3.3-70B                  & 4/20  & 0/20  & $-4$ \\
+Qwen2.5-32B                    & 2/20  & 3/20  & $+1$ \\
+GPT-4.1-mini$^{*}$             & 1/20  & 2/20  & $+1$ \\
+Qwen3.5-35B                    & 1/20  & 2/20  & $+1$ \\
+DeepSeek-R1-70B                & 1/20  & 1/20  & $0$  \\
+gpt-oss-120B (reasoning)       & 1/20  & 1/20  & $0$  \\
+Llama-3-8B (fp16)              & 1/20  & 0/20  & $-1$ \\
+GLM-4.7-flash-30B              & 0/20  & 2/20  & $+2$ \\
+Qwen2.5-72B                    & 0/20  & 1/20  & $+1$ \\
+Qwen2.5-Coder-32B              & 0/20  & 1/20  & $+1$ \\
+DeepSeek-Coder-33B             & 0/20  & 0/20  & $0$  \\
+DeepSeek-Coder-v2-16B          & 0/20  & 0/20  & $0$  \\
+DeepSeek-R1-8B                 & 0/20  & 0/20  & $0$  \\
+Granite-Code-34B               & 0/20  & 0/20  & $0$  \\
+Llama-3-8B (q4)                & 0/20  & 0/20  & $0$  \\
+Mixtral-8$\times$22B           & 0/20  & 0/20  & $0$  \\
+Mixtral-8$\times$7B            & 0/20  & 0/20  & $0$  \\
+\midrule
+gemma-3-12B                    & \multicolumn{3}{c}{did not load} \\
+Qwen3-Coder-30B                & \multicolumn{3}{c}{did not load} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Implications for Practice}
 For automated repair on already-actionable issues, effort is better spent on the solver and the underlying model than on rewriting the input. Enhancement systems should prioritize verified, factual context injection over generative analysis, and enhancer--solver co-design over generic rewriting. The solving-as-evaluation paradigm gives researchers an objective, reproducible measure of enhancement quality; before deploying enhancement, teams should validate that their specific enhancer--solver combination produces positive deltas on representative, execution-gated data.
 
@@ -347,7 +408,7 @@ For automated repair on already-actionable issues, effort is better spent on the
 
 \textbf{Construct --- \ourmethod{} operates out of distribution.} Its reward model and RAG corpus were trained on an issue-\emph{difficulty} dataset, not repository-repair issues; applying it here is a \emph{transfer} test, and its high abstention (57\%) is partly an out-of-domain artifact.
 
-\textbf{External --- single model, one collection, execution-gated selection.} All conditions use a single open-weight model (Qwen3-32B); a stronger or function-calling-native model could change absolute rates (notably SWE-agent's) and conceivably the enhancement effect. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Our dataset is also restricted to popular Python repositories, limiting generalizability.
+\textbf{External --- single model, one collection, execution-gated selection.} The controlled matrix uses a single open-weight model (Qwen3-32B). A stronger, function-calling-native model changes absolute rates sharply---our cross-model check (Section~\ref{sec:crossmodel}) shows GPT-5-mini raising the OpenHands baseline from 22\% to 56\%---but \emph{not} the enhancement effect, which remains a directionless null ($\Delta{+}4$, $p=0.712$); we nonetheless cannot rule out a different effect for other model families or agent scaffolds. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Our dataset is also restricted to popular Python repositories, limiting generalizability.
 
 \textbf{Conclusion --- evaluability coverage.} We score only the 73.0\% (279/382) gold-validated subset; the un-evaluable 27\% are excluded rather than assumed-failed. The multi-method gate is designed to keep that fraction small and repository-diverse.
 
@@ -356,7 +417,7 @@ For automated repair on already-actionable issues, effort is better spent on the
 \label{sec:conclusion}
 %==============================================================================
 
-We asked whether improving a bug report's text improves an LLM agent's fix, and answered it extrinsically, at scale, by executing patches against real tests. Across 382 issues, a baseline and enhancers spanning a zero-shot prompt to a reward-gated agent, three solvers, and a fixed model, \textbf{issue enhancement produced no statistically significant improvement in fix correctness} (all McNemar $p \ge 0.489$ at $n=279$), and the one small-sample signal regressed toward zero under replication. What proved robust is that solver choice governs outcome (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%) and that enhancement perturbs a quarter-to-a-third of outcomes without net direction. The negative result holds for our own selective, reward-gated method as well: on the issues it rewrote it improves no solver, and its most notable behavior is to abstain on the majority of already-actionable reports. No feature predicts a better enhancement, yet enhancement reliably raises the intrinsic quality score---text-quality gains that do not transfer to program repair. We offer this as a rigorous negative result, made trustworthy by a gold-gated, multi-method evaluability protocol (73.0\% coverage) and an artifact-recovery discipline. Whether enhancement helps on genuinely \emph{underspecified} reports, and whether a stronger solver model changes the picture, are the natural next studies. We release the benchmark, evaluation pipeline, and experimental artifacts to support future research.
+We asked whether improving a bug report's text improves an LLM agent's fix, and answered it extrinsically, at scale, by executing patches against real tests. Across 382 issues, a baseline and enhancers spanning a zero-shot prompt to a reward-gated agent, three solvers, and a fixed model, \textbf{issue enhancement produced no statistically significant improvement in fix correctness} (all McNemar $p \ge 0.489$ at $n=279$ across the controlled agentic enhancers, with a zero-shot prompt enhancer likewise never helping), and the one small-sample signal regressed toward zero under replication. What proved robust is that solver choice governs outcome (Aider 44\% $\gg$ OpenHands 22\% $\gg$ SWE-agent 6\%) and that enhancement perturbs a quarter-to-a-third of outcomes without net direction. The negative result holds for our own selective, reward-gated method as well: on the issues it rewrote it improves no solver, and its most notable behavior is to abstain on the majority of already-actionable reports. No feature predicts a better enhancement, yet enhancement reliably raises the intrinsic quality score---text-quality gains that do not transfer to program repair. We offer this as a rigorous negative result, made trustworthy by a gold-gated, multi-method evaluability protocol (73.0\% coverage) and an artifact-recovery discipline. Whether enhancement helps on genuinely \emph{underspecified} reports, and whether a stronger solver model changes the picture, are the natural next studies. We release the benchmark, evaluation pipeline, and experimental artifacts to support future research.
 
 %==============================================================================
 % References

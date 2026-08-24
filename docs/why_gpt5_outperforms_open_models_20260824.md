@@ -40,9 +40,27 @@ configuration artifact.
 
 \* see "Validity finding" below — Llama-3.3-70B's four solves are spurious.
 
-Qwen3-32B (the best open model, 6/20) is **absent**: its g5s20 run is fragmented across three
-partial dirs (4+5+4 of 20) and its reported score reuses the full-279 run. Re-running it is the
-obvious next step.
+**Qwen3-32B (added 2026-08-24, fresh dedicated run).** The best open model was originally absent
+here — its g5s20 run was fragmented across three partial dirs (4+5+4 of 20) and its reported score
+reused the full-279 run. A clean 20-instance rerun (212.8 min, cap 30, 4 workers) gives:
+
+| Qwen3-32B | Solved | Empty | git diff | bare unified | FINISHED | Stuck | Cap | Timeout |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 7/20 | 11 | 7 | 2 | 12 | 3 | 1 | 4 |
+| enh:Aider | 9/20 | 9 | — | — | — | — | — | 1 |
+
+It confirms the model's position: it is the **one open model that meaningfully clears the
+submission bar** (9--11 of 20 non-empty versus 0--7 for the entire rest of the open field), while
+still trailing GPT-5-mini's 20/20. Its solves are also **genuine** — all 7 baseline and all 9
+enhanced are well-formed unified diffs, with none of the Llama-3.3-70B artifact below. Note 5
+instances hit the 1800\,s solver timeout (4 baseline, 1 enhanced); a timeout yields an empty patch
+scored as unresolved, so its true ceiling is somewhat higher than 7.
+
+**Replication instability.** The fresh run gives $\Delta = +2$ (7$\to$9) where the published table
+reports $\Delta = -1$ (6$\to$5) for the same cell. The sign flips between two runs of an identical
+configuration. This is the paper's documented run-to-run non-determinism made concrete, on the row
+that anchors the capability table as "best open model" — and it is further evidence that the
+per-model $\Delta$ is noise rather than signal.
 
 ## Three mechanisms
 
@@ -118,6 +136,30 @@ often have no usable F2P tests, which is why the v1/v2/v3 gold-probe machinery e
 consequence — non-applying submissions scoring as solves — should be stated as a threat to validity,
 and it argues for **requiring a non-empty, cleanly-applying patch** as a precondition for counting
 a solve.
+
+## GPT-5-mini on the unbiased random-20 (added 2026-08-24)
+
+The random-20 replication had no frontier-model row, and this was previously assumed to require
+paid API calls. It does not: **both** the g5s20 and random-20 samples are fully contained in the
+existing 279-issue GPT-5-mini run (20/20 in each, baseline and enh:Aider), so the model outputs
+were already on disk and only a scoring pass was missing.
+
+| GPT-5-mini, random-20 | Baseline | enh:Aider | Δ |
+|---|---:|---:|---:|
+| Resolved | **11/20** | 10/20 | **−1** |
+| Empty submissions | 5 | 5 | |
+
+All 21 solves are genuine unified diffs. Two things follow:
+
+1. **The frontier result holds off the selection-biased sample.** 11/20 = 55% on an unbiased draw
+   closely matches GPT-5-mini's 56% on the full 279 — so its dominance is not an artifact of the
+   g5s20 sample having been defined as "issues GPT-5-mini solves."
+2. **RQ1 survives at the top of the capability range on unbiased data.** Δ = −1, directionless,
+   consistent with every other model. The null is not an artifact of weak solvers being unable to
+   express any enhancement effect.
+
+Note GPT-5-mini has 5 empty submissions here versus 0 on g5s20 — as expected, since g5s20 was
+selected for solvability and random-20 was not.
 
 ## Implications for the paper
 1. **Sharpen the cliff claim.** The right statement is not "weaker models write worse fixes" but

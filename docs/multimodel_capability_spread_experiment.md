@@ -62,6 +62,19 @@ commercial references, on a fixed set of *provably-solvable* issues.
    Granite-Code all ≈0). Agentic competence, not coding knowledge, is the bottleneck.
 4. **gpt-oss-120B ≈ 0** patches, confirming earlier observations.
 
+## Replication note (added 2026-08-24)
+
+The Qwen3-32B row above (6/20 -> 5/20, delta -1) reused the full-279 run rather than a dedicated
+g5s20 run. A clean 20-instance rerun of the identical cell gives **7/20 -> 9/20, delta +2** --
+the sign of the delta flips between two runs of the same configuration. All 16 solves in the
+rerun are genuine unified diffs (verified), so this is run-to-run non-determinism, not a scoring
+artifact. Treat the per-model delta as noise; see
+`docs/why_gpt5_outperforms_open_models_20260824.md`.
+
+Also added: **GPT-5-mini on the unbiased random-20 = 11/20 -> 10/20 (delta -1)**, scored from the
+existing 279-issue run at no API cost (both samples are subsets of it). Its 55% on an unbiased
+draw matches its 56% on the full 279.
+
 ## Infrastructure notes
 - **Pool orchestrator** (`scripts/workflows/pool_orchestrator.py`): keeps 3 models running in
   parallel on `:11434` (which multi-loads), VRAM-aware (holds a launch if free VRAM < model size +

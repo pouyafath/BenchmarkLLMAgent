@@ -54,11 +54,25 @@ def report_p2p_pass(report: Path) -> bool:
 
 
 def applied_cleanly(patch: str) -> bool:
-    """A submission we would count as a genuine fix attempt: non-empty, git-diff shaped,
-    and not a whole-tree dump."""
+    """A submission we would count as a genuine fix attempt.
+
+    Accepts any well-formed *unified* diff, not just git-format ones: OpenHands agents
+    frequently emit bare `--- a/x` / `+++ b/x` / `@@` hunks with no `diff --git` header,
+    and those apply fine with `git apply -p1`. Requiring the git header would wrongly
+    discard legitimate patches.
+
+    Rejects: empty output, prose or raw source with no hunks, and whole-tree dumps
+    (the `diff -ruN /testbed /workspace` mass-deletion pattern seen when an agent
+    destroys its workspace). See docs/why_gpt5_outperforms_open_models_20260824.md.
+    """
     if not patch or not patch.strip(): return False
-    if len(patch) > 1_000_000: return False
-    return bool(re.search(r'^diff --git ', patch, re.M))
+    if len(patch) > 1_000_000: return False          # whole-tree dump
+    if not re.search(r'^@@ .* @@', patch, re.M): return False      # no hunks -> not a diff
+    if not re.search(r'^--- ', patch, re.M) or not re.search(r'^\+\+\+ ', patch, re.M):
+        return False
+    # mass deletion: every hunk removing a whole file against an absent target
+    if len(re.findall(r'^@@ -\d+,\d+ \+0,0 @@', patch, re.M)) > 5: return False
+    return True
 
 
 def run_group(dataset: Path, preds: Path, ids: list[str], outdir: Path, workers: int) -> None:

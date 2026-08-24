@@ -5,11 +5,29 @@
 ### Current Stage 2 Full Track (2026-05-24)
 
 - Workflow: 7-Stage Enhancer+Solver Agentic Workflow
-- Dataset: 2,900 viable issues (filtered from 3,285 original issues)
-- Stage 0 & 0.5: Collection & Classification (`data/stage2_2026_viable.jsonl`)
-- Stage 1: RepoLaunch Setup (In Progress via `paul-RepoLaunch`)
-- Stages 2-6: Organize, Validate, Enhance, Solve, Compare (Pending)
-- Status: Running locally with 4 workers and 900s Ollama timeout to manage GPU load.
+- Dataset lineage: `7,714 raw_candidates -> 3,285 P2P>0 classified -> 3,229 operational export -> 2,950 infra-compatible -> 2,900 live Paul subset`
+- Stage 0 & 0.5: Collection, classification, and viability pruning (live run uses `paul-RepoLaunch/data/stage2_2026_viable.jsonl`)
+- Stage 1: Node1 (`docjk-gpu-01`) still running; Node2 (`docjk-gpu-02`) **closed** — 961 success / 489 failed / 0 missing
+- Stages 2-3: Organize and image-recovery now run in parallel on both nodes; frozen batch123 Stage 3 export complete, 55-row P2P>0 subset already available
+- Stages 4-6: Pilot-40 all 3 runs accepted; batch2 Stage 4 complete (54/55), Stage 5/6 snapshot complete on 29 runnable rows, final manifest now 30 runnable
+- Status: Node1 Stage 1 live; Node1 and Node2 both running Stage 2 plus targeted image recovery; Developer04 now needs only the final 29 -> 30 closure decision for batch2.
+
+### Pilot-40 Stage 4-6 Runs (2026-05-26 to 2026-06-01)
+
+- OpenHands enhancer (2026-06-01): `runs/paul_pilot40_openhands_20260601/stage6_report/REPORT.md`
+  - Result: Baseline 9/40 | openhands 10/40 (+2.5 pp, 39/40 truly enhanced, gained `Diaoul__subliminal-1328`)
+  - Comparability audit: `runs/paul_pilot40_openhands_20260601/COMPARABILITY_AUDIT.md`
+  - Gained case analysis: `runs/paul_pilot40_openhands_20260601/GAINED_CASE_ANALYSIS.md`
+  - Failure classification: `runs/paul_pilot40_openhands_20260601/FAILURE_CLASSIFICATION.md`
+  - Status: accepted and directly comparable after shared P2P-gated re-eval
+  - Caveat: `Azure__azure-cli-32339` remains a likely runtime/tooling outlier, not a fully root-caused failure
+  - Driver: `scripts/workflows/run_pilot40_openhands_enhancer.py`
+- **Evaluation methodology**: `docs/guides/PILOT40_EVALUATION_WORKFLOW.md`
+  - Reusable re-eval utility: `scripts/workflows/pilot40_reeval_lib.py`
+- llm_append_analysis + gpt-5.4-mini (2026-05-26): `runs/paul_pilot40_stage4_stage6_20260526/stage6_report/REPORT.md`
+  - Result: Baseline 9/40 | enhanced 8/40 (-1); accepted after P2P-gated re-eval
+- llm_append_analysis + gpt-oss:120b (2026-05-27): `runs/paul_pilot40_gptoss_solver_20260527/stage6_report/REPORT.md`
+  - Result: Baseline 0/40 | enhanced 0/40 (0); accepted after P2P-gated re-eval
 
 ### Pouya-20 Track (current as of 2026-05-09)
 

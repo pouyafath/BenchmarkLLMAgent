@@ -27,11 +27,56 @@
 | **3** | SWE-bench-Live 50 issues | Scale-up with 131k context window | Done |
 | **4** | Pouya-20 (gpt-5.4-mini) | 5 native CLI agents, full solver comparison | **Done** |
 
-**Current:** Iteration 4 complete. See `runs/pouya20_native_solver_comparison_fixed/ANALYSIS.md`.
+**Current:** Iteration 4 complete. Pilot-40 all 3 accepted runs complete. Batch2 (55-row) Stage 4 is complete, Stage 5/6 snapshot exists on a 29-row runnable subset, final upstream manifest is now 30 runnable, and a small 29->30 expansion decision remains.
+
+RepoLaunch (Stage 1/2/3 pipeline) live operational handoff is tracked at:
+`/home/22pf2/paul-RepoLaunch/docs/PROJECT_STATUS_HANDOFF_2026-05-26.md`
+
+Current pilot continuation input for Stage 4-6:
+`/home/22pf2/paul-RepoLaunch/runs/stage2_2026_full_pilot48_stage_exports_20260526_1552_utc/stage3_validation_completed40.jsonl`
 
 ---
 
 ## Latest Results
+
+### Pilot-40 Accepted Benchmark Results — 40 issues, P2P-gated re-eval applied
+
+| Enhancer | LLM / Solver | Baseline → Enhanced | Delta | Status |
+|----------|:---:|:---:|:---:|:---:|
+| **OpenHands** | gpt-5.4-mini | **9/40 → 10/40** | **+1** | Accepted |
+| **llm_append_analysis** | gpt-5.4-mini | **9/40 → 8/40** | **-1** | Accepted |
+| **llm_append_analysis** | gpt-oss:120b | **0/40 → 0/40** | **0** | Accepted |
+| **OpenClaw** | — | — | — | Not integrated (no local runtime on docjk-gpu-01) |
+
+All accepted comparisons use the shared P2P-gated re-eval workflow (`scripts/workflows/pilot40_reeval_lib.py`).
+
+#### OpenHands detail (2026-06-01)
+- Enhancement coverage: 39/40 truly enhanced (1 OpenHands CLI error: `Azure__azure-cli-32339`)
+- Gained: `Diaoul__subliminal-1328` (bug); Lost: none
+- Caveat: `Azure__azure-cli-32339` is treated as a likely runtime outlier; exact root cause not fully proven
+- Report: `runs/paul_pilot40_openhands_20260601/stage6_report/REPORT.md`
+
+#### llm_append_analysis + gpt-5.4-mini detail (2026-05-26)
+- Report: `runs/paul_pilot40_stage4_stage6_20260526/stage6_report/REPORT.md`
+
+#### llm_append_analysis + gpt-oss:120b detail (2026-05-27)
+- Report: `runs/paul_pilot40_gptoss_solver_20260527/stage6_report/REPORT.md`
+
+### Batch2 (55-row) Current Status (2026-06-05)
+- Stage 4 full 55-row run complete: **54/55 truly enhanced** (1 failure: `HKUDS__nanobot-3578`, same class as pilot40 outlier)
+- Final upstream manifest now fixed; `runnable_ids.json` currently shows:
+  - `confirmed_runnable`: 30
+  - `timeout_unrestored`: 9
+  - `launch_failed_unrestored`: 13
+  - `bad_target`: 3
+  - `still_pending`: 0
+- Stage 5/6 snapshot already completed on the earlier 29-row runnable snapshot:
+  - baseline: `19 / 29`
+  - enhanced: `21 / 29`
+  - not_evaluated in that snapshot: `26`
+- Remaining downstream decision:
+  - whether to execute a minimal 29 -> 30 evaluation expansion so the batch2
+    Stage 6 artifacts fully match the final manifest
 
 ### 20-Issue Native CLI Agent Comparison (2026-05-10) — 5 Agents, gpt-5.4-mini
 
@@ -96,4 +141,4 @@ Report: `runs/pouya20_native_solver_comparison_fixed/ANALYSIS.md`
 
 ## One-line summary for quick reference
 
-> **BenchmarkLLMAgent:** Benchmarks LLM agents for GitHub issue enhancement. Current experiment: 5 native CLI agents (aider, trae, openhands, mini-SWE-agent, SWE-agent) on 20 issues with gpt-5.4-mini. Results: `runs/pouya20_native_solver_comparison_fixed/ANALYSIS.md`.
+> **BenchmarkLLMAgent:** Benchmarks LLM agents for GitHub issue enhancement. Pilot-40 accepted: OpenHands 9→10/40 (+1); llm_append+gpt-5.4-mini 9→8/40 (-1); llm_append+gpt-oss 0→0/40; OpenClaw not integrated. Batch2 Stage 4 complete (54/55), Stage 5/6 snapshot exists at 19/29 -> 21/29, and the final runnable manifest is now 30. Report: `runs/paul_pilot40_openhands_20260601/stage6_report/REPORT.md`.

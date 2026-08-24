@@ -4,17 +4,33 @@ Project docs are organized around the **current canonical workflow**.
 
 ## Current Stage 2 Full Track (2026-05-24, running)
 
-- Dataset: 3,285 total collected -> 3,229 passed basic filters -> 2,900 classified as viable (Bug: 1896, Feature: 855, Refactoring: 149)
+- Dataset lineage for the live full run: `7,714 raw_candidates -> 3,285 P2P>0 classified -> 3,229 operational export -> 2,950 infra-compatible -> 2,900 live Paul subset` (final live mix: Bug `1,896`, Feature `855`, Refactoring `149`)
 - Workflow: Enhancer+Solver Agentic Workflow (7 Stages)
   - Stage 0: Dataset Collection & Filtering (Completed, 3,229 issues)
   - Stage 0.5: Classification & Viability (Completed, 2,900 issues)
   - Stage 1: RepoLaunch Setup (In Progress, running locally with `paul-RepoLaunch`)
   - Stage 2: RepoLaunch Organize (Waiting)
   - Stage 3: Gold Patch Validation (Not Started)
-  - Stage 4: Enhancement Agents (Not Started)
-  - Stage 5: Solver Evaluation (Not Started)
-  - Stage 6: Final Comparison (Not Started)
+  - Stage 4: Enhancement Agents (Pilot-40 completed: `llm_append_analysis`, `openhands`)
+  - Stage 5: Solver Evaluation (Pilot-40 completed with mini-SWE-agent + gpt-5.4-mini and gpt-oss:120b)
+  - Stage 6: Final Comparison (Pilot-40 completed — 3 runs)
 - Configuration: Using local Ollama with 4 workers and 900s request timeouts to ensure GPU stability during heavy setup loads.
+
+See [`guides/POUYA_DATASET_2026_WORKFLOW.md`](guides/POUYA_DATASET_2026_WORKFLOW.md) for the exact file-by-file explanation of `7,714 -> 3,285 -> 3,229 -> 2,950 -> 2,900`, including which steps are explicit scripted filters and which are under-documented operational exports.
+
+## Pilot-40 Stage 4-6 Runs (2026-05-26 to 2026-06-01)
+
+- **OpenHands enhancer (2026-06-01):** Baseline 9/40 | openhands 10/40 (+2.5 pp). 39/40 truly enhanced. Gained: `Diaoul__subliminal-1328`.
+  - Report: `runs/paul_pilot40_openhands_20260601/stage6_report/REPORT.md`
+  - Comparability audit: `runs/paul_pilot40_openhands_20260601/COMPARABILITY_AUDIT.md`
+  - Driver: `scripts/workflows/run_pilot40_openhands_enhancer.py`
+  - Accepted result after shared P2P-gated re-eval; raw `1/40 -> 1/40` eval is not the authoritative comparison
+  - Caveat: `Azure__azure-cli-32339` is treated as a likely OpenHands/runtime outlier, but not fully root-caused
+- **llm_append_analysis + gpt-5.4-mini solver (2026-05-26):** Baseline 9/40 | enhanced 8/40 (-2.5 pp)
+  - Report: `runs/paul_pilot40_stage4_stage6_20260526/stage6_report/REPORT.md`
+- **llm_append_analysis + gpt-oss:120b solver (2026-05-27):** Baseline 0/40 | enhanced 0/40
+  - Report: `runs/paul_pilot40_gptoss_solver_20260527/stage6_report/REPORT.md`
+- **OpenClaw:** Not available locally on `docjk-gpu-01` (no binary, module, or install path found)
 
 ## Historical Pouya-20 Track (2026-05-11)
 

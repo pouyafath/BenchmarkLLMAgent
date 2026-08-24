@@ -160,6 +160,17 @@ CATEGORY_A_AGENTS = [
             "Uses the V2_29 continuous-learning agent with Gemma3-12B (Ollama) and seed_309 collection."
         ),
     },
+    {
+        "id": "openclaw",
+        "name": "OpenClaw",
+        "enhancer_type": "real",
+        "native_override": True,
+        "enhancement_strategy": (
+            "Native OpenClaw CLI integration. "
+            "Runs openclaw as a subprocess in a temporary workspace and reads the "
+            "ENHANCED_TITLE / ENHANCED_BODY markers from the output file it writes."
+        ),
+    },
 ]
 
 

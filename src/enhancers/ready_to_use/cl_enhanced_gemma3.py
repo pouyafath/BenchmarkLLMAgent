@@ -34,7 +34,8 @@ _LLMFOR_ROOT = Path("/home/22pf2/LLMforGithubIssuesRefactor")
 _CONDA_PYTHON = "/home/22pf2/anaconda3/envs/issue_enhancer_py312/bin/python"
 _RAG_COLLECTION = "seed_309"
 _QDRANT_LOCAL_PATH = str(_LLMFOR_ROOT / "qdrant_data_v2_29_offline_gemma")
-_MODEL = "gemma3:12b-it-fp16"
+_MODEL = os.environ.get("CL_GEMMA3_MODEL", "gemma3:12b-it-fp16")
+_BASE_URL = os.environ.get("CL_GEMMA3_BASE_URL", "http://localhost:11434")
 _TIMEOUT = int(os.environ.get("CL_ENHANCED_TIMEOUT", "600"))
 
 # ── per-issue subprocess script template ─────────────────────────────────────
@@ -67,6 +68,7 @@ task_data = json.loads(task_json)
 config = IssueEnhancerDeepAgentConfig()
 config.llm.provider = "ollama"
 config.llm.model_name = "MODEL_PLACEHOLDER"
+config.llm.base_url = "BASE_URL_PLACEHOLDER"
 config.evaluation.fast_probability_threshold = 0.5
 config.planner.model_name = "MODEL_PLACEHOLDER"
 
@@ -157,7 +159,7 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     # Build per-issue script
     script = _ISSUE_SCRIPT_TEMPLATE.replace(
         "TASK_JSON_PLACEHOLDER", repr(json.dumps(task_data))
-    ).replace("MODEL_PLACEHOLDER", _MODEL)
+    ).replace("MODEL_PLACEHOLDER", _MODEL).replace("BASE_URL_PLACEHOLDER", _BASE_URL)
 
     env = {
         **os.environ,

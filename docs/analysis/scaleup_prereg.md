@@ -52,3 +52,44 @@ The main risk to this line of work is reading whatever number arrives as confirm
 threshold in advance means a positive result is credible and a negative result is honest. If the
 outcome is 2–4 rescues, that is a genuine null and will be reported as one, not as "a trend
 toward improvement".
+
+---
+
+# Second scale-up: GPT-5-mini on random-20
+
+Run: `runs/rge20_gpt5mini_20260825_023548/`. Same enhancer, same design, both arms fresh.
+Random-20 is used rather than g5s20 because GPT-5-mini resolves all of g5s20 by construction
+and would have zero headroom there.
+
+Fresh-scored baseline on this set: **11/20** → **9 rescuable**, **11 exposed**.
+
+| | expected under the resample null |
+|---|---|
+| rescues | **1.2** of 9 |
+| breakages | **4.5** of 11 |
+| **net Δ** | **−3.3** |
+
+The negative-delta prediction is even stronger here: with 11 resolved instances exposed at a
+40.8% break rate and only 9 failures exposed at 12.9%, **pure noise predicts Δ ≈ −3**. A result
+of Δ −2 or −3 on this arm is the null, not harm.
+
+P(≥ k rescues), k ~ Binomial(9, 0.129):
+
+| k | 0 | 1 | 2 | 3 | **4** | 5 |
+|---|---|---|---|---|---|---|
+| P(≥k) | 1.000 | 0.711 | 0.327 | 0.099 | **0.020** | 0.003 |
+
+**Pre-registered thresholds:**
+
+| rescues | verdict |
+|---:|---|
+| **≥ 4** | Beats the resample null (p = 0.020). **Real effect** at the frontier. |
+| **1–3** | Indistinguishable from resample. **Null holds.** |
+| **0** | Null holds, below the resample rate. |
+
+## Combined reading
+The two arms test different regimes: Qwen3-32B asks whether repo-grounding lifts a *weak* solver
+(13 rescuable), GPT-5-mini whether it lifts a *frontier* one (9 rescuable). If both land in their
+null bands, the null generalises across the capability range for repo-grounded enhancement, and
+the redundancy argument becomes the paper's demonstrated headline rather than a conjecture.
+

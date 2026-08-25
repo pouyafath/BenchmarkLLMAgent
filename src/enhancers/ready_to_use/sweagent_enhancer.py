@@ -46,7 +46,8 @@ _BASE_URL   = os.environ.get("SWEAGENT_BASE_URL", "https://api.openai.com/v1")
 _MODEL      = os.environ.get("SWEAGENT_MODEL",    "gpt-5.4-mini")
 _API_KEY    = os.environ.get("SWEAGENT_API_KEY",  os.environ.get("OPENAI_API_KEY", ""))
 _TIMEOUT    = int(os.environ.get("SWEAGENT_TIMEOUT", "300"))
-_MAX_STEPS  = int(os.environ.get("SWEAGENT_MAX_STEPS", "10"))
+# ~30-step agent loop, matching the paper's stated configuration (was 10).
+_MAX_STEPS  = int(os.environ.get("SWEAGENT_MAX_STEPS", "30"))
 _EXECUTION_TIMEOUT = int(os.environ.get("SWEAGENT_EXECUTION_TIMEOUT", "120"))
 _TEMPERATURE = float(os.environ.get("SWEAGENT_TEMPERATURE", "0"))
 _NOOP_MAX_RETRIES = int(os.environ.get("SWEAGENT_NOOP_MAX_RETRIES", "2"))
@@ -56,12 +57,18 @@ ENHANCEMENT_PROMPT = """\
 You are SWE-agent, an autonomous coding agent by Princeton NLP.
 Enhance the GitHub issue below so it is complete, clear, and actionable.
 
+FIRST, investigate the codebase. The repository is checked out at /testbed (if it is
+present). `cd /testbed` and search/read the source to find the code the issue describes.
+Do NOT modify anything there and do NOT write a fix — this is investigation only.
+
 Improvements to make:
 - Add reproduction steps if missing
 - Clarify expected vs actual behavior
-- Reference affected files/components from the hints
+- Reference the affected files/functions you VERIFIED in /testbed (never guess a path)
+- Add a "## Code Context" section with real file paths, symbols and line numbers
 - Add environment details where inferable
 - Restructure for clarity using markdown sections
+- Preserve the original report's information; add to it rather than replacing it
 
 IMPORTANT: Output the result in EXACTLY this format (and nothing else before or after the --- delimiters):
 ---
@@ -366,6 +373,7 @@ def _run_sweagent_once(
     title: str,
     body: str,
     temperature: float,
+    docker_image: str = "",
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmpdir:
         # Write config
@@ -378,13 +386,15 @@ def _run_sweagent_once(
         task_file = Path(tmpdir) / "problem_statement.md"
         task_file.write_text(task_text, encoding="utf-8")
 
-        # Use Docker deployment (local deployment requires root permissions)
-        # No repo needed - enhancement is a text-only task
+        # Repository access: run inside the instance's RepoLaunch image so the source
+        # is present at /testbed, matching the paper's description. Falls back to a bare
+        # python image only when no instance image is available.
+        _image = docker_image or "python:3.12-slim"
         cmd = [
             _SWEAGENT_CLI, "run",
             "--config", str(cfg_file),
             "--env.deployment.type=docker",
-            "--env.deployment.image=python:3.12-slim",
+            f"--env.deployment.image={_image}",
             f"--problem_statement.type=text_file",
             f"--problem_statement.path={task_file}",
             f"--output_dir={output_dir}",
@@ -524,6 +534,7 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 title=title,
                 body=body,
                 temperature=temperature,
+                docker_image=issue.get("docker_image") or issue.get("image_name", ""),
             )
         except Exception as e:
             run_errors.append(str(e))

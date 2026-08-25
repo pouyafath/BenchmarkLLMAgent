@@ -34,6 +34,18 @@ _TIMEOUT   = int(os.environ.get("AIDER_TIMEOUT", "300"))
 _NOOP_MAX_RETRIES = int(os.environ.get("AIDER_NOOP_MAX_RETRIES", "2"))
 _RETRY_TEMPERATURE = float(os.environ.get("AIDER_RETRY_TEMPERATURE", "0.2"))
 
+ENHANCEMENT_PROMPT_REPO = """Enhance this GitHub issue using the ACTUAL SOURCE CODE in this repository.
+
+The repository is checked out in your working directory. Investigate it first: find and read the
+files implementing the behaviour the issue describes. Do NOT fix the bug and do NOT modify any
+source file — only edit issue.md.
+
+Rewrite issue.md to add: reproduction steps, expected vs actual behaviour, and a "## Code Context"
+section citing the real file paths, functions and line numbers you verified in this repository.
+Only cite paths you actually opened — never guess one. Preserve the original report's content and
+add to it rather than replacing it.
+"""
+
 ENHANCEMENT_PROMPT = """Enhance this GitHub issue. Improve the title and body to be more complete, clear, and actionable.
 
 Add: reproduction steps, expected vs actual behavior, environment details where inferable.
@@ -287,14 +299,47 @@ Issue #{num}
 {suffix}"""
 
 
+def _export_repo(docker_image: str, dest: Path) -> int:
+    """Copy /testbed out of the instance image into `dest`. Returns files exported.
+
+    Aider is a local CLI, so to give it genuine repository access we materialise the
+    repository at the target commit from the RepoLaunch image. Aider then gets a real
+    repo map and can read the source, instead of seeing only the issue file.
+    """
+    try:
+        cid = subprocess.run(["docker", "create", docker_image, "true"],
+                             capture_output=True, text=True, timeout=300).stdout.strip()
+        if not cid:
+            return 0
+        try:
+            subprocess.run(["docker", "cp", f"{cid}:/testbed/.", str(dest)],
+                           capture_output=True, timeout=1200)
+        finally:
+            subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=120)
+        # Prune untracked bulk (venv, caches). Aider's repo map uses `git ls-files`,
+        # so these were never indexed anyway; dropping them saves disk and time.
+        import shutil as _sh
+        for junk in (".venv", "venv", ".pytest_cache", ".cache", "node_modules", ".mypy_cache"):
+            t = dest / junk
+            if t.is_dir():
+                _sh.rmtree(t, ignore_errors=True)
+        return sum(1 for _ in dest.rglob("*") if _.is_file())
+    except Exception:
+        return 0
+
+
 def _run_aider_once(
     *,
     task_text: str,
     title: str,
     body: str,
+    docker_image: str = "",
 ) -> dict[str, Any]:
     aider_cmd = _get_aider_cmd()
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Repository access: materialise the repo at the target commit so aider can
+        # actually read the source (repo map + file reads), matching the paper.
+        n_files = _export_repo(docker_image, Path(tmpdir)) if docker_image else 0
         # Create a git repo (aider requires it)
         subprocess.run(["git", "init"], cwd=tmpdir, capture_output=True)
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmpdir, capture_output=True)
@@ -319,12 +364,15 @@ def _run_aider_once(
                     aider_cmd,
                     "--model", _MODEL,
                     "--no-auto-commits",
-                    "--no-git",
+                    # With a materialised repo we keep git ENABLED so aider builds a
+                    # repo map and can read the source. Without one, git adds nothing.
+                    *([] if n_files else ["--no-git"]),
+                    *(["--map-tokens", "2048"] if n_files else []),
                     "--yes",
                     "--no-check-update",
                     "--no-analytics",
                     "--no-show-model-warnings",
-                    "--message", ENHANCEMENT_PROMPT,
+                    "--message", (ENHANCEMENT_PROMPT_REPO if n_files else ENHANCEMENT_PROMPT),
                     str(issue_path),
                 ],
                 capture_output=True,
@@ -405,6 +453,7 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 task_text=task_text,
                 title=title,
                 body=body,
+                docker_image=issue.get("docker_image") or issue.get("image_name", ""),
             )
         except TimeoutError:
             return {

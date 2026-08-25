@@ -144,7 +144,7 @@ We evaluate a no-enhancement \textbf{baseline} against a ladder of enhancers of 
 \begin{itemize}
 \item \textbf{No Enhancement (Baseline):} the original issue is passed directly to the solver. Control condition.
 \item \textbf{Zero-Shot (Raw LLM):} a single LLM call restructures the issue without agent-level tool use, measuring the value of prompt-only rewriting.
-\item \textbf{Ready-to-use agents:} \textbf{OpenHands}~\cite{wang2024openhands}, \textbf{SWE-agent}~\cite{yang2024swe}, and \textbf{Aider}~\cite{aider2024}, each a $\sim$30-step agent loop given the issue and repository access and instructed to enhance the description. These rewrite \emph{unconditionally}.
+\item \textbf{Ready-to-use agents:} \textbf{OpenHands}~\cite{wang2024openhands}, \textbf{SWE-agent}~\cite{yang2024swe}, and \textbf{Aider}~\cite{aider2024}, each given the issue text and instructed to enhance the description, rewriting \emph{unconditionally}. These operate on the report \emph{without} a checkout of the repository under study: each runs in an empty working directory containing only the issue, so any file reference it emits is inferred from the report rather than read from the code. Their loop budgets differ by tool: OpenHands runs 8 steps, SWE-agent 10, and Aider a single non-interactive turn. Section~\ref{sec:repogrounded} reports a separate enhancer built to remove exactly this limitation.
 \item \textbf{\ourmethod{} (reward-gated):} a managed enhancer that \emph{gates} on a learned reward model and only rewrites reports it judges low-quality, using retrieval-augmented (RAG) grounding. This is a \emph{selective} enhancer (Section~\ref{sec:cl}).
 \end{itemize}
 
@@ -395,6 +395,23 @@ Qwen3-Coder-30B                & \multicolumn{3}{c}{did not load} \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Does repository access rescue enhancement?}
+\label{sec:repogrounded}
+A natural objection to the RQ1 null is that our enhancers never see the code. They are text-to-text rewriters: each receives the issue title and body in an empty working directory, with no checkout of the repository under study. The solver, by contrast, runs in a per-instance container with the repository at the target commit under \texttt{/testbed} and a full tool loop over it. This asymmetry is worth stating plainly, because it bounds what any such enhancer could achieve:
+\[
+\text{enhancer output} = f(\text{issue text}), \qquad
+\text{solver input} = \text{issue text} + \text{repository}.
+\]
+Anything the enhancer derives, the solver can derive from a strict superset by reading the code. A text-only enhancer therefore cannot add information to the solver's input; it can only re-word what the solver already had.
+
+To test whether removing that asymmetry changes the result, we built a \textbf{repository-grounded enhancer}: an agent given \emph{exactly} what the solver gets---the same container, the same repository at \texttt{/testbed}, the same 30-step tool loop---and asked to enrich the report from what it finds. It receives \emph{no} oracle information: never the gold patch, the test patch, the hints field, or the fail-to-pass test names. Two constraints follow from our diagnostics. It is \textbf{append-only}: the original report must survive verbatim and may only be added to, which removes the compression failure we observed in the text-only enhancers (the OpenHands enhancer's median output is \emph{shorter} than its input). And every cited path is \textbf{verified} to exist in the container before the output is accepted, because unverified references measurably hurt.
+
+The enhancer works as designed. On a 20-issue random sample with GPT-5-mini it enriched 17/20 reports, cited \textbf{50/50 file references that were verified to exist} with zero invented paths, and expanded reports by a median factor of 5.96---in one case turning a 234-character issue into a 7.5\,KB report with real functions and line numbers. Yet on correctness it changes almost nothing: \textbf{13/20 $\rightarrow$ 12/20 resolved} (per-protocol, on the 17 treated issues, $11/17 \rightarrow 10/17$). Of the seven issues the baseline failed, enhancement rescued \textbf{zero}; against a pre-registered threshold of $\geq 4$ rescues this is squarely within the null. Nineteen of twenty issues had an identical outcome in both arms.
+
+Two things deserve emphasis. First, this is the strongest form of the negative result: a \emph{well-formed, repository-grounded, verified, non-destructive} enhancement rescued nothing, which is what the redundancy argument above predicts. Second, a secondary and \emph{not} pre-registered observation points the other way on harm: enhancement broke only 1 of 13 working solves, where a pure resample of the solver would break $5.3$ ($p = 0.011$). Preserving the original verbatim appears to leave the solver's trajectory intact, so the append-only constraint removes the perturbation that the unconstrained text-only enhancers introduce---without supplying any benefit. We report this as a hypothesis pending replication, not a result.
+
+This experiment is a small probe (20 issues, seven of them rescuable), and it cannot exclude a small positive effect; a second arm on an open-weight solver is in progress. It does, however, close the most obvious escape route for the RQ1 null: giving the enhancer the codebase does not make enhancement transfer to correctness.
 
 \subsection{Implications for Practice}
 For automated repair on already-actionable issues, effort is better spent on the solver and the underlying model than on rewriting the input. Enhancement systems should prioritize verified, factual context injection over generative analysis, and enhancer--solver co-design over generic rewriting. The solving-as-evaluation paradigm gives researchers an objective, reproducible measure of enhancement quality; before deploying enhancement, teams should validate that their specific enhancer--solver combination produces positive deltas on representative, execution-gated data.

@@ -127,3 +127,29 @@ a mis-measured input was fixed. `scripts/analysis/verdict.py` now uses P_FIX = 0
 Note the null's expected net delta for Qwen3 moves from −1.2 to **−0.3**, so a delta near zero is
 the null there; for GPT-5-mini it remains strongly negative at −2.7.
 
+---
+
+# Secondary hypothesis, pre-registered before the Qwen3 result (2026-08-25)
+
+The GPT-5-mini arm produced an unplanned finding on the **breakage** side: 1 breakage of 13
+exposed instances where the resample null expects 5.3.
+P(≤1 | Binomial(13, 0.408)) = **0.011**.
+
+Reading: append-only repo-grounded enhancement perturbs the solver **less** than a resample does,
+because the original text is preserved verbatim and only appended to. Two separable effects that
+the aggregate Δ hides — no rescues, but also markedly fewer breakages.
+
+This was **not** pre-registered; it is a secondary analysis found after the fact and must be
+treated as a hypothesis, not a result.
+
+**Pre-registered replication test on the Qwen3-32B arm** (result not yet seen; that run is still
+in its enhanced-solve phase):
+
+> Let `n_exposed` be the count of baseline-resolved instances and `b` the observed breakages.
+> Compute P(≤ b | Binomial(n_exposed, 0.408)). The low-breakage effect is **replicated** if
+> p < 0.05, and **not replicated** otherwise.
+
+Reporting rule fixed in advance: if it replicates, it is reported as a finding about the
+append-only constraint. If it does not, the GPT-5-mini observation is reported as a single
+unreplicated result and nothing more.
+

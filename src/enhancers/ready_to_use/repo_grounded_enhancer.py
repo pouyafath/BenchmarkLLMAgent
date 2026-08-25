@@ -208,9 +208,19 @@ def _verify_references(enhanced: str, docker_image: str) -> tuple[int, int, list
         elif line:
             tracked.add(_norm_path(line))
     basenames = {f.split("/")[-1] for f in tracked}
+    def _variants(c: str) -> set[str]:
+        """Accept dotted module notation. Weaker models cite
+        'pkg.mod.file.py' for what is really 'pkg/mod/file.py'; that is a citation
+        FORMAT artifact, not an invented path, and must not count as a hallucination."""
+        v = {c}
+        if "/" not in c and c.count(".") > 1 and c.endswith(".py"):
+            v.add(c[:-3].replace(".", "/") + ".py")
+        return v
+
     hallucinated = []
     for c in cited:
-        if c in tracked or c in exists or c.split("/")[-1] in basenames:
+        vs = _variants(c)
+        if (vs & tracked) or (vs & exists) or any(x.split("/")[-1] in basenames for x in vs):
             continue
         hallucinated.append(c)
     return len(cited) - len(hallucinated), len(cited), hallucinated

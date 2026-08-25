@@ -4,11 +4,11 @@ Apply the pre-registered decision rule to a repo-grounded scale-up run.
 
 The pre-registration (docs/analysis/scaleup_prereg.md) fixes the RULE, not the number:
 the threshold is the smallest k with P(>= k rescues) < 0.05 under the resample null,
-k ~ Binomial(n_rescuable, 0.129). n_rescuable is determined by the fresh baseline in the
+k ~ Binomial(n_rescuable, 0.199). n_rescuable is determined by the fresh baseline in the
 run itself, so the threshold is recomputed from the data using that same procedure.
 
-Rates come from the 1,674-trial main matrix:
-  P(fix   | baseline failed) = 0.129
+Rates come from the 1,230-trial main matrix (see scaleup_prereg.md correction):
+  P(fix   | baseline failed) = 0.199
   P(break | baseline passed) = 0.408
 
 Usage:
@@ -19,7 +19,7 @@ import json, sys, pathlib
 from math import comb
 
 ROOT = pathlib.Path("/home/22pf2/BenchmarkLLMAgent")
-P_FIX, P_BREAK, ALPHA = 0.129, 0.408, 0.05
+P_FIX, P_BREAK, ALPHA = 0.199, 0.408, 0.05  # corrected 2026-08-25, see scaleup_prereg.md
 
 
 def tail(k: int, n: int, p: float) -> float:

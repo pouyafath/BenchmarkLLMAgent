@@ -2,7 +2,7 @@
 
 Diagnostic analysis of the RQ1 null. All numbers are from the paper's controlled configuration
 (Qwen3-32B, 279 gold-evaluable instances, 3 agentic enhancers × {OpenHands, Aider} solvers =
-1,674 paired trials) unless stated.
+1,230 paired trials) unless stated.
 
 ---
 
@@ -47,21 +47,21 @@ Conditioning the flips on the baseline outcome:
 
 | | n | flipped | rate |
 |---|---:|---:|---:|
-| P(fix \| baseline **failed**) | 1,257 | 162 | **12.9%** |
+| P(fix \| baseline **failed**) | 813 | 162 | **19.9%** |
 | P(break \| baseline **passed**) | 417 | 170 | **40.8%** |
 
-Enhancement is 3.2× more likely to break a working solve than to rescue a failing one. That looks
+Enhancement is 2.05× more likely to break a working solve than to rescue a failing one. That looks
 alarming, but it is **not** evidence of destruction — it is the arithmetic signature of re-rolling
-the dice at a 24.9% base rate. Under a null model where enhancement is an independent resample
+the dice at a 33.9% base rate. Under a null model where enhancement is an independent resample
 from the same latent per-instance success probability:
 
 ```
-ratio = P(break|pass) / P(fix|fail) = E[1-p]/E[p] = (1 - 0.249)/0.249 = 3.01
-observed                                                              = 3.16   (4.9% off)
+ratio = P(break|pass) / P(fix|fail) = E[1-p]/E[p] = (1 - 0.339)/0.339 = 1.95
+observed                                                              = 2.05   (4.9% off)
 ```
 
 If enhancement carried real information, the observed ratio would fall **below** the resample
-prediction — more rescues, fewer breakages. It does not. Net effect over 1,674 paired trials:
+prediction — more rescues, fewer breakages. It does not. Net effect over 1,230 paired trials:
 **−8 resolved**.
 
 > This is the sharpest statement of the RQ1 null: enhancement is not a weak treatment, it is
@@ -167,12 +167,12 @@ Since enhancement ≡ resample, "baseline OR enhanced" *is* best-of-2:
 
 | | resolved | rate | Δ vs baseline |
 |---|---:|---:|---:|
-| baseline (1 attempt) | 417/1674 | 24.9% | — |
-| enhanced (1 attempt) | 409/1674 | 24.4% | **−0.5 pts** |
-| **best-of-2 (union)** | 579/1674 | **34.6%** | **+9.7 pts** |
+| baseline (1 attempt) | 417/1230 | 33.9% | — |
+| enhanced (1 attempt) | 409/1230 | 33.3% | **−0.7 pts** |
+| **best-of-2 (union)** | 579/1230 | **47.1%** | **+13.2 pts** |
 
 The enhancement pipeline spends a full agent run rewriting the issue and returns nothing. The same
-budget spent re-running the solver returns **+9.7 points**. This reframes the paper's practical
+budget spent re-running the solver returns **+13.2 points**. This reframes the paper's practical
 contribution: not "enhancement doesn't work" but "**this compute is misallocated**" — and it gives
 reviewers a positive, actionable result alongside the null.
 
@@ -221,3 +221,18 @@ and that is itself a publishable, actionable result.
 Analyses in this document are derived from `runs/stage6_*_scores/stage6_combined_matrix.json`
 (merged per-instance outcomes), `runs/matrix*/qwen3_32b/stage4/*/` (enhanced texts), and gold
 patches in `data/matrix_sample382_node01.jsonl`.
+
+---
+
+## Correction (2026-08-25)
+An earlier version of this document reported P(fix|failed)=12.9%, a base rate of 24.9%, and a
+best-of-2 gain of +9.7 points. Those were computed from a merged outcome set that included
+`runs/stage6_100_scores`, whose matrix is **all-zero for every cell** — a failed scoring run, not a
+result. Its 74 instances added phantom always-unresolved rows to every condition, inflating the
+denominator and deflating every rate.
+
+The corrected figures are above (813 baseline-failed rather than 1,257; 33.9% base rate; +13.2
+points for best-of-2). **Flip counts and deltas were unaffected** — the phantom rows contributed no
+flips — so the 164-helped / 170-hurt balance and every per-cell Δ stand as reported. The resample
+conclusion is likewise unchanged: the observed ratio (2.05) still matches the null prediction (1.95)
+to within 4.9%, exactly as before.

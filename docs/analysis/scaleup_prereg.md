@@ -93,3 +93,37 @@ The two arms test different regimes: Qwen3-32B asks whether repo-grounding lifts
 null bands, the null generalises across the capability range for repo-grounded enhancement, and
 the redundancy argument becomes the paper's demonstrated headline rather than a conjecture.
 
+---
+
+# CORRECTION to the null rates (2026-08-25, before either run finished)
+
+The rates above were computed from an outcome set that wrongly included
+`runs/stage6_100_scores`, whose matrix is **all-zero for every cell** — a failed scoring run. Its
+74 phantom always-unresolved instances inflated the baseline-failed denominator and deflated
+P(fix|failed).
+
+| | as first written | **corrected** |
+|---|---|---|
+| P(fix \| baseline failed) | 12.9% | **19.9%** (162/813) |
+| P(break \| baseline passed) | 40.8% | 40.8% (unchanged) |
+| baseline pass rate | 24.9% | **33.9%** |
+| resample-null ratio | 3.01 predicted / 3.16 observed | **1.95 predicted / 2.05 observed** |
+
+The agreement with the resample null is **still 4.9%**, so the underlying conclusion is unchanged.
+Flip counts and deltas were never affected — phantom rows contribute no flips.
+
+## Corrected thresholds, same pre-specified rule
+Smallest k with P(≥k) < 0.05 under Binomial(n_rescuable, **0.199**):
+
+| Run | n_rescuable | null expects | old threshold | **corrected threshold** |
+|---|---:|---|---:|---:|
+| Qwen3-32B / g5s20 | 13 | 2.6 rescues, 2.9 breakages, net −0.3 | ≥5 | **≥6** |
+| GPT-5-mini / random-20 | 9 | 1.8 rescues, 4.5 breakages, net −2.7 | ≥4 | **≥5** |
+
+These corrected thresholds are **stricter**, and they are recorded while both runs are still in
+their enhance phase — no result has been seen. The rule (smallest k with P<0.05) is unchanged; only
+a mis-measured input was fixed. `scripts/analysis/verdict.py` now uses P_FIX = 0.199.
+
+Note the null's expected net delta for Qwen3 moves from −1.2 to **−0.3**, so a delta near zero is
+the null there; for GPT-5-mini it remains strongly negative at −2.7.
+

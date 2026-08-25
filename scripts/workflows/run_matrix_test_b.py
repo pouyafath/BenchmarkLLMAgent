@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 # ── Fixed config (reproducible on both nodes) ─────────────────────────────────
-BASE_URL    = "http://localhost:11435/v1"     # private Ollama, all 8 GPUs
+BASE_URL    = "http://localhost:11436/v1"     # private Ollama, all 8 GPUs
 OLLAMA_HTTP = "http://localhost:11435"
 API_KEY     = "ollama"
 ENHANCERS   = ["openhands", "swe_agent", "aider"]

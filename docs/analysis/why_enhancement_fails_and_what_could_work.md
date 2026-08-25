@@ -225,14 +225,34 @@ patches in `data/matrix_sample382_node01.jsonl`.
 ---
 
 ## Correction (2026-08-25)
-An earlier version of this document reported P(fix|failed)=12.9%, a base rate of 24.9%, and a
-best-of-2 gain of +9.7 points. Those were computed from a merged outcome set that included
-`runs/stage6_100_scores`, whose matrix is **all-zero for every cell** — a failed scoring run, not a
-result. Its 74 instances added phantom always-unresolved rows to every condition, inflating the
-denominator and deflating every rate.
+An earlier version reported P(fix|failed)=12.9%, a 24.9% base rate, and a best-of-2 gain of +9.7
+points. Those came from a merged outcome set that included `runs/stage6_100_scores`, whose matrix is
+**all-zero for every cell** — a failed scoring pass. Its 74 instances entered every condition as
+phantom always-unresolved rows, inflating the denominator and deflating every rate.
 
-The corrected figures are above (813 baseline-failed rather than 1,257; 33.9% base rate; +13.2
-points for best-of-2). **Flip counts and deltas were unaffected** — the phantom rows contributed no
-flips — so the 164-helped / 170-hurt balance and every per-cell Δ stand as reported. The resample
-conclusion is likewise unchanged: the observed ratio (2.05) still matches the null prediction (1.95)
-to within 4.9%, exactly as before.
+**Status of the numbers in this document.** They are now computed on the **205 instances that have
+valid scores**, not the full 279:
+
+| | first reported | current (n=205) | true (n=279) |
+|---|---|---|---|
+| P(fix \| baseline failed) | 12.9% | **19.9%** (162/813) | pending recovery |
+| P(break \| baseline passed) | 40.8% | 40.8% | pending recovery |
+| baseline pass rate | 24.9% | **33.9%** | pending recovery |
+| best-of-2 gain | +9.7 pts | **+13.2 pts** | pending recovery |
+
+The missing 74 are **not** phantoms — they are real evaluable instances (205 + 74 = 279 exactly),
+and the paper's Table 1 credits them with 15 OpenHands and 30 Aider resolves. Their scoring
+artifacts were lost, but **their solver outputs survive** in
+`runs/stage6_100_consol/qwen3_32b/stage5/` — all 12 conditions, all 74 instances, 343 non-empty
+patches. They can be recovered by re-running the scorer (Docker only, no API cost). That job is
+queued behind the currently-running experiments.
+
+**What is unaffected either way.** Flip counts and per-cell deltas never depended on the phantom
+rows, which contribute no flips — so 164-helped / 170-hurt and every reported Δ stand. And the
+resample conclusion is unchanged: observed-vs-predicted agreement is 4.9% under both the wrong and
+the corrected rates.
+
+**Expected impact of the recovery.** Inferring from Table 1, the 74 have a comparable baseline rate
+to the 205 (OpenHands 15/74 = 20.3% vs 22.0%; Aider 30/74 = 40.5% vs 45.9%), so the pooled rates
+should move little. The pre-registered thresholds are therefore unlikely to change, but they will be
+re-derived once the recovery completes.

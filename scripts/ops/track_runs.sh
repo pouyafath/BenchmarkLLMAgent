@@ -74,6 +74,38 @@ for rd in $(ls -1dt runs/rge*_*/*/ runs/ollama_*/*/ 2>/dev/null | head -6); do
   done
 done
 
+# ---- ETA, from observed per-instance rates in each run's own log ----
+printf '\n\033[1m== ETA ==\033[0m\n'
+python3 - "$SCRATCH" <<'PYEOF'
+import re, sys, datetime, pathlib
+S = pathlib.Path(sys.argv[1])
+TS = re.compile(r'\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) UTC\].*\[enh:repo_grounded\]')
+PHASE_ENH  = "=== ENHANCE"
+PHASE_SOLV = "=== ENHANCED SOLVE"
+now = datetime.datetime.utcnow()
+for f in sorted(S.glob("rge20_*.log")):
+    txt = f.read_text(errors="replace")
+    if "DONE model=" in txt:
+        print(f"  {f.stem:<16} COMPLETE"); continue
+    m = re.search(r'\[baseline\] non-empty \d+/(\d+)\s+\(([\d.]+) min\)', txt)
+    n_tot   = int(m.group(1)) if m else 20
+    base_min= float(m.group(2)) if m else 60.0
+    ts = [datetime.datetime.strptime(x, "%Y-%m-%d %H:%M:%S") for x in TS.findall(txt)]
+    if PHASE_SOLV in txt:
+        print(f"  {f.stem:<16} enhanced-solve running  ~{base_min:.0f} min for the phase")
+    elif PHASE_ENH in txt and len(ts) >= 2:
+        rate = (ts[-1]-ts[0]).total_seconds()/60/max(len(ts)-1, 1)
+        left = n_tot - len(ts)
+        rem  = left*rate + base_min
+        eta  = (now + datetime.timedelta(minutes=rem)).strftime('%H:%M')
+        print(f"  {f.stem:<16} enhance {len(ts)}/{n_tot} ({rate:.1f} min/inst) "
+              f"+ solve ~{base_min:.0f}m  ->  ~{rem:.0f} min left, done ~{eta} UTC")
+    elif not m:
+        print(f"  {f.stem:<16} baseline running")
+    else:
+        print(f"  {f.stem:<16} enhance starting")
+PYEOF
+
 printf '\n  containers: %s   RAM free: %sGB   disk free: %s\n\n' \
   "$(docker ps -q 2>/dev/null | wc -l)" \
   "$(free -g | awk '/Mem:/{print $7}')" \

@@ -258,4 +258,13 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
 
     meta["len_ratio"] = round(len(enhanced)/max(len(original), 1), 2)
     meta["changed"] = enhanced.strip() != original.strip()
+
+    # Persist verification alongside the run. The shared runner
+    # (run_matrix_test.enhance) keeps only _enh_ok/_enh_by/_enh_err and drops
+    # enhancement_metadata, so without this sidecar the append-only and
+    # reference-verification results are lost.
+    try:
+        (inst_dir / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    except Exception:
+        pass
     return {"enhanced_body": enhanced, "enhancement_metadata": meta}

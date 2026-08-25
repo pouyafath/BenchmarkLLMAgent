@@ -88,7 +88,13 @@ def main() -> int:
             if not line: continue
             try: d = json.loads(line)
             except Exception: continue
+            # run_matrix_test.enhance() drops enhancement_metadata, so read the
+            # sidecar the enhancer writes into its per-instance work dir.
             m = d.get("enhancement_metadata", {}) or {}
+            side = Path(os.environ["RGE_WORK_DIR"])/str(d.get("instance_id",""))/"meta.json"
+            if side.exists():
+                try: m = json.loads(side.read_text())
+                except Exception: pass
             print(f"    {d.get('instance_id','?'):<45} ok={d.get('_enh_ok')} "
                   f"len_ratio={m.get('len_ratio')} refs={m.get('refs_verified')}/{m.get('refs_cited')} "
                   f"bad={m.get('refs_bad')} {('ERR: '+str(m.get('error'))) if m.get('error') else ''}",

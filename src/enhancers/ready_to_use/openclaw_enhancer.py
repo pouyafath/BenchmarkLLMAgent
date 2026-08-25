@@ -30,7 +30,13 @@ from src.enhancers.ready_to_use.native_output_parser import parse_enhanced_outpu
 _API_KEY  = os.environ.get("OPENCLAW_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 _MODEL    = os.environ.get("OPENCLAW_MODEL", "gpt-5.4-mini")
 _TIMEOUT  = int(os.environ.get("OPENCLAW_TIMEOUT", "300"))
-_MAX_ITER = int(os.environ.get("OPENCLAW_MAX_ITER", "8"))
+# Agent-loop budget: 30 steps, uniform across every enhancer and solver.
+# Chosen so enhancer and solver get identical budgets (a symmetric, describable
+# design), to match the OpenHands SWE-bench convention for comparability with
+# prior work, and because it is empirically non-binding: agents that solve a task
+# converge well before the cap, while those that reach it are thrashing and fail
+# regardless (see docs/analysis/agent_iteration_budget.md).
+_MAX_ITER = int(os.environ.get("OPENCLAW_MAX_ITER", "30"))
 _SERVER   = os.environ.get("OPENCLAW_SERVER", "grpc.cmdop.com:443")
 
 

@@ -40,7 +40,13 @@ _BASE_URL  = os.environ.get("TRAE_BASE_URL",  "https://api.openai.com/v1")
 _MODEL     = os.environ.get("TRAE_MODEL",     "gpt-5.4-mini")
 _API_KEY   = os.environ.get("TRAE_API_KEY",   os.environ.get("OPENAI_API_KEY", ""))
 _TIMEOUT   = int(os.environ.get("TRAE_TIMEOUT", "300"))   # 5 min — 120B is slower
-_MAX_STEPS = int(os.environ.get("TRAE_MAX_STEPS", "10"))
+# Agent-loop budget: 30 steps, uniform across every enhancer and solver.
+# Chosen so enhancer and solver get identical budgets (a symmetric, describable
+# design), to match the OpenHands SWE-bench convention for comparability with
+# prior work, and because it is empirically non-binding: agents that solve a task
+# converge well before the cap, while those that reach it are thrashing and fail
+# regardless (see docs/analysis/agent_iteration_budget.md).
+_MAX_STEPS = int(os.environ.get("TRAE_MAX_STEPS", "30"))
 _TEMPERATURE = float(os.environ.get("TRAE_TEMPERATURE", "0"))
 _RETRY_TEMPERATURE = float(os.environ.get("TRAE_RETRY_TEMPERATURE", "0.2"))
 _NOOP_MAX_RETRIES = int(os.environ.get("TRAE_NOOP_MAX_RETRIES", "2"))

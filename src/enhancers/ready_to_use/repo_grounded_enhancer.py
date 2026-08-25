@@ -45,7 +45,13 @@ _ROOT = Path("/home/22pf2/BenchmarkLLMAgent")
 _MODEL    = os.environ.get("RGE_MODEL", "qwen3:32b")
 _BASE_URL = os.environ.get("RGE_BASE_URL", "http://localhost:11435/v1")
 _API_KEY  = os.environ.get("RGE_API_KEY", "ollama")
-_MAX_ITER = int(os.environ.get("RGE_MAX_ITER", "20"))
+# Agent-loop budget: 30 steps, uniform across every enhancer and solver.
+# Chosen so enhancer and solver get identical budgets (a symmetric, describable
+# design), to match the OpenHands SWE-bench convention for comparability with
+# prior work, and because it is empirically non-binding: agents that solve a task
+# converge well before the cap, while those that reach it are thrashing and fail
+# regardless (see docs/analysis/agent_iteration_budget.md).
+_MAX_ITER = int(os.environ.get("RGE_MAX_ITER", "30"))
 _TIMEOUT  = int(os.environ.get("RGE_TIMEOUT", "1800"))
 
 # Fields that would leak the answer. Never place these in the task text.

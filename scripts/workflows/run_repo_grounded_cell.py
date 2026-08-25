@@ -27,7 +27,7 @@ def main() -> int:
     ap.add_argument("--tag", default="rge")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--max-iter", type=int, default=30)
-    ap.add_argument("--enh-max-iter", type=int, default=20)
+    ap.add_argument("--enh-max-iter", type=int, default=30)
     ap.add_argument("--solve-timeout", type=int, default=1800)
     ap.add_argument("--enh-timeout", type=int, default=1800)
     ap.add_argument("--skip-baseline", action="store_true",

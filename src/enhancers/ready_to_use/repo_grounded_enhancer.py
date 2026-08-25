@@ -168,30 +168,52 @@ def _verify_append_only(original: str, enhanced: str) -> tuple[bool, str]:
     return False, "original text not preserved"
 
 
+def _norm_path(p: str) -> str:
+    """Strip a leading './' only. NOT lstrip('./') -- that strips characters, so
+    '.venv/x.py' would become 'venv/x.py' and never match."""
+    return p[2:] if p.startswith("./") else p
+
+
 def _verify_references(enhanced: str, docker_image: str) -> tuple[int, int, list[str]]:
-    """Constraint 2: every cited path must exist in the repo. Returns (ok, total, bad)."""
+    """Constraint 2: every cited path must really exist in the container.
+
+    Distinguishes three cases, because "not in `git ls-files`" is NOT the same as
+    "does not exist" -- a cited dependency file under .venv/ is a real, readable file
+    and citing it is not a hallucination:
+      - git-tracked            -> verified (repo source)
+      - exists but untracked   -> verified, reported separately as non-source
+      - does not exist         -> hallucination, the only real failure
+    Returns (verified, cited, hallucinated).
+    """
     cited = set(re.findall(r'`([\w./-]+\.(?:py|js|ts|go|rs|java|c|cpp|h|rb|php))`', enhanced))
     cited |= set(re.findall(r'^###?\s*`?([\w./-]+\.py)`?', enhanced, re.M))
-    cited = {c for c in cited if "/" in c or c.endswith(".py")}
+    cited = {_norm_path(c) for c in cited if "/" in c or c.endswith(".py")}
     if not cited:
         return 0, 0, []
+    # One container call: list tracked files, then test existence of each cited path.
+    probe = " ; ".join(f'[ -e "/testbed/{c}" ] && echo "EXISTS {c}"' for c in sorted(cited))
     try:
-        listing = subprocess.run(
-            ["docker", "run", "--rm", "--entrypoint", "/bin/sh", docker_image,
-             "-c", "cd /testbed && git ls-files 2>/dev/null || find . -type f"],
-            capture_output=True, text=True, timeout=180,
+        out = subprocess.run(
+            ["docker", "run", "--rm", "--entrypoint", "/bin/sh", docker_image, "-c",
+             f"cd /testbed && git ls-files 2>/dev/null; {probe}"],
+            capture_output=True, text=True, timeout=300,
         ).stdout
     except Exception:
         return 0, len(cited), []
-    repo_files = {l.strip().lstrip("./") for l in listing.splitlines() if l.strip()}
-    basenames = {f.split("/")[-1] for f in repo_files}
-    bad = []
+    tracked, exists = set(), set()
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("EXISTS "):
+            exists.add(line[7:])
+        elif line:
+            tracked.add(_norm_path(line))
+    basenames = {f.split("/")[-1] for f in tracked}
+    hallucinated = []
     for c in cited:
-        cc = c.lstrip("./")
-        if cc in repo_files or cc.split("/")[-1] in basenames:
+        if c in tracked or c in exists or c.split("/")[-1] in basenames:
             continue
-        bad.append(c)
-    return len(cited) - len(bad), len(cited), bad
+        hallucinated.append(c)
+    return len(cited) - len(hallucinated), len(cited), hallucinated
 
 
 def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:

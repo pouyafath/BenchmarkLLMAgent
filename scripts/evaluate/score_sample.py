@@ -78,11 +78,26 @@ def applied_cleanly(patch: str) -> bool:
 def run_group(dataset: Path, preds: Path, ids: list[str], outdir: Path, workers: int) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     # harness runs with cwd=EVAL.parent, so output_dir MUST be absolute
-    subprocess.run([PY, str(EVAL), "--dataset", str(dataset), "--patch_dir", str(preds.resolve()),
-                    "--platform", "linux", "--workers", str(workers),
-                    "--output_dir", str(outdir.resolve()), "--overwrite", "1",
-                    "--instance_ids", *ids],
-                   cwd=str(EVAL.parent), capture_output=True, text=True)
+    r = subprocess.run([PY, str(EVAL), "--dataset", str(dataset), "--patch_dir", str(preds.resolve()),
+                        "--platform", "linux", "--workers", str(workers),
+                        "--output_dir", str(outdir.resolve()), "--overwrite", "1",
+                        "--instance_ids", *ids],
+                       cwd=str(EVAL.parent), capture_output=True, text=True)
+    # A harness crash writes no report.json, and a missing report scores as UNRESOLVED.
+    # Silently attributing infrastructure failures to the solver would bias the results,
+    # so surface them loudly instead.
+    if r.returncode != 0:
+        print(f"  !! harness exited {r.returncode} for {outdir.name} "
+              f"({len(ids)} instances) — these will score as unresolved", flush=True)
+        tail = (r.stderr or r.stdout or "").strip().splitlines()[-5:]
+        for line in tail:
+            print(f"     {line[:160]}", flush=True)
+    missing = [i for i in ids
+               if not (outdir/i/"report.json").exists()
+               and not (outdir/i/"post_patch_log.txt").exists()]
+    if missing:
+        print(f"  !! no harness artifact for {len(missing)}/{len(ids)} instances in "
+              f"{outdir.name}: {missing[:5]}{'...' if len(missing) > 5 else ''}", flush=True)
 
 
 def score_arm(rundir: Path, arm: str, ids: list[str], methods: dict, out: Path,

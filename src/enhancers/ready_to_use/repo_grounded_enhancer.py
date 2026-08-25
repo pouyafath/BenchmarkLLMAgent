@@ -210,8 +210,8 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     inst_dir.mkdir(parents=True, exist_ok=True)
     ws = inst_dir / "workspace"; ws.mkdir(parents=True, exist_ok=True)
 
-    # Only the issue text crosses into the task. Oracle fields never appear.
-    assert not (_ORACLE_FIELDS & set(re.findall(r'\w+', original))) or True  # doc intent
+    # Only the issue text crosses into the task; no oracle field is ever read.
+    # _ORACLE_FIELDS documents exactly what is withheld (see module docstring).
     (inst_dir/"task.txt").write_text(
         _TASK_TEMPLATE.format(problem_statement=original), encoding="utf-8")
     (inst_dir/"config.toml").write_text(

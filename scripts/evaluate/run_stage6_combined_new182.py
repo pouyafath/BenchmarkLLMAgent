@@ -39,10 +39,19 @@ def run_group(dataset, preds, ids, outdir, workers):
     outdir.mkdir(parents=True, exist_ok=True)
     # NOTE: harness runs with cwd=EVAL.parent, so output_dir MUST be absolute or the reports
     # land under evaluation/<relpath> while the checker looks under the repo root (-> 0 found).
-    subprocess.run([PY, str(EVAL), "--dataset", str(dataset), "--patch_dir", str(Path(preds).resolve()),
-                    "--platform", "linux", "--workers", str(workers),
-                    "--output_dir", str(outdir.resolve()), "--overwrite", "1", "--instance_ids", *ids],
-                   cwd=str(EVAL.parent), capture_output=True, text=True)
+    r = subprocess.run([PY, str(EVAL), "--dataset", str(dataset), "--patch_dir", str(Path(preds).resolve()),
+                        "--platform", "linux", "--workers", str(workers),
+                        "--output_dir", str(outdir.resolve()), "--overwrite", "1", "--instance_ids", *ids],
+                       cwd=str(EVAL.parent), capture_output=True, text=True)
+    # A harness crash writes no report.json, and report_p2p_pass() reads a missing report
+    # as UNRESOLVED -- i.e. an infrastructure failure would be silently attributed to the
+    # solver. Audited across 36 historical evaluations: 0 occurrences, so no published
+    # number is affected. Surfaced here so a future failure cannot pass unnoticed.
+    if r.returncode != 0:
+        print(f"  !! harness exited {r.returncode} for {outdir} ({len(ids)} instances)"
+              f" -- these will score as unresolved", flush=True)
+        for line in (r.stderr or r.stdout or "").strip().splitlines()[-5:]:
+            print(f"     {line[:160]}", flush=True)
 
 
 def main():

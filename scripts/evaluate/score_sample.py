@@ -36,6 +36,8 @@ DATASETS = {"v3_fileLevel": ROOT/"data/stage6_all279_v3.jsonl",
             "v1_files":     ROOT/"data/stage6_all279_v1.jsonl"}
 METHODS = ROOT/"data/stage6_all279_methods.json"
 ARMS = {"baseline": "baseline__solver_openhands", "enhanced": "enh_aider__solver_openhands"}
+# --enh-dir overrides the enhanced arm for cells other than enh:aider
+# (e.g. enh_repo_grounded__solver_openhands).
 
 
 def label_agnostic_pass(logfile: Path) -> bool:
@@ -139,9 +141,13 @@ def main() -> int:
     ap.add_argument("instances_file")
     ap.add_argument("label")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--enh-dir", default=None,
+                    help="subdir of the enhanced arm (default enh_aider__solver_openhands)")
     ap.add_argument("--require-applied", action="store_true",
                     help="only count solves whose patch is a non-empty, <1MB git diff")
     a = ap.parse_args()
+    if a.enh_dir:
+        ARMS["enhanced"] = a.enh_dir
 
     rundir = Path(a.rundir) if Path(a.rundir).is_absolute() else ROOT/a.rundir
     ids = [l.strip() for l in open(a.instances_file) if l.strip()]

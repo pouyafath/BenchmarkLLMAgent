@@ -60,10 +60,18 @@ compiles clean).
 
 ## 3. Running right now
 
-| Experiment | Model | Status | Notes |
-|---|---|---|---|
-| repo-grounded pilot | **GPT-5-mini** | baseline 5/5 non-empty (5.5 min); in enhance phase | `runs/rge_gpt5mini_20260824_235607/` |
-| repo-grounded pilot | **Qwen3-32B** | baseline phase | `runs/rge_qwen3_20260824_234916/` |
+**Nothing is running.** Both repo-grounded pilots completed 2026-08-25.
+
+### Repo-grounded pilot result (n=5, underpowered)
+| | ITT | Per-protocol | helped-flips |
+|---|---|---|---:|
+| GPT-5-mini | 5/5 → 4/5, Δ −1 | 4/4 → 4/4, Δ 0 | **0** |
+| Qwen3-32B | 1/5 → 1/5, Δ 0 | 1/3 → 1/3, Δ 0 | **0** |
+
+Zero rescues across 10 model-instance pairs, despite the enhancements being verified,
+append-only and correctly grounded (0 hallucinated paths). GPT-5-mini's single flip was an
+**untreated** instance — same text, different outcome — the resample effect observed directly.
+Full write-up: `analysis/repo_grounded_pilot_results.md`.
 
 **Design.** 5 issues, chosen as provably solvable (GPT-5-mini resolves them) where Qwen3-32B failed
 at baseline *without* a timeout — maximum headroom. **Both arms run fresh in the same run**, because

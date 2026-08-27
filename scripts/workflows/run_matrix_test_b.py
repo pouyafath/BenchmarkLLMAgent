@@ -36,6 +36,13 @@ BASE_URL    = "http://localhost:11436/v1"     # private Ollama, all 8 GPUs
 OLLAMA_HTTP = "http://localhost:11435"
 API_KEY     = "ollama"
 ENHANCERS   = ["openhands", "swe_agent", "aider"]
+# Re-run control. A partial re-run (e.g. after fixing two enhancers) should not redo
+# conditions that are already valid, which would double the compute for nothing.
+#   MATRIX_ENHANCERS=openhands,aider   restrict to these enhancers
+#   MATRIX_SKIP_BASELINE=1             skip the baseline state (already scored)
+if os.environ.get("MATRIX_ENHANCERS"):
+    ENHANCERS = [e.strip() for e in os.environ["MATRIX_ENHANCERS"].split(",") if e.strip()]
+SKIP_BASELINE = os.environ.get("MATRIX_SKIP_BASELINE", "") == "1"
 SOLVERS     = ["openhands", "swe_agent", "aider"]
 WORKERS       = 4          # default; box measured ~80% idle at 2 (GPUs 22%). Override --workers
                            # (use 8 with OLLAMA_NUM_PARALLEL=8 for ~3-4x). See WORKFLOW.md §8.
@@ -236,8 +243,9 @@ def main():
     log(f"Run dir:  {RUN_DIR}")
     log(f"Dataset:  {args.dataset} ({len(data)} total, {len(instances)} with local images)")
     log(f"LLMs:     {args.llms}")
-    log(f"Matrix:   {[ 'baseline']+ENHANCERS} states x {SOLVERS} solvers = "
-        f"{(1+len(ENHANCERS))*len(SOLVERS)} conditions per LLM")
+    _states = ([] if SKIP_BASELINE else ['baseline']) + [f"enh:{e}" for e in ENHANCERS]
+    log(f"Matrix:   {_states} states x {SOLVERS} solvers = "
+        f"{len(_states)*len(SOLVERS)} conditions per LLM")
     for inst in instances:
         log(f"  issue: {inst['instance_id']} ({inst.get('language','?')})")
 
@@ -263,7 +271,7 @@ def main():
             enhanced[e] = rows; enh_ok[e] = n_ok
 
         # ── Stage 5: each solver x {baseline + each enhanced} ────────────────
-        states = {"baseline": instances}
+        states = {} if SKIP_BASELINE else {"baseline": instances}
         for e in ENHANCERS: states[f"enh:{e}"] = enhanced[e]
         for solver in SOLVERS:
             for state_name, state_insts in states.items():

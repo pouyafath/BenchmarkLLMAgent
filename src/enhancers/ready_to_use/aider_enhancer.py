@@ -336,7 +336,14 @@ def _run_aider_once(
     docker_image: str = "",
 ) -> dict[str, Any]:
     aider_cmd = _get_aider_cmd()
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # NOTE: tempfile.TemporaryDirectory cannot be used here, even with
+    # ignore_cleanup_errors=True. The container runs as root (user_id=0) and leaves
+    # root-owned files in the mounted workspace; CPython's cleanup handler calls
+    # os.chmod on them, which itself raises PermissionError from inside the error
+    # handler and destroys the already-computed result. mkdtemp + rmtree(ignore_errors)
+    # swallows it properly.
+    tmpdir = tempfile.mkdtemp()
+    try:
         # Repository access: materialise the repo at the target commit so aider can
         # actually read the source (repo map + file reads), matching the paper.
         n_files = _export_repo(docker_image, Path(tmpdir)) if docker_image else 0
@@ -413,6 +420,8 @@ def _run_aider_once(
         }
 
 
+    finally:
+        import shutil as _sh; _sh.rmtree(tmpdir, ignore_errors=True)
 def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     """Enhance using aider CLI (native only, no proxy fallback)."""
     title = issue.get("title") or issue.get("instance_id") or ""

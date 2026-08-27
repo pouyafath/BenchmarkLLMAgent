@@ -15,6 +15,7 @@ Environment variables (all optional):
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -119,7 +120,14 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
             repo=repo, num=num, title=title, body=body, changed_files=changed_files
         )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # NOTE: tempfile.TemporaryDirectory cannot be used here, even with
+    # ignore_cleanup_errors=True. The container runs as root (user_id=0) and leaves
+    # root-owned files in the mounted workspace; CPython's cleanup routes through an
+    # onexc handler that calls os.chmod on them, which itself raises PermissionError
+    # and discards the already-computed result. mkdtemp + rmtree(ignore_errors=True)
+    # swallows it correctly.
+    tmpdir = tempfile.mkdtemp()
+    try:
         task_file = Path(tmpdir) / "task.txt"
         task_file.write_text(task_text, encoding="utf-8")
 
@@ -264,3 +272,5 @@ api_key = "{_API_KEY}"
                 "stderr_preview": (result.stderr or "")[:300],
             },
         }
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)

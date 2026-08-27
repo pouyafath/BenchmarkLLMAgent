@@ -9,11 +9,11 @@ SCR=/home/22pf2/tmp/claude-10136/-home-22pf2-BenchmarkLLMAgent/4e1bec19-55a0-47d
 # batch: A (GPUs 0,1,2,5 via :11435) or B (GPUs 3,4,6,7 via :11436)
 BATCH=${1:-A}
 if [ "$BATCH" = "B" ]; then
-  RD=$(ls -1dt runs/rerun_matrix_qwen3_B_*/ 2>/dev/null | head -1)
-  LOG=$SCR/rerun_matrix_B.log; DS=data/rerun_matrix_40b.jsonl; PAT='[r]un_matrix_test_b'
+  RD=$(ls -1dt runs/rerun2_qwen3_B_*/ 2>/dev/null | head -1)
+  LOG=$SCR/rerun2_B.log; DS=data/rerun_matrix_40b.jsonl; PAT='[r]un_matrix_test_b'
 else
-  RD=$(ls -1dt runs/rerun_matrix_qwen3_2*/ 2>/dev/null | head -1)
-  LOG=$SCR/rerun_matrix.log;   DS=data/rerun_matrix_40.jsonl;  PAT='[r]un_matrix_test.py'
+  RD=$(ls -1dt runs/rerun2_qwen3_A_*/ 2>/dev/null | head -1)
+  LOG=$SCR/rerun2_A.log;   DS=data/rerun_matrix_40.jsonl;  PAT='[r]un_matrix_test.py'
 fi
 N=$(wc -l < "$DS" 2>/dev/null || echo 40)
 
@@ -36,19 +36,19 @@ bar(){ local d=$1 t=$2 w=22 f
 # ---- phase 1: enhancement (3 enhancers x N instances) ----
 printf '\033[1mENHANCE\033[0m  (agents explore /testbed; must finish before solving)\n'
 tot_e=0
-for e in openhands swe_agent aider; do
+for e in openhands aider; do
   n=$(grep -cE "\[enh:$e\] [^ ]+: (OK|FALLBACK)" "$LOG" 2>/dev/null); n=${n:-0}
   ok=$(grep -cE "\[enh:$e\] [^ ]+: OK" "$LOG" 2>/dev/null); ok=${ok:-0}
   tot_e=$((tot_e+n))
   printf '  %-11s %s %3s/%-3s  (%s enriched, %s left)\n' "$e" "$(bar "$n" "$N")" "$n" "$N" "$ok" "$((N-n))"
 done
-printf '  %-11s %s %3s/%-3s\n\n' "TOTAL" "$(bar $tot_e $((N*3)))" "$tot_e" "$((N*3))"
+printf '  %-11s %s %3s/%-3s\n\n' "TOTAL" "$(bar $tot_e $((N*2)))" "$tot_e" "$((N*2))"
 
 # ---- phase 2: the 12 solver cells ----
-printf '\033[1mSOLVE\033[0m  (4 states x 3 solvers = 12 cells)\n'
+printf '\033[1mSOLVE\033[0m  (2 states x 3 solvers = 6 cells)\n'
 done_cells=0
 for solver in openhands swe_agent aider; do
-  for state in baseline enh_openhands enh_swe_agent enh_aider; do
+  for state in enh_openhands enh_aider; do
     w="$RD/qwen3_32b/stage5/${state}__solver_${solver}/work"
     p="$RD/qwen3_32b/stage5/${state}__solver_${solver}/preds.json"
     if [ -f "$p" ]; then
@@ -67,7 +67,7 @@ except Exception: print(0)" 2>/dev/null)
     fi
   done
 done
-printf '\n  cells complete: %s/12\n' "$done_cells"
+printf '\n  cells complete: %s/6   (baseline + enh:swe_agent already valid from run 1)\n' "$done_cells"
 
 # ---- resources ----
 printf '\n  containers: %s   RAM free: %sGB   disk free: %s\n' \

@@ -98,6 +98,11 @@ def set_llm_env(llm: str):
         "OPENHANDS_TIMEOUT": str(ENH_TIMEOUT), "OPENHANDS_MAX_ITER": str(ENH_MAX_ITER),
         "SWEAGENT_MODEL": bare, "SWEAGENT_BASE_URL": BASE_URL, "SWEAGENT_API_KEY": API_KEY,
         "SWEAGENT_TIMEOUT": str(ENH_TIMEOUT), "SWEAGENT_MAX_STEPS": str(ENH_MAX_ITER),
+        # trae / mini default to gpt-5.4-mini on api.openai.com; pin them local too
+        "TRAE_MODEL": bare, "TRAE_BASE_URL": BASE_URL, "TRAE_API_KEY": API_KEY,
+        "TRAE_TIMEOUT": str(ENH_TIMEOUT), "TRAE_MAX_STEPS": str(ENH_MAX_ITER),
+        "MINI_MODEL": bare, "MINI_BASE_URL": BASE_URL, "MINI_API_KEY": API_KEY,
+        "MINI_TIMEOUT": str(ENH_TIMEOUT), "MINI_MAX_STEPS": str(ENH_MAX_ITER),
         "AIDER_MODEL": prefixed, "AIDER_API_BASE": BASE_URL, "AIDER_API_KEY": API_KEY,
         "AIDER_TIMEOUT": str(ENH_TIMEOUT),
         "MINI_TIMEOUT": str(ENH_TIMEOUT),

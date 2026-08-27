@@ -141,13 +141,15 @@ def main() -> int:
     ap.add_argument("instances_file")
     ap.add_argument("label")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--baseline-dir", default=None,
+                    help="subdir of the baseline arm (default baseline__solver_openhands)")
     ap.add_argument("--enh-dir", default=None,
                     help="subdir of the enhanced arm (default enh_aider__solver_openhands)")
     ap.add_argument("--require-applied", action="store_true",
                     help="only count solves whose patch is a non-empty, <1MB git diff")
     a = ap.parse_args()
-    if a.enh_dir:
-        ARMS["enhanced"] = a.enh_dir
+    if a.baseline_dir: ARMS["baseline"] = a.baseline_dir
+    if a.enh_dir:      ARMS["enhanced"] = a.enh_dir
 
     rundir = Path(a.rundir) if Path(a.rundir).is_absolute() else ROOT/a.rundir
     ids = [l.strip() for l in open(a.instances_file) if l.strip()]

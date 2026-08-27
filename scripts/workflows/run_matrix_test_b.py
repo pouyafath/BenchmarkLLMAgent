@@ -46,7 +46,8 @@ SKIP_BASELINE = os.environ.get("MATRIX_SKIP_BASELINE", "") == "1"
 SOLVERS     = ["openhands", "swe_agent", "aider"]
 WORKERS       = 4          # default; box measured ~80% idle at 2 (GPUs 22%). Override --workers
                            # (use 8 with OLLAMA_NUM_PARALLEL=8 for ~3-4x). See WORKFLOW.md §8.
-ENH_TIMEOUT   = 600        # enhancer wall-clock per issue
+ENH_TIMEOUT   = 1800       # enhancer wall-clock per issue (kept in sync with
+                           # run_matrix_test.py; batch B missed the 600->1800 fix)
 ENH_MAX_ITER  = 30
 SOLVE_TIMEOUT = 3600       # solver wall-clock per issue (raised 1800->3600 on 2026-06-22:
                            # slow iterative solvers timed out under concurrency in the 50-run)

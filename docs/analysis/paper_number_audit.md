@@ -31,10 +31,24 @@ rewrite. Status: partial — several checks are blocked behind a data recovery (
   (218/382) clearly come from the 382 analysis, so 0.578 is presumably the 382-based mean — but the
   two means should be confirmed to come from the *same* subset rather than mixed.
 
-## Blocked behind data recovery
+## Table 1 fully verified (2026-08-28) ✔
 
-Table 1's per-cell counts, per-cell Δ, and the McNemar p-values cannot be recomputed until the 74
-instances are re-scored. Their solver outputs survive in
-`runs/stage6_100_consol/qwen3_32b/stage5/` (12 conditions × 74 instances, 343 non-empty patches);
-only the scoring artifacts were lost. Recovery is Docker-only, no API cost, and is queued behind
-the currently-running experiments.
+The 74 instances were recovered (`scripts/evaluate/recover_74.py`, Docker only) and the complete
+279-instance outcome set rebuilt. **Every cell of Table 1 reproduces exactly**, and so does every
+McNemar p-value:
+
+| Solver | baseline | enh:openhands | enh:swe_agent | enh:aider |
+|---|---:|---:|---:|---:|
+| OpenHands | 60 ✔ | 58 ✔ | 66 ✔ | 67 ✔ |
+| SWE-agent | 18 ✔ | 18 ✔ | 19 ✔ | 19 ✔ |
+| Aider | 124 ✔ | 125 ✔ | 119 ✔ | 124 ✔ |
+
+McNemar exact p, recomputed from the discordant pairs: .910 / .561 / .489 (OpenHands),
+1.000 / 1.000 / 1.000 (SWE-agent), 1.000 / .649 / 1.000 (Aider) — **identical to the published
+values in all nine comparisons.**
+
+The recovery is also self-validating: it independently produced 15 OpenHands and 30 Aider resolves
+on the 74, exactly the counts implied by subtracting the 205-instance subset from Table 1.
+
+**Conclusion: the paper's headline table is sound.** The discrepancy chased earlier in this audit
+was entirely an artifact of my own partial reconstruction, never of the paper.

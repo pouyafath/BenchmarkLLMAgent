@@ -194,6 +194,37 @@ def enhance(enhancer_id, instances, edir, llm):
             + (f"  ({err[:60]})" if err else ""))
         return row
 
+    # Reuse path: when MATRIX_ENHANCED_DIR points at a previous run's stage4, load that
+    # run's enhanced rows instead of paying for the enhancer again. The append-only
+    # repair below still applies, so a run whose enhancers deleted content can be
+    # corrected and re-solved without redoing hours of enhancement.
+    reuse_root = os.environ.get("MATRIX_ENHANCED_DIR", "")
+    if reuse_root:
+        src = Path(reuse_root)/enhancer_id/f"enhanced_{enhancer_id}.jsonl"
+        if src.exists():
+            from src.enhancers.ready_to_use._repo_export import enforce_append_only
+            rows, n_ok, n_rep = [], 0, 0
+            by_id = {i["instance_id"]: i for i in instances}
+            for line in src.read_text().splitlines():
+                line = line.strip()
+                if not line: continue
+                d = json.loads(line)
+                iid = d.get("instance_id")
+                if iid not in by_id: continue
+                ok = bool(d.get("_enh_ok"))
+                if ok:
+                    o = by_id[iid].get("problem_statement", "") or ""
+                    body, rep = enforce_append_only(o, d.get("problem_statement", "") or "")
+                    d["problem_statement"] = body; n_rep += int(rep)
+                rows.append(d); n_ok += ok
+            edir.mkdir(parents=True, exist_ok=True)
+            from scripts.workflows.run_node1_full383_qwen3 import _dump
+            _dump(edir/f"enhanced_{enhancer_id}.jsonl", [_sr(r) for r in rows])
+            log(f"  [enh:{enhancer_id}] REUSED {len(rows)} rows from {src} "
+                f"({n_ok} enhanced, {n_rep} append-only repairs)")
+            return rows, n_ok
+        log(f"  [enh:{enhancer_id}] MATRIX_ENHANCED_DIR set but {src} missing — enhancing fresh")
+
     ew = max(1, int(os.environ.get("ENH_WORKERS", str(WORKERS))))
     with ThreadPoolExecutor(max_workers=ew) as ex:
         rows = list(ex.map(_one, instances))

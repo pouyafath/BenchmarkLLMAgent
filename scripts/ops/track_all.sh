@@ -71,6 +71,15 @@ if [ -f "$SCR/score_run1.log" ]; then
   [ -n "$cur" ] && printf '  current: %s\n' "$cur"
 fi
 
+# 74-instance recovery
+printf '\n\033[1m── RECOVERY (74 lost-artifact instances) ──\033[0m '
+if pgrep -f recover_74.py >/dev/null 2>&1; then printf 'running\n'; else printf '\033[2mfinished / not running\033[0m\n'; fi
+if [ -f "$SCR/recover74.log" ]; then
+  done_n=$(grep -cE "^  \[.*\] [0-9]+/[0-9]+ resolved" "$SCR/recover74.log" 2>/dev/null); done_n=${done_n:-0}
+  printf '  conditions scored: %s/12\n' "$done_n"
+  grep -E "^  \[.*\] [0-9]+/[0-9]+ resolved" "$SCR/recover74.log" 2>/dev/null | tail -4 | sed 's/^/  /'
+fi
+
 printf '\n  containers %s   RAM free %sGB   disk free %s\n' \
   "$(docker ps -q 2>/dev/null | wc -l)" \
   "$(free -g | awk '/Mem:/{print $7}')" \

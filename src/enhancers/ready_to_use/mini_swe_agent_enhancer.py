@@ -130,7 +130,14 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
     # Strip provider prefix from stored model name if already included, then add it
     model_for_mini = _MODEL if "/" in _MODEL else f"openai/{_MODEL}"
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        # Repository access: mini runs locally with cwd=tmpdir, so materialise the repo
+        # at the target commit there. Falls back to text-only when unavailable.
+        from src.enhancers.ready_to_use._repo_export import export_repo, REPO_PREAMBLE
+        n_repo = export_repo(issue.get("docker_image") or issue.get("image_name", ""),
+                             Path(tmpdir))
+        if n_repo:
+            task_text = task_text + "\n\n" + REPO_PREAMBLE
         cmd = [
             mini_bin,
             "--model", model_for_mini,

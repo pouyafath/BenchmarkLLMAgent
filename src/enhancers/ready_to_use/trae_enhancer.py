@@ -293,10 +293,17 @@ def _run_trae_once(
     title: str,
     body: str,
     temperature: float,
+    docker_image: str = "",
 ) -> dict[str, Any]:
     import subprocess
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        # Repository access: trae runs locally against --working-dir, so materialise the
+        # repo at the target commit there. Falls back to text-only when unavailable.
+        from src.enhancers.ready_to_use._repo_export import export_repo, REPO_PREAMBLE
+        n_repo = export_repo(docker_image, Path(tmpdir))
+        if n_repo:
+            task_text = task_text + "\n\n" + REPO_PREAMBLE
         task_file = Path(tmpdir) / "task.txt"
         traj_file = Path(tmpdir) / "trajectory.json"
         cfg_file = Path(tmpdir) / "trae_config.yaml"
@@ -449,6 +456,7 @@ def enhance_issue(issue: dict, changed_files: str = "") -> Dict[str, Any]:
                 title=title,
                 body=body,
                 temperature=temperature,
+                docker_image=issue.get("docker_image") or issue.get("image_name", ""),
             )
         except TimeoutError:
             return {

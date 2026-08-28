@@ -177,8 +177,18 @@ def enhance(enhancer_id, instances, edir, llm):
         except Exception as e:
             body, meta, ok, err = "", {"enhancer_type":"error","error":str(e)}, False, str(e)
         el = time.time() - t0
+        # Append-only: the original report must survive verbatim. Agents with repository
+        # access otherwise replace it with their findings (trae returned 0.03x the input
+        # on one measured instance), which deletes reproduction detail the solver needs
+        # and confounds a null. Applied uniformly to every enhancer.
+        n_rep = 0
+        if ok:
+            from src.enhancers.ready_to_use._repo_export import enforce_append_only
+            body, repaired = enforce_append_only(ps, body)
+            n_rep = int(repaired)
         row = dict(inst)
         if ok: row["problem_statement"] = body
+        row["_enh_repaired"] = n_rep
         row["_enh_ok"] = ok; row["_enh_by"] = enhancer_id; row["_enh_err"] = err
         log(f"    [enh:{enhancer_id}] {iid}: {'OK' if ok else 'FALLBACK'} {el:.0f}s"
             + (f"  ({err[:60]})" if err else ""))

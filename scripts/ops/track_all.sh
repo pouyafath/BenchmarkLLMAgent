@@ -71,6 +71,21 @@ if [ -f "$SCR/score_run1.log" ]; then
   [ -n "$cur" ] && printf '  current: %s\n' "$cur"
 fi
 
+# targeted localisation experiment
+printf '\n\033[1m── TARGETED-60 (localisation hypothesis) ──\033[0m '
+if pgrep -f "tag targeted60" >/dev/null 2>&1 || grep -q "targeted60" <(ps -eo cmd 2>/dev/null); then printf 'running\n'; else printf '\033[2mfinished / not running\033[0m\n'; fi
+TRD=$(ls -1dt runs/targeted60_*/qwen3_32b 2>/dev/null | head -1)
+if [ -n "$TRD" ]; then
+  for ph in baseline__solver_openhands stage4_repo_grounded_work enh_repo_grounded__solver_openhands; do
+    w="$TRD/$ph"; [ -d "$TRD/$ph/work" ] && w="$TRD/$ph/work"
+    [ -d "$w" ] || continue
+    c=$(ls -1 "$w" 2>/dev/null | wc -l)
+    lbl=$(echo "$ph" | sed -e 's/__solver_openhands//' -e 's/stage4_//' -e 's/_work//')
+    printf '  %-22s %s %2s/60\n' "$lbl" "$(bar "$c" 60)" "$c"
+  done
+fi
+grep -E "^\[baseline\]|^\[enhance:|^\[enhanced\]|^DONE " "$SCR/targeted60.log" 2>/dev/null | tail -3 | sed 's/^/  /'
+
 # 74-instance recovery
 printf '\n\033[1m── RECOVERY (74 lost-artifact instances) ──\033[0m '
 if pgrep -f recover_74.py >/dev/null 2>&1; then printf 'running\n'; else printf '\033[2mfinished / not running\033[0m\n'; fi

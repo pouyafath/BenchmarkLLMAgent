@@ -12,10 +12,39 @@ Usage:
       --instances-file .secrets/sample5_rge.txt --tag rge_qwen3 --workers 2
 """
 from __future__ import annotations
-import argparse, json, os, sys, time
+import argparse, subprocess, json, os, sys, time
 from pathlib import Path
 
 ROOT = Path("/home/22pf2/BenchmarkLLMAgent"); sys.path.insert(0, str(ROOT))
+
+
+def preflight_load(max_containers: int = 60, min_free_gb: int = 100) -> None:
+    """Refuse to start when the box is already oversubscribed.
+
+    Launching a fifth concurrent job on this machine once drove it to 209 containers
+    against a documented budget of 4; every solver timed out and 15 hours of compute
+    produced no data. Checking cheaply here is better than discovering it afterwards.
+    Override with MATRIX_FORCE=1 when the load is known to be transient.
+    """
+    import shutil as _sh
+    if os.environ.get("MATRIX_FORCE") == "1":
+        return
+    try:
+        n = int(subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True,
+                               timeout=60).stdout.split().__len__())
+    except Exception:
+        n = 0
+    free_gb = _sh.disk_usage("/").free // (1024**3)
+    problems = []
+    if n > max_containers:
+        problems.append(f"{n} containers running (limit {max_containers})")
+    if free_gb < min_free_gb:
+        problems.append(f"only {free_gb}GB free on / (need {min_free_gb})")
+    if problems:
+        raise SystemExit(
+            "REFUSING TO START — " + "; ".join(problems) +
+            "\n  Reap leaked containers first:  bash scripts/ops/reap_leaked.sh"
+            "\n  Override (only if load is transient):  MATRIX_FORCE=1")
 
 
 def main() -> int:
@@ -33,6 +62,7 @@ def main() -> int:
     ap.add_argument("--skip-baseline", action="store_true",
                     help="reuse a known baseline instead of re-running it")
     a = ap.parse_args()
+    preflight_load()
 
     # Point the enhancer at the same LLM as the solver
     os.environ.update({

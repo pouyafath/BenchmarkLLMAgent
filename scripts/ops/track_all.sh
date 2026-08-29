@@ -71,10 +71,17 @@ if [ -f "$SCR/score_run1.log" ]; then
   [ -n "$cur" ] && printf '  current: %s\n' "$cur"
 fi
 
+# queued targeted-60 (waits for exclusive use) + reaper health
+printf '\n\033[1m── QUEUED targeted-60 + reaper ──\033[0m\n'
+if pgrep -f reap_leaked.sh >/dev/null 2>&1; then printf '  reaper: \033[1mactive\033[0m'; else printf '  reaper: \033[2mNOT RUNNING\033[0m'; fi
+if pgrep -f queue_targeted60.sh >/dev/null 2>&1; then printf '   queue: \033[1marmed\033[0m\n'; else printf '   queue: \033[2mnot armed\033[0m\n'; fi
+[ -f "$SCR/queue_targeted60.status" ] && tail -1 "$SCR/queue_targeted60.status" | sed 's/^/  /'
+[ -f "$SCR/reaper.log" ] && tail -1 "$SCR/reaper.log" 2>/dev/null | sed 's/^/  /'
+
 # targeted localisation experiment
 printf '\n\033[1m── TARGETED-60 (localisation hypothesis) ──\033[0m '
 if pgrep -f "tag targeted60" >/dev/null 2>&1 || grep -q "targeted60" <(ps -eo cmd 2>/dev/null); then printf 'running\n'; else printf '\033[2mfinished / not running\033[0m\n'; fi
-TRD=$(ls -1dt runs/targeted60_*/qwen3_32b 2>/dev/null | head -1)
+TRD=$(ls -1dt runs/targeted60v2_*/qwen3_32b runs/targeted60_*/qwen3_32b 2>/dev/null | head -1)
 if [ -n "$TRD" ]; then
   for ph in baseline__solver_openhands stage4_repo_grounded_work enh_repo_grounded__solver_openhands; do
     w="$TRD/$ph"; [ -d "$TRD/$ph/work" ] && w="$TRD/$ph/work"
@@ -84,7 +91,7 @@ if [ -n "$TRD" ]; then
     printf '  %-22s %s %2s/60\n' "$lbl" "$(bar "$c" 60)" "$c"
   done
 fi
-grep -E "^\[baseline\]|^\[enhance:|^\[enhanced\]|^DONE " "$SCR/targeted60.log" 2>/dev/null | tail -3 | sed 's/^/  /'
+grep -E "^\[baseline\]|^\[enhance:|^\[enhanced\]|^DONE " "$SCR/targeted60_v2.log" "$SCR/targeted60.log" 2>/dev/null | tail -3 | sed 's/^/  /'
 
 # 74-instance recovery
 printf '\n\033[1m── RECOVERY (74 lost-artifact instances) ──\033[0m '

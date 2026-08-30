@@ -25,7 +25,7 @@ solve. See docs/why_gpt5_outperforms_open_models_20260824.md. --require-applied 
 those out; it is off by default so numbers stay comparable with prior runs.
 """
 from __future__ import annotations
-import argparse, json, re, subprocess, sys
+import argparse, json, os, re, subprocess, sys
 from pathlib import Path
 
 ROOT = Path("/home/22pf2/BenchmarkLLMAgent")
@@ -35,6 +35,11 @@ DATASETS = {"v3_fileLevel": ROOT/"data/stage6_all279_v3.jsonl",
             "v2_targeted":  ROOT/"data/stage6_all279_v2.jsonl",
             "v1_files":     ROOT/"data/stage6_all279_v1.jsonl"}
 METHODS = ROOT/"data/stage6_all279_methods.json"
+# The SWE-bench-Live harness hangs intermittently: observed three times, once for 45h on a
+# single cell, blocking every downstream job. An unbounded subprocess.run gives it no way
+# out, so cap it. A cell of <=60 instances completes well inside this.
+HARNESS_TIMEOUT = int(os.environ.get("HARNESS_TIMEOUT", "5400"))
+
 ARMS = {"baseline": "baseline__solver_openhands", "enhanced": "enh_aider__solver_openhands"}
 # --enh-dir overrides the enhanced arm for cells other than enh:aider
 # (e.g. enh_repo_grounded__solver_openhands).
@@ -80,11 +85,17 @@ def applied_cleanly(patch: str) -> bool:
 def run_group(dataset: Path, preds: Path, ids: list[str], outdir: Path, workers: int) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     # harness runs with cwd=EVAL.parent, so output_dir MUST be absolute
-    r = subprocess.run([PY, str(EVAL), "--dataset", str(dataset), "--patch_dir", str(preds.resolve()),
+    try:
+        r = subprocess.run([PY, str(EVAL), "--dataset", str(dataset), "--patch_dir", str(preds.resolve()),
                         "--platform", "linux", "--workers", str(workers),
                         "--output_dir", str(outdir.resolve()), "--overwrite", "1",
                         "--instance_ids", *ids],
-                       cwd=str(EVAL.parent), capture_output=True, text=True)
+                       cwd=str(EVAL.parent), capture_output=True, text=True,
+                       timeout=HARNESS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print(f"  !! harness TIMED OUT after {HARNESS_TIMEOUT}s on {outdir.name} "
+              f"({len(ids)} instances) — recorded as unresolved, continuing", flush=True)
+        return
     # A harness crash writes no report.json, and a missing report scores as UNRESOLVED.
     # Silently attributing infrastructure failures to the solver would bias the results,
     # so surface them loudly instead.

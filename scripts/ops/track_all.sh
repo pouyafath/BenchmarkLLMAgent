@@ -78,11 +78,14 @@ if pgrep -f queue_targeted60.sh >/dev/null 2>&1; then printf '   queue: \033[1ma
 [ -f "$SCR/queue_targeted60.status" ] && tail -1 "$SCR/queue_targeted60.status" | sed 's/^/  /'
 [ -f "$SCR/reaper.log" ] && tail -1 "$SCR/reaper.log" 2>/dev/null | sed 's/^/  /'
 
-# targeted localisation experiment
-printf '\n\033[1m── TARGETED-60 (localisation hypothesis) ──\033[0m '
-if pgrep -f "tag targeted60" >/dev/null 2>&1 || grep -q "targeted60" <(ps -eo cmd 2>/dev/null); then printf 'running\n'; else printf '\033[2mfinished / not running\033[0m\n'; fi
-TRD=$(ls -1dt runs/targeted60v2_*/qwen3_32b runs/targeted60_*/qwen3_32b 2>/dev/null | head -1)
-if [ -n "$TRD" ]; then
+# targeted localisation experiment (v2 only; v1 was invalidated by resource starvation)
+printf '\n\033[1m── TARGETED-60 v2 (localisation hypothesis) ──\033[0m '
+TRD=$(ls -1dt runs/targeted60v2_*/qwen3_32b 2>/dev/null | head -1)
+TLOG="$SCR/targeted60_v2.log"
+if [ -z "$TRD" ]; then
+  printf '\033[2mnot started — queue is waiting for the box\033[0m\n'
+else
+  if pgrep -f "tag targeted60v2" >/dev/null 2>&1; then printf 'running\n'; else printf '\033[2mfinished\033[0m\n'; fi
   for ph in baseline__solver_openhands stage4_repo_grounded_work enh_repo_grounded__solver_openhands; do
     w="$TRD/$ph"; [ -d "$TRD/$ph/work" ] && w="$TRD/$ph/work"
     [ -d "$w" ] || continue
@@ -90,8 +93,9 @@ if [ -n "$TRD" ]; then
     lbl=$(echo "$ph" | sed -e 's/__solver_openhands//' -e 's/stage4_//' -e 's/_work//')
     printf '  %-22s %s %2s/60\n' "$lbl" "$(bar "$c" 60)" "$c"
   done
+  [ -f "$TLOG" ] && grep -E "^\[baseline\]|truly enhanced|^\[enhanced\]|^DONE " "$TLOG" 2>/dev/null | tail -3 | sed 's/^/  /'
 fi
-grep -E "^\[baseline\]|^\[enhance:|^\[enhanced\]|^DONE " "$SCR/targeted60_v2.log" "$SCR/targeted60.log" 2>/dev/null | tail -3 | sed 's/^/  /'
+printf '  \033[2mv1 attempt (2026-08-28) invalid: 0/60 both arms, resource starvation\033[0m\n'
 
 # 74-instance recovery
 printf '\n\033[1m── RECOVERY (74 lost-artifact instances) ──\033[0m '

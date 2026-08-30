@@ -13,8 +13,11 @@
 #   nohup bash scripts/ops/reap_leaked.sh &
 MAX_AGE_MIN=${MAX_AGE_MIN:-60}
 INTERVAL=${INTERVAL:-300}
+# Bounded lifetime so the reaper cannot outlive the work it protects.
+MAX_HOURS=${MAX_HOURS:-14}
+DEADLINE=$(( $(date +%s) + MAX_HOURS*3600 ))
 
-while true; do
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   now=$(date +%s)
   killed=0
   for id in $(docker ps --filter "name=openhands-runtime-" --format '{{.ID}}' 2>/dev/null); do
@@ -29,3 +32,4 @@ while true; do
     echo "[$(date '+%F %T')] reaped $killed container(s) older than ${MAX_AGE_MIN}m; $(docker ps -q | wc -l) remain"
   sleep "$INTERVAL"
 done
+echo "[$(date '+%F %T')] reaper exiting after ${MAX_HOURS}h"

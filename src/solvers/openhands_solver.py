@@ -118,7 +118,12 @@ def _ensure_model_healthy(base_url: str, model: str, api_key: str) -> None:
     if _is_gpt5:
         _body["max_completion_tokens"] = 512
     else:
-        _body["max_tokens"] = 256
+        # Reasoning models (qwen3, deepseek-r1, gpt-oss) spend the budget on thinking
+        # tokens before emitting visible content: qwen3:32b used 101 completion tokens
+        # merely to answer "OK". At 256 this check reports a healthy model as unhealthy
+        # and triggers a disruptive unload/reload mid-run. Measured false positive on
+        # 2026-08-31, which stopped a working 60-instance run.
+        _body["max_tokens"] = int(os.environ.get("HEALTHCHECK_MAX_TOKENS", "1024"))
         _body["temperature"] = 0.0
     payload = json.dumps(_body).encode()
     headers = {"Content-Type": "application/json"}

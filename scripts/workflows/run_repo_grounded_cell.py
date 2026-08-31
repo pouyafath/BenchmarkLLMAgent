@@ -59,6 +59,9 @@ def main() -> int:
     ap.add_argument("--enh-max-iter", type=int, default=30)
     ap.add_argument("--solve-timeout", type=int, default=1800)
     ap.add_argument("--enh-timeout", type=int, default=1800)
+    ap.add_argument("--reuse-run", default=None,
+                    help="path to a previous run's <model> dir; reuse its baseline preds and "
+                         "enhanced rows and run only the enhanced solve")
     ap.add_argument("--skip-baseline", action="store_true",
                     help="reuse a known baseline instead of re-running it")
     a = ap.parse_args()
@@ -99,6 +102,36 @@ def main() -> int:
           f"solve_cap={a.max_iter} enh_cap={a.enh_max_iter} -> {rd}", flush=True)
 
     t0 = time.time()
+
+    # Resume path. A run interrupted during the enhanced solve has already paid for the
+    # baseline and the enhancement; both are on disk. Reuse them rather than repeating
+    # roughly four hours of work.
+    if a.reuse_run:
+        src = Path(a.reuse_run)
+        prev_enh = src/"stage4_repo_grounded"/"enhanced_repo_grounded.jsonl"
+        prev_base = src/"baseline__solver_openhands"/"preds.json"
+        if not prev_enh.exists():
+            print(f"[reuse] MISSING {prev_enh}", flush=True); return 1
+        rows = [json.loads(l) for l in prev_enh.read_text().splitlines() if l.strip()]
+        rows = [r for r in rows if r.get("instance_id") in {i["instance_id"] for i in inst}]
+        nok = sum(1 for r in rows if r.get("_enh_ok"))
+        (rd/"stage4_repo_grounded").mkdir(parents=True, exist_ok=True)
+        (rd/"stage4_repo_grounded"/"enhanced_repo_grounded.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in rows)+"\n")
+        if prev_base.exists():
+            (rd/"baseline__solver_openhands").mkdir(parents=True, exist_ok=True)
+            (rd/"baseline__solver_openhands"/"preds.json").write_text(prev_base.read_text())
+            nb = sum(1 for v in json.loads(prev_base.read_text()).values()
+                     if (v.get("model_patch") or "").strip())
+            print(f"[reuse] baseline preds carried over: {nb} non-empty", flush=True)
+        print(f"[reuse] enhanced rows carried over: {len(rows)} ({nok} enhanced)", flush=True)
+        print("=== ENHANCED SOLVE: openhands on enh:repo_grounded (resumed) ===", flush=True)
+        ep = solve("openhands", rows, rd/"enh_repo_grounded__solver_openhands", a.model)
+        ene = sum(1 for i in rows if (ep.get(i["instance_id"], {}).get("model_patch", "") or "").strip())
+        print(f"[enhanced] non-empty {ene}/{len(rows)}", flush=True)
+        print(f"DONE (resumed) model={a.model} enhanced_ne={ene} ({(time.time()-t0)/60:.1f} min)", flush=True)
+        return 0
+
     if not a.skip_baseline:
         print("=== BASELINE: openhands on original ===", flush=True)
         bp = solve("openhands", inst, rd/"baseline__solver_openhands", a.model)

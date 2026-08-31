@@ -15,6 +15,13 @@ busy() {   # any competing solver / scoring / eval process?
     | grep -cE '[r]un_matrix_test|[s]core_run[13]\.sh|[e]valuation\.py|[r]ecover_74\.py'
 }
 
+# Start the reaper BEFORE the wait loop, not after. The loop requires the container count
+# to fall below a threshold; if nothing is reaping, a run that leaked containers on exit
+# leaves the count permanently high and the queue deadlocks waiting for a condition that
+# can never become true. Observed: 13 leaked containers, 0 running jobs, queue stuck.
+pgrep -f reap_leaked.sh >/dev/null 2>&1 || \
+  nohup bash "$ROOT/scripts/ops/reap_leaked.sh" >> "$SCR/reaper.log" 2>&1 &
+
 echo "$(date '+%F %T') waiting for exclusive use" > "$STATUS"
 while true; do
   n=$(busy); c=$(docker ps -q 2>/dev/null | wc -l)
@@ -25,9 +32,6 @@ while true; do
   echo "$(date '+%F %T') waiting: $n competing job(s), $c containers" > "$STATUS"
   sleep 300
 done
-
-# keep the reaper alive for the duration so leaks cannot accumulate again
-pgrep -f reap_leaked.sh >/dev/null 2>&1 || nohup bash scripts/ops/reap_leaked.sh >> "$SCR/reaper.log" 2>&1 &
 
 bench_env/bin/python scripts/workflows/run_repo_grounded_cell.py \
   --model qwen3:32b --base-url http://localhost:11435/v1 --api-key ollama \

@@ -20,7 +20,7 @@ DEADLINE=$(( $(date +%s) + MAX_HOURS*3600 ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   now=$(date +%s)
   killed=0
-  for id in $(docker ps --filter "name=openhands-runtime-" --format '{{.ID}}' 2>/dev/null); do
+  for id in $(docker ps --format '{{.Names}} {{.ID}}' | grep -E "^openhands-runtime-|^git-launch-" | awk '{print $2}' 2>/dev/null); do
     started=$(docker inspect -f '{{.State.StartedAt}}' "$id" 2>/dev/null) || continue
     ts=$(date -d "$started" +%s 2>/dev/null) || continue
     age=$(( (now - ts) / 60 ))

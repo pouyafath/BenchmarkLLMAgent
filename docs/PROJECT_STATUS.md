@@ -1,6 +1,6 @@
 # Project Status — TSE paper (living document)
 
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-31
 **Repo:** `main` in sync with `origin/main` (github.com/pouyafath/BenchmarkLLMAgent)
 
 ---
@@ -45,6 +45,39 @@ compiles clean).
 - **GPT-5-mini on unbiased random-20**: 11/20 → 10/20, Δ−1. Its 55% matches its 56% on the full
   279, so its dominance is not a selection artifact.
 
+### Matrix re-run with working enhancers (2026-08-25 → 31)
+The three ready-to-use enhancers were repaired to match the paper's description and the matrix
+re-run on 80 instances (two disjoint 40-instance samples).
+
+- **Run 1** gave valid `baseline` and `enh:swe_agent` cells (74/80 enriched). All six scored; all
+  six null. Closest is enh:swe_agent → OpenHands at 9 rescues of 29 against 5.8 expected, p=0.106.
+- **Run 3** added openhands (39/40, 38/40), trae (40/40) and mini-SWE-agent (39/40, 40/40).
+  16 of 18 cells scored before a harness hang.
+- **Run 4** repaired those enhancements to append-only and re-solved, reusing the enhanced rows
+  rather than paying for enhancement again.
+- Aider was **dropped**: median 1147s per instance, max 2927s, and half still timed out at a 1800s
+  budget. The cost is its repo map, not I/O (export is 6.6s). Worth reporting as a practical limit.
+
+### Enhancers rewrite rather than augment
+Across 236 successful enhancements, **one** preserved the original verbatim and **one** retained
+≥90% of the original's substantial lines. Median length ratios 1.11× / 1.43× / 0.69×, so this is
+not summarisation: trae returns longer text while dropping most of the reporter's lines. Every
+enhancement condition therefore changes two things at once, which is now recorded as a construct
+threat in the draft. `enforce_append_only()` is applied centrally so the treatment isolates added
+context.
+
+### Table 1 fully verified
+All twelve cells and all nine McNemar p-values reproduce exactly from the stored patches, after
+recovering 74 instances whose scoring artifacts had been lost. The recovery independently produced
+the 15 OpenHands and 30 Aider resolves implied by the published table. **The paper's headline table
+is sound**; the discrepancy chased earlier was an artifact of a partial reconstruction.
+
+### F2P is blocked on label quality, not missing data
+F2P labels exist for 225/279 instances but do not resolve to runnable tests: 600 of 650 gold-probe
+reports have no F2P labels at all, and where they resolve the gold patch itself fails 15/50. On the
+9% of evaluations where F2P is testable, 6 of 20 P2P-credited solves also pass F2P. Re-deriving
+labels from execution is the fix and needs no solver time.
+
 ### Known problems in the current draft (must fix before submission)
 1. **Methodology misstates the enhancers.** The paper says the three ready-to-use enhancers are
    "each a ~30-step agent loop given the issue and repository access". None had repository access;
@@ -60,31 +93,16 @@ compiles clean).
 
 ## 3. Running right now
 
-**Nothing is running.** Both repo-grounded pilots completed 2026-08-25.
+**targeted-60 v2** — the localisation experiment, pre-registered in
+`analysis/targeted_localisation_prereg.md`. 60 instances that Qwen3+OpenHands fails at baseline and
+that some condition somewhere has solved. ETA ~2h. A first attempt on 2026-08-28 returned 0/60 in
+both arms and was discarded: it was launched as a fifth concurrent job, the box reached 209
+containers against a budget of 4, and 115 solver runs timed out.
 
-### Repo-grounded pilot result (n=5, underpowered)
-| | ITT | Per-protocol | helped-flips |
-|---|---|---|---:|
-| GPT-5-mini | 5/5 → 4/5, Δ −1 | 4/4 → 4/4, Δ 0 | **0** |
-| Qwen3-32B | 1/5 → 1/5, Δ 0 | 1/3 → 1/3, Δ 0 | **0** |
-
-Zero rescues across 10 model-instance pairs, despite the enhancements being verified,
-append-only and correctly grounded (0 hallucinated paths). GPT-5-mini's single flip was an
-**untreated** instance — same text, different outcome — the resample effect observed directly.
-Full write-up: `analysis/repo_grounded_pilot_results.md`.
-
-**Design.** 5 issues, chosen as provably solvable (GPT-5-mini resolves them) where Qwen3-32B failed
-at baseline *without* a timeout — maximum headroom. **Both arms run fresh in the same run**, because
-the sample was selected on baseline failure and comparing against a remembered 0/5 would manufacture
-a win through regression to the mean. Sample: `.secrets/sample5_rge.txt`.
-
-Monitors are armed on both; results land as milestones.
-
-**Paused to free GPUs:** the seed-2 replication queue (Qwen3-32B random-20, Qwen2.5-32B seed 2,
-GLM-4.7-flash seed 2). ~28 min of work lost, fully re-runnable. Script:
-`scratchpad/run_queue.sh`.
-
----
+Guards added so that cannot recur unattended: a load guard in all three runners (refuses above 60
+containers), a container reaper on a 14h bound, and a 5400s cap on the evaluation harness call.
+The harness hangs intermittently — three occurrences, one of 45h on a single cell — and an
+unbounded `subprocess.run` let one hang stall every downstream job.
 
 ## 4. What changed in the pipeline (2026-08-24/25)
 

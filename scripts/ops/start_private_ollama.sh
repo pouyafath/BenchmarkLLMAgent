@@ -8,11 +8,24 @@
 #
 # Usage:
 #   start_private_ollama.sh [N_GPUS] [MIN_FREE_MIB] [MAX_UTIL] [EXCLUDE_CSV]
-# Defaults: N_GPUS=4  MIN_FREE_MIB=36000  MAX_UTIL=50  EXCLUDE=0
+# Defaults: N_GPUS=3  MIN_FREE_MIB=36000  MAX_UTIL=50  EXCLUDE=0
 #   (GPU-0 excluded by default: system Ollama + the :11434 pilot live there.)
+#
+# GPU BUDGET POLICY (2026-09-01). This is a shared 8-GPU server and we are one tenant of
+# several. Our footprint is capped at MAX_GPUS; N_GPUS is clamped to it no matter what the
+# caller passes, so the watchdog's recovery path cannot quietly re-expand us to 8. Two of
+# our daemons on four GPUs each is what occupied the whole server before this cap.
+# qwen3:32b needs ~20GB of weights and fits comfortably in three A100-80GBs even at the
+# 131072-token context we run, so the cap costs throughput, not capability.
+# Raise MAX_GPUS deliberately and only when the box is genuinely idle.
 set -euo pipefail
 
-N_GPUS="${1:-4}"
+MAX_GPUS="${MAX_GPUS:-3}"
+N_GPUS="${1:-3}"
+if [ "$N_GPUS" -gt "$MAX_GPUS" ]; then
+  echo "NOTE: requested $N_GPUS GPUs; clamping to the MAX_GPUS=$MAX_GPUS budget." >&2
+  N_GPUS="$MAX_GPUS"
+fi
 MIN_FREE_MIB="${2:-36000}"
 MAX_UTIL="${3:-50}"
 EXCLUDE_CSV="${4:-0}"
@@ -57,7 +70,7 @@ fi
 # --- launch pinned to the chosen GPUs
 echo "Launching private Ollama on :$PORT pinned to GPUs $CVD ..."
 OLLAMA_HOST=127.0.0.1:${PORT} \
-OLLAMA_MODELS=/home/ollama_shared_models \
+OLLAMA_MODELS="${OLLAMA_MODELS_DIR:-/data/22pf2_data/ollama_models}" \
 CUDA_VISIBLE_DEVICES="$CVD" \
 OLLAMA_SCHED_SPREAD=1 \
 OLLAMA_NUM_PARALLEL=8 \

@@ -10,12 +10,13 @@
 # GPUs are free at that moment (the "shuffle" recovery).
 #
 # Usage:  watchdog_private_ollama.sh [INTERVAL_SEC] [N_GPUS]
-# Defaults: INTERVAL_SEC=120  N_GPUS=4
+# Defaults: INTERVAL_SEC=120  N_GPUS=3  (see the GPU budget policy in start_private_ollama.sh;
+# the launcher clamps to MAX_GPUS regardless of what is passed here)
 # Run detached:  nohup scripts/ops/watchdog_private_ollama.sh 120 4 > /tmp/ollama_watchdog.log 2>&1 &
 set -uo pipefail
 
 INTERVAL="${1:-120}"
-N_GPUS="${2:-4}"
+N_GPUS="${2:-3}"
 PORT=11435
 MODEL="qwen3:32b"
 HERE="$(cd "$(dirname "$0")" && pwd)"

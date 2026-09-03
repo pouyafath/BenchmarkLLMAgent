@@ -39,11 +39,15 @@ ENHANCERS   = ["openhands", "swe_agent", "aider"]
 # Re-run control. A partial re-run (e.g. after fixing two enhancers) should not redo
 # conditions that are already valid, which would double the compute for nothing.
 #   MATRIX_ENHANCERS=openhands,aider   restrict to these enhancers
+#   MATRIX_SOLVERS=aider               restrict to these solvers
 #   MATRIX_SKIP_BASELINE=1             skip the baseline state (already scored)
 if os.environ.get("MATRIX_ENHANCERS"):
     ENHANCERS = [e.strip() for e in os.environ["MATRIX_ENHANCERS"].split(",") if e.strip()]
 SKIP_BASELINE = os.environ.get("MATRIX_SKIP_BASELINE", "") == "1"
 SOLVERS     = ["openhands", "swe_agent", "aider"]
+if os.environ.get("MATRIX_SOLVERS"):
+    # A single-cell replication should not pay for the two solvers it does not measure.
+    SOLVERS = [s.strip() for s in os.environ["MATRIX_SOLVERS"].split(",") if s.strip()]
 WORKERS       = 4          # default; box measured ~80% idle at 2 (GPUs 22%). Override --workers
                            # (use 8 with OLLAMA_NUM_PARALLEL=8 for ~3-4x). See WORKFLOW.md §8.
 ENH_TIMEOUT   = 1800       # enhancer wall-clock per issue (repo-grounded agents

@@ -390,8 +390,8 @@ _CONDA_PYTHON = "/home/22pf2/anaconda3/envs/issue_enhancer_py312/bin/python"
 **Evidence**: `run_pilot_benchmark.py` and `run_simple_solver.py` contain:
 ```python
 GITHUB_TOKENS = [
-    "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",
-    "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",
+    "ghp_<REDACTED-SEE-SECRETS-DIR>",
+    "ghp_<REDACTED-SEE-SECRETS-DIR>",
 ]
 ```
 

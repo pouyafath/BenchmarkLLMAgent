@@ -18,7 +18,7 @@ _root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_root))
 
 from src.utils.llm_client import get_client
-from src.utils.github_client import GitHubMultiTokenClient
+from src.utils.github_client import GitHubMultiTokenClient, load_github_tokens
 from src.utils.patch_utils import extract_patch_from_response, evaluate_patch
 
 import base64
@@ -30,10 +30,7 @@ _DEFAULT_GT_DIR  = _root / "data" / "ground_truth_swe_bench_live"
 RESULTS_DIR = _root / "results" / "pilot_solver_benchmark"
 MAX_WORKERS = 2  # LLM inference is sequential per process; limit parallelism
 
-GITHUB_TOKENS = [
-    "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",
-    "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",
-]
+GITHUB_TOKENS = load_github_tokens()
 gh_client = GitHubMultiTokenClient(GITHUB_TOKENS)
 
 SYSTEM_PROMPT = """You are a software engineering agent that solves GitHub issues by producing code patches.

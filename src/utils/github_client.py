@@ -5,11 +5,39 @@ Rotates through multiple GitHub personal access tokens to avoid
 API rate limits during data collection and benchmark execution.
 """
 
+import os
 import time
 import threading
+from pathlib import Path
 from typing import List, Optional
 
 import requests
+
+ROOT = Path(__file__).resolve().parents[2]
+TOKEN_FILE = ROOT / ".secrets" / "github_tokens.txt"
+
+
+def load_github_tokens() -> List[str]:
+    """Read GitHub tokens from the environment or .secrets/, never from source.
+
+    Four scripts previously carried their token lists inline, which put live
+    credentials in the repository and in every clone of its history. Tokens now come
+    from GITHUB_TOKENS (comma-separated) or .secrets/github_tokens.txt, one per line,
+    blank lines and # comments ignored. .secrets/ is gitignored.
+    """
+    env = os.environ.get("GITHUB_TOKENS", "")
+    toks = [t.strip() for t in env.split(",") if t.strip()]
+    if toks:
+        return toks
+    if TOKEN_FILE.exists():
+        toks = [l.strip() for l in TOKEN_FILE.read_text().splitlines()
+                if l.strip() and not l.startswith("#")]
+    if not toks:
+        raise RuntimeError(
+            f"No GitHub tokens available. Set GITHUB_TOKENS=tok1,tok2 or write one per "
+            f"line to {TOKEN_FILE} (gitignored). Tokens must never be hard-coded."
+        )
+    return toks
 
 
 class GitHubMultiTokenClient:

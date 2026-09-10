@@ -112,34 +112,47 @@ Fig.~\ref{fig:overview} presents an overview of our approach, which consists of 
 
 \begin{figure*}[t]
 \centering
-\safefig{figures/overall_approach.pdf}{0.85\textwidth}{Overview of the enhancer $\times$ solver workflow}
-\caption{Overview of our approach. Original issues are processed by each enhancement condition (including a no-enhancement baseline). Each enhanced issue is then solved by three independent solver agents. Enhancement quality is measured through the change in solver success rate (Resolved / P2P metrics).}
+\begin{tikzpicture}[
+  font=\small, x=1cm, y=1cm,
+  box/.style={draw, rounded corners=1.5pt, align=center, inner sep=3pt, minimum height=0.9cm},
+  cond/.style={box, minimum width=3.5cm},
+  solv/.style={box, minimum width=2.8cm},
+  ends/.style={box, minimum width=2.4cm, minimum height=1.1cm},
+  arr/.style={-{Latex[length=1.8mm]}, semithick},
+  lbl/.style={font=\scriptsize, align=center, inner sep=1pt}
+]
+  % Explicit coordinates throughout: relative placement across groups of different
+  % heights put labels on top of one another in an earlier draft.
+  \node[ends] (issue) at (1.2,0) {Issue\\report};
+
+  \node[cond] (c1) at (6.0, 1.65) {no enhancement (baseline)};
+  \node[cond] (c2) at (6.0, 0.55) {zero-shot prompt};
+  \node[cond] (c3) at (6.0,-0.55) {agentic enhancer $\times 3$};
+  \node[cond] (c4) at (6.0,-1.65) {reward-gated \ourmethod{}};
+
+  \node[solv] (s1) at (11.4, 1.10) {OpenHands};
+  \node[solv] (s2) at (11.4, 0.00) {SWE-agent};
+  \node[solv] (s3) at (11.4,-1.10) {Aider};
+
+  \node[ends] (ev) at (15.9,0) {Run the\\repository's\\tests};
+
+  \foreach \c in {c1,c2,c3,c4} \draw[arr] (issue) -- (\c);
+  \foreach \c in {c1,c2,c3,c4} \draw[arr] (\c.east) -- ++(0.5,0);
+  \foreach \s in {s1,s2,s3} \draw[arr] (\s) -- (ev);
+  \node[lbl] at (8.95,0) {every state\\$\times$\\every solver};
+
+  \node[lbl, text width=15cm] at (8.5,-2.75)
+    {4 issue states $\times$ 3 solvers $=$ 12 conditions. Baseline and enhanced arms run on the
+     same issues under the same model, so each comparison is paired and tested with an exact
+     McNemar test.};
+\end{tikzpicture}
+\caption{Overview of our approach. Original issues are processed by each enhancement condition (including a no-enhancement baseline). Each enhanced issue is then solved by three independent solver agents. Enhancement is measured by the change in the solver's resolved rate, scored first on no-regression and, in Section~\ref{sec:executed}, on an executed fix criterion.}
 \label{fig:overview}
 \end{figure*}
 
 \subsection{Data Collection and Dataset Construction}
 
 We construct a SWE-bench-style benchmark from recent GitHub issues to ensure evaluation data postdates the training cutoffs of the LLMs under study. Fig.~\ref{fig:data_collection} illustrates the pipeline.
-
-\begin{figure*}[t]
-\centering
-\safefig{figures/data_collection.pdf}{0.95\textwidth}{Data collection pipeline}
-\caption{Data collection pipeline. Starting from GitHub repositories with more than 1,000 stars, we apply successive filters for language composition, activity, recency, and merge-based linking to produce 3,285 benchmark-ready instances across 613 repositories; validated environment construction then yields the 382-instance execution subset used for the enhancer $\times$ solver matrix.}
-\label{fig:data_collection}
-\end{figure*}
-
-\subsubsection{Stage 1: Repository Selection}
-We fetch GitHub repositories with more than 1,000 stars, yielding 10,609 repositories, and apply three quality filters: \textbf{(i) language}: Python constitutes more than 60\% of the codebase; \textbf{(ii) fork activity}: more than 200 forks; and \textbf{(iii) issue and PR volume}: the combined count exceeds 200. After these filters, 3,621 repositories with 10,463 associated issues remain.
-
-\subsubsection{Stage 2: Temporal Filtering}
-To ensure recency and avoid training-data contamination, only issues created after August 1, 2025 are retained. This reduces the dataset to 2,748 repositories with 7,714 issues.
-
-\subsubsection{Stage 3: Merge-Based Linking and Test Coverage}
-We retain only issues that (a) were closed by a merged pull request (establishing a ground-truth fix); (b) whose PR includes a non-empty code patch and a non-empty test patch; and (c) that have at least one pass-to-pass test ($\text{P2P} > 0$). This yields 613 repositories with 3,285 issues.
-
-\subsubsection{Stage 4: Validated Execution Environments}
-For the extrinsic, execution-based evaluation, each issue must have a reproducible environment in which tests actually run. We build a per-issue Docker image and verify that the repository's designated tests execute and that the gold patch is applicable. The instances that pass this validation on our primary compute node form the 382-issue execution subset used for the enhancer $\times$ solver matrix. Each such instance carries a buildable image, a recorded test command, and a gold patch.
-
 
 \begin{figure*}[t]
 \centering
@@ -176,14 +189,24 @@ For the extrinsic, execution-based evaluation, each issue must have a reproducib
   \node[scored] at (11.7,-2.35) {scored on\\no-regression};
   \node[scored] at (15.6,-2.35) {scored on\\fixing};
 \end{tikzpicture}
-\caption{Construction of the benchmark and the two evaluability gates (shaded). The first gate
-keeps an instance only if the gold patch itself passes under one of three test-command methods,
-which is what makes a no-regression score trustworthy. The second, added after we found the
-shipped fail-to-pass labels had been parsed from diffs rather than executed, keeps only instances
-where the gold patch demonstrably turns a failing test green. Every condition in the paper is
-reported on the 279; Section~\ref{sec:executed} rescores them on the 85.}
-\label{fig:pipeline}
+\caption{Data collection and the two evaluability gates (shaded). Successive filters for language, activity, recency and merge-based linking yield 3,285 benchmark-ready instances across 613 repositories, and validated environment construction yields the 382-instance execution subset. The first gate keeps an instance only if the gold patch itself passes under one of three test-command methods, which is what makes a no-regression score trustworthy. The second, added after we found the shipped fail-to-pass labels had been parsed from diffs rather than executed, keeps only instances where the gold patch demonstrably turns a failing test green. Every condition is reported on the 279; Section~\ref{sec:executed} rescores them on the 85.}
+\label{fig:data_collection}
 \end{figure*}
+
+\subsubsection{Stage 1: Repository Selection}
+We fetch GitHub repositories with more than 1,000 stars, yielding 10,609 repositories, and apply three quality filters: \textbf{(i) language}: Python constitutes more than 60\% of the codebase; \textbf{(ii) fork activity}: more than 200 forks; and \textbf{(iii) issue and PR volume}: the combined count exceeds 200. After these filters, 3,621 repositories with 10,463 associated issues remain.
+
+\subsubsection{Stage 2: Temporal Filtering}
+To ensure recency and avoid training-data contamination, only issues created after August 1, 2025 are retained. This reduces the dataset to 2,748 repositories with 7,714 issues.
+
+\subsubsection{Stage 3: Merge-Based Linking and Test Coverage}
+We retain only issues that (a) were closed by a merged pull request (establishing a ground-truth fix); (b) whose PR includes a non-empty code patch and a non-empty test patch; and (c) that have at least one pass-to-pass test ($\text{P2P} > 0$). This yields 613 repositories with 3,285 issues.
+
+\subsubsection{Stage 4: Validated Execution Environments}
+For the extrinsic, execution-based evaluation, each issue must have a reproducible environment in which tests actually run. We build a per-issue Docker image and verify that the repository's designated tests execute and that the gold patch is applicable. The instances that pass this validation on our primary compute node form the 382-issue execution subset used for the enhancer $\times$ solver matrix. Each such instance carries a buildable image, a recorded test command, and a gold patch.
+
+
+
 
 \subsection{Issue Enhancement Conditions}
 

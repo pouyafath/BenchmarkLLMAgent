@@ -351,11 +351,73 @@ direction & 81 SE  & helped vs.\ hurt    & 65  & 51\% & \textbf{0.58} \\
 \finding{\textbf{RQ2 Summary.} No feature, across the full 81-SE $+$ 500-TF-IDF representation, is meaningfully associated with a better enhancement, on either an intrinsic or a downstream definition. The sharpest finding is the contrast: enhancement reliably raises the \emph{intrinsic} quality score (57\% improve, 32\% cross threshold) but produces no downstream correctness gain and no feature-predictable subpopulation. Text-quality gains do not transfer to program repair.}
 
 \subsection{RQ3: How Are Issue Reports Enhanced?}
-\emph{(Qualitative analysis in progress; corpus collected.)} We open-code a stratified sample of agent-generated enhancements (across conditions, sampling successes, harms, and no-change cases) for (a) the \textbf{enhancement patterns} applied (restructuring into Problem / Reproduction / Expected sections, appending root-cause hypotheses, extracting stack traces, adding code context) and (b) the \textbf{failure modes}: hallucinated details, over-specification, loss of the original signal, or (for the reward-gated agent) abstention. Two coders label independently; we report inter-rater agreement (Cohen's $\kappa$) and a pattern $\times$ outcome cross-tabulation linking each rewrite move to whether it helped, hurt, or left the fix unchanged. The RQ2 feature-delta analysis (Table~\ref{tab:added}) already indicates the mechanism: the agents apply a uniform template that lifts the quality score but, being often unfounded, does not help the solver.
+We open-coded a stratified sample of 90 enhancements, drawn with seed 42 as ten per
+enhancer $\times$ outcome cell over the three agentic enhancers and the three outcomes
+(helped, hurt, unchanged), with the solver held at OpenHands and the model at Qwen3-32B.
+The codebook has seven pattern codes and five failure-mode codes, both multi-label.
 
-\finding{\textbf{RQ3 Summary (preliminary).} Enhancement is a uniform restructuring into Problem/Reproduction/Expected/Actual sections. Because reproduction and expected/actual fields are frequently invented rather than grounded, they raise intrinsic quality without adding solver-actionable signal, which is the mechanism behind the directionless perturbation in RQ1.}
+\textbf{Coding procedure.} A large language model performed the first coding pass over all
+90 items; one author is independently coding the same sample, and we report Cohen's
+$\kappa$ per code as a $2\times 2$ present/absent agreement, since whole-label-set matching
+would score a four-of-five agreement as a total disagreement. We report this openly because
+it bounds the claim: an automated first pass can see what a rewrite did to the text, but it
+cannot verify a cited symbol against the repository, so the hallucination code is applied
+only where an assertion is not derivable from the original report, not where it is merely
+unverified.
 
-%==============================================================================
+\textbf{What the agents do.} The rewriting is close to uniform.
+
+\begin{table}[t]
+\centering
+\caption{Rewrite moves and failure modes over 90 coded enhancements, multi-label.}
+\label{tab:rq3}
+\small
+\begin{tabular}{lr@{\hspace{1em}}lr}
+\toprule
+Rewrite move & \% & Failure mode & \% \\
+\midrule
+Restructure into sections & 91 & Drops or buries content & 50 \\
+Add reproduction steps    & 67 & None observed           & 32 \\
+Add code context          & 50 & Abstained               &  9 \\
+Add environment info      & 14 & Hallucinated specifics  &  9 \\
+Add root-cause hypothesis & 10 & Over-specified          &  2 \\
+Surface a stack trace     &  6 & & \\
+No substantive change     &  9 & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ninety-one percent of enhancements impose the Problem / Reproduction / Expected / Actual
+template, confirming at the level of individual reports what the feature deltas of
+Section~\ref{sec:results} show in aggregate. The moves that would carry genuine diagnostic
+content are the rare ones: a root-cause hypothesis appears in 10\% and a surfaced stack
+trace in 6\%. Half of all enhancements drop or bury information the reporter supplied,
+which is the same behaviour the append-only constraint of Section~\ref{sec:appendonly} was
+built to remove. The median length ratio is $1.06\times$, but that central tendency hides
+the real behaviour: 34 of 90 outputs are shorter than their input and 24 are more than
+twice as long, so ``enhancement'' is about as often compression as expansion.
+
+\textbf{No move is associated with helping.} Cross-tabulating each code against outcome
+gives a flat table. Restructuring splits 26/28/28 across helped, hurt and unchanged;
+reproduction steps 21/18/21; code context 14/16/15. No pattern code and no failure-mode
+code reaches significance against outcome ($\chi^2$, all $p \ge 0.227$). The qualitative
+data therefore agree with RQ1 and RQ2: the agents apply a consistent template, and nothing
+about which template moves they apply predicts whether the fix improves.
+
+\textbf{A tooling artifact worth reporting.} Ten of the 90 enhancements (11\%) carry
+scaffolding from the enhancer's own execution: unfilled template slots where a file path or
+error should be, the benchmark instance identifier pasted in as the issue title, a shell
+heredoc terminator, and in one case pip output and a \texttt{sudo} error string from the
+enhancing machine inserted as reproduction steps. These appear only in the OpenHands (6) and
+Aider (4) enhancers. They are a reminder that an agent writing prose into a file has no
+mechanism to check that the file is a well-formed report.
+
+\finding{\textbf{RQ3 Summary.} Enhancement is a uniform restructuring into
+Problem/Reproduction/Expected/Actual sections, applied to 91\% of reports, while
+root-cause diagnosis appears in only 10\%. Half of all enhancements lose reporter-supplied
+content. No rewrite move is associated with whether the fix improves (all $p \ge 0.227$),
+which is the mechanism behind the directionless perturbation in RQ1.}
+
 \section{Discussion}
 \label{sec:discussion}
 %==============================================================================
@@ -462,7 +524,7 @@ This is the strongest form of the negative result: a well-formed, repository-gro
 
 A secondary observation initially pointed the other way on harm. Enhancement broke only 1 of 13 working solves in this pilot, where a resample of the solver would break $5.3$ ($p = 0.011$), and the same shape appeared in one cell of the append-only matrix of Section~\ref{sec:appendonly}: 7 breakages of 38 baseline solves against 15.5 expected ($p = 0.003$). We pre-registered a replication of that cell on 80 fresh instances drawn from the issues the matrix had not used, running both arms again rather than reusing a baseline. It did not replicate: 14 breakages of 37 baseline solves, a rate of 0.378 against a resample's 0.408 ($p = 0.425$). One cell in six at $p = 0.003$ is what multiple comparisons produce, and the two other enhancers paired with the same solver had already declined to show the effect. We withdraw the observation rather than report it.
 
-This experiment is a small probe (20 issues, seven of them rescuable), and it cannot exclude a small positive effect; a second arm on an open-weight solver is in progress. It does, however, close the most obvious escape route for the RQ1 null: giving the enhancer the codebase does not make enhancement transfer to correctness.
+This experiment is a small probe (20 issues, seven of them rescuable) and cannot by itself exclude a small positive effect. Section~\ref{sec:appendonly} supplies the open-weight arm at scale, and reaches the same null. It does, however, close the most obvious escape route for the RQ1 null: giving the enhancer the codebase does not make enhancement transfer to correctness.
 
 \subsection{Append-only enhancement}
 \label{sec:appendonly}

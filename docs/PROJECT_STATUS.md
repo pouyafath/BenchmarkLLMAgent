@@ -1,6 +1,6 @@
 # Project Status — TSE paper (living document)
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-10
 **Repo:** `main` in sync with `origin/main` (github.com/pouyafath/BenchmarkLLMAgent)
 
 ---
@@ -14,13 +14,15 @@ the patch passes the repository's tests, not by any text-quality score?
 **Thesis as originally designed.** Enhancer agent + solver agent — both with full repository
 access — beats solver agent alone.
 
-**What is actually established so far.** For **text-only** enhancement (no repository access), the
-answer is a firm no: enhancement is statistically indistinguishable from re-running the solver with
-a different random seed. The repo-grounded version of the thesis is **being tested now** and has
-never been tested before.
+**What is established.** The answer is a firm no, and the experimental programme is closed. The
+repo-grounded version of the thesis was the last open form of it and was tested in full: enhancement
+is statistically indistinguishable from re-running the solver with a different random seed. This
+survives both objections a reviewer can raise, namely that the enhancers were deleting the
+reporter's text and that the metric was not measuring fixing. Details in
+[`analysis/final_results_2026-09-03.md`](analysis/final_results_2026-09-03.md).
 
-**Target venue:** IEEE TSE. Draft: `papers/drafts/TSE_BenchmarkLLMAgent_2026.tex` (9 pages,
-compiles clean).
+**Target venue:** IEEE TSE. Draft: `papers/drafts/TSE_BenchmarkLLMAgent_2026.tex` (10 pages,
+compiles clean, one figure and nine tables).
 
 ---
 
@@ -93,16 +95,8 @@ labels from execution is the fix and needs no solver time.
 
 ## 3. Running right now
 
-**targeted-60 v2** — the localisation experiment, pre-registered in
-`analysis/targeted_localisation_prereg.md`. 60 instances that Qwen3+OpenHands fails at baseline and
-that some condition somewhere has solved. ETA ~2h. A first attempt on 2026-08-28 returned 0/60 in
-both arms and was discarded: it was launched as a fifth concurrent job, the box reached 209
-containers against a budget of 4, and 115 solver runs timed out.
-
-Guards added so that cannot recur unattended: a load guard in all three runners (refuses above 60
-containers), a container reaper on a 14h bound, and a 5400s cap on the evaluation harness call.
-The harness hangs intermittently — three occurrences, one of 45h on a single cell — and an
-unbounded `subprocess.run` let one hang stall every downstream job.
+**Nothing.** All experiments are complete and every result is committed. The GPU footprint is
+capped at three of the server's eight cards (see `scripts/ops/start_private_ollama.sh`).
 
 ## 4. What changed in the pipeline (2026-08-24/25)
 
@@ -122,28 +116,23 @@ unbounded `subprocess.run` let one hang stall every downstream job.
 
 ## 5. Next steps
 
-**Blocked on the running pilots**
-1. Score both repo-grounded pilots and decide whether repo-grounding moves the needle at all.
-2. If it does → scale to the g5s20 set (20 issues) and then a full matrix re-run with the three
-   fixed enhancers, which is what would let the paper's Table 1 stand as described.
-3. If it does not → the null generalises from text-only to repo-grounded enhancement, which is a
-   **stronger** paper: the redundancy argument (the solver already has the repo) becomes the
-   headline rather than a conjecture.
+Ordered by what actually gates submission.
 
-**Independent of the pilots**
-4. **Rewrite the paper** — agreed to do this after the runs finish. Fix the four problems in §2.
-5. **RQ3** — the only unstarted RQ. Sample, codebook and first-pass signal are ready in
-   `docs/analysis/rq3/`; needs two humans to code 90 items, Cohen's κ, pattern × outcome cross-tab.
-6. **Seed-2 replication** — restart the paused queue to convert "Δ flips sign" from an anecdote
-   into a measured variance.
-7. **Budget experiment** — cap 15 with 2 samples vs cap 30 with 1, at equal compute. Cheap, and a
-   real contribution.
-
-**Housekeeping**
-8. Rotate the exposed GitHub OAuth token and the OpenAI key still embedded in `runs/**/config.toml`.
-9. Reap leaked OpenHands runtime containers after each run (the pipeline leaks them reliably).
-
----
+1. **RQ3 needs human coding.** The section still reads "(Qualitative analysis in progress)" with a
+   preliminary finding box, which cannot be submitted. Everything machine-preparable is done: a
+   90-item stratified sample (seed 42, 10 per enhancer x outcome cell), a codebook of 7 pattern and
+   5 failure-mode codes, and the automated signal columns. See
+   [`analysis/rq3/RQ3_PREPARATION.md`](analysis/rq3/RQ3_PREPARATION.md). The paper promises two
+   independent coders and Cohen's kappa; using an LLM for either pass is a methodological decision
+   that has to be disclosed, and on a paper whose contribution is measurement rigour that trade is
+   worth making deliberately.
+2. **Revoke 16 GitHub tokens.** They were hard-coded in four tracked files and pushed on 2026-06-02.
+   The files are fixed (`9eaec77b1`), but rewriting HEAD does not remove them from the published
+   history, so the tokens themselves are still live until revoked at github.com/settings/tokens.
+3. **Publish the replication package.** `scripts/release/build_artifact.sh` assembles it and
+   [`REPRODUCE.md`](REPRODUCE.md) maps every table and figure to the command that regenerates it.
+   The abstract and conclusion promise a release, so a DOI has to exist before submission.
+4. **Author metadata and acknowledgements** in the manuscript.
 
 ## 6. Key documents
 

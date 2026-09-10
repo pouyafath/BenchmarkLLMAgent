@@ -9,6 +9,8 @@
 \usepackage{url}
 \usepackage{hyperref}
 \usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
 
 \newcommand{\RQ}[1]{\noindent\textbf{RQ#1}}
 \newcommand{\finding}[1]{\vspace{2pt}\noindent\fbox{\parbox{0.96\columnwidth}{#1}}\vspace{2pt}}
@@ -137,6 +139,51 @@ We retain only issues that (a) were closed by a merged pull request (establishin
 
 \subsubsection{Stage 4: Validated Execution Environments}
 For the extrinsic, execution-based evaluation, each issue must have a reproducible environment in which tests actually run. We build a per-issue Docker image and verify that the repository's designated tests execute and that the gold patch is applicable. The instances that pass this validation on our primary compute node form the 382-issue execution subset used for the enhancer $\times$ solver matrix. Each such instance carries a buildable image, a recorded test command, and a gold patch.
+
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small, x=1cm, y=1cm,
+  stage/.style={draw, rounded corners=1.5pt, minimum height=1.05cm, minimum width=2.0cm,
+                align=center, inner sep=3pt},
+  gate/.style={stage, fill=black!7, thick},
+  arr/.style={-{Latex[length=1.8mm]}, semithick},
+  crit/.style={font=\scriptsize, align=center, text width=2.4cm, inner sep=1pt},
+  scored/.style={font=\scriptsize\itshape, align=center, text width=2.4cm, inner sep=1pt}
+]
+  % Explicit rows: boxes on y=0, criteria on y=-1.25, scoring notes on y=-2.35.
+  % Relative placement collided here, because `below of` a coordinate and `below of` a
+  % node measure from different origins and the labels overlapped by ~0.5cm.
+  \node[stage] (n1) at ( 0.0,0) {\textbf{10,609}\\repositories};
+  \node[stage] (n2) at ( 3.9,0) {\textbf{3,285}\\instances};
+  \node[stage] (n3) at ( 7.8,0) {\textbf{382}\\instances};
+  \node[gate]  (n4) at (11.7,0) {\textbf{279}\\instances};
+  \node[gate]  (n5) at (15.6,0) {\textbf{85}\\instances};
+
+  \draw[arr] (n1) -- (n2);
+  \draw[arr] (n2) -- (n3);
+  \draw[arr] (n3) -- (n4);
+  \draw[arr] (n4) -- (n5);
+
+  \node[crit] at ( 1.95,-1.25) {language, forks,\\issue volume, recency};
+  \node[crit] at ( 5.85,-1.25) {merged PR with\\code and test patch};
+  \node[crit] at ( 9.75,-1.25) {environment builds,\\tests execute};
+  \node[crit] at (13.65,-1.25) {gold patch passes\\(73.0\%)};
+
+  \node[crit] at (13.65, 1.15) {gold patch \emph{flips}\\a test (30.5\%)};
+
+  \node[scored] at (11.7,-2.35) {scored on\\no-regression};
+  \node[scored] at (15.6,-2.35) {scored on\\fixing};
+\end{tikzpicture}
+\caption{Construction of the benchmark and the two evaluability gates (shaded). The first gate
+keeps an instance only if the gold patch itself passes under one of three test-command methods,
+which is what makes a no-regression score trustworthy. The second, added after we found the
+shipped fail-to-pass labels had been parsed from diffs rather than executed, keeps only instances
+where the gold patch demonstrably turns a failing test green. Every condition in the paper is
+reported on the 279; Section~\ref{sec:executed} rescores them on the 85.}
+\label{fig:pipeline}
+\end{figure*}
 
 \subsection{Issue Enhancement Conditions}
 

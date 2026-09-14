@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """
-Cohen's kappa between the two RQ3 coders, plus the pattern x outcome cross-tabulation.
+Per-code agreement between the two RQ3 coding passes, plus the pattern x outcome table.
+
+WHAT THIS MEASURES. As currently filled, both coder1_* and coder2_* come from the same
+language model, the second pass blind to the first and on reshuffled rows. The kappa this
+prints is therefore the STABILITY OF THE CODING PROCEDURE under re-running, not
+inter-rater reliability: two passes by one model share that model's systematic
+misreadings, and no amount of agreement between them would surface one. Do not report it
+as inter-rater reliability. When a human fills coder2_*, replacing the model's second pass,
+the same script does yield inter-rater reliability and the label can change.
 
 Both dimensions are multi-label, so kappa is computed per code as a 2x2 present/absent
 agreement rather than once over whole label sets: two coders who agree on four of five

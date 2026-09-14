@@ -14,9 +14,24 @@ assertion is not derivable from the original report, never where it is merely un
 Under that rule, invented-but-obvious reproduction steps do not count as hallucination,
 while an invented file path does.
 
-Run `scripts/analysis/rq3_kappa.py` once `coder2_*` is filled. Kappa is computed per code
-as a 2x2 present/absent agreement, because both dimensions are multi-label and whole-set
-matching would score a four-of-five agreement as a total disagreement.
+## Agreement between the two passes, and what it is not
+
+`coder2_*` holds a second pass by the same model, run blind to the first on reshuffled
+rows. Per-code agreement is high, mean kappa 0.90 on rewrite moves and 0.96 on failure
+modes, with exact label-set matches on 76 and 88 of 90 items.
+
+**That is stability of the procedure under re-running, not inter-rater reliability.** Two
+passes by one model share that model's systematic misreadings, and agreement between them
+cannot surface one. The paper says so explicitly. A human second coder remains the
+outstanding item; when one fills `coder2_*`, the same script yields a figure that can
+honestly carry the inter-rater label.
+
+Part of the residual disagreement is an artifact of the harness rather than the coder: the
+two passes were shown excerpts of different lengths, and the second assigned the
+code-context and reproduction-step codes slightly more often (51 vs 45, 70 vs 60) because
+more of each report was visible. Kappa is computed per code as a 2x2 present/absent
+agreement, because both dimensions are multi-label and whole-set matching would score a
+four-of-five agreement as total disagreement.
 
 ## What the agents do
 

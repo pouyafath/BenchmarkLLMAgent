@@ -87,23 +87,104 @@ The rest of the paper is organized as follows: Section~\ref{sec:background} disc
 
 \subsection{Issue Report Quality}
 
-The quality of bug reports and issue descriptions has been extensively studied. Bettenburg et al.~\cite{bettenburg2008what} surveyed developers and found that steps to reproduce, stack traces, and test cases are the most valuable elements in bug reports, yet they are frequently missing. Zimmermann et al.~\cite{zimmermann2010what} identified that incomplete information is the primary barrier to bug fixing, with a large fraction of reports lacking sufficient detail.
+What makes a bug report useful has been studied for nearly two decades. Bettenburg et
+al.~\cite{bettenburg2008what} surveyed developers and found that steps to reproduce, stack
+traces and test cases are the most valuable elements, and also the most often missing.
+Zimmermann et al.~\cite{zimmermann2010what} identified incomplete information as the primary
+barrier to fixing, with a large fraction of reports lacking sufficient detail. These studies
+establish the premise this paper tests: if reports are deficient in ways developers can name,
+then repairing those deficiencies should help whoever fixes the bug.
 
-Several approaches have been proposed to improve bug report quality. Duplicate detection systems~\cite{sun2011towards, lazar2014generating} help reduce redundant reports. Automated triaging~\cite{anvik2006should, murphy2004automatic} routes reports to appropriate developers. More recently, approaches that automatically augment bug reports with relevant source code~\cite{wong2014autolocate, moreno2015arena} have shown promise. All of this measures quality intrinsically (a text or model score). To our knowledge no prior study measures whether such rewriting propagates to downstream \emph{repair correctness}, which is the gap we close. Our work also differs by leveraging LLM-based agents as enhancement tools rather than rule-based or retrieval-based augmentation.
+Earlier automated work attacked the problem indirectly. Duplicate detection~\cite{sun2011towards,
+lazar2014generating} reduces redundant reports, automated triage~\cite{anvik2006should,
+murphy2004automatic} routes them to the right developer, and augmentation with relevant source
+code~\cite{wong2014autolocate, moreno2015arena} adds context a reporter omitted. All of it is
+validated intrinsically, against a text or model score, or against a proxy such as retrieval
+rank.
 
-\subsection{SWE-bench and Issue-Solving Benchmarks}
+Language models have revived the idea of rewriting the report itself. Acharya and
+Ginde~\cite{acharya2025bugreport} generate bug reports with fine-tuned LLMs and evaluate them
+on CTQRS, ROUGE, METEOR and SBERT together with field-level F1, reporting that instruction-tuned
+models generalise to projects without training data. Al Fahim et al.~\cite{alfahim2025crash}
+come closest to our setting: they enhance crash reports with fault locations and root-cause
+explanations, and compare a single-shot rewriter against an iterative agent that explores the
+repository, which is the same contrast we draw in Section~\ref{sec:repogrounded}. Their
+evaluation is similarity to the developer's patch rather than whether a patch produced from the
+enhanced report is correct.
 
-SWE-bench~\cite{jimenez2024swebench} introduced a benchmark of software engineering problems drawn from real GitHub issues. Given a codebase and an issue description, a model generates a patch evaluated against unit tests. The benchmark uses two test categories: \emph{fail-to-pass} (F2P) tests that should change from failing to passing after the patch, and \emph{pass-to-pass} (P2P) tests that must continue passing to ensure no regressions. SWE-bench-Live~\cite{zhang2025swebenchlive} extended this paradigm with an automatically updatable benchmark spanning many repositories and tasks derived from recent issues, addressing staleness and limited coverage. These systems are evaluated on the fix; the issue text is taken as fixed input. We reuse the solving step as an evaluation instrument and ask whether improving the issue text changes the fix, an extrinsic question these benchmarks do not pose.
+This is the gap we close. Prior work establishes that LLMs can raise the measured quality of a
+report. None of it establishes that a higher-quality report yields a better fix, because none
+of it executes the resulting patch against the repository's tests. Our contribution is the
+extrinsic measurement, and our finding is that the intrinsic gain does not transfer.
+
+\subsection{Issue-Solving Benchmarks}
+
+SWE-bench~\cite{jimenez2024swebench} introduced the evaluation instrument we reuse. Given a
+codebase and an issue description, a model generates a patch that is judged by unit tests in
+two categories: \emph{fail-to-pass} (F2P) tests that must change from failing to passing, and
+\emph{pass-to-pass} (P2P) tests that must keep passing so that no regression is introduced.
+The design has since been extended along several axes. SWE-bench
+Verified~\cite{openai2024verified} is a 500-instance subset filtered by expert annotators.
+SWE-bench-Live~\cite{zhang2025swebenchlive} addresses staleness with an automatically
+updatable benchmark drawn from recent issues, which is the design our own collection follows.
+SWE-Bench Pro~\cite{deng2025swebenchpro} targets long-horizon tasks across 41 repositories and
+uses copyleft and private code to resist contamination. Jiang et al.~\cite{jiang2025survey}
+survey 242 studies in this area and organise the benchmarks, scaffolds and training strategies
+that have accumulated around the task.
+
+Every one of these evaluates the fix while treating the issue text as fixed input. We invert
+the instrument: the solver becomes a measuring device, and the question is whether changing
+the text changes the fix.
+
+\subsection{The Validity of Test-Based Judgement}
+
+Because our result depends on a test-based oracle, the known weaknesses of that oracle bear
+directly on it. Aleithan et al.~\cite{aleithan2024swebenchplus} audited SWE-bench and found
+that 32.67\% of successfully resolved instances contained the solution or a strong hint in the
+issue text, and that 31.08\% of passing patches pass only because the tests are too weak to
+reject them; correcting for both drops one reported resolution rate from 12.47\% to 3.97\%.
+The annotation behind SWE-bench Verified~\cite{openai2024verified} filtered out 68.3\% of
+candidate instances for underspecification, unfair tests, or other defects.
+
+Two consequences shape this study. First, a test-based verdict is only as trustworthy as the
+tests behind it, which is why we gate every instance on a gold-patch probe and, in
+Section~\ref{sec:executed}, re-derive the fail-to-pass labels by execution after finding that
+the shipped labels had been parsed from the test patch rather than observed. Second, the
+filtering that makes these benchmarks trustworthy also selects for issues that are already
+actionable, since an instance survives only if a real fix exists and its tests discriminate.
+That selection is a threat to our own external validity and we return to it in
+Section~\ref{sec:threats}.
 
 \subsection{LLM-Based Coding Agents}
 
-LLM-based coding agents form a diverse ecosystem of tools capable of interacting with codebases, executing commands, and generating patches. SWE-agent~\cite{yang2024swe} introduces an agent-computer interface designed for software engineering tasks. OpenHands~\cite{wang2024openhands} provides a platform for AI-powered software development agents. Aider~\cite{aider2024} is a command-line tool for AI-assisted pair programming. AutoCodeRover~\cite{zhang2024autocoderover} performs autonomous program improvement through structured code search. While designed for solving, their ability to understand code context, identify relevant files, and generate structured analysis makes them natural candidates for issue enhancement, a use case we systematically evaluate.
+Coding agents wrap a language model in a loop with tools for reading, editing and executing
+code. SWE-agent~\cite{yang2024swe} contributes an agent-computer interface designed for
+software engineering tasks. OpenHands~\cite{wang2024openhands} provides a general platform for
+software development agents. Aider~\cite{aider2024} is a command-line pair-programming tool.
+AutoCodeRover~\cite{zhang2024autocoderover} performs autonomous program improvement through
+structured code search. We use these systems in both roles the paper requires, as solvers and,
+with the same tool loop and the same repository access, as enhancers.
 
-\subsection{Issue Enhancement}
+\subsection{Issue Enhancement, and Why It Might Not Help}
 
-Issue enhancement refers to automatically improving an issue description by adding relevant context, clarifying ambiguities, restructuring content, or appending diagnostic information. Unlike issue solving, which produces a code patch, enhancement produces an improved textual description that can be consumed by either human developers or automated solvers. To the best of our knowledge, no prior work has systematically benchmarked issue enhancement agents or measured the downstream solving impact of enhancement. Our work fills this gap by providing both a benchmark and a comprehensive extrinsic evaluation.
+Issue enhancement means automatically improving a report by adding context, clarifying
+ambiguity, restructuring content or appending diagnostic information. Unlike solving, it
+produces text rather than a patch, and that text can be consumed by a human developer or by an
+automated solver.
+
+One line of evidence suggests it should help: reports are demonstrably
+deficient~\cite{bettenburg2008what, zimmermann2010what} and models can demonstrably improve
+them on quality metrics~\cite{acharya2025bugreport}. Another suggests caution. Language models
+are sensitive to prompt wording in ways that are not tied to information content, and Paleyes
+et al.~\cite{paleyes2025coderoulette} show that meaning-preserving variation in a prompt
+changes the functionality and quality of generated code. If a solver is sensitive to how a
+report is phrased and not only to what it contains, then rewriting can move outcomes in either
+direction without adding anything. Distinguishing these two accounts requires an extrinsic,
+executed measurement on a sample large enough to detect a directionless perturbation, which is
+what we report.
 
 %==============================================================================
+
 \section{Methodology}
 \label{sec:methodology}
 %==============================================================================
@@ -667,6 +748,27 @@ C.~P. Wong, Y.~Xiong, H.~Zhang, D.~Hao, L.~Zhang, and H.~Mei, ``Boosting bug-rep
 
 \bibitem{moreno2015arena}
 L.~Moreno, J.~J. Treadway, A.~Marcus, and W.~Shen, ``On the use of stack traces to improve text retrieval-based bug localization,'' in \emph{Proc. ICSME}, 2015, pp.~151--160.
+
+\bibitem{aleithan2024swebenchplus}
+R.~Aleithan, H.~Xue, M.~M. Mohajer, E.~Nnorom, G.~Uddin, and S.~Wang, ``SWE-Bench+: Enhanced coding benchmark for LLMs,'' 2024, arXiv:2410.06992.
+
+\bibitem{openai2024verified}
+OpenAI, ``Introducing SWE-bench Verified,'' 2024. [Online]. Available: \url{https://openai.com/index/introducing-swe-bench-verified/}
+
+\bibitem{deng2025swebenchpro}
+X.~Deng, J.~Da, E.~Pan, Y.~Y. He, C.~Ide, \emph{et al.}, ``SWE-Bench Pro: Can AI agents solve long-horizon software engineering tasks?'' 2025, arXiv:2509.16941.
+
+\bibitem{jiang2025survey}
+Z.~Jiang, D.~Lo, Z.~Liu, \emph{et al.}, ``Agentic software issue resolution with large language models: A survey,'' 2025, arXiv:2512.22256.
+
+\bibitem{acharya2025bugreport}
+J.~Acharya and G.~Ginde, ``Can we enhance bug report quality using LLMs? An empirical study of LLM-based bug report generation,'' in \emph{Proc. EASE}, 2025, arXiv:2504.18804.
+
+\bibitem{alfahim2025crash}
+S.~M.~F. Al~Fahim, M.~N. Rafi, Z.~Ma, D.~J. Kim, and T.-H. Chen, ``Crash report enhancement with large language models: An empirical study,'' 2025, arXiv:2509.13535.
+
+\bibitem{paleyes2025coderoulette}
+A.~Paleyes, R.~Sendyka, D.~Robinson, C.~Cabrera, and N.~D. Lawrence, ``Code roulette: How prompt variability affects LLM code generation,'' in \emph{Proc. LLM4Code @ ICSE}, 2026, arXiv:2506.10204.
 
 \bibitem{replication2026}
 P.~Fathollahzadeh and Y.~Zou, ``Replication package: Benchmarking LLM-based agents for GitHub issue enhancement,'' 2026. [Online]. Available: \url{https://github.com/pouyafath/BenchmarkLLMAgent}

@@ -554,7 +554,37 @@ which is the mechanism behind the directionless perturbation in RQ1.}
 %==============================================================================
 
 \subsection{Why Enhancement Fails to Transfer}
-The issues in an execution-gated repair benchmark are, by construction, \emph{already actionable}, since they were selected because a solver could plausibly fix them. Rewriting an already-actionable report adds little signal and can just as easily perturb the solver off a working trajectory as onto one. Enhancement may help most exactly where these benchmarks contain the fewest examples: genuinely underspecified reports. This reframes the ``enhancement paradox'', that adding information does not help, as a selection effect of the benchmark rather than a universal law.
+\label{sec:whyfail}
+The issues in an execution-gated repair benchmark are, by construction, \emph{already
+actionable}, since an instance survives only if a real fix was merged and its tests
+discriminate. Rewriting an already-actionable report adds little signal and can just as
+easily perturb the solver off a working trajectory as onto one. The obvious reading is that
+enhancement would help where these benchmarks contain the fewest examples, on genuinely
+underspecified reports, and that our null is an artifact of selection rather than a fact
+about enhancement.
+
+We tested that reading on the thin reports the corpus does contain. Scoring each original on
+the diagnostic elements Bettenburg et al.~\cite{bettenburg2008what} identify as most wanted
+and most often missing gives a usable spread: reproduction steps appear in 17.6\% of the 279
+reports and a stack trace in 15.8\%, and 75 instances carry two or fewer of the nine elements.
+The corpus is therefore not uniformly well specified, whatever the gate selects for.
+
+Across 1,600 paired observations in the Qwen3-32B matrix cells, the rescue rate is
+\emph{below} the resample rate in every stratum: $0.109$ on the thinnest reports, $0.104$ in
+the middle and $0.147$ on the richest, against a chance $0.199$. Taking the instance rather
+than the observation as the unit, because each instance recurs across roughly sixteen cells,
+the net benefit per cell is $+0.040$ for thin reports and $-0.025$ for rich ones, and that
+difference does not reach significance (Mann-Whitney one-sided, $p = 0.179$, on 20 against 22
+instances). The direction is what regression to the mean predicts from the higher baseline
+rate on rich reports, and it is not evidence of a mechanism.
+
+Two limits bound what this settles. The between-strata comparison excludes a large gradient,
+not a modest one, at these instance counts. And thin here means thin relative to a corpus in
+which someone did merge a fix, so the genuinely underspecified population, issues closed as
+unclear or never answered, remains outside any execution benchmark and outside this test. What
+we can say is narrower than the selection objection assumes: within the range of report quality
+this benchmark contains, enhancement does not help more where reports are thinner, and it
+rescues below chance everywhere.
 
 \subsection{Measurement Discipline Was Decisive}
 Two classes of infrastructure artifact would each have manufactured a false result if left uncorrected, and both were caught by cross-checking rather than trusting raw counts: (i) \textbf{solver timeouts under concurrency}: slow iterative solvers, and even Aider on heavy repositories, hit wall-clock limits and produced empty patches that are \emph{not} real failures; re-solving at lower concurrency recovered them (e.g., 20 of 27 Aider timeouts recovered at a median 881\,s). (ii) \textbf{Permission-lost patches}: the runtime occasionally wrote its patch file unreadable to the host, silently zeroing $\sim$2\% of OpenHands results; these were recovered by a privileged read. A study scoring the raw output would have reported spuriously low, and unevenly distributed, enhancement effects.
@@ -721,7 +751,7 @@ One consequence bounds how far the per-model counts in Table~\ref{tab:spread} ca
 
 \textbf{Construct: \ourmethod{} operates out of distribution.} Its reward model and RAG corpus were trained on an issue-difficulty dataset, not repository-repair issues; applying it here is a transfer test, and its high abstention (57\%) is partly an out-of-domain artifact.
 
-\textbf{External: single model, one collection, execution-gated selection.} The controlled matrix uses a single open-weight model (Qwen3-32B). A stronger, function-calling-native model changes absolute rates sharply, and our cross-model check (Section~\ref{sec:crossmodel}) shows GPT-5-mini raising the OpenHands baseline from 22\% to 56\%, but \emph{not} the enhancement effect, which remains a directionless null ($\Delta{+}4$, $p=0.712$); we nonetheless cannot rule out a different effect for other model families or agent scaffolds. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Our dataset is also restricted to popular Python repositories, limiting generalizability.
+\textbf{External: single model, one collection, execution-gated selection.} The controlled matrix uses a single open-weight model (Qwen3-32B). A stronger, function-calling-native model changes absolute rates sharply, and our cross-model check (Section~\ref{sec:crossmodel}) shows GPT-5-mini raising the OpenHands baseline from 22\% to 56\%, but \emph{not} the enhancement effect, which remains a directionless null ($\Delta{+}4$, $p=0.712$); we nonetheless cannot rule out a different effect for other model families or agent scaffolds. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Section~\ref{sec:whyfail} tests that objection on the thin reports the corpus does contain and finds no gradient, but thin there means thin relative to a corpus in which a fix was merged, so the objection is narrowed rather than answered. Issues closed as unclear, or never answered at all, cannot enter an execution benchmark and remain untested. Our dataset is also restricted to popular Python repositories, limiting generalizability.
 
 \textbf{Conclusion: evaluability coverage.} We score only the 73.0\% (279/382) gold-validated subset; the un-evaluable 27\% are excluded rather than assumed-failed. The multi-method gate is designed to keep that fraction small and repository-diverse.
 

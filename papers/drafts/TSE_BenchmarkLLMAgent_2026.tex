@@ -100,7 +100,9 @@ lazar2014generating} reduces redundant reports, automated triage~\cite{anvik2006
 murphy2004automatic} routes them to the right developer, and augmentation with relevant source
 code~\cite{wong2014autolocate, moreno2015arena} adds context a reporter omitted. All of it is
 validated intrinsically, against a text or model score, or against a proxy such as retrieval
-rank.
+rank. The same pattern holds one level up, in requirements engineering, where Femmer et
+al.~\cite{femmer2016smells} detect \emph{requirements smells} with lightweight linguistic
+checks and validate them against expert judgement rather than against project outcomes.
 
 Language models have revived the idea of rewriting the report itself. Acharya and
 Ginde~\cite{acharya2025bugreport} generate bug reports with fine-tuned LLMs and evaluate them
@@ -126,7 +128,10 @@ two categories: \emph{fail-to-pass} (F2P) tests that must change from failing to
 The design has since been extended along several axes. SWE-bench
 Verified~\cite{openai2024verified} is a 500-instance subset filtered by expert annotators.
 SWE-bench-Live~\cite{zhang2025swebenchlive} addresses staleness with an automatically
-updatable benchmark drawn from recent issues, which is the design our own collection follows.
+updatable benchmark drawn from recent issues, which is the design our own collection follows
+and the reason we restrict to issues created after the models' training cutoffs. Zhou et
+al.~\cite{zhou2025lessleak} quantify why that matters, measuring leakage across 83 software
+engineering benchmarks and finding it modest on average but severe on particular datasets.
 SWE-Bench Pro~\cite{deng2025swebenchpro} targets long-horizon tasks across 41 repositories and
 uses copyleft and private code to resist contamination. Jiang et al.~\cite{jiang2025survey}
 survey 242 studies in this area and organise the benchmarks, scaffolds and training strategies
@@ -146,6 +151,14 @@ reject them; correcting for both drops one reported resolution rate from 12.47\%
 The annotation behind SWE-bench Verified~\cite{openai2024verified} filtered out 68.3\% of
 candidate instances for underspecification, unfair tests, or other defects.
 
+This is a specific case of a problem the repair community has studied for years. Test-based
+program repair generates \emph{plausible} patches that satisfy the available tests without
+being correct, and Fei et al.~\cite{fei2025patchcorrectness} survey the resulting literature
+on assessing patch correctness when the test suite cannot settle it. Strengthening the suite
+with generated tests is no free fix either: Sch\"afer et al.~\cite{schaefer2024testgen} find
+that a substantial fraction of LLM-written unit tests are invalid, and that search-based generation still
+achieves markedly higher coverage.
+
 Two consequences shape this study. First, a test-based verdict is only as trustworthy as the
 tests behind it, which is why we gate every instance on a gold-patch probe and, in
 Section~\ref{sec:executed}, re-derive the fail-to-pass labels by execution after finding that
@@ -162,7 +175,12 @@ code. SWE-agent~\cite{yang2024swe} contributes an agent-computer interface desig
 software engineering tasks. OpenHands~\cite{wang2024openhands} provides a general platform for
 software development agents. Aider~\cite{aider2024} is a command-line pair-programming tool.
 AutoCodeRover~\cite{zhang2024autocoderover} performs autonomous program improvement through
-structured code search. We use these systems in both roles the paper requires, as solvers and,
+structured code search. Two results in this line bear on our hypothesis that enhancement helps
+by supplying localisation. Xia et al.~\cite{xia2024agentless} show that a pipeline with an
+explicit localise-then-repair decomposition and no agent loop is competitive with autonomous
+agents, which implies localisation is a separable and consequential step. Ma et
+al.~\cite{ma2025lingmaagent} improve issue resolution specifically by giving the agent a
+structured view of the whole repository to explore. We use these systems in both roles the paper requires, as solvers and,
 with the same tool loop and the same repository access, as enhancers.
 
 \subsection{Issue Enhancement, and Why It Might Not Help}
@@ -324,7 +342,7 @@ Not every issue can be trusted to evaluate. We gate on a gold-patch probe: an in
 \emph{Coverage} is the proportion of issues an enhancer actually modifies, $\text{Coverage} = |\{i : E(i) \neq i\}| / |I|$. The primary comparison metric is the resolved-count \emph{delta} against the baseline (Eq.~\ref{eq:enhancement_value}); a positive delta indicates net improvement, a negative delta indicates that enhancement harmed solving.
 
 \subsubsection{Statistics}
-For each enhancer-vs-baseline comparison on a given solver, outcomes are paired (same issues, with vs.\ without enhancement), so we use the exact McNemar test on the discordant pairs and report the pair counts. We report Wilson 95\% confidence intervals on each resolved rate. Effect sizes are absolute differences in resolved count over the fixed evaluable denominator (empty or failed patches count as unresolved).
+For each enhancer-vs-baseline comparison on a given solver, outcomes are paired (same issues, with vs.\ without enhancement), so we use the exact McNemar test on the discordant pairs and report the pair counts. We report Wilson 95\% confidence intervals on each resolved rate. Effect sizes are absolute differences in resolved count over the fixed evaluable denominator (empty or failed patches count as unresolved). Solver agents are randomised procedures, so a single run per condition would confound the effect with run-to-run variance; following the guidance of Arcuri and Briand~\cite{arcuri2014hitchhiker} on randomised algorithms we pair every comparison on the same issues and calibrate each result against a measured resample rate rather than against an assumed zero.
 
 %==============================================================================
 \section{Results}
@@ -672,6 +690,19 @@ OpenHands & 15 & \textbf{0} \\
 
 Enhancement remains null under the stricter criterion. Across 16 comparisons spanning three agentic enhancers, the zero-shot prompt, the reward-gated \ourmethod{}, both responsive solvers, and both Qwen3-32B and GPT-5-mini, the pooled arms are $75 \rightarrow 66$ over 738 paired trials, and no comparison reaches significance. Changing the metric does not change the finding.
 
+\subsection{On Reporting a Negative Result}
+
+The design decisions above follow from what it takes to make a null credible. We pre-registered
+the threshold, the sample and the reading of each outcome before running the two mechanism
+experiments, which is the practice registered reports were introduced to software engineering
+to support~\cite{ernst2023registered}, and we report the outcomes that followed including the
+one that removed our only positive finding. Paige et al.~\cite{paige2017negative}, introducing
+a special section on negative results, note that such results are systematically
+under-published and that this costs the community duplicated effort. A study that asks whether
+a popular intervention works, and finds that it does not, is useful precisely to the extent
+that it forecloses the question, which requires reporting the failed replication as
+prominently as the effect it removes.
+
 \subsection{Implications for Practice}
 For automated repair on already-actionable issues, effort is better spent on the solver and the underlying model than on rewriting the input. Enhancement systems should prioritize verified, factual context injection over generative analysis, and enhancer--solver co-design over generic rewriting. The solving-as-evaluation paradigm gives researchers an objective, reproducible measure of enhancement quality; before deploying enhancement, teams should validate that their specific enhancer--solver combination produces positive deltas on representative, execution-gated data.
 
@@ -769,6 +800,33 @@ S.~M.~F. Al~Fahim, M.~N. Rafi, Z.~Ma, D.~J. Kim, and T.-H. Chen, ``Crash report 
 
 \bibitem{paleyes2025coderoulette}
 A.~Paleyes, R.~Sendyka, D.~Robinson, C.~Cabrera, and N.~D. Lawrence, ``Code roulette: How prompt variability affects LLM code generation,'' in \emph{Proc. LLM4Code @ ICSE}, 2026, arXiv:2506.10204.
+
+\bibitem{femmer2016smells}
+H.~Femmer, D.~M{\'e}ndez~Fern{\'a}ndez, S.~Wagner, and S.~Eder, ``Rapid quality assurance with requirements smells,'' \emph{J. Syst. Softw.}, 2017, arXiv:1611.08847.
+
+\bibitem{fei2025patchcorrectness}
+Z.~Fei, J.~Ge, C.~Li, T.~Wang, Y.~Li, H.~Zhang, L.~Huang, and B.~Luo, ``Patch correctness assessment: A survey,'' \emph{ACM Trans. Softw. Eng. Methodol.}, vol.~34, no.~2, 2025, doi:10.1145/3702972.
+
+\bibitem{schaefer2024testgen}
+M.~Sch{\"a}fer, S.~Nadi, A.~Eghbali, and F.~Tip, ``An empirical evaluation of using large language models for automated unit test generation,'' \emph{IEEE Trans. Softw. Eng.}, vol.~50, no.~1, pp.~85--105, 2024.
+
+\bibitem{zhou2025lessleak}
+X.~Zhou, M.~Weyssow, R.~Widyasari, T.~Zhang, J.~He, Y.~Lyu, J.~Chang, B.~Zhang, D.~Huang, and D.~Lo, ``LessLeak-Bench: A first investigation of data leakage in LLMs across 83 software engineering benchmarks,'' 2025, arXiv:2502.06215.
+
+\bibitem{xia2024agentless}
+C.~S. Xia, Y.~Deng, S.~Dunn, and L.~Zhang, ``Agentless: Demystifying LLM-based software engineering agents,'' 2024, arXiv:2407.01489.
+
+\bibitem{ma2025lingmaagent}
+Y.~Ma, Y.~Li, Y.~Dong, X.~Jiang, R.~Cao, J.~Chen, F.~Huang, and B.~Li, ``Alibaba LingmaAgent: Improving automated issue resolution via comprehensive repository exploration,'' in \emph{Proc. FSE Companion}, 2025, arXiv:2406.01422.
+
+\bibitem{arcuri2014hitchhiker}
+A.~Arcuri and L.~Briand, ``A Hitchhiker's guide to statistical tests for assessing randomized algorithms in software engineering,'' \emph{Softw. Test. Verif. Reliab.}, vol.~24, no.~3, pp.~219--250, 2014.
+
+\bibitem{ernst2023registered}
+N.~A. Ernst and M.~T. Baldassarre, ``Registered reports in software engineering,'' \emph{Empir. Softw. Eng.}, 2023, arXiv:2302.03649.
+
+\bibitem{paige2017negative}
+R.~F. Paige, J.~Cabot, and N.~A. Ernst, ``Foreword to the special section on negative results in software engineering,'' \emph{Empir. Softw. Eng.}, vol.~22, pp.~2453--2456, 2017.
 
 \bibitem{replication2026}
 P.~Fathollahzadeh and Y.~Zou, ``Replication package: Benchmarking LLM-based agents for GitHub issue enhancement,'' 2026. [Online]. Available: \url{https://github.com/pouyafath/BenchmarkLLMAgent}

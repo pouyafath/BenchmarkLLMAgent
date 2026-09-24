@@ -276,6 +276,70 @@ Re-testing against the correct null: 31/155 = 0.200 vs own-chance 0.161, **$p = 
 
 ---
 
+## In an ideal world — the finding we designed to detect
+
+The study was built so that a real effect would be visible. Here is what "it works" would
+have looked like, RQ by RQ.
+
+**RQ1 — the effect.** Enhancement adds **+37 issues or more** on 279, replicated out of
+sample, consistent across both responsive solvers. That is the bar: it is what best-of-2
+delivers at the same compute, so anything less is not worth the second agent run.
+
+**RQ2 — predictability.** A feature model separates reports that benefit from those that do
+not at **AUC ≥ 0.75**. That converts the effect into a policy: enhance only the ~30% of
+reports predicted to gain, capture most of the benefit at a third of the cost.
+
+**RQ3 — the mechanism.** One specific rewrite move carries the effect. The pattern × outcome
+table shows it concentrated in *helped* — most plausibly **verified, repository-grounded file
+and symbol references**, which is the one thing a solver cannot cheaply derive twice.
+
+> **The complete story: enhancement helps, we can predict where, and we know why.**
+> Deployable, mechanistic, and cost-justified.
+
+---
+
+## What we would have accepted as second-best
+
+A boundary condition is scientifically stronger than a flat positive, and we designed for it
+too.
+
+> *"Enhancement does not help on well-specified reports. On genuinely underspecified ones it
+> adds +N, and this gate tells you which is which."*
+
+That is a positive finding **and** an explanation of why the field has been measuring the
+wrong population. It would have reframed the whole literature rather than adding to it.
+
+**We tested for exactly this.** 75 of 279 reports carry two or fewer of nine diagnostic
+elements. Across 1,600 paired observations the rescue rate on that thin stratum was **0.109**
+against a chance of 0.199, and the thin-vs-rich difference did not reach significance
+($p = 0.179$).
+
+The gradient is not there — at least not inside a corpus where someone did merge a fix.
+
+---
+
+## What the null actually rules out
+
+A negative result is only worth reporting if the study could have seen the positive one.
+
+| | issues on $n=279$ | points |
+|---|---:|---:|
+| Needed to match best-of-2 | **+37** | 13.2 |
+| Detectable at 80% power (McNemar, ~70 discordant pairs) | **+18** | 6.5 |
+| **Largest effect actually observed** | **+7** | **2.5** |
+
+**The design was powered to detect an effect roughly half the size of the one that would
+justify using enhancement at all.** We saw about a third of even that detection threshold.
+
+So the null is not "we could not tell". It is:
+
+> Any effect that survives is **too small to matter** — smaller than we could detect, and far
+> smaller than spending the same compute on a second solve attempt.
+
+That is the strongest form a negative result can take.
+
+---
+
 ## What this means
 
 **Enhancement is a resample of the solver.** Three independent pre-registered tests agree,

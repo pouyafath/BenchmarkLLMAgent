@@ -107,6 +107,10 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=0, help="override solver concurrency (0=pipeline default)")
     ap.add_argument("--tag", default="oai_cell")
     ap.add_argument("--no-baseline", action="store_true", help="skip the baseline (no-enh) solve")
+    ap.add_argument("--baseline-only", action="store_true",
+                    help="run ONLY the baseline solve and stop. Used to draw a second, "
+                         "independent baseline so the model's own resample rate can be "
+                         "measured; the enhancement arm would add cost and answer nothing.")
     ap.add_argument("--enh-timeout", type=int, default=600)
     ap.add_argument("--solve-timeout", type=int, default=1800)
     ap.add_argument("--dry-run", action="store_true", help="preflight only; do not call the agents")
@@ -200,6 +204,12 @@ def main() -> int:
         summary["baseline"] = {"nonempty": b_ne, "n": len(instances), "elapsed_min": (time.time()-t0)/60,
                                "cost_scanned": scan_cost(base_dir)}
         print(f"[baseline] non-empty patches: {b_ne}/{len(instances)}  ({(time.time()-t0)/60:.1f} min)")
+
+    if a.baseline_only:
+        (run_dir / "summary.json").write_text(json.dumps(summary, indent=1))
+        print(f"\n[baseline-only] stopping after the baseline arm. "
+              f"Wrote {run_dir/'summary.json'}")
+        return 0
 
     # ── enhance (aider) -> solve (openhands) ─────────────────────────────────
     print(f"\n=== ENHANCE: {a.enhancer} ({len(instances)} issues) ===")

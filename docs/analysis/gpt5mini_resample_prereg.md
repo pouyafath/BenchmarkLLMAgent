@@ -75,3 +75,60 @@ estimate has that range.
 Unchanged. Reduced harm is not a reason to enhance. Best-of-2 at equal compute remains the bar,
 and enhancement costs a full agent run. A protective effect would change the explanation of the
 null, not the recommendation.
+
+---
+
+# Outcome (2026-09-22) — primary NOT supported, the effect was a borrowed null
+
+Run: `runs/gpt5mini_baseline2_279_20260921_183948`, 279 issues, 213 min, 5,966 LLM calls,
+211 non-empty patches against draw 1's 210. Scored with `scripts/evaluate/score_one_arm.py`.
+
+## The two draws
+
+| | resolved |
+|---|---:|
+| baseline draw 1 (August) | 155 / 279 |
+| baseline draw 2 (September) | 160 / 279 |
+
+**Five issues separate two runs of the same model on the same inputs with no intervention.**
+
+## GPT-5-mini's own resample rates
+
+| | Qwen3-32B | GPT-5-mini | Wilson 95% |
+|---|---:|---:|---|
+| P(fix \| failed) | 0.199 | 0.242 | [0.175, 0.324] |
+| P(break \| passed) | 0.408 | **0.161** | [0.112, 0.227] |
+
+The breakage rate is less than half Qwen3's, which is exactly the direction predicted above:
+a stronger, more self-consistent model reproduces its own result more often.
+
+## Primary test — NOT SUPPORTED
+
+Enhanced arm: 31 breakages of 155 baseline solves, rate 0.200.
+
+| tested against | expects | one-sided p |
+|---|---:|---:|
+| Qwen3's rate, 0.408 (borrowed) | 63.2 | **< 0.00001** |
+| its own rate, 0.161 (correct) | 25.0 | **0.919** |
+
+Against the correct null the rate is not low, it is marginally high. The apparent protective
+effect disappears completely.
+
+## Secondary test — NOT SUPPORTED, as predicted
+
+Rescues 35/124 = 0.282 against an own rate of 0.242, one-sided p = 0.172.
+
+## Reading, per the pre-registered table
+
+*"Not supported → the cross-model flip asymmetry was a borrowed-null artifact. The paper gains
+a correction: resample calibration is model-specific."*
+
+That is what the paper now says, in a new Section "The resample rate is model-specific". This
+is the second time in this project that a mis-specified baseline produced a phantom signal,
+after the append-only cell that failed replication in September. Both were caught by testing
+rather than by argument.
+
+## Limit
+
+This is one resample pair. It gives each rate with a 95% interval roughly ±8 points wide,
+enough to separate 0.161 from 0.408 decisively but not to pin either value precisely.

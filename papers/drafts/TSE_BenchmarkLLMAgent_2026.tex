@@ -342,7 +342,7 @@ Not every issue can be trusted to evaluate. We gate on a gold-patch probe: an in
 \emph{Coverage} is the proportion of issues an enhancer actually modifies, $\text{Coverage} = |\{i : E(i) \neq i\}| / |I|$. The primary comparison metric is the resolved-count \emph{delta} against the baseline (Eq.~\ref{eq:enhancement_value}); a positive delta indicates net improvement, a negative delta indicates that enhancement harmed solving.
 
 \subsubsection{Statistics}
-For each enhancer-vs-baseline comparison on a given solver, outcomes are paired (same issues, with vs.\ without enhancement), so we use the exact McNemar test on the discordant pairs and report the pair counts. We report Wilson 95\% confidence intervals on each resolved rate. Effect sizes are absolute differences in resolved count over the fixed evaluable denominator (empty or failed patches count as unresolved). Solver agents are randomised procedures, so a single run per condition would confound the effect with run-to-run variance; following the guidance of Arcuri and Briand~\cite{arcuri2014hitchhiker} on randomised algorithms we pair every comparison on the same issues and calibrate each result against a measured resample rate rather than against an assumed zero.
+For each enhancer-vs-baseline comparison on a given solver, outcomes are paired (same issues, with vs.\ without enhancement), so we use the exact McNemar test on the discordant pairs and report the pair counts. We report Wilson 95\% confidence intervals on each resolved rate. Effect sizes are absolute differences in resolved count over the fixed evaluable denominator (empty or failed patches count as unresolved). Solver agents are randomised procedures, so a single run per condition would confound the effect with run-to-run variance; following the guidance of Arcuri and Briand~\cite{arcuri2014hitchhiker} on randomised algorithms we pair every comparison on the same issues and calibrate each result against a measured resample rate rather than against an assumed zero. That rate is obtained by re-running a solver on the same issues with the text unchanged, and it is a property of the model's stochasticity rather than of the task, so we measure it separately for each model we judge against it (Section~\ref{sec:ownresample}).
 
 %==============================================================================
 \section{Results}
@@ -626,6 +626,60 @@ GPT-5-mini (frontier) & 155/279 (56\%) & 159/279 (57\%) & $+4$ & 0.712 \\
 \end{tabular}
 \end{table}
 
+\subsection{The resample rate is model-specific}
+\label{sec:ownresample}
+The cross-model comparison above introduces a subtlety that is easy to miss and that we
+initially got wrong. Our verdicts are calibrated against a measured resample rate, but that
+rate, $P(\text{fix}\mid\text{failed})=0.199$ and $P(\text{break}\mid\text{passed})=0.408$, was
+measured on Qwen3-32B. Applying it to a different model is not valid, and doing so manufactures
+an effect.
+
+Decomposing GPT-5-mini's 66 discordant pairs against the Qwen3 rates suggests something
+striking: 31 breakages of 155 baseline solves where those rates predict 63.2, a one-sided
+binomial $p<10^{-5}$, which reads as a large protective effect from enhancement. That reading
+is wrong, and the reason is mechanical. A stronger and more self-consistent model reproduces
+its own previous result more often, so both of its true resample rates should be lower.
+
+We measured them. A second, independent GPT-5-mini baseline draw on the same 279 issues, same
+solver, same step cap, differing only in being a fresh sample from the same stochastic process,
+gives the rates directly (Table~\ref{tab:ownresample}).
+
+\begin{table}[t]
+\centering
+\caption{Resample rates measured per model from two independent baseline draws, and the
+consequence for the enhanced arm's flip counts. GPT-5-mini's rates carry Wilson 95\% intervals
+of $[0.175, 0.324]$ and $[0.112, 0.227]$ respectively.}
+\label{tab:ownresample}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Measured resample rate & Qwen3-32B & GPT-5-mini \\
+\midrule
+$P(\text{fix}\mid\text{failed})$   & 0.199 & 0.242 \\
+$P(\text{break}\mid\text{passed})$ & 0.408 & \textbf{0.161} \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Enhanced arm, 31 breakages of 155 (0.200), tested against:}}\\
+\quad the Qwen3 rate (borrowed) & \multicolumn{2}{c}{$p<10^{-5}$} \\
+\quad its own rate (correct)    & \multicolumn{2}{c}{$p=0.919$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+GPT-5-mini's own breakage rate is $25/155 = 0.161$, not 0.408. Against that null the enhanced
+arm's $31/155 = 0.200$ is not low, it is marginally high, and the apparent protection
+disappears entirely ($p=0.919$). The rescue side is null as well: $35/124=0.282$ against an own
+rate of $0.242$, $p=0.172$. Nothing in the GPT-5-mini cell survives correct calibration.
+
+Two points follow. First, a methodological one that applies beyond this study: \textbf{a
+resample baseline must be measured for each model it is used to judge}, because the quantity
+it estimates is a property of that model's stochasticity, not of the task. Second, the two
+independent baseline draws resolved $155$ and $160$ of 279 respectively. \textbf{Five issues
+separate two runs of the same model on the same inputs with no intervention at all}, which is
+the same order as every enhancement effect reported in Table~\ref{tab:matrix}. Any study
+reporting a single-run difference of a few issues, without a measured chance baseline, cannot
+distinguish its effect from this.
+
+
 \subsection{Capability spread across many models}
 \label{sec:spread}
 We broaden the two-model check to the entire local model inventory of our server as an illustrative probe over every model available on the shared Ollama endpoint. On a 20-issue sample drawn from the issues GPT-5-mini resolves at baseline, i.e., issues that are \emph{provably solvable}, we run the same enh:Aider $\rightarrow$ sol:OpenHands cell (cap 30) with each model, plus two commercial references (Table~\ref{tab:spread}). Two patterns are stark. First, capability is a cliff, not a slope: GPT-5-mini resolves all 20 (by construction), the strongest open model (Qwen3-32B) resolves only 6, and every other model, open or commercial, resolves 0--4. On issues known to be solvable, only the frontier model reliably closes them in the agent loop. Second, consistent with RQ1, enhancement helps none of them: the baseline-to-enhanced change ranges $-4$ to $+2$ across all nineteen models that load (two further server models would not load at all on the available Ollama/driver), uniformly negligible or negative. Code-specialized models (Qwen2.5-Coder, DeepSeek-Coder, Granite-Code) fare no better than general ones, which indicates that agentic competence rather than coding knowledge is the bottleneck.
@@ -747,11 +801,11 @@ One consequence bounds how far the per-model counts in Table~\ref{tab:spread} ca
 
 \textbf{Construct: enhancement changes two things at once.} We measured how much of the original report survives enhancement. Across 236 successful enhancements by three agents (OpenHands, trae, mini-SWE-agent), one preserved the original text verbatim and one retained at least 90\% of the original's substantial lines. Median output length was $1.11\times$ the input for OpenHands, $1.43\times$ for trae and $0.69\times$ for mini-SWE-agent, so the loss is not a matter of summarisation alone: trae returns longer text while still discarding most of the reporter's lines. In one instance an agent returned 199 characters for a 6,619-character issue, dropping the reproduction steps. Each enhanced condition therefore adds agent-derived context and removes reporter-written content in the same operation, and a null $\Delta$ admits two readings the design cannot separate: the added context does not help, or its contribution is offset by what was deleted. The deltas in Table~\ref{tab:matrix} should be read under this limitation. Constraining enhancement to be append-only isolates the added context. Section~\ref{sec:appendonly} reports that variant on the full matrix, and the result is null, so the confound does not account for the deltas in Table~\ref{tab:matrix}.
 
-\textbf{Internal: run-to-run solver non-determinism.} Baseline and enhanced conditions are separate stochastic runs, so a fraction of the discordant pairs reflects variance rather than enhancement. This is quantifiable in the \ourmethod{} arm: on abstained (text-identical) issues, 6 of 9 SWE-agent ``losses'' are pure variance, inflating the full-set comparison to a spurious $p=0.004$ that the enhanced-only subset corrects to a null. Because our headline effects are null or small, this variance widens confidence intervals rather than creating a false positive; a definitive study should run multiple seeds per condition.
+\textbf{Internal: run-to-run solver non-determinism.} Baseline and enhanced conditions are separate stochastic runs, so a fraction of the discordant pairs reflects variance rather than enhancement. This is quantifiable in the \ourmethod{} arm: on abstained (text-identical) issues, 6 of 9 SWE-agent ``losses'' are pure variance, inflating the full-set comparison to a spurious $p=0.004$ that the enhanced-only subset corrects to a null. Because our headline effects are null or small, this variance widens confidence intervals rather than creating a false positive; a definitive study should run multiple seeds per condition. We also measured the variance directly for two models rather than assuming it (Section~\ref{sec:ownresample}): two independent GPT-5-mini baseline draws on the same 279 issues differ by five resolved issues, which is the same order as every enhancement effect in Table~\ref{tab:matrix}.
 
 \textbf{Construct: \ourmethod{} operates out of distribution.} Its reward model and RAG corpus were trained on an issue-difficulty dataset, not repository-repair issues; applying it here is a transfer test, and its high abstention (57\%) is partly an out-of-domain artifact.
 
-\textbf{External: single model, one collection, execution-gated selection.} The controlled matrix uses a single open-weight model (Qwen3-32B). A stronger, function-calling-native model changes absolute rates sharply, and our cross-model check (Section~\ref{sec:crossmodel}) shows GPT-5-mini raising the OpenHands baseline from 22\% to 56\%, but \emph{not} the enhancement effect, which remains a directionless null ($\Delta{+}4$, $p=0.712$); we nonetheless cannot rule out a different effect for other model families or agent scaffolds. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Section~\ref{sec:whyfail} tests that objection on the thin reports the corpus does contain and finds no gradient, but thin there means thin relative to a corpus in which a fix was merged, so the objection is narrowed rather than answered. Issues closed as unclear, or never answered at all, cannot enter an execution benchmark and remain untested. Our dataset is also restricted to popular Python repositories, limiting generalizability.
+\textbf{External: single model, one collection, execution-gated selection.} The controlled matrix uses a single open-weight model (Qwen3-32B). A stronger, function-calling-native model changes absolute rates sharply, and our cross-model check (Section~\ref{sec:crossmodel}) shows GPT-5-mini raising the OpenHands baseline from 22\% to 56\%, but \emph{not} the enhancement effect, which remains a directionless null ($\Delta{+}4$, $p=0.712$). The resample baseline each verdict is calibrated against is itself model-specific, and we measure it separately for each model rather than transferring one (Section~\ref{sec:ownresample}); we nonetheless cannot rule out a different effect for other model families or agent scaffolds. The 382 issues are, by construction, actionable, so they under-represent the genuinely underspecified reports where enhancement is most plausibly useful. Section~\ref{sec:whyfail} tests that objection on the thin reports the corpus does contain and finds no gradient, but thin there means thin relative to a corpus in which a fix was merged, so the objection is narrowed rather than answered. Issues closed as unclear, or never answered at all, cannot enter an execution benchmark and remain untested. Our dataset is also restricted to popular Python repositories, limiting generalizability.
 
 \textbf{Conclusion: evaluability coverage.} We score only the 73.0\% (279/382) gold-validated subset; the un-evaluable 27\% are excluded rather than assumed-failed. The multi-method gate is designed to keep that fraction small and repository-diverse.
 
